@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-016/prompts.json",
-      "sha256": "e75ec9b0d9cd7b4315af6cc48baf532db5c847ad72bbd8a6f94a7211f10c39a5"
+      "sha256": "300f5116d6ae1f837127267adb394a7cf2bca1c847ecadd44ffbb5342b9accbd"
     },
     {
       "path": "artifacts/RS-016/preview.txt",
-      "sha256": "feef6f6d5bfafc3400e7a30a081d3411fdec0d90f7ea7a61332edc5d6b610cc7"
+      "sha256": "18e5f879ede592b458b9ab2f4354acf8eb0a98e1574c516be59bbc50d35ba18a"
     },
     {
       "path": "artifacts/RS-016/edits.json",
@@ -46,7 +46,7 @@
     },
     {
       "check": "confirm preview contains every resulting changed text",
-      "detail": "preview 2061 bytes, 2 edits, restricted to [\"V20240131.0004__model_changes.sql\"], missing []",
+      "detail": "preview 2327 bytes, 2 edits, restricted to [\"V20240131.0004__model_changes.sql\"], missing []",
       "pass": true
     },
     {
@@ -159,5 +159,5 @@
   "setupTreeHash": "7307f54d5e8d41f29faa355c561cc22ca531af6d3662bb5201e9514028eb8d02",
   "status": "pass",
   "treeHashAfterRestore": "7307f54d5e8d41f29faa355c561cc22ca531af6d3662bb5201e9514028eb8d02",
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

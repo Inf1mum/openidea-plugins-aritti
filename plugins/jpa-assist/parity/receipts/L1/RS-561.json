@@ -1,0 +1,96 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-561/prompts.json",
+      "sha256": "8fc571ea3a307d7aecd55afa6d5ad2b8871f44f3e252b6784edd85b12daab831"
+    },
+    {
+      "path": "artifacts/RS-561/preview.txt",
+      "sha256": "da8c4d723c2a2105ce5c5f231fbf7d2da4ce34ce5e3041a183db3f335ecc112d"
+    },
+    {
+      "path": "artifacts/RS-561/edits.json",
+      "sha256": "c8022ce1c800e2584f6b5e79e8ab7917e0aae1e8af1e4a246eac74b9cd11e541"
+    },
+    {
+      "path": "artifacts/RS-561/result-src__main__java__com__example__shop__domain__Parcel.java",
+      "sha256": "457143172a8d1b538d56ea54dee40316814ea6467f24102c6b8d00b2ef2a665f"
+    },
+    {
+      "path": "artifacts/RS-561/result-src__main__java__com__example__shop__dto__ParcelDto.java",
+      "sha256": "b27e321d4144bf84bf03d5e4661a69364e0590aeda2ba0943927be81693a2ee3"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Parcel.java"
+    }
+  ],
+  "claimIds": [
+    "G076-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "7549b74ec7db7ca5c5b6fce8b6637eee42d9990efba1712e03b2547e95b380f0",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 788 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Synchronization direction\" options [\"toDtos\", \"toEntity\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Changes to apply\" options [\"entity:0:note\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "confirm \"Synchronize entity and linked DTOs?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Parcel.java",
+      "detail": "241 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/ParcelDto.java",
+      "detail": "142 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d0c3fb01cd027e4984802b083f232a9caba95ece106772fc68d5acd70b0b62e1 vs setup d0c3fb01cd027e4984802b083f232a9caba95ece106772fc68d5acd70b0b62e1; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G076"
+  ],
+  "scenario": "RS-561",
+  "scenarioSha256": "7ff7a7052646046d306cba19e1f5e4f551072d242064f1d13afd7e62d269a59d",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d0c3fb01cd027e4984802b083f232a9caba95ece106772fc68d5acd70b0b62e1",
+  "status": "pass",
+  "treeHashAfterRestore": "d0c3fb01cd027e4984802b083f232a9caba95ece106772fc68d5acd70b0b62e1",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

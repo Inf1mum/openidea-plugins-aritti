@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-400/diagnostics.json",
-      "sha256": "27b0599ed45dbb53aac41c0f273f1d755948fa3629acba40616da80f38d27fe2"
+      "sha256": "a3bc54da871757b974cc956826e05a7e93e8687017cb65a7aa691da64cdd99b2"
     }
   ],
   "changedFiles": [],
@@ -23,22 +23,22 @@
     },
     {
       "check": "diagnostic jpa-unidirectional-one-to-many src/main/java/com/example/shop/defects/AssociationDefects.java:null",
-      "detail": "61 diagnostics in total",
+      "detail": "62 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-many-to-many-list src/main/java/com/example/shop/defects/AssociationDefects.java:null",
-      "detail": "61 diagnostics in total",
+      "detail": "62 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-eager-fetch src/main/java/com/example/shop/defects/AssociationDefects.java:null",
-      "detail": "61 diagnostics in total",
+      "detail": "62 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-eager-to-one src/main/java/com/example/shop/defects/AssociationDefects.java:null",
-      "detail": "61 diagnostics in total",
+      "detail": "62 diagnostics in total",
       "pass": true
     },
     {
@@ -61,5 +61,5 @@
   "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

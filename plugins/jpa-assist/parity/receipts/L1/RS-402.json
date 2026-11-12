@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-402/prompts.json",
-      "sha256": "1377a25cfee6bffce18a49246c6c11bbefb11da43581016143af41a7bb66036e"
+      "sha256": "df1255e5d7eaecbd8d59e0ac2139040c0f71a7f109a28ce1d47000b700990808"
     },
     {
       "path": "artifacts/RS-402/preview.txt",
-      "sha256": "b5cefe889912ede11d4e2c431c8aa3da556e33b0e94687da453317482c07f17a"
+      "sha256": "0bd2605212040bcf622ffbb72de77d57be7a4eb50ca966f6745620119d4fb4ea"
     },
     {
       "path": "artifacts/RS-402/edits.json",
@@ -41,7 +41,7 @@
     },
     {
       "check": "confirm preview contains every resulting changed text",
-      "detail": "preview 587 bytes, 2 edits, restricted to [], missing []",
+      "detail": "preview 627 bytes, 2 edits, restricted to [], missing []",
       "pass": true
     },
     {
@@ -119,5 +119,5 @@
   "setupTreeHash": "e33a81001cbd64a8d3ca4f46c2ce8847a83b3f5e926970351d14139a007e838f",
   "status": "pass",
   "treeHashAfterRestore": "e33a81001cbd64a8d3ca4f46c2ce8847a83b3f5e926970351d14139a007e838f",
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-570/completions.json",
+      "sha256": "6da6b0bf90c5c591c6c6b32d527112b53a9c12f803b15bc5e54f302a907f90cb"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G132-C2",
+    "G132-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "3d3d62014cb0fa477e3ac20a0dcf596b8a75cccc0f868b40c9d16b59f2f3e7e7",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "completion",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "completion offers \"mapToParcelDto : parcelMapper.toDto(parcel)\"",
+      "detail": "1 items: [\"mapToParcelDto : parcelMapper.toDto(parcel)\"]",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"toEntity\"",
+      "detail": "1 items",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G132"
+  ],
+  "scenario": "RS-570",
+  "scenarioSha256": "d2d6494ea382a5bb2a881fce4454048fee43eecd9526b1dffb561c8fcde61e2e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "3d3d62014cb0fa477e3ac20a0dcf596b8a75cccc0f868b40c9d16b59f2f3e7e7",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

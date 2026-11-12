@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-592/diagnostics.json",
+      "sha256": "7460903c631c217bbaf4b20a25414b2ece31eea8ba7812b064c13e8e4ebb8c1d"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "33a0e0fd34b869817fc6265b37e767c944feabf17f0eb9ab7552aea111de711d",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-unsupported-type src/main/java/com/example/shop/w2/Priced.java:null",
+      "detail": "63 diagnostics in total",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-592",
+  "scenarioSha256": "a856d41dd16312b4071d20083aa5cf5874ca3a2aa1a9fb9f38147b02443b618c",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "33a0e0fd34b869817fc6265b37e767c944feabf17f0eb9ab7552aea111de711d",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

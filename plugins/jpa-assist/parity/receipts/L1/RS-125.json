@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-125/prompts.json",
-      "sha256": "1c59488bb5f3b6f5ed8766b707ed0d370ffbf6cdaa52a8e4d22169ebc4288724"
+      "sha256": "0d5dea3ad8ce3d37e19169ba9901cbb17fe739918f230822ad805820ef03a3c0"
     },
     {
       "path": "artifacts/RS-125/preview.txt",
@@ -61,7 +61,7 @@
     },
     {
       "check": "prompt 5 matches the documented shape",
-      "detail": "quickPick \"Extra mapper options (toDto is always generated)\" options [\"toEntity\", \"updateEntity\", \"ignoreUnmapped\"]",
+      "detail": "quickPick \"Extra mapper options (toDto is always generated)\" options [\"collections\", \"toEntity\", \"updateEntity\", \"ignoreUnmapped\"]",
       "pass": true
     },
     {
@@ -94,5 +94,5 @@
   "setupTreeHash": "2937393e5728d9a1b6ae4a20f3d291157261b88aa7f2ebd19d38836935541800",
   "status": "pass",
   "treeHashAfterRestore": "2937393e5728d9a1b6ae4a20f3d291157261b88aa7f2ebd19d38836935541800",
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-569/prompts.json",
+      "sha256": "f640872befe861a15e52812b75bde2df1f0ce46f1a86148bc08742fc974dfa54"
+    },
+    {
+      "path": "artifacts/RS-569/preview.txt",
+      "sha256": "70e1305a7b4f4a22b0679aa3ccd3f39d3af35362d65b92fba44f12a30ec5d339"
+    },
+    {
+      "path": "artifacts/RS-569/edits.json",
+      "sha256": "cdec059192739af75299a6d3828837874daadf379b97221be139ebf985e68f04"
+    },
+    {
+      "path": "artifacts/RS-569/result-src__main__java__com__example__shop__domain__ParcelRepository.java",
+      "sha256": "f2e918bf15e03cc8bf49e9b3586aae58ad021ef44895d00661d2ec136fdf3db2"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/ParcelRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G131-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "25d4fa2c2329a2528ea72fe866300c17112fdbbbab044f1a00af13edfe6aea7f",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 785 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "confirm \"Add the method to the repository?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/ParcelRepository.java",
+      "detail": "280 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 5a1a33c549a6510da8bb9ca4e1df405fe845540daa7855cadba72a09680c4983 vs setup 5a1a33c549a6510da8bb9ca4e1df405fe845540daa7855cadba72a09680c4983; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G131"
+  ],
+  "scenario": "RS-569",
+  "scenarioSha256": "6d0f79e1b558b5840829baa00e0e7587dab39e8684ecca536eaffb81d7d1455e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "5a1a33c549a6510da8bb9ca4e1df405fe845540daa7855cadba72a09680c4983",
+  "status": "pass",
+  "treeHashAfterRestore": "5a1a33c549a6510da8bb9ca4e1df405fe845540daa7855cadba72a09680c4983",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-428/prompts.json",
-      "sha256": "71730c8632bb3122408bcceb53203d7a8ab7bfabbf2573357e0650e0d9419943"
+      "sha256": "c60840e2f5df3dfba1f20aa062d269112fe7990f9f381c8d6a713ec81f70233c"
     },
     {
       "path": "artifacts/RS-428/preview.txt",
-      "sha256": "5c05bfe386f685ef578ff8f1a87014811ae6c5f7e9994adbeeaf732c03ecf0c2"
+      "sha256": "5e29a912a7ef0563991aef218ed9eaf5907c8a6ca83d4ea0701e7cb047db0fdc"
     },
     {
       "path": "artifacts/RS-428/edits.json",
@@ -72,5 +72,5 @@
   "setupTreeHash": "a0e69559f455f498e89e9ba75b95da9a0719849285772edd4ce11d314531a900",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

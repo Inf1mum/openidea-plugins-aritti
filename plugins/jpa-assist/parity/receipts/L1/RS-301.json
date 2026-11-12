@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-301/prompts.json",
-      "sha256": "7a968fbfe21a884df85429b3005e910880073b3a4a851eff4e0a0663b0be7b7a"
+      "sha256": "bbe8f9c77c79a9b24d9b4084d205612fa444e4f702aa87855c2aece710b9d1d2"
     },
     {
       "path": "artifacts/RS-301/preview.txt",
-      "sha256": "7a69ef49cc888c60e966adf875c4644d9d58bea25bbdf82504af7261f0c37357"
+      "sha256": "a83b2fb63ef9b5465326b952a8eb71196d901db903c60cd8d560921fb84820ed"
     },
     {
       "path": "artifacts/RS-301/edits.json",
@@ -46,7 +46,7 @@
     },
     {
       "check": "confirm preview contains every resulting changed text",
-      "detail": "preview 2725 bytes, 2 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
+      "detail": "preview 2947 bytes, 2 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
       "pass": true
     },
     {
@@ -144,5 +144,5 @@
   "setupTreeHash": "66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd",
   "status": "pass",
   "treeHashAfterRestore": "66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd",
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

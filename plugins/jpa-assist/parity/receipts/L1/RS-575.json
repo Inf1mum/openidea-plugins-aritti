@@ -1,0 +1,82 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-575/prompts.json",
+      "sha256": "7943f35e8cc4b8758a9383ef9a4fa33da1ea6478e3ad5f16f589dbe6914607a1"
+    },
+    {
+      "path": "artifacts/RS-575/preview.txt",
+      "sha256": "9249827b2e5e410055238f515c777ee74c900467fb0e9355cd59773d7aad4341"
+    },
+    {
+      "path": "artifacts/RS-575/edits.json",
+      "sha256": "6355e2978ae15766cd795ba6eb8391d9ecb71814f822fcef4f0bc6a2aaf78951"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/ParcelDto.java"
+    },
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/service/ParcelService.java"
+    }
+  ],
+  "claimIds": [
+    "G133-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "836070fcc2cab61ade80828af476a6fbdeb0a35086b95ea37392b35c2ab2b45d",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 809 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"DTO fields (scalar attributes only)\" options [\"id\", \"name\", \"color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Create the missing type?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/ParcelDto.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree ad44be66f2b2cc37da8294eeb454f37d542c40d7c2aa72d7d1f20c30568144fa vs setup ad44be66f2b2cc37da8294eeb454f37d542c40d7c2aa72d7d1f20c30568144fa; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G133"
+  ],
+  "scenario": "RS-575",
+  "scenarioSha256": "0ada4531c518ba2ff48831c6490320a4e94b70c3a8fed91e467f00b8953a4564",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "ad44be66f2b2cc37da8294eeb454f37d542c40d7c2aa72d7d1f20c30568144fa",
+  "status": "pass",
+  "treeHashAfterRestore": "ad44be66f2b2cc37da8294eeb454f37d542c40d7c2aa72d7d1f20c30568144fa",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

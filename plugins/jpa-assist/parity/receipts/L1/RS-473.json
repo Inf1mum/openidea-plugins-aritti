@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-473/diagnostics.json",
-      "sha256": "eeb0be4c559361d267764b6cb06019d4d4db85f16629a97b27fcc8343d05ba80"
+      "sha256": "92fd76886202fbf5b40af332d7f59e95e6efa488a03ee4add82c72e2c7c3ebbe"
     }
   ],
   "changedFiles": [],
@@ -23,7 +23,7 @@
     },
     {
       "check": "diagnostic jpa-auditing-not-enabled src/main/java/com/example/shop/domain/Invoice.java:null",
-      "detail": "62 diagnostics in total",
+      "detail": "63 diagnostics in total",
       "pass": true
     },
     {
@@ -41,5 +41,5 @@
   "setupTreeHash": "9bce5081b080df483a6a5c84be0f888761da5685d754ecb05f2a8bf242b96c63",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

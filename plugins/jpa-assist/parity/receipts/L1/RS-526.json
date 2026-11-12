@@ -1,0 +1,127 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-526/prompts.json",
+      "sha256": "9eef6f42721cbd913440955f49eb0fa499a145a3e2492ea51e05a84b638af6b6"
+    },
+    {
+      "path": "artifacts/RS-526/preview.txt",
+      "sha256": "800814fb56db4a40b6a433961e82ac7017c628c645a66042d899cc333ca851e2"
+    },
+    {
+      "path": "artifacts/RS-526/edits.json",
+      "sha256": "2bbaaaac629a3f6f58aefffae340f9cb87e64c04106dc3f803f5007e4d3f7aea"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V4__add_gadget.sql"
+    }
+  ],
+  "claimIds": [
+    "G126-C4"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "7d46125dc3a9fe70e36a2c617c3443e72927d3269e542393030d2b4b351cc9d4",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1644 bytes, 2 edits, restricted to [\"V4__add_gadget.sql\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V4__add_gadget.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree b1f8b9f639792fb953e8b4e36417377fb7d9939b9573bf9761151f3acba63465 vs setup b1f8b9f639792fb953e8b4e36417377fb7d9939b9573bf9761151f3acba63465; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G126"
+  ],
+  "scenario": "RS-526",
+  "scenarioSha256": "31fbbd1f0b87235c160f34a52f12beb04f98e68cbf21b403308f8ac8bbdd7b83",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "b1f8b9f639792fb953e8b4e36417377fb7d9939b9573bf9761151f3acba63465",
+  "status": "pass",
+  "treeHashAfterRestore": "b1f8b9f639792fb953e8b4e36417377fb7d9939b9573bf9761151f3acba63465",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

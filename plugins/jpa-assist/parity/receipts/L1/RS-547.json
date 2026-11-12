@@ -1,0 +1,107 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-547/prompts.json",
+      "sha256": "ccccef85b5ff03b78baf43c6c5a24dcd97bb4feafd37152716df6b09c01e6f4e"
+    },
+    {
+      "path": "artifacts/RS-547/preview.txt",
+      "sha256": "531b32ca4ee6b2882e1386523dfb14dcc5f311195df8692da240c64fb7a12377"
+    },
+    {
+      "path": "artifacts/RS-547/edits.json",
+      "sha256": "dd09b080a86aeb776111ffbda5140819c76f5012f58ac133dacc3f53ce80e3d0"
+    },
+    {
+      "path": "artifacts/RS-547/result-src__main__java__com__example__crm__domain__WidgetMapper.java",
+      "sha256": "74b4876a738cf49e47f108909825503c986b85c296f1e408ef5ee57e5f1e07ee"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/crm/domain/WidgetMapper.java"
+    }
+  ],
+  "claimIds": [
+    "G071-C1"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "53e0f9f93628404bc06d41311848d0de146579c71c97bbbb44044ec2be857756",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create generic base mapper…\" applied",
+      "detail": "2 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 938 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/crm/domain/WidgetMapper.java",
+      "detail": "390 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 99b4571ebb7a93b239a3d0bf89966f3812adcfb55d83b925670248840a6a5c07 vs setup 99b4571ebb7a93b239a3d0bf89966f3812adcfb55d83b925670248840a6a5c07; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G071"
+  ],
+  "scenario": "RS-547",
+  "scenarioSha256": "f53f301220498203b53ca19bc4fbb05e097c31b6f912515b5f00dd7a8d43d3b3",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "99b4571ebb7a93b239a3d0bf89966f3812adcfb55d83b925670248840a6a5c07",
+  "status": "pass",
+  "treeHashAfterRestore": "99b4571ebb7a93b239a3d0bf89966f3812adcfb55d83b925670248840a6a5c07",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

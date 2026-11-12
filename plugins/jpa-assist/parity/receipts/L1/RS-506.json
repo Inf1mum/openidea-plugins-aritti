@@ -1,0 +1,112 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-506/prompts.json",
+      "sha256": "ca8bc020a018ba999c005c2a66788a8a425e1c4c2e088b7fc7b49e86642ea6a5"
+    },
+    {
+      "path": "artifacts/RS-506/preview.txt",
+      "sha256": "9c134833b30a5a531bfbb2572874d487c41f82fd2c739bb48a48bc6e8b20d720"
+    },
+    {
+      "path": "artifacts/RS-506/edits.json",
+      "sha256": "ec585fc697f31adb53e25c0083ccb3ff8ab260dabe905c28ec1fef63b087a72e"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/changelog/diff-model_changes.xml"
+    }
+  ],
+  "claimIds": [
+    "G111-C5"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "6028dc15a7f365e627f068aa4213edf4e8ec6ec9ad615a6491b143ff55510925",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2712 bytes, 2 edits, restricted to [\"diff-model_changes.xml\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 withheld changes opt-in",
+      "detail": "quickPick \"Also emit changes withheld by default (each is marked in the preview)\" options [\"needs-backfill\", \"data-loss\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 author",
+      "detail": "input \"changeSet author\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 id prefix",
+      "detail": "input \"changeSet id prefix (ids are <prefix>-<n>)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 description",
+      "detail": "input \"Changelog description (ASCII letters and digits)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 unknown facts reported",
+      "detail": "confirm \"Incomplete schema information\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 preview before saving",
+      "detail": "confirm \"Create Liquibase changelog?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/resources/db/changelog/diff-model_changes.xml",
+      "detail": "1140 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/changelog/diff-model_changes.xml",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd vs setup 66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G111"
+  ],
+  "scenario": "RS-506",
+  "scenarioSha256": "8cdf570622f588bb4024d3e0992afc44994b8c2bb096eaaaa36f91ca271b5389",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd",
+  "status": "pass",
+  "treeHashAfterRestore": "66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

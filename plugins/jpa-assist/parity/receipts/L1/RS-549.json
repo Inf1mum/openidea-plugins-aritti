@@ -1,0 +1,199 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-549/prompts.json",
+      "sha256": "910b0c33711d9095e78fdb8d6c6e906907de94a2e573d8cfbd009f81152923d5"
+    },
+    {
+      "path": "artifacts/RS-549/preview.txt",
+      "sha256": "9a88667059a14c9f822855b881691de1d0d2786d7660945b240f812378927d3f"
+    },
+    {
+      "path": "artifacts/RS-549/edits.json",
+      "sha256": "3a4483474d89041042ceb2cfe4f735e1802dcb717a0dd321a78da5bfa425a112"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/crm/domain/RemarkView.java"
+    },
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/crm/domain/TicketView.java"
+    }
+  ],
+  "claimIds": [
+    "G074-C2",
+    "G074-C4",
+    "G074-C5"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "526e4d21d5a5c1dbc2a0497efe09ae40e2183a4640ab8d4d25b4bd2b234a8974",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2137 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "input \"Entity view interface name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Entity view attributes besides the id (plain scalars; primitive boolean is not offered)\" options [\"note\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Entity view kind (none is a read-only view)\" options [\"creatable\", \"updatable\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "quickPick \"Associations as inner entity views (none is allowed)\" options [\"agent\", \"remarks\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "quickPick \"Inner entity view for `agent`\" options [\"nested\", \"new-class\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 matches the documented shape",
+      "detail": "input \"Inner entity view name for `agent`\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 matches the documented shape",
+      "detail": "quickPick \"Attributes of Agent for the inner view of `agent` (besides the id)\" options [\"name\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 8 matches the documented shape",
+      "detail": "quickPick \"Inner entity view for `remarks`\" options [\"nested\", \"new-class\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 9 matches the documented shape",
+      "detail": "input \"Inner entity view name for `remarks`\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 10 matches the documented shape",
+      "detail": "quickPick \"Attributes of Remark for the inner view of `remarks` (besides the id)\" options [\"text\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 11 matches the documented shape",
+      "detail": "confirm \"Create Blaze entity view?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/crm/domain/TicketView.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/crm/domain/RemarkView.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 92e72763494fee138283cefd8068fc22f9a64b37da776cc066327f0675c9e0b5 vs setup 92e72763494fee138283cefd8068fc22f9a64b37da776cc066327f0675c9e0b5; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 9 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 10 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 11 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G074"
+  ],
+  "scenario": "RS-549",
+  "scenarioSha256": "0065e0f778bb6601585803726fd6819df6804fdec691df73eaa2d6d091dcde98",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "92e72763494fee138283cefd8068fc22f9a64b37da776cc066327f0675c9e0b5",
+  "status": "pass",
+  "treeHashAfterRestore": "92e72763494fee138283cefd8068fc22f9a64b37da776cc066327f0675c9e0b5",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

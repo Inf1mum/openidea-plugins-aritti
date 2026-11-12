@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-007/prompts.json",
-      "sha256": "948776b81004965aa5d029e050ff90b4780b855e74141185e0d6c705ce49b1d4"
+      "sha256": "8c4548e96da6ce8b378c53503ddf888abe0e0181c6df9e67bb5f44deac81ac30"
     },
     {
       "path": "artifacts/RS-007/preview.txt",
-      "sha256": "b1829fc505f5504ae6ad915ef676a764e73cfe75507a9bca3a1b50e792e0ce38"
+      "sha256": "1d690991c87f48bc17192d601f97c6e2f0462fdefb78a8de1e738b3d267b958f"
     },
     {
       "path": "artifacts/RS-007/edits.json",
@@ -50,7 +50,7 @@
     },
     {
       "check": "confirm preview contains every resulting changed text",
-      "detail": "preview 3295 bytes, 2 edits, restricted to [\"1.2.3-SNAPSHOT_1_2_3_SNAPSHOT.xml\"], missing []",
+      "detail": "preview 3517 bytes, 2 edits, restricted to [\"1.2.3-SNAPSHOT_1_2_3_SNAPSHOT.xml\"], missing []",
       "pass": true
     },
     {
@@ -155,5 +155,5 @@
   "setupTreeHash": "79413f010e655f51a6f88c6e985c65df38b657a86b08d7b820982fb3e11324cb",
   "status": "pass",
   "treeHashAfterRestore": "79413f010e655f51a6f88c6e985c65df38b657a86b08d7b820982fb3e11324cb",
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

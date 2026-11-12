@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-323/prompts.json",
-      "sha256": "dfff67ba4c72a6b6d3ab9c3e7fc43a01bb6e7f1606e514f57b06552b8b94af8f"
+      "sha256": "3ead817a14ad741b325333fed15bca07c49e34119de226292512c715a4855f90"
     },
     {
       "path": "artifacts/RS-323/preview.txt",
-      "sha256": "5c0b393bd12b0eef2849371cb0a03332fc6c75d4c91f3f0a301e5a56cafee8bd"
+      "sha256": "ea346cdca98492cc7de430df949cddad4a7ae100a688a9085a7e91a0d5038575"
     },
     {
       "path": "artifacts/RS-323/edits.json",
@@ -59,10 +59,10 @@
     "G127"
   ],
   "scenario": "RS-323",
-  "scenarioSha256": "331009b63cd124e449139ce78f5326d5c46e9a06d3b1bd428b932008abd682d4",
+  "scenarioSha256": "4ad01339493a4d9b353ec6d82198dcd5eb528b1adc765245b5316f86187b6978",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "a466fe11cd112611e9ba98d4f8837e68ae13aec796e4d04e07cff90efc52ee28",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

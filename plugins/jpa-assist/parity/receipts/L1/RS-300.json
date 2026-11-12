@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-300/prompts.json",
-      "sha256": "f9d2de74101ae033646f290fa23574c7fe3371baa5a64b5b1b25528341d44e73"
+      "sha256": "823e6c4e52c7ed8fff464e0f8089478c9fc0aa5eb855d8c4dd055a4edb2e081f"
     },
     {
       "path": "artifacts/RS-300/preview.txt",
-      "sha256": "716289e55660fa1b32a95f4e49fb8942c5b441b6cbe03404acfedf52d5274ede"
+      "sha256": "86c096afd20f61c946544517ce5c5fc81d8e2d8db9d806850cfc9d06dadb02f9"
     },
     {
       "path": "artifacts/RS-300/edits.json",
@@ -45,7 +45,7 @@
     },
     {
       "check": "confirm preview contains every resulting changed text",
-      "detail": "preview 2030 bytes, 2 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
+      "detail": "preview 2342 bytes, 2 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
       "pass": true
     },
     {
@@ -59,22 +59,32 @@
       "pass": true
     },
     {
-      "check": "prompt 3 migration description",
+      "check": "prompt 3 rename merge offered, declined",
+      "detail": "quickPick \"client.email is dropped and mail is added: merge into a rename?\" options [\"keep\", \"merge\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 rename merge offered for the audit table, declined",
+      "detail": "quickPick \"client_aud.email is dropped and mail is added: merge into a rename?\" options [\"keep\", \"merge\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 migration description",
       "detail": "input \"Migration description (ASCII letters and digits)\" options []",
       "pass": true
     },
     {
-      "check": "prompt 4 date for the #date token",
+      "check": "prompt 6 date for the #date token",
       "detail": "input \"Date for the file name (UTC, yyyyMMdd or yyyyMMddHHmmss)\" options []",
       "pass": true
     },
     {
-      "check": "prompt 5 unknown facts reported",
+      "check": "prompt 7 unknown facts reported",
       "detail": "confirm \"Incomplete schema information\" options []",
       "pass": true
     },
     {
-      "check": "prompt 6 preview before saving",
+      "check": "prompt 8 preview before saving",
       "detail": "confirm \"Create Flyway migration?\" options []",
       "pass": true
     },
@@ -94,32 +104,42 @@
       "pass": true
     },
     {
-      "check": "Cancel at prompt 1 of 6 leaves the tree unchanged",
+      "check": "Cancel at prompt 1 of 8 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 2 of 6 leaves the tree unchanged",
+      "check": "Cancel at prompt 2 of 8 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 3 of 6 leaves the tree unchanged",
+      "check": "Cancel at prompt 3 of 8 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 4 of 6 leaves the tree unchanged",
+      "check": "Cancel at prompt 4 of 8 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 5 of 6 leaves the tree unchanged",
+      "check": "Cancel at prompt 5 of 8 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 6 of 6 leaves the tree unchanged",
+      "check": "Cancel at prompt 6 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 8 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 8 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
@@ -143,10 +163,10 @@
     "G109"
   ],
   "scenario": "RS-300",
-  "scenarioSha256": "f01e2881fd25568155174ea27cf60580a281b7594480573906acec4e682ce510",
+  "scenarioSha256": "b9338eb7f0ebc215e215780ed80f80e48104b2934b6457db7089d884ac200fc4",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5",
   "status": "pass",
   "treeHashAfterRestore": "65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5",
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

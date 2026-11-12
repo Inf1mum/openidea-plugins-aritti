@@ -1,0 +1,123 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-504/prompts.json",
+      "sha256": "3d5abb48ca92d7fb01712240575cb87cc999dcf45d3092863a77c5605a9f731c"
+    },
+    {
+      "path": "artifacts/RS-504/preview.txt",
+      "sha256": "a1d5e28772e1a0aac01d9f6952377b5d2966f8a05a33bc25449dd3e49d4c0837"
+    },
+    {
+      "path": "artifacts/RS-504/edits.json",
+      "sha256": "2066cd092966b4c0e37dad9dfe676b1f08c7ecfd269aa858c0ad4d494ab9e059"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131__rename_email.sql"
+    }
+  ],
+  "claimIds": [
+    "G109-C2",
+    "G109-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "c2bb98ba3820a2761427dc0ffc575c85592217eee6bfd7cb92a830de2061e420",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1798 bytes, 2 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 dialect without a database connection",
+      "detail": "quickPick \"SQL dialect (no database connection)\" options [\"postgresql\", \"mysql\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 opt-in to withheld statements",
+      "detail": "quickPick \"Also emit statements withheld by default (each is marked in the preview)\" options [\"needs-backfill\", \"data-loss\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 rename merge accepted",
+      "detail": "quickPick \"client.email is dropped and mail is added: merge into a rename?\" options [\"keep\", \"merge\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 rename merge for the audit table accepted",
+      "detail": "quickPick \"client_aud.email is dropped and mail is added: merge into a rename?\" options [\"keep\", \"merge\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 migration description",
+      "detail": "input \"Migration description (ASCII letters and digits)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 date for the #date token",
+      "detail": "input \"Date for the file name (UTC, yyyyMMdd or yyyyMMddHHmmss)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 unknown facts reported",
+      "detail": "confirm \"Incomplete schema information\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 8 preview before saving",
+      "detail": "confirm \"Create Flyway migration?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/resources/db/migration/V20240131__rename_email.sql",
+      "detail": "589 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131__rename_email.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5 vs setup 65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G109"
+  ],
+  "scenario": "RS-504",
+  "scenarioSha256": "9e5175768bf2fef02c1ef82070e31abbdc58f72e41ac2bc997e44bdbf440c5bd",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5",
+  "status": "pass",
+  "treeHashAfterRestore": "65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

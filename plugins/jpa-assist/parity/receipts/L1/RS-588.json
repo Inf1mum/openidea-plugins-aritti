@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-588/diagnostics.json",
+      "sha256": "50849698024af32a390fb2fdd09e86f9af3fa22a4632a6356699b0951c65005b"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "beb50e7d2e2152038cce6dd41b8068d9cff9f7abc04e3cf790a6df5a8e15f626",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-unknown-entity-graph src/main/java/com/example/shop/w2/GizmoRepository.java:null",
+      "detail": "63 diagnostics in total",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-588",
+  "scenarioSha256": "f9e7aa182a71f2e4d45a33a4c67e35943d80236241a2dfc2df391d80e46a8147",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "beb50e7d2e2152038cce6dd41b8068d9cff9f7abc04e3cf790a6df5a8e15f626",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

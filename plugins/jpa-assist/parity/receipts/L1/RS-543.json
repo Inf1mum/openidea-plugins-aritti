@@ -1,0 +1,178 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-543/prompts.json",
+      "sha256": "5cad4c5836f82d6e8b9266e22f8ed35995e604135394bd8838836178731608bb"
+    },
+    {
+      "path": "artifacts/RS-543/preview.txt",
+      "sha256": "e5aa338d84c2d34d3d94f751d0a0065c77a3c1b5338e988712a23b964ce8757e"
+    },
+    {
+      "path": "artifacts/RS-543/edits.json",
+      "sha256": "8af563cb09dad2b25a70e4a8c87c5f03052e007ecced4c902f6a0a32f5f01029"
+    },
+    {
+      "path": "artifacts/RS-543/result-src__main__java__com__example__crm__domain__Invoice.java",
+      "sha256": "04b7e16890f486e1fc077ccfae0efaabad30a4e6b4ada7969efbd247fd787d20"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/crm/domain/Invoice.java"
+    }
+  ],
+  "claimIds": [
+    "G067-C1",
+    "G067-C2"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "199b38c3467ced08908797d8c18f086ba250eb03c4bcdeef7d04ac79bd2bf4f1",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1304 bytes, 4 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt count",
+      "detail": "expected 9, saw 9",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Persistence namespace for the new entity\" options [\"jakarta\", \"javax\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "input \"Table name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "input \"Identifier attribute name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "input \"Identifier column name (empty uses the attribute name)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "quickPick \"Identifier type\" options [\"long\", \"integer\", \"short\", \"string\", \"uuid\", \"big-integer\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 matches the documented shape",
+      "detail": "quickPick \"Identifier generation\" options [\"assigned\", \"identity\", \"sequence\", \"table\", \"auto\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 matches the documented shape",
+      "detail": "quickPick \"Relationship of `customer` (Customer)\" options [\"ManyToOne\", \"OneToOne\", \"none\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 8 matches the documented shape",
+      "detail": "quickPick \"Relationship of `lines` (Line collection)\" options [\"OneToMany\", \"ManyToMany\", \"none\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 9 matches the documented shape",
+      "detail": "confirm \"Convert class to JPA entity?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/crm/domain/Invoice.java",
+      "detail": "773 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d993dda3676774e3d8c48036e03a752fd54d142bae95ad1ab5c0a776396035f3 vs setup d993dda3676774e3d8c48036e03a752fd54d142bae95ad1ab5c0a776396035f3; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 9 of 9 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G067"
+  ],
+  "scenario": "RS-543",
+  "scenarioSha256": "f58a35b1ca95a8b210da637e411fe3681fdd3a7f66bfdab309ee599ba56d1f58",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d993dda3676774e3d8c48036e03a752fd54d142bae95ad1ab5c0a776396035f3",
+  "status": "pass",
+  "treeHashAfterRestore": "d993dda3676774e3d8c48036e03a752fd54d142bae95ad1ab5c0a776396035f3",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

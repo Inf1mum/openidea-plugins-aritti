@@ -1,0 +1,142 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-529/prompts.json",
+      "sha256": "d209049b7dcd8c05bc60b1b8512d5645d67116665fff68b2edaf0fc921b8efc9"
+    },
+    {
+      "path": "artifacts/RS-529/preview.txt",
+      "sha256": "44896bbfeb53baf723c279c6f0fe52dd1b0c6ae9782497e106d7a0c284b831aa"
+    },
+    {
+      "path": "artifacts/RS-529/edits.json",
+      "sha256": "abad03a8d9f0471b49df1e3ee463a0a3eeec2f861fd773c6bf7468230ae4f0dc"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V4__add_gadget.sql"
+    }
+  ],
+  "claimIds": [
+    "G124-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "eff238695e2389780b002f31ce70713c1abb9e0b7c8a455cb61605cd8cc28a08",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1852 bytes, 2 edits, restricted to [\"V4__add_gadget.sql\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V4__add_gadget.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree f751160e145f8b4939e1c12b0e44aac019f50b8ec857545613c90f86f4fefce8 vs setup f751160e145f8b4939e1c12b0e44aac019f50b8ec857545613c90f86f4fefce8; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 9 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 10 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 11 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G124"
+  ],
+  "scenario": "RS-529",
+  "scenarioSha256": "d411fc23da9d2b3520ba3679881fa556c380637fcc29f66d22f4ba9c183c8a3e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "f751160e145f8b4939e1c12b0e44aac019f50b8ec857545613c90f86f4fefce8",
+  "status": "pass",
+  "treeHashAfterRestore": "f751160e145f8b4939e1c12b0e44aac019f50b8ec857545613c90f86f4fefce8",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

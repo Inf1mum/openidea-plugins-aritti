@@ -133,7 +133,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-400.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G009-C2"
           ],
@@ -202,7 +202,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-401.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-402.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G013-C2",
             "G013-C3"
@@ -322,7 +322,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-228.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-229.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G014-C1",
             "G014-C2",
@@ -403,7 +403,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-237.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-238.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G015-C1",
             "G015-C2"
@@ -463,7 +463,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-238.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G016-C1",
             "G016-C2"
@@ -518,7 +518,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-239.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G017-C1"
           ],
@@ -552,7 +552,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-237.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G018-C2"
           ],
@@ -650,7 +650,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-403.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-404.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G019-C1",
             "G019-C2",
@@ -686,7 +686,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G020-C1"
           ],
@@ -739,7 +739,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G021-C1"
           ],
@@ -791,7 +791,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G022-C1"
           ],
@@ -858,7 +858,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-405.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G024-C1"
           ],
@@ -888,7 +888,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-200.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G025-C2",
             "G025-C3"
@@ -1006,7 +1006,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-422.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G026-C1",
             "G026-C2",
@@ -1062,7 +1062,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-202.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G027-C1"
           ],
@@ -1156,7 +1156,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-204.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-206.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G028-C1",
             "G028-C2"
@@ -1315,7 +1315,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-425.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-426.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G029-C1",
             "G029-C2",
@@ -1354,7 +1354,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-427.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G030-C1"
           ],
@@ -1430,7 +1430,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-241.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-428.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G031-C1",
             "G031-C2"
@@ -1468,7 +1468,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-322.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-323.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G032-C1",
             "G032-C2",
@@ -1527,7 +1527,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-240.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G033-C1",
             "G033-C2"
@@ -1572,7 +1572,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-406.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G035-C2"
           ],
@@ -1689,7 +1689,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-460.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G036-C1",
             "G036-C2",
@@ -1747,7 +1747,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G037-C1",
             "G037-C2"
@@ -1801,7 +1801,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G038-C1"
           ],
@@ -1888,7 +1888,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-102.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G040-C1",
             "G040-C2",
@@ -1967,7 +1967,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-103.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G041-C1",
             "G041-C2"
@@ -2044,7 +2044,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-104.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G042-C1",
             "G042-C2"
@@ -2119,7 +2119,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-464.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G043-C1"
           ],
@@ -2195,7 +2195,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-461.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G046-C1"
           ],
@@ -2260,7 +2260,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-105.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G048-C1"
           ],
@@ -2312,7 +2312,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-106.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G049-C1"
           ],
@@ -2364,7 +2364,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-107.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G050-C1"
           ],
@@ -2416,7 +2416,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-108.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G051-C1"
           ],
@@ -2505,7 +2505,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-109.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-110.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G053-C1",
             "G053-C2",
@@ -2539,7 +2539,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-468.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G054-C1",
             "G054-C2",
@@ -2573,7 +2573,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-471.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-472.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G055-C1",
             "G055-C2",
@@ -2675,7 +2675,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-473.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-474.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G056-C1",
             "G056-C2",
@@ -2776,7 +2776,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-475.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-476.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G057-C1",
             "G057-C2",
@@ -2837,7 +2837,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-130.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G058-C1",
             "G058-C2",
@@ -2939,7 +2939,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-114.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G059-C1",
             "G059-C2",
@@ -3001,7 +3001,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-113.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G060-C1",
             "G060-C2"
@@ -3076,7 +3076,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-115.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-116.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G061-C1",
             "G061-C2"
@@ -3172,7 +3172,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-118.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-119.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G062-C1",
             "G062-C2",
@@ -3190,11 +3190,53 @@
       "id": "G063",
       "family": "DTOs and mappers",
       "capability": "Nested DTOs",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed 'Create projection with nested association…' (closed interface with nested interface per to-one association, Java/Kotlin) and 'Create flattened DTO…' (record/data class with prefixed components; shows a `select new` snippet, edits no repository). To-many never offered (docs silent); targets by bounded exact-file lookup; alias hard-coded `e`; snippet never run against a provider. Compile checks Java/Kotlin.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-121.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-540.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-121",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G063-C2: Flat turns inner fields into top-level fields named from the inner class name plus the field name."
+          ],
+          "claimIds": [
+            "G063-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-121.json",
+          "test": "jpa_assist --only RS-121",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-540",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G063-C1: For an association the designer offers New Class (separate file), New Nested Class (public static nested), Existing Class, or Flat."
+          ],
+          "claimIds": [
+            "G063-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-540.json",
+          "test": "jpa_assist --only RS-540",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/nested_dto_action.rs"
       ],
@@ -3204,10 +3246,12 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-121.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-121.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-121.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-540.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
+            "G063-C1",
             "G063-C2"
           ],
           "claimsExplicit": [
@@ -3221,11 +3265,73 @@
       "id": "G064",
       "family": "DTOs and mappers",
       "capability": "DTO reuse",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "dto_convert_action.rs: DTO reuse offer (G064) in the scalar-record, DTO class, projection and flattened flows (compatible candidates in the folder, dto/ dtos/ and sibling folders; exact/superset labels; choosing one ends the action with 'Already exists'), mapper DTO picker sorted by compatibility with a badge; 'Convert record to class…' and 'Convert class to record…' (G067; JavaBean/immutable/mutable forms; only @JsonProperty and Bean Validation annotations move; refuses logic, extra methods, extends/implements, generics; callers not updated: S007-style limit, warning in the preview text but not asserted by a test). JLS 21 §8.10, Spring Data projections page, Jackson 2.12 record support and the MapStruct constructor note verified; @Target of constraints/@JsonProperty on record components rests on the compile test only; Lombok @Value / Kotlin data class conversion sources not implemented; nested projection and the Add-mapping/Extend-mapper/ModelMapper pickers have no reuse prompt.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-542.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-122",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G064-C1: Existing Class selects a DTO class already in the project."
+          ],
+          "claimIds": [
+            "G064-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+          "test": "jpa_assist --only RS-122",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-541",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G064-C2: Settings link a DTO to its entity by class-name regexp or class-comment regexp (disabled when empty)."
+          ],
+          "claimIds": [
+            "G064-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+          "test": "jpa_assist --only RS-541",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-542",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G064-C2: Settings link a DTO to its entity by class-name regexp or class-comment regexp (disabled when empty)."
+          ],
+          "claimIds": [
+            "G064-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-542.json",
+          "test": "jpa_assist --only RS-542",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/dto_convert_action.rs"
       ],
@@ -3235,11 +3341,14 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-122.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-542.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
-            "G064-C1"
+            "G064-C1",
+            "G064-C2"
           ],
           "claimsExplicit": [
             "G064-C1",
@@ -3290,7 +3399,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-121.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G065-C1"
           ],
@@ -3426,7 +3535,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-329.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-330.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G066-C1",
             "G066-C2",
@@ -3444,11 +3553,55 @@
       "id": "G067",
       "family": "DTOs and mappers",
       "capability": "POJO conversion",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "dto_convert_action.rs: DTO reuse offer (G064) in the scalar-record, DTO class, projection and flattened flows (compatible candidates in the folder, dto/ dtos/ and sibling folders; exact/superset labels; choosing one ends the action with 'Already exists'), mapper DTO picker sorted by compatibility with a badge; 'Convert record to class…' and 'Convert class to record…' (G067; JavaBean/immutable/mutable forms; only @JsonProperty and Bean Validation annotations move; refuses logic, extra methods, extends/implements, generics; callers not updated: S007-style limit, warning in the preview text but not asserted by a test). JLS 21 §8.10, Spring Data projections page, Jackson 2.12 record support and the MapStruct constructor note verified; @Target of constraints/@JsonProperty on record components rests on the compile test only; Lombok @Value / Kotlin data class conversion sources not implemented; nested projection and the Add-mapping/Extend-mapper/ModelMapper pickers have no reuse prompt.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-543.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-120",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G067-C3: DTOs can be generated from any Java/Kotlin class, not only JPA entities."
+          ],
+          "claimIds": [
+            "G067-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
+          "test": "jpa_assist --only RS-120",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-543",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G067-C1: Entity from POJO creates a JPA entity from any Java or Kotlin class.",
+            "G067-C2: It detects relationship cardinality and either generates related entities or lets you select existing ones."
+          ],
+          "claimIds": [
+            "G067-C1",
+            "G067-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-543.json",
+          "test": "jpa_assist --only RS-543",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/dto_convert_action.rs"
       ],
@@ -3458,10 +3611,13 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-120.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-543.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
+            "G067-C1",
+            "G067-C2",
             "G067-C3"
           ],
           "claimsExplicit": [
@@ -3535,7 +3691,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-114.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-120.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G068-C1",
             "G068-C2"
@@ -3551,11 +3707,73 @@
       "id": "G069",
       "family": "DTOs and mappers",
       "capability": "MapStruct creation",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed 'Create MapStruct mapper with preview…': DTO record/data class with the same scalar names/types, componentModel default/spring/jakarta-cdi, toDto/toEntity/@MappingTarget update, explicit ignore mappings; requires literal MapStruct dependency + processor in build files (Kotlin needs kapt). Generated Java compiled through the real MapStruct 1.6.3 processor (opt-in test); Kotlin unit-tested only, never compiled. No existing-mapper reuse, no Lombok, no version catalogs, no multi-module resolution.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-125.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-126.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-544.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-125",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy.html"
+          ],
+          "referenceClaims": [
+            "G069-C2: MapStruct mappers convert entities to DTOs and back."
+          ],
+          "claimIds": [
+            "G069-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-125.json",
+          "test": "jpa_assist --only RS-125",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-126",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G069-C1: With MapStruct present, the New DTO window has a Mapper field to select an existing mapper or create one."
+          ],
+          "claimIds": [
+            "G069-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-126.json",
+          "test": "jpa_assist --only RS-126",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-544",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G069-C3: Mapper Declaration settings configure naming patterns and the naming strategy for collection mappings."
+          ],
+          "claimIds": [
+            "G069-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-544.json",
+          "test": "jpa_assist --only RS-544",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/mapper_action.rs",
         "plugins/jpa-assist/src/file_actions.rs"
@@ -3567,12 +3785,14 @@
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-125.json",
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-125.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-126.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-126.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-544.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G069-C1",
-            "G069-C2"
+            "G069-C2",
+            "G069-C3"
           ],
           "claimsExplicit": [
             "G069-C1",
@@ -3600,29 +3820,128 @@
       "id": "G071",
       "family": "DTOs and mappers",
       "capability": "Generic mappers",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed mapper actions in mapper_more_action.rs: 'Add mapping method to mapper…' (toDto/toEntity/update with @MappingTarget; explicit @Mapping pairs only for identical types), 'Create generic base mapper…' (EntityMapper<D,E>; generic mapper interfaces are NOT in the MapStruct reference guide, only the processor compile test supports them; partialUpdate dropped because @BeanMapping null-skipping enum values were unconfirmed) and 'Make mapper extend generic base mapper…', settings mapperComponentModel/mapperUnmappedTargetPolicy, and 'Inject mapper…' (spring componentModel literal only; default model refused because a Mappers.getMapper field in a consumer is not in the guide). MapStruct 1.6.3 processor compile check for Java outputs; Kotlin not kapt-compiled.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-546.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-547.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-546",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G071-C1: Mappers extending a generic interface such as EntityMapper<D, E> (with custom logic like @AfterMapping) are supported."
+          ],
+          "claimIds": [
+            "G071-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-546.json",
+          "test": "jpa_assist --only RS-546",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-547",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G071-C1: Mappers extending a generic interface such as EntityMapper<D, E> (with custom logic like @AfterMapping) are supported."
+          ],
+          "claimIds": [
+            "G071-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-547.json",
+          "test": "jpa_assist --only RS-547",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/mapper_more_action.rs",
         "plugins/jpa-assist/src/mapper_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-546.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-546.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-547.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G071-C1"
+          ],
+          "claimsExplicit": [
+            "G071-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G072",
       "family": "DTOs and mappers",
       "capability": "Mapper conventions",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed mapper actions in mapper_more_action.rs: 'Add mapping method to mapper…' (toDto/toEntity/update with @MappingTarget; explicit @Mapping pairs only for identical types), 'Create generic base mapper…' (EntityMapper<D,E>; generic mapper interfaces are NOT in the MapStruct reference guide, only the processor compile test supports them; partialUpdate dropped because @BeanMapping null-skipping enum values were unconfirmed) and 'Make mapper extend generic base mapper…', settings mapperComponentModel/mapperUnmappedTargetPolicy, and 'Inject mapper…' (spring componentModel literal only; default model refused because a Mappers.getMapper field in a consumer is not in the guide). MapStruct 1.6.3 processor compile check for Java outputs; Kotlin not kapt-compiled.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-545.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-545",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G072-C1: Mapper Declaration settings configure naming patterns and the naming strategy for collection mappings."
+          ],
+          "claimIds": [
+            "G072-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-545.json",
+          "test": "jpa_assist --only RS-545",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/mapper_more_action.rs",
         "plugins/jpa-assist/src/mapper_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-545.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-545.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G072-C1"
+          ],
+          "claimsExplicit": [
+            "G072-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G073",
@@ -3644,7 +3963,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-127.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G073-C1",
             "G073-C3",
@@ -3663,11 +3982,79 @@
       "id": "G074",
       "family": "DTOs and mappers",
       "capability": "Entity Views",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "ModelMapper/Blaze actions in modelmapper_action.rs: 'Create ModelMapper configuration…' (@Configuration with a ModelMapper @Bean, strategy STANDARD/LOOSE/STRICT; needs literal org.modelmapper:modelmapper; refuses an existing bean class), 'Add ModelMapper conversion methods…' (toDto/toEntity in a Spring class with injected ModelMapper, plain public Java *Dto/*DTO classes only; Kotlin refused), 'Create Blaze entity view…' (@EntityView(Entity.class) + @IdMapping + picked scalar getters; needs the entity-view-api artifact literally; primitive boolean not offered). Checked against ModelMapper docs and the Blaze manual; compiled only against hand-written API stubs (no real jars), Blaze Javadoc did not show annotation members. Not generated: TypeMap/validate, Blaze @Mapping/subviews/EntityViewSetting/Spring Data repositories (G057).",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-128.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-549.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-550.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-128",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G074-C1: Entity View creation is offered when Blaze-Persistence is present; dialog has package, source root, parent view, entity and class name.",
+            "G074-C3: Creatable/updatable views need an @IdMapping attribute; ticking a checkbox auto-selects the entity @Id attribute."
+          ],
+          "claimIds": [
+            "G074-C1",
+            "G074-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-128.json",
+          "test": "jpa_assist --only RS-128",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-549",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G074-C2: Creatable and Updatable checkboxes add @CreatableEntityView and @UpdatableEntityView.",
+            "G074-C4: Updatable and creatable views get setters for all attributes.",
+            "G074-C5: Inner Entity Views for associations are supported."
+          ],
+          "claimIds": [
+            "G074-C2",
+            "G074-C4",
+            "G074-C5"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-549.json",
+          "test": "jpa_assist --only RS-549",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-550",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G074-C6: Entity Views can be selected in the standard repository creation window when Blaze-Persistence is present."
+          ],
+          "claimIds": [
+            "G074-C6"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-550.json",
+          "test": "jpa_assist --only RS-550",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/modelmapper_action.rs"
       ],
@@ -3677,12 +4064,18 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-128.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-128.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-128.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-549.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-550.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G074-C1",
-            "G074-C3"
+            "G074-C2",
+            "G074-C3",
+            "G074-C4",
+            "G074-C5",
+            "G074-C6"
           ],
           "claimsExplicit": [
             "G074-C1",
@@ -3703,7 +4096,24 @@
       "baseline": "Missing",
       "finding": "Our explicit Rename affects only one strict entity document and local graph literals.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-562.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-562.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G075-C1"
+          ],
+          "claimsExplicit": [
+            "G075-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G076",
@@ -3713,7 +4123,30 @@
       "baseline": "Missing",
       "finding": "No add-field-to-related-DTOs operation or DTO field completion.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G076-C1",
+            "G076-C2",
+            "G076-C3"
+          ],
+          "claimsExplicit": [
+            "G076-C1",
+            "G076-C2",
+            "G076-C3"
+          ]
+        }
+      }
     },
     {
       "id": "G077",
@@ -3723,17 +4156,105 @@
       "baseline": "Missing",
       "finding": "No configurable serialization/comment/name linkage.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-563.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-563.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-564.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-566.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G077-C1",
+            "G077-C2",
+            "G077-C3"
+          ],
+          "claimsExplicit": [
+            "G077-C1",
+            "G077-C2",
+            "G077-C3"
+          ]
+        }
+      }
     },
     {
       "id": "G078",
       "family": "DTOs and mappers",
       "capability": "Validation transfer",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed Java-only 'Create DTO class with preview…' (POJO, fluent, Lombok @Getter/@Setter, +@Accessors(chain), @Data, @Value) with optional constructors/equals/hashCode/toString, Jackson (snake_case @JsonProperty, ignoreUnknown; only when jackson is literally in build text; class forms only), and validation transfer of literal NotNull/NotBlank/Size/Min/Max/Pattern/Email. Lombok forms are tested as text only (no lombok jar); fluent+Jackson binding unverified. POJO/fluent compile-checked with -Xlint:all. Open: Kotlin classes, Value+Jackson, entity-to-DTO sync, catalog/transitive dependency detection.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-123.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-124.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-548.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-123",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G078-C2: Validations can be transferred from the entity or defined from scratch."
+          ],
+          "claimIds": [
+            "G078-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-123.json",
+          "test": "jpa_assist --only RS-123",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-124",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G078-C4: Validation options require Hibernate Validator or Spring Boot Starter Validation."
+          ],
+          "claimIds": [
+            "G078-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-124.json",
+          "test": "jpa_assist --only RS-124",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-548",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G078-C1: Bean validation constraints for DTO fields are configured in the DTO wizard.",
+            "G078-C3: Each constraint can be enabled/disabled and its message customized."
+          ],
+          "claimIds": [
+            "G078-C1",
+            "G078-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-548.json",
+          "test": "jpa_assist --only RS-548",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/dto_action.rs"
       ],
@@ -3744,11 +4265,14 @@
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-123.json",
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-123.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-124.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-124.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-548.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
+            "G078-C1",
             "G078-C2",
+            "G078-C3",
             "G078-C4"
           ],
           "claimsExplicit": [
@@ -3814,7 +4338,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-320.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-321.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G082-C2",
             "G082-C3",
@@ -3873,7 +4397,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-321.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G083-C1",
             "G083-C2"
@@ -3902,7 +4426,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-440.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G084-C2"
           ],
@@ -3955,7 +4479,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-320.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G085-C1"
           ],
@@ -4032,7 +4556,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-441.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G088-C1"
           ],
@@ -4085,7 +4609,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-219.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G089-C1"
           ],
@@ -4138,7 +4662,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-220.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G090-C1"
           ],
@@ -4232,7 +4756,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-443.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-444.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G091-C1",
             "G091-C2",
@@ -4289,7 +4813,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-215.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G092-C1"
           ],
@@ -4321,7 +4845,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-217.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-445.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G093-C1",
             "G093-C3"
@@ -4419,7 +4943,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-446.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-447.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G094-C1",
             "G094-C2"
@@ -4478,7 +5002,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-214.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G095-C1",
             "G095-C2",
@@ -4526,7 +5050,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-212.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-213.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G097-C1",
             "G097-C2",
@@ -4680,7 +5204,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-224.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-225.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G099-C1",
             "G099-C2",
@@ -4737,7 +5261,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-218.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G100-C1"
           ],
@@ -4853,7 +5377,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-227.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-448.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G101-C1",
             "G101-C2",
@@ -4904,7 +5428,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-449.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G103-C2"
           ],
@@ -4982,7 +5506,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G104-C1",
             "G104-C2",
@@ -5060,7 +5584,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-302.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-303.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G105-C1",
             "G105-C2"
@@ -5076,11 +5600,73 @@
       "id": "G106",
       "family": "Database versioning",
       "capability": "Persistence scope",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Snapshot extensions in schema_snapshot.rs: Envers audit tables (<table>_aud with id, rev, revtype, audited columns, PK id+rev, FK rev->revinfo; revinfo(rev, revtstmp) or the custom @RevisionEntity table) from the Hibernate 6.4/6.6/5.6 user-guide Envers chapter (downloaded and read); Unknown for custom prefix/suffix, non-literal @AuditTable, @Audited arguments, inheritance, Kotlin field-level annotations; REVINFO_SEQ not in the guide (sequence only a note), REVTYPE nullability and field-level-audit PK Unknown; collection/join audit tables, @AuditOverride, @AuditJoinTable not read. Scoped snapshots by persistence.xml unit (G106) and a backward-compatible baseline_json header (G107) exist but are NOT wired into migration_action/liquibase_action (they still use snapshot_json). Audited entities now add _aud/revinfo tables to those scans.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-500.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-501.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-304",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G106-C1: A persistence unit must be selected for a model source; multiple data stores need separate runs per unit."
+          ],
+          "claimIds": [
+            "G106-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-304.json",
+          "test": "jpa_assist --only RS-304",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-500",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G106-C2: Init DDL chooses Model and a persistence unit and can limit scope to selected entities."
+          ],
+          "claimIds": [
+            "G106-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-500.json",
+          "test": "jpa_assist --only RS-500",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-501",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G106-C2: Init DDL chooses Model and a persistence unit and can limit scope to selected entities."
+          ],
+          "claimIds": [
+            "G106-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-501.json",
+          "test": "jpa_assist --only RS-501",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/schema_snapshot.rs"
       ],
@@ -5090,11 +5676,14 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-304.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-304.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-500.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-501.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
-            "G106-C1"
+            "G106-C1",
+            "G106-C2"
           ],
           "claimsExplicit": [
             "G106-C1",
@@ -5122,11 +5711,15 @@
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-305.json",
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-305.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-306.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-306.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-500.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-501.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
-            "G107-C2"
+            "G107-C1",
+            "G107-C2",
+            "G107-C3"
           ],
           "claimsExplicit": [
             "G107-C1",
@@ -5140,11 +5733,73 @@
       "id": "G108",
       "family": "Database versioning",
       "capability": "Danger classification",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing integration",
       "finding": "Pure library: persistence-core schema.rs (SchemaSnapshot with Known/Unknown facts, deterministic diff to ChangePlan with Danger Safe/NeedsBackfill/Rewrite/DataLoss/Ambiguous, RenameCandidate never applied, 500x500 bounds) and jpa-assist schema_snapshot.rs (snapshot from entity sources: literal/derived names with provenance, scalar columns, owning FKs, closed-world inheritance, Unknown for unmappable types/features; JSON export/import). SQL type table from the Hibernate 6.4 guide (read 100k of 462k chars); Double/Float/Instant/Date/Lob and all defaults Unknown. No UI, baseline file I/O, SQL emission, dialect mapping, grouping or backfill editor yet.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-502.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-503.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-006",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G108-C2: SAFE cannot lose data; CAUTION needs review (e.g. NOT NULL over existing NULLs); DANGER can lose data (drop column, type change)."
+          ],
+          "claimIds": [
+            "G108-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+          "test": "jpa_assist --only RS-006",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-502",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G108-C1: Preview changes are colour-coded SAFE (green), CAUTION (yellow), DANGER (red)."
+          ],
+          "claimIds": [
+            "G108-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-502.json",
+          "test": "jpa_assist --only RS-502",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-503",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G108-C3: Danger levels are customizable per change type in Tools > Database Versioning > Diff Changes."
+          ],
+          "claimIds": [
+            "G108-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-503.json",
+          "test": "jpa_assist --only RS-503",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "crates/persistence-core/src/schema.rs"
       ],
@@ -5154,11 +5809,15 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-006.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-502.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-503.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
-            "G108-C2"
+            "G108-C1",
+            "G108-C2",
+            "G108-C3"
           ],
           "claimsExplicit": [
             "G108-C1",
@@ -5172,11 +5831,55 @@
       "id": "G109",
       "family": "Database versioning",
       "capability": "Rename merging",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing integration",
       "finding": "RenameCandidate entries are produced beside the literal drop/add and never applied; review UI and merging decisions not built. Pure library: persistence-core schema.rs (SchemaSnapshot with Known/Unknown facts, deterministic diff to ChangePlan with | UI: Designer 'Migration' tab (migration.js + plan-migration/generate-migration bridge ops): read-only change plan grouped by table with danger badges, explicit 'Treat as rename' toggles (never default on), included-danger options, dialect select, exact SQL preview/copy with a pointer to the Flyway file action (the Designer cannot apply file creation: no host API). Bounds 500 changes/64 KiB SQL. Browser checks on Chromium/WebKit at six layouts; copy button not exercised headless; 280px tab ellipsizes.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-300.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-504.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-300",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G109-C1: Renames and type changes normally yield a drop plus an add statement."
+          ],
+          "claimIds": [
+            "G109-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-300.json",
+          "test": "jpa_assist --only RS-300",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-504",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G109-C2: These can be merged into one rename/modify statement from the preview.",
+            "G109-C3: Redundant drop statements can be removed after merging."
+          ],
+          "claimIds": [
+            "G109-C2",
+            "G109-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-504.json",
+          "test": "jpa_assist --only RS-504",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "crates/persistence-core/src/schema.rs"
       ],
@@ -5186,11 +5889,14 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-300.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-300.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-300.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-504.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
-            "G109-C1"
+            "G109-C1",
+            "G109-C2",
+            "G109-C3"
           ],
           "claimsExplicit": [
             "G109-C1",
@@ -5245,7 +5951,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-006.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G110-C1"
           ],
@@ -5267,7 +5973,30 @@
       "implementation": [
         "plugins/jpa-assist/src/designer.rs",
         "plugins/jpa-assist/web/migration.js"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-505.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-505.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-506.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G111-C2",
+            "G111-C5"
+          ],
+          "claimsExplicit": [
+            "G111-C1",
+            "G111-C2",
+            "G111-C3",
+            "G111-C4",
+            "G111-C5"
+          ]
+        }
+      }
     },
     {
       "id": "G112",
@@ -5364,7 +6093,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G112-C1",
             "G112-C2",
@@ -5402,7 +6131,27 @@
       "baseline": "Missing integration",
       "finding": "Changelog object names are not supplied by a shared JPA model.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G114-C1",
+            "G114-C2"
+          ],
+          "claimsExplicit": [
+            "G114-C1",
+            "G114-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G115",
@@ -5424,7 +6173,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G115-C3"
           ],
@@ -5440,11 +6189,99 @@
       "id": "G116",
       "family": "Database versioning",
       "capability": "Change templates",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Partial suite",
       "finding": "Table setting `liquibaseChangeSetDefaults` (row `all` plus per-change-type overrides): failOnError, runOnChange, context, labels (literal lists, <=16 items), preConditionsOnFail/OnError (HALT|CONTINUE|MARK_RAN|WARN) written only for createTable (<not><tableExists/>) and addColumn (<not><columnExists/>) because preConditions needs a child element (XSD 4.29), addEmptyRollback `<rollback/>` only for dropTable, dropColumn, modifyDataType, dropForeignKeyConstraint, dropUniqueConstraint, dropIndex. All-unset output is byte-identical to before. Verified against the Liquibase 4.29 XSD and docs.liquibase.com (preconditions, contexts, labels, per-type rollback pages); `columnExists` inside `not` is XSD-only, empty `<rollback/>` is shown on the JetBrains page and allowed by the XSD but on no docs.liquibase.com page read. Not implemented: <property dbms>/${prop}, runAlways, dbms, other preconditions.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-530.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-007",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/liquibase.html"
+          ],
+          "referenceClaims": [
+            "G116-C1: Changeset Templates set failOnError (stop or suppress and continue) in generated changesets.",
+            "G116-C2: Changeset Templates set runOnChange (rerun a modified changeset or throw and stop).",
+            "G116-C3: Create Preconditions adds preconditions to generated changesets with on-fail HALT, CONTINUE, MARK_RAN or WARN.",
+            "G116-C4: An option adds an empty rollback to changesets whose change type has no automatic rollback."
+          ],
+          "claimIds": [
+            "G116-C1",
+            "G116-C2",
+            "G116-C3",
+            "G116-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/liquibase.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+          "test": "jpa_assist --only RS-007",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-308",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/liquibase.html"
+          ],
+          "referenceClaims": [
+            "G116-C3: Create Preconditions adds preconditions to generated changesets with on-fail HALT, CONTINUE, MARK_RAN or WARN."
+          ],
+          "claimIds": [
+            "G116-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/liquibase.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
+          "test": "jpa_assist --only RS-308",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-309",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/liquibase.html"
+          ],
+          "referenceClaims": [
+            "G116-C4: An option adds an empty rollback to changesets whose change type has no automatic rollback."
+          ],
+          "claimIds": [
+            "G116-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/liquibase.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
+          "test": "jpa_assist --only RS-309",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-530",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/liquibase.html"
+          ],
+          "referenceClaims": [
+            "G116-C5: Cross-DB types use Liquibase properties with dbms (e.g. ${string.type}) so one changelog serves several DBMS."
+          ],
+          "claimIds": [
+            "G116-C5"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/liquibase.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-530.json",
+          "test": "jpa_assist --only RS-530",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "crates/persistence-core/src/liquibase.rs",
         "plugins/jpa-assist/src/template_settings.rs",
@@ -5459,14 +6296,16 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-309.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-530.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G116-C1",
             "G116-C2",
             "G116-C3",
-            "G116-C4"
+            "G116-C4",
+            "G116-C5"
           ],
           "claimsExplicit": [
             "G116-C1",
@@ -5543,7 +6382,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-314.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-315.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G117-C1",
             "G117-C2",
@@ -5577,7 +6416,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-316.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G118-C1",
             "G118-C3"
@@ -5595,11 +6434,115 @@
       "id": "G119",
       "family": "Database versioning",
       "capability": "Java callbacks",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Partial suite",
       "finding": "Reviewed create-file actions in flyway_misc_action.rs, offered only when flyway-core is literal in the build text: 'Create Flyway Java migration…' (BaseJavaMigration skeleton; next version from existing SQL/Java migrations; folder src/main/java/db/migration only when an existing Java migration or the db/migration SQL layout proves it; refuses configured locations), 'Create Flyway SQL callback…' (one-comment SQL file in the detected folder) and 'Create Flyway Java callback…' (BaseCallback; not registered). documentation.flyway.dev was unreachable from the agent, so facts are verified by javap/reflection on flyway-core 9.22.3 and 10.22.0 (BaseJavaMigration/BaseCallback abstract methods, Event ids, packages), NOT from docs: the default classpath:db/migration location and runtime acceptance of a comment-only callback are unverified. Duplicate-id and undo/beforeConnect/createSchema events not offered. Compile-checked against both jars. Kotlin not generated.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-317.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-318.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-319.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-520.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-521.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-317",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/flyway.html"
+          ],
+          "referenceClaims": [
+            "G119-C2: Callback name is the return value of getCallbackName() and events go into supports().",
+            "G119-C5: The generated class implements Callback with supports, canHandleInTransaction, handle (TODO) and getCallbackName."
+          ],
+          "claimIds": [
+            "G119-C2",
+            "G119-C5"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/flyway.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-317.json",
+          "test": "jpa_assist --only RS-317",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-318",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/flyway.html"
+          ],
+          "referenceClaims": [
+            "G119-C4: The default package scanned for Java callbacks is db.callback."
+          ],
+          "claimIds": [
+            "G119-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/flyway.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-318.json",
+          "test": "jpa_assist --only RS-318",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-319",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/flyway.html"
+          ],
+          "referenceClaims": [
+            "G119-C1: Flyway Java Callback dialog offers Name, Callback name, Callback event(s), Can handle in transaction, Source root and Package."
+          ],
+          "claimIds": [
+            "G119-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/flyway.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-319.json",
+          "test": "jpa_assist --only RS-319",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-520",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/flyway.html"
+          ],
+          "referenceClaims": [
+            "G119-C3: Can handle in transaction makes canHandleInTransaction() return true."
+          ],
+          "claimIds": [
+            "G119-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/flyway.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-520.json",
+          "test": "jpa_assist --only RS-520",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-521",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/flyway.html"
+          ],
+          "referenceClaims": [
+            "G119-C3: Can handle in transaction makes canHandleInTransaction() return true."
+          ],
+          "claimIds": [
+            "G119-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/flyway.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-521.json",
+          "test": "jpa_assist --only RS-521",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/flyway_misc_action.rs"
       ],
@@ -5611,12 +6554,15 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-317.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-318.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-319.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-319.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-520.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-521.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G119-C1",
             "G119-C2",
+            "G119-C3",
             "G119-C4",
             "G119-C5"
           ],
@@ -5785,7 +6731,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-312.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-313.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G120-C1",
             "G120-C2",
@@ -5811,7 +6757,27 @@
       "baseline": "Missing",
       "finding": "No stack-trace-to-JPA-diff repair action.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-509.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-509.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-510.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G121-C1",
+            "G121-C2"
+          ],
+          "claimsExplicit": [
+            "G121-C1",
+            "G121-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G122",
@@ -5834,20 +6800,79 @@
       "baseline": "Missing",
       "finding": "No entity-based SQL statement configuration UI.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-522.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-522.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G123-C3"
+          ],
+          "claimsExplicit": [
+            "G123-C1",
+            "G123-C2",
+            "G123-C3",
+            "G123-C4"
+          ]
+        }
+      }
     },
     {
       "id": "G124",
       "family": "Database versioning",
       "capability": "Hibernate 6 mappings",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing integration",
       "finding": "Reviewed Java-only Hibernate 6 actions in hibernate_action.rs: 'Create Hibernate user type…' (@Type + UserType<T> sibling; full implementation for String/Integer/Long/Boolean/Double/BigDecimal, others throw UnsupportedOperationException marked in preview), 'Add JSON column mapping' (@JdbcTypeCode(SqlTypes.JSON)), 'Create Hibernate event listener…' (not registered). Hibernate 6.x detected only from a literal hibernate-core 6.x version or Spring Boot 3.x + starter-data-jpa (intermediate Boot pairings inferred). Signatures cross-checked with javap on hibernate-core 6.6.49 and compile-checked there only; 6.0-6.5 and 7 unchecked; dialect JSON support and a JSON library not checked.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-529.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-529",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G124-C1: Hibernate 6 annotations @JdbcType, @JdbcTypeCode, @JdbcTypeRegistration, @Type, @JavaType, @JavaTypeRegistration, @TimeZoneStorage, @TimeZoneColumn are supported."
+          ],
+          "claimIds": [
+            "G124-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-529.json",
+          "test": "jpa_assist --only RS-529",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/hibernate_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-529.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-529.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G124-C1"
+          ],
+          "claimsExplicit": [
+            "G124-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G125",
@@ -5978,7 +7003,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-325.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-326.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G125-C1",
             "G125-C2",
@@ -6010,11 +7035,16 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-236.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-236.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-236.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-526.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-527.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-528.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
-            "G126-C1"
+            "G126-C1",
+            "G126-C3",
+            "G126-C4"
           ],
           "claimsExplicit": [
             "G126-C1",
@@ -6050,7 +7080,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-322.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-323.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G127-C1",
             "G127-C2"
@@ -6067,15 +7097,98 @@
       "id": "G128",
       "family": "Database versioning",
       "capability": "Identifier policy",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Setting identifierPolicy (as-written|lowercase|uppercase; default as-written) applied only in ddl_action::sql (every name quoted, case collisions error); NOT applied to Flyway/Liquibase/migration generators (names come from the cross-referenced baseline snapshot).",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-523.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-524.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-525.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-523",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G128-C1: A max identifier policy limits identifier length (e.g. Oracle pre-12.1 30-byte names)."
+          ],
+          "claimIds": [
+            "G128-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-523.json",
+          "test": "jpa_assist --only RS-523",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-524",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G128-C2: Options control whether foreign key constraints get an index and set the primary key constraint name."
+          ],
+          "claimIds": [
+            "G128-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-524.json",
+          "test": "jpa_assist --only RS-524",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-525",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G128-C2: Options control whether foreign key constraints get an index and set the primary key constraint name."
+          ],
+          "claimIds": [
+            "G128-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-525.json",
+          "test": "jpa_assist --only RS-525",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/ddl_action.rs",
         "plugins/jpa-assist/settings.schema.json"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-523.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-523.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-524.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-525.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G128-C1",
+            "G128-C2"
+          ],
+          "claimsExplicit": [
+            "G128-C1",
+            "G128-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G129",
@@ -6150,7 +7263,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-132.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "G130-C1",
             "G130-C3"
@@ -6170,7 +7283,26 @@
       "baseline": "Missing",
       "finding": "No entity-driven repository-method lookup/create-and-call workflow.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-568.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-568.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-569.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G131-C1"
+          ],
+          "claimsExplicit": [
+            "G131-C1",
+            "G131-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G132",
@@ -6184,7 +7316,28 @@
       "implementation": [
         "plugins/jpa-assist/src/mapper_more_action.rs",
         "plugins/jpa-assist/src/mapper_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-570.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-570.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-571.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G132-C2",
+            "G132-C3"
+          ],
+          "claimsExplicit": [
+            "G132-C1",
+            "G132-C2",
+            "G132-C3"
+          ]
+        }
+      }
     },
     {
       "id": "G133",
@@ -6194,17 +7347,104 @@
       "baseline": "Missing",
       "finding": "No suffix-driven repository/projection/DTO creation actions.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-572.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-572.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-573.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-574.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-575.json"
+          ],
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "claimsCovered": [
+            "G133-C1",
+            "G133-C2",
+            "G133-C3"
+          ],
+          "claimsExplicit": [
+            "G133-C1",
+            "G133-C2",
+            "G133-C3",
+            "G133-C4"
+          ]
+        }
+      }
     },
     {
       "id": "G134",
       "family": "Coding assistance and minimalistic access",
       "capability": "Injection preferences",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "`injectionStyle` setting (constructor|field-autowired|lombok-required-args) only; no naming or other injection preferences.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-132",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html"
+          ],
+          "referenceClaims": [
+            "G134-C2: A setting chooses the bean injection strategy used during code generation."
+          ],
+          "claimIds": [
+            "G134-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+          "test": "jpa_assist --only RS-132",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-576",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html"
+          ],
+          "referenceClaims": [
+            "G134-C1: A setting enables or disables automatic detection of the bean injection type."
+          ],
+          "claimIds": [
+            "G134-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+          "test": "jpa_assist --only RS-576",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-577",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html"
+          ],
+          "referenceClaims": [
+            "G134-C1: A setting enables or disables automatic detection of the bean injection type."
+          ],
+          "claimIds": [
+            "G134-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-577.json",
+          "test": "jpa_assist --only RS-577",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/settings.schema.json"
       ],
@@ -6214,10 +7454,13 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-132.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
+            "G134-C1",
             "G134-C2"
           ],
           "claimsExplicit": [
@@ -7421,7 +8664,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-331.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "S004-C1",
             "S004-C2",
@@ -7545,7 +8788,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
           "claimsCovered": [
             "F005-C1"
           ],

@@ -1,0 +1,53 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-564/prompts.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "path": "artifacts/RS-564/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-564/edits.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G077-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "3bef28fa3869266475cb919c20c666e3b215112ed385b18baabc9c12483acfaa",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action is refused with a message",
+      "detail": "error \"Internal: No linked DTO was found. A type is linked by a name matching dtoNameRegexp (an empty value disables it) or by a Javadoc comment matching dtoCommentLinkRegexp.\"",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G077"
+  ],
+  "scenario": "RS-564",
+  "scenarioSha256": "c4bb7b38140af8f800d034e5c3d055bbef0b1a61ea8bc430ab4c6c4032b40d07",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "3bef28fa3869266475cb919c20c666e3b215112ed385b18baabc9c12483acfaa",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

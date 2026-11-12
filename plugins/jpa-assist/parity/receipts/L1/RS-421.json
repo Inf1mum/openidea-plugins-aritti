@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-421/diagnostics.json",
-      "sha256": "fe488b83bb024d09fb046fb845183edd9741905f73bae8c1bbbb3db75117bc7e"
+      "sha256": "fe1b949f3674e2e463073da84f86da1fdf2a8824942affb7c996381172cd3feb"
     }
   ],
   "changedFiles": [],
@@ -23,7 +23,7 @@
     },
     {
       "check": "diagnostic jpa-hibernate-type src/main/java/com/example/shop/domain/Ticket.java:14",
-      "detail": "62 diagnostics in total",
+      "detail": "63 diagnostics in total",
       "pass": true
     },
     {
@@ -41,5 +41,5 @@
   "setupTreeHash": "447103ceb1984bf3ae1767d8a7a9a292ea5215a8fd2672c81c613dcbf4621919",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

@@ -1,0 +1,56 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-507/completions.json",
+      "sha256": "0f63570952725ca46826ede6c66e489dc412f73c2c4e0831566fe58b7f01f4bf"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G114-C1",
+    "G114-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "5c6cedab41e81b9020632d4d6beba7a3c751cf2e5d621bd2f639b273bff1262e",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "completion",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "completion offers \"client\"",
+      "detail": "2 items: [\"client\", \"client_aud\"]",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"display_name\"",
+      "detail": "2 items",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"invoice\"",
+      "detail": "2 items",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"zzz\"",
+      "detail": "2 items",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G114"
+  ],
+  "scenario": "RS-507",
+  "scenarioSha256": "e52df0cc1b70b10fea717c47f82edd95b78be255a0e451d0e0983838242d3a72",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "5c6cedab41e81b9020632d4d6beba7a3c751cf2e5d621bd2f639b273bff1262e",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

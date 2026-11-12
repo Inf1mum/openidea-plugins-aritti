@@ -1,0 +1,88 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-566/prompts.json",
+      "sha256": "7bea69f90badbe3ae71f3d15d211e70997541a2e0e3c6ae4d76c080a43147eed"
+    },
+    {
+      "path": "artifacts/RS-566/preview.txt",
+      "sha256": "bd67e747f189f90d59d5ac78832ebf9a5cbbf7e99c3a6a6124bb162cea4f93da"
+    },
+    {
+      "path": "artifacts/RS-566/edits.json",
+      "sha256": "640da52e060a0c7c9e63eb0fcec5570cb3a62070720978e7aff6e3b278996ba3"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/ParcelData.java"
+    }
+  ],
+  "claimIds": [
+    "G077-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "461e06bec98a51b6b63759dd35812d7f285ba482d51112dc68b2809fd1cd6306",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 833 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "input \"DTO type name (same package; ending in Data)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Source scalar fields (relationships, embedded and unknown types omitted)\" options [\"id\", \"name\", \"color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"A compatible type with these fields already exists\" options [\"$PROJECT/src/main/java/com/example/shop/dto/CustomerSummary.java\", \"$PROJECT/src/main/java/com/example/shop/dto/CustomerDto.java\", \"create-new\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "confirm \"Create source-derived scalar DTO?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/ParcelData.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 28f50e2e55b7cab72bac597916e784d7e13e46c316cb7de09e99d0bf9a9f3d8a vs setup 28f50e2e55b7cab72bac597916e784d7e13e46c316cb7de09e99d0bf9a9f3d8a; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G077"
+  ],
+  "scenario": "RS-566",
+  "scenarioSha256": "7fa956423955d2f2fb3548de2d0d724b316596c6aa3bf3d50feef160e6fa453f",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "28f50e2e55b7cab72bac597916e784d7e13e46c316cb7de09e99d0bf9a9f3d8a",
+  "status": "pass",
+  "treeHashAfterRestore": "28f50e2e55b7cab72bac597916e784d7e13e46c316cb7de09e99d0bf9a9f3d8a",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

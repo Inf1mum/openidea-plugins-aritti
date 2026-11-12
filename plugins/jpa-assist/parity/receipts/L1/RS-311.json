@@ -2,11 +2,11 @@
   "artifacts": [
     {
       "path": "artifacts/RS-311/prompts.json",
-      "sha256": "2e84f39f6ed905f01061d5654f03d86082fa80296518cebd0cc708234125753a"
+      "sha256": "5913c50bff1fce281a1158702b48b2e3ee981c9348852234c6cc9638d9927f71"
     },
     {
       "path": "artifacts/RS-311/preview.txt",
-      "sha256": "9d800bcdecf11b926b67a7187dfa07143eb66bd00bfaeda130ef0d0644f5515e"
+      "sha256": "41767c9cc3d695501d8b9d2d0dec783a6374f823682055253b80f21ee11e1889"
     },
     {
       "path": "artifacts/RS-311/edits.json",
@@ -59,5 +59,5 @@
   "setupTreeHash": "2996685f8719950927c38098625c891489d8b57324955b054f83345f5adf6417",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
 }

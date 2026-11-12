@@ -1,0 +1,82 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-576/prompts.json",
+      "sha256": "ecc680a5e9a653d13611bff9e336833b0f9cdca1df40ce296e565ed56f76b120"
+    },
+    {
+      "path": "artifacts/RS-576/preview.txt",
+      "sha256": "c88cc0a0a38417ce3a6f5356b431faae28b56bd777b352f70018e959ab89c353"
+    },
+    {
+      "path": "artifacts/RS-576/edits.json",
+      "sha256": "c4e500a86b0e20671c204f0a94cd64a3f7bf2272626f43506e0919975faf4a4d"
+    },
+    {
+      "path": "artifacts/RS-576/result-src__main__java__com__example__shop__service__ParcelService.java",
+      "sha256": "b9a9379202a358fa2b730c9222825e413345080ff857904c1442da3a5a4a0af7"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/service/ParcelService.java"
+    }
+  ],
+  "claimIds": [
+    "G134-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "4a6347c935b5d92efd5962a7aadbc29cd76da5fb4bab8f27cf01dcb5d34abbe9",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 848 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Repository to inject\" options [\"0\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Inject repository?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/service/ParcelService.java",
+      "detail": "450 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 658d56bcc77f1200200caf976de5c725d6ec48bec517bf084faf5ff95c2789a7 vs setup 658d56bcc77f1200200caf976de5c725d6ec48bec517bf084faf5ff95c2789a7; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G134"
+  ],
+  "scenario": "RS-576",
+  "scenarioSha256": "f36bf50e34d7b7589ba7ce895b7e17ba7f30a4b0e1a46471560989fa625c75fb",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "658d56bcc77f1200200caf976de5c725d6ec48bec517bf084faf5ff95c2789a7",
+  "status": "pass",
+  "treeHashAfterRestore": "658d56bcc77f1200200caf976de5c725d6ec48bec517bf084faf5ff95c2789a7",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-582/diagnostics.json",
+      "sha256": "ab5561ef0c98acb750c1a4f959c35bc7cf93132f1ecd952a7bfc2e92d33dfb10"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "fixtureTreeHashAfter": "bf5d453abd537dedf58bf89463d5b5c8dca57b3b857af82b26dfba03aa3ad2c4",
+  "fixtureTreeHashBefore": "c3474627b665c9d01c13e23904197e8ffbd21fb283d0e904c35688a3e2c23249",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-redundant-open src/main/kotlin/com/example/shop/w2/Gadget.kt:null",
+      "detail": "11 diagnostics in total",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-582",
+  "scenarioSha256": "426c79e7ac139422843a1114a2c30ed071ffd6d0e96cd1099b39cac9c5ed853f",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "bf5d453abd537dedf58bf89463d5b5c8dca57b3b857af82b26dfba03aa3ad2c4",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

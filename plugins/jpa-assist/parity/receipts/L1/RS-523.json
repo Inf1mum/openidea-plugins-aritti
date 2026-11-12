@@ -1,0 +1,98 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-523/prompts.json",
+      "sha256": "e2bb0b47dc201262d219bc7efd910004b2c8cbdd60d75b46a5bcf94f98db1300"
+    },
+    {
+      "path": "artifacts/RS-523/preview.txt",
+      "sha256": "50e316c6db41e35aa6e071bff335b487b68e50f3dee11e59255e3bae105cd758"
+    },
+    {
+      "path": "artifacts/RS-523/edits.json",
+      "sha256": "c40114f6326b960a22a966c2eaef97803ab144ad8e665bd28e8e61acf95ca238"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/ParcelSchema.sql"
+    }
+  ],
+  "claimIds": [
+    "G128-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "7685974793bb4d13619a8c04e5b8e8b2ebded449ac15860cbd457ceb78e708ed",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1357 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/billing/domain/ParcelSchema.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 6521f5c91f149e9d06dd86143aefc11a91aee1d19aa74534b441de40ea3243d0 vs setup 6521f5c91f149e9d06dd86143aefc11a91aee1d19aa74534b441de40ea3243d0; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G128"
+  ],
+  "scenario": "RS-523",
+  "scenarioSha256": "1dee0850b33c5aee2bba190fd20a81d60fb445f9bb51e4c0f86e798fb01b249a",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "6521f5c91f149e9d06dd86143aefc11a91aee1d19aa74534b441de40ea3243d0",
+  "status": "pass",
+  "treeHashAfterRestore": "6521f5c91f149e9d06dd86143aefc11a91aee1d19aa74534b441de40ea3243d0",
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}

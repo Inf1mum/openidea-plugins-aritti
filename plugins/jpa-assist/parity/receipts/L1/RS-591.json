@@ -1,0 +1,41 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-591/diagnostics.json",
+      "sha256": "4032ecd861e05911727a1d44f2cf37a1e74d5371d973abff964f8dba8aecf4ed"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "782ce6e42f158a494e7377516d7d6e3740824ed7558b3faaf28976ef3ae6db7e",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-xml-class-not-persistent src/main/resources/META-INF/persistence.xml:null",
+      "detail": "64 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-xml-class-unknown src/main/resources/META-INF/persistence.xml:null",
+      "detail": "64 diagnostics in total",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-591",
+  "scenarioSha256": "259945eaa6ca09054dbbbe2e264255d80af2445eb334af7ce08b195e7e97beb4",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "782ce6e42f158a494e7377516d7d6e3740824ed7558b3faaf28976ef3ae6db7e",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+}
