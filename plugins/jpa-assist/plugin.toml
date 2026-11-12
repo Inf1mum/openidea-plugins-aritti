@@ -27,6 +27,10 @@ languages = ["sql"]
 kinds = ["code-actions"]
 languages = ["properties"]
 
+[[contributes.providers]]
+kinds = ["code-actions"]
+languages = ["plaintext", "log"]
+
 [[contributes.views]]
 id = "structure"
 title = "Persistence"

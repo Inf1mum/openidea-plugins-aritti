@@ -34,6 +34,16 @@ mod ddl_todo_action;
 pub(crate) mod migration_action;
 #[path = "liquibase_action.rs"]
 mod liquibase_action;
+#[path = "danger_levels.rs"]
+pub(crate) mod danger_levels;
+#[path = "rename_merge.rs"]
+mod rename_merge;
+#[path = "entity_scope.rs"]
+mod entity_scope;
+#[path = "change_routing.rs"]
+mod change_routing;
+#[path = "schema_repair_action.rs"]
+mod schema_repair_action;
 #[path = "template_settings.rs"]
 mod template_settings;
 #[path = "envers_action.rs"]
@@ -158,6 +168,7 @@ enum Operation {
     RevisionRepository,
     EnableEnversRepositories,
     EntityViewRepository,
+    SchemaRepair,
 }
 impl Operation {
     fn key(self) -> &'static str {
@@ -189,6 +200,7 @@ impl Operation {
             Self::SchemaBaseline => "schema-baseline",
             Self::FlywayMigration => "flyway-migration",
             Self::LiquibaseChangelog => "liquibase-changelog",
+            Self::SchemaRepair => "schema-repair",
             Self::EnversToggle => "envers-toggle",
             Self::EnversRevision => "envers-revision",
             Self::EntityGraph => "entity-graph",
@@ -460,6 +472,9 @@ fn resolve_lombok(pending: &Pending, doc: &Document) -> Result<FileAction, Error
 
 impl FileActions for JpaAssist {
     fn file_actions(&mut self, doc: &Document, selection: Range) -> Vec<FileAction> {
+        if let Some(actions) = schema_repair_action::actions(&mut self.generation, doc, selection) {
+            return actions;
+        }
         if let Some(actions) = datasource_action::actions(&mut self.generation, doc, selection) {
             return actions;
         }
@@ -769,6 +784,7 @@ impl FileActions for JpaAssist {
             Operation::DdlEntities => ddl_entities_action::resolve(&pending, doc, &project),
             Operation::TodoUncomment => ddl_todo_action::resolve(&pending, doc, true),
             Operation::TodoRemove => ddl_todo_action::resolve(&pending, doc, false),
+            Operation::SchemaRepair => schema_repair_action::resolve(&pending, doc, &project),
             Operation::SchemaBaseline => migration_action::resolve_baseline(&pending, doc, &project),
             Operation::FlywayMigration => migration_action::resolve_migration(&pending, doc, &project),
             Operation::LiquibaseChangelog => liquibase_action::resolve(&pending, doc, &project),

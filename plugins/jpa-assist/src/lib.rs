@@ -23,6 +23,8 @@ mod generate;
 pub(crate) const REPOSITORY_MARKER: &str = "icons/marker-repository.svg";
 
 mod live;
+#[path = "liquibase_completion.rs"]
+mod liquibase_completion;
 mod lombok_checks;
 mod local_graph;
 mod local_callbacks;
@@ -1447,6 +1449,7 @@ impl Plugin for JpaAssist {
 
             if let Ok(root) = project.root() {
                 self.live.update(&root, path, &text);
+                liquibase_completion::invalidate(&root);
                 self.repository_completion.observe(&root, path, &text);
             }
         }
@@ -1496,6 +1499,9 @@ impl Providers for JpaAssist {
         if doc.language=="jpql" {return jpql_language::completion(doc,at);}
 
         if doc.path.ends_with(".xml") {
+            if let Some(items) = liquibase_completion::complete(doc, at) {
+                return items;
+            }
             return self.class_element_completion(doc, at);
         }
 

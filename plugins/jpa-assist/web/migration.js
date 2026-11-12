@@ -4,6 +4,7 @@
   const $ = id => document.getElementById(id);
   const labels = {safe: 'Safe', rewrite: 'Rewrite', 'needs-backfill': 'NeedsBackfill', 'data-loss': 'DataLoss', ambiguous: 'Ambiguous'};
   const tones = {safe: 'success', rewrite: 'warning', 'needs-backfill': 'warning', 'data-loss': 'danger', ambiguous: 'info'};
+  const levelTones = {SAFE: 'success', CAUTION: 'warning', DANGER: 'danger'};
   const renameKey = c => JSON.stringify([c.table, c.from, c.to]);
   let backfillSeq = 0;
   const backfillKey = c => JSON.stringify([c.backfill.table, c.backfill.column]);
@@ -44,7 +45,7 @@
   function renderRow(item) {
     const row = el('li', undefined, 'migration-row');
     const head = el('div', undefined, 'migration-row-head');
-    head.append(el('span', labels[item.danger] || item.danger, `ui-badge ui-badge--${tones[item.danger] || 'info'}`), el('strong', `${item.kind} ${item.detail}`.trim()));
+    head.append(el('span', item.level || labels[item.danger] || item.danger, `ui-badge ui-badge--${levelTones[item.level] || tones[item.danger] || 'info'}`), el('strong', `${item.kind} ${item.detail}`.trim()));
     row.append(head, el('p', item.reason, 'ui-help'));
     if (item.kind === 'rename-candidate') {
       const label = el('label', undefined, 'ui-check'), box = document.createElement('input');

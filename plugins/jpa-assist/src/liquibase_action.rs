@@ -307,10 +307,16 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     ];
     let picked = host::pick_many("Also emit changes withheld by default (each is marked in the preview)", &withheld)?.ok_or(Error::Cancelled)?;
     let mut emit = EmitOptions { allow: describe_options(&picked)?, ..EmitOptions::default() };
+    let mut routing = crate::file_actions::change_routing::split(&mut prepared.plan)?;
     ask_custom_types(&mut prepared.plan)?;
     apply_default_lengths(&mut prepared.plan);
+    ask_custom_types(&mut routing.secondary)?;
+    apply_default_lengths(&mut routing.secondary);
     let (plan, model, baseline) = (&prepared.plan, &prepared.model.snapshot, &prepared.baseline);
+    crate::file_actions::rename_merge::ask_renames(plan, &mut emit)?;
+    crate::file_actions::rename_merge::ask_renames(&routing.secondary, &mut emit)?;
     ask_backfills(plan, &mut emit)?;
+    ask_backfills(&routing.secondary, &mut emit)?;
     let author = host::input("changeSet author", Some("jpa-assist"))?.ok_or(Error::Cancelled)?;
     let id_prefix = host::input("changeSet id prefix (ids are <prefix>-<n>)", Some(&located.sequence))?.ok_or(Error::Cancelled)?;
     let description = host::input("Changelog description (ASCII letters and digits)", Some(if init { "init" } else { "jpa_model_changes" }))?.ok_or(Error::Cancelled)?;
@@ -328,6 +334,8 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         id_prefix: id_prefix.trim().to_owned(),
         defaults: template_settings::changeset_defaults()?,
     };
+    let secondary_base = options.clone();
+    let options = crate::file_actions::change_routing::primary_options(plan, &options);
     let emitted = liquibase::emit_xml(plan, &options).map_err(|e| Error::from(format!("The changelog cannot be generated: {e:?}")))?;
     if emitted.emitted() == 0 {
         return Err("Every change is withheld or unsupported; there is nothing to write. Adjust the options or the model.".into());
@@ -360,6 +368,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let appending = existing.is_some() || project.exists(&target)?;
     let text = emitted.render();
     let next_baseline = prepared.next_baseline.clone();
+    let secondary = crate::file_actions::change_routing::secondary_file(project, root, &routing, &secondary_base, &located.directory, &name)?;
 
     let (target_line, content, append) = match (&existing, appending) {
         (Some(existing), _) => {
@@ -399,6 +408,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         (Link::IncludeAll { path }, None) => format!("The master {} includes the directory '{path}' with includeAll, so no include line is needed.\n", located.master),
     };
     let kind = if init { "No baseline exists: this is an INIT changelog of the whole model (every table as createTable).\n" } else { "" };
+    let kind = format!("{kind}{}", crate::file_actions::change_routing::preview(&routing, secondary.as_ref()));
     let preview = format!(
         "{kind}{target_line}\nPlan: {}\nChangeSets: {} emitted, {} withheld by policy, {} unsupported\n{linking}\n{}:\n{content}\nAlso creates {next_path} ({} tables, deterministic serialization of this scan). The plugin never overwrites files: afterwards move it over {baseline_path} to {} the baseline; until then this action refuses. Nothing is executed.",
         summary(plan),
@@ -422,12 +432,16 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         return Err(Error::Stale);
     }
     absent(project, &next_path)?;
+    if let Some(file) = &secondary {
+        absent(project, &file.path)?;
+    }
     let create_next = FileOperation::Create { path: next_path, text: next_baseline, overwrite: false };
+    let secondary_create = secondary.map(|file| FileOperation::Create { path: file.path, text: file.text, overwrite: false });
     if let Some(edit) = append {
         return Ok(FileAction {
             title: format!("Append to Liquibase changelog {name}"),
             kind: Some("refactor.rewrite".into()),
-            operations: vec![create_next],
+            operations: std::iter::once(create_next).chain(secondary_create).collect(),
             edits: vec![(target.clone(), vec![edit])],
             open: Some(target),
             ..FileAction::default()
@@ -443,7 +457,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     Ok(FileAction {
         title: format!("Create Liquibase changelog {name}"),
         kind: Some("refactor.rewrite".into()),
-        operations: vec![FileOperation::Create { path: target.clone(), text, overwrite: false }, create_next],
+        operations: [FileOperation::Create { path: target.clone(), text, overwrite: false }, create_next].into_iter().chain(secondary_create).collect(),
         open: Some(target),
         ..FileAction::default()
     })

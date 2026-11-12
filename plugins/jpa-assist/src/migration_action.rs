@@ -42,6 +42,11 @@ pub(crate) fn scan(project: &Project, root: &str) -> Result<SchemaSnapshot, Erro
 }
 
 pub(crate) fn scan_scoped(project: &Project, root: &str, scope: &Scope) -> Result<ScopedSnapshot, Error> {
+    let docs = model_docs(project, root)?;
+    Ok(crate::schema_snapshot::snapshot_configured(&docs, scope, &crate::naming_strategy::detect(project), &EnversConfig::detect(project)))
+}
+
+pub(crate) fn model_docs(project: &Project, root: &str) -> Result<Vec<Document>, Error> {
     let deadline = Instant::now() + Duration::from_secs(SCAN_SECONDS);
     let mut docs = Vec::new();
     let mut total = 0usize;
@@ -69,12 +74,17 @@ pub(crate) fn scan_scoped(project: &Project, root: &str, scope: &Scope) -> Resul
             docs.push(Document { path: file, language: language.into(), text, version: 0 });
         }
     }
-    Ok(crate::schema_snapshot::snapshot_configured(&docs, scope, &crate::naming_strategy::detect(project), &EnversConfig::detect(project)))
+    Ok(docs)
 }
 
 /// With several persistence units a run is per unit (JetBrains database versioning help: "A persistence unit must be
 /// selected"); with one or none the whole project is the scope and nothing is asked.
 pub(crate) fn choose_scope(project: &Project, root: &str) -> Result<Scope, Error> {
+    let unit = choose_unit_scope(project, root)?;
+    crate::file_actions::entity_scope::narrow(project, root, unit)
+}
+
+fn choose_unit_scope(project: &Project, root: &str) -> Result<Scope, Error> {
     let units: Vec<_> = crate::structure_related::units(project).into_iter().filter(|u| !crate::naming_strategy::skipped(&u.path)).collect();
     if units.len() < 2 {
         return Ok(Scope::All);
@@ -91,6 +101,7 @@ pub(crate) fn scope_unit(scope: &Scope) -> Option<&str> {
     match scope {
         Scope::All => None,
         Scope::Unit { name, .. } => Some(name),
+        Scope::Entities { base, .. } => scope_unit(base),
     }
 }
 
@@ -125,6 +136,7 @@ impl Prepared {
 }
 
 pub(crate) fn prepare(project: &Project, root: &str, output: &str, nothing: &str) -> Result<Prepared, Error> {
+    crate::file_actions::danger_levels::overrides()?;
     let baseline_path = target_in_root(project, root, BASELINE)?;
     let next_path = target_in_root(project, root, BASELINE_NEXT)?;
     if project.exists(&next_path)? || read_optional(project, &next_path)?.is_some() {
@@ -142,6 +154,7 @@ pub(crate) fn prepare(project: &Project, root: &str, output: &str, nothing: &str
                 )
                 .into());
             }
+            crate::file_actions::entity_scope::check_baseline(text, &scope)?;
             crate::schema_snapshot::snapshot_from_json(text).map_err(|e| Error::from(format!("The schema baseline is unreadable: {e}")))?
         }
         None => SchemaSnapshot::default(),
@@ -526,7 +539,7 @@ pub(super) fn summary(plan: &schema::ChangePlan) -> String {
         count(Danger::DataLoss),
         count(Danger::Ambiguous),
         plan.notes.len()
-    )
+    ) + &format!("\n{}", crate::file_actions::danger_levels::listing(plan, &crate::file_actions::danger_levels::overrides().unwrap_or_default()))
 }
 
 const BACKFILL_ATTEMPTS: usize = 3;
@@ -602,6 +615,7 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
     }
     ask_custom_types(&mut prepared.plan)?;
     let (plan, model, baseline) = (&prepared.plan, &prepared.model.snapshot, &prepared.baseline);
+    crate::file_actions::rename_merge::ask_renames(plan, &mut options)?;
     ask_backfills(plan, &mut options)?;
     let description = host::input("Migration description (ASCII letters and digits)", Some(if init { "init" } else { "jpa_model_changes" }))?.ok_or(Error::Cancelled)?;
     let description = naming::style_description(&description, template_settings::description_style()?);

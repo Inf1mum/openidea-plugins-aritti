@@ -1,0 +1,163 @@
+{
+  "id": "RS-504",
+  "rows": [
+    "G109"
+  ],
+  "claimIds": [
+    "G109-C2",
+    "G109-C3"
+  ],
+  "verifies": {
+    "G109-C2": "after renaming Client.email to mail the action offers the drop+add pair as a rename candidate; accepting it writes one RENAME COLUMN statement (the headless prompt replaces selecting the related statements in the preview window); type-change merging into one modify statement is not offered because a type change is already a single statement",
+    "G109-C3": "after the merge the redundant DROP COLUMN email and ADD COLUMN mail are not in the script"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    @Column(length = 160)\n    private String email;",
+        "to": "    @Column(length = 160)\n    private String mail;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "pick": "merge"
+    },
+    {
+      "pick": "merge"
+    },
+    {
+      "input": "rename_email"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "dialect",
+        "optionsInclude": [
+          "postgresql",
+          "mysql"
+        ],
+        "name": "dialect without a database connection"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "withheld",
+        "optionsInclude": [
+          "needs-backfill",
+          "data-loss"
+        ],
+        "name": "opt-in to withheld statements"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "merge into a rename",
+        "optionsInclude": [
+          "keep",
+          "merge"
+        ],
+        "name": "rename merge accepted"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "merge into a rename",
+        "name": "rename merge for the audit table accepted"
+      },
+      {
+        "kind": "input",
+        "titleContains": "description",
+        "name": "migration description"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Date for the file name",
+        "name": "date for the #date token"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "incomplete",
+        "name": "unknown facts reported"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Create Flyway migration",
+        "messageContains": "Exact SQL file",
+        "name": "preview before saving"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V20240131__rename_email.sql"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/resources/db/migration/V20240131__rename_email.sql",
+      "matches": [
+        "ALTER TABLE \"client\" RENAME COLUMN \"email\" TO \"mail\";",
+        "ALTER TABLE \"client_aud\" RENAME COLUMN \"email\" TO \"mail\";"
+      ],
+      "notContains": [
+        "DROP COLUMN \"email\"",
+        "ADD COLUMN \"mail\""
+      ]
+    }
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V20240131__rename_email.sql"
+      ]
+    },
+    "undo": true
+  },
+  "note": "Merging a rename candidate in the Flyway migration."
+}
