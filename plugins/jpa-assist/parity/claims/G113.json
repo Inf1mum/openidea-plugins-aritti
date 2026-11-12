@@ -6,6 +6,41 @@
    "url": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
    "retrievedOn": "2026-11-12",
    "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://docs.liquibase.com/concepts/changelogs/attributes/home.html",
+   "retrievedOn": "2026-11-13",
+   "note": "changeSet attribute reference, WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://docs.liquibase.com/concepts/changelogs/attributes/dbms.html",
+   "retrievedOn": "2026-11-13",
+   "note": "dbms attribute page, database short-name list (paraphrase)"
+  },
+  {
+   "url": "https://docs.liquibase.com/concepts/changelogs/attributes/contexts.html",
+   "retrievedOn": "2026-11-13",
+   "note": "contexts attribute page (paraphrase)"
+  },
+  {
+   "url": "https://docs.liquibase.com/concepts/changelogs/attributes/labels.html",
+   "retrievedOn": "2026-11-13",
+   "note": "labels attribute page (paraphrase)"
+  },
+  {
+   "url": "https://docs.liquibase.com/concepts/changelogs/preconditions.html",
+   "retrievedOn": "2026-11-13",
+   "note": "preconditions page, onFail/onError values (paraphrase)"
+  },
+  {
+   "url": "https://docs.liquibase.com/change-types/create-sequence.html",
+   "retrievedOn": "2026-11-13",
+   "note": "createSequence/alterSequence/dropSequence/modifyDataType/addNotNullConstraint attribute lists (paraphrase)"
+  },
+  {
+   "url": "audit/jpa-buddy-263.7307.112/",
+   "retrievedOn": "2026-11-13",
+   "note": "decompiled original, read-only behavioural reference (source-reading); nothing copied"
   }
  ],
  "claims": [
@@ -26,10 +61,121 @@
    "strength": "implied",
    "ourFeature": "liquibase_action.rs",
    "verifiableHeadless": false
+  },
+  {
+   "id": "G113-C3",
+   "statement": "For the changeSet or change under the caret, the inspector offers its dbms attribute as an editable choice among the known database types and a blank entry that clears it; the value need not be on the list.",
+   "supports": "LiquibaseDbmsItem options list with a null entry, not strict; LiquibaseDbmsDescriptor offers it only where the tag has a dbms attribute",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseDbmsItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set changeSet dbms…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/concepts/changelogs/attributes/dbms.html"
+   ]
+  },
+  {
+   "id": "G113-C4",
+   "statement": "The inspector offers the context attribute as an editable choice among the contexts already used in the project and a blank entry that clears it; free text is accepted.",
+   "supports": "LiquibaseContextItem collects contexts through the project searcher, null entry, not strict",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseContextItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set changeSet contexts…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/concepts/changelogs/attributes/contexts.html"
+   ]
+  },
+  {
+   "id": "G113-C5",
+   "statement": "The inspector offers the labels attribute as an editable choice among the labels already used in the project and a blank entry that clears it; free text is accepted.",
+   "supports": "LiquibaseLabelsItem collects labels through the project searcher, null entry, not strict",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseLabelsItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set changeSet labels…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/concepts/changelogs/attributes/labels.html"
+   ]
+  },
+  {
+   "id": "G113-C6",
+   "statement": "Boolean attributes of the selected tag (for a changeSet runAlways, runOnChange, failOnError and the like) are edited as true/false values written into the tag; a value equal to the schema default removes the attribute.",
+   "supports": "LiquibaseBooleanExpItem writes the attribute, or nothing when equal to the default; items come from the tag's schema attributes",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseBooleanExpItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set changeSet run options…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/concepts/changelogs/attributes/home.html"
+   ]
+  },
+  {
+   "id": "G113-C7",
+   "statement": "Attributes with a fixed set of allowed values (such as onFail and onError of a precondition) are edited as a choice among exactly those values with a blank entry that clears the attribute.",
+   "supports": "LiquibaseOptionsItem built from the schema enumeration with a null entry; the tag loader creates one per enumerated attribute",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseOptionsItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set preConditions onFail and onError…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/concepts/changelogs/preconditions.html"
+   ]
+  },
+  {
+   "id": "G113-C8",
+   "statement": "The column type of a column element (type), of modifyDataType (newDataType) and of addNotNullConstraint (columnDataType) is edited as a choice among known data types, a blank entry clears it, and other text is accepted.",
+   "supports": "LiquibaseColumnTypeDescription maps these three tags to their type attribute; LiquibaseColumnTypeItem lists data types, not strict",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseColumnTypeDescription.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set changeSet column type…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/change-types/create-sequence.html"
+   ]
+  },
+  {
+   "id": "G113-C9",
+   "statement": "Sequence-name attributes of the selected tag are edited as a choice among the sequence names known to the project; other text is accepted.",
+   "supports": "LiquibaseSequenceNameDescriptor/Item: options from the reference manager's sequence names, not strict",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseSequenceNameItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Set changeSet sequence name…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading",
+   "docSources": [
+    "https://docs.liquibase.com/change-types/create-sequence.html"
+   ]
+  },
+  {
+   "id": "G113-C10",
+   "statement": "Clearing an inspector text value removes the attribute from the tag instead of writing an empty value.",
+   "supports": "LiquibaseAttributeValueItem.setValue_ writes null for an empty value or the default",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseAttributeValueItem.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (the remove-attribute choice of each Set action)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading"
+  },
+  {
+   "id": "G113-C11",
+   "statement": "The inspector offers a delete action that removes the selected changelog tag and moves the caret to the next sibling tag, or to the end of the previous one.",
+   "supports": "DeleteTagAction deletes the selected PSI tag, then repositions the caret",
+   "source": "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/action/DeleteTagAction.java",
+   "strength": "explicit",
+   "ourFeature": "liquibase_inspector.rs (Remove this changeSet…, Remove this change…)",
+   "verifiableHeadless": true,
+   "referenceType": "source-reading"
   }
  ],
  "undocumented": [
   "no changelog inspector or structured change editor is described on the fetched pages"
  ],
- "verdict": "none"
+ "verdict": "documented"
 }

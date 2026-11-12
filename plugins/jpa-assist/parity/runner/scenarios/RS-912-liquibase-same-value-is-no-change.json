@@ -1,0 +1,45 @@
+{
+  "id": "RS-912",
+  "rows": [
+    "G113"
+  ],
+  "claimIds": [
+    "G113-C5"
+  ],
+  "verifies": {
+    "G113-C5": "typing the labels the changeSet already has is refused as no change, so the edit is idempotent; the choice among known values is not exercised."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/resources/db/changelog/inspector.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n    <changeSet id=\"1\" author=\"a\" context=\"dev\" labels=\"v1,v2\">\n        <createTable tableName=\"note\">\n            <column name=\"id\" type=\"int\"/>\n        </createTable>\n        <createSequence sequenceName=\"note_seq\"/>\n    </changeSet>\n    <changeSet id=\"2\" author=\"a\">\n        <preConditions onFail=\"HALT\"><tableExists tableName=\"note\"/></preConditions>\n        <modifyDataType tableName=\"note\" columnName=\"id\" newDataType=\"bigint\"/>\n    </changeSet>\n</databaseChangeLog>\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/resources/db/changelog/inspector.xml",
+    "anchor": "changeSet id=\"1\""
+  },
+  "action": {
+    "title": "Set changeSet labels\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "type"
+    },
+    {
+      "input": "v1,v2"
+    }
+  ],
+  "expect": {
+    "resolveErrorContains": "nothing to change",
+    "noFilesChanged": true
+  },
+  "checks": {
+    "cancelEach": false
+  },
+  "note": "Same value."
+}

@@ -44,6 +44,8 @@ mod rename_merge;
 mod entity_scope;
 #[path = "change_routing.rs"]
 pub(crate) mod change_routing;
+#[path = "liquibase_inspector.rs"]
+pub(crate) mod liquibase_inspector;
 #[path = "schema_repair_action.rs"]
 mod schema_repair_action;
 #[path = "template_settings.rs"]
@@ -181,6 +183,7 @@ enum Operation {
     SchemaBaseline,
     FlywayMigration,
     LiquibaseChangelog,
+    LiquibaseInspector(liquibase_inspector::Item),
     EnversToggle,
     EnversRevision,
     EntityGraph,
@@ -265,6 +268,7 @@ impl Operation {
             Self::SchemaBaseline => "schema-baseline",
             Self::FlywayMigration => "flyway-migration",
             Self::LiquibaseChangelog => "liquibase-changelog",
+            Self::LiquibaseInspector(_) => "liquibase-inspector",
             Self::SchemaRepair => "schema-repair",
             Self::EnversToggle => "envers-toggle",
             Self::EnversRevision => "envers-revision",
@@ -549,6 +553,9 @@ fn resolve_lombok(pending: &Pending, doc: &Document) -> Result<FileAction, Error
 
 impl FileActions for JpaAssist {
     fn file_actions(&mut self, doc: &Document, selection: Range) -> Vec<FileAction> {
+        if let Some(actions) = liquibase_inspector::actions(&mut self.generation, doc, selection) {
+            return actions;
+        }
         if let Some(actions) = schema_repair_action::actions(&mut self.generation, doc, selection) {
             return actions;
         }
@@ -895,6 +902,7 @@ impl FileActions for JpaAssist {
             Operation::SchemaBaseline => migration_action::resolve_baseline(&pending, doc, &project),
             Operation::FlywayMigration => migration_action::resolve_migration(&pending, doc, &project),
             Operation::LiquibaseChangelog => liquibase_action::resolve(&pending, doc, &project),
+            Operation::LiquibaseInspector(item) => liquibase_inspector::resolve(&pending, doc, item),
             Operation::EnversToggle => envers_action::resolve_toggle(&pending, doc, &project),
             Operation::EnversRevision => envers_action::resolve_revision(&pending, doc, &project),
             Operation::EntityGraph => entity_graph_action::resolve(&pending, doc, &project),

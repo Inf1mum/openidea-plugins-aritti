@@ -1,0 +1,53 @@
+{
+  "id": "RS-908",
+  "rows": [
+    "G113"
+  ],
+  "claimIds": [
+    "G113-C11"
+  ],
+  "verifies": {
+    "G113-C11": "the changeSet at the caret is removed with an exact preview. Moving the caret afterwards is an editor behaviour that is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/resources/db/changelog/inspector.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n    <changeSet id=\"1\" author=\"a\" context=\"dev\" labels=\"v1,v2\">\n        <createTable tableName=\"note\">\n            <column name=\"id\" type=\"int\"/>\n        </createTable>\n        <createSequence sequenceName=\"note_seq\"/>\n    </changeSet>\n    <changeSet id=\"2\" author=\"a\">\n        <preConditions onFail=\"HALT\"><tableExists tableName=\"note\"/></preConditions>\n        <modifyDataType tableName=\"note\" columnName=\"id\" newDataType=\"bigint\"/>\n    </changeSet>\n</databaseChangeLog>\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/resources/db/changelog/inspector.xml",
+    "anchor": "changeSet id=\"2\""
+  },
+  "action": {
+    "title": "Remove this changeSet\u2026"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/resources/db/changelog/inspector.xml",
+      "notContains": [
+        "modifyDataType",
+        "id=\"2\""
+      ],
+      "contains": [
+        "id=\"1\""
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Remove the second changeSet."
+}

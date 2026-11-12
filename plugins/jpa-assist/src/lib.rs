@@ -1573,6 +1573,9 @@ impl Providers for JpaAssist {
         if doc.language=="jpql" {return jpql_language::completion(doc,at);}
 
         if doc.path.ends_with(".xml") {
+            if let Some(items) = file_actions::liquibase_inspector::complete(doc, at) {
+                return items;
+            }
             if let Some(items) = liquibase_completion::complete(doc, at) {
                 return items;
             }
