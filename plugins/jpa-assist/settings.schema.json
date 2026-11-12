@@ -18,6 +18,37 @@
       "enum": ["IGNORE", "WARN", "ERROR"],
       "default": "WARN"
     },
+    "mapperToDtoPattern": {
+      "type": "string",
+      "title": "Mapper Declaration: method name of generated entity-to-DTO mapping methods (a Java method name)",
+      "default": "toDto"
+    },
+    "mapperToEntityPattern": {
+      "type": "string",
+      "title": "Mapper Declaration: method name of generated DTO-to-entity mapping methods (a Java method name)",
+      "default": "toEntity"
+    },
+    "mapperUpdatePattern": {
+      "type": "string",
+      "title": "Mapper Declaration: method name of generated update (partial update) mapping methods (a Java method name)",
+      "default": "updateEntity"
+    },
+    "mapperCollectionNaming": {
+      "type": "string",
+      "title": "Mapper Declaration: naming strategy for collection mapping methods (plural: toDtos; same: the single-object name; collection-type: toDtoList)",
+      "enum": ["plural", "same", "collection-type"],
+      "default": "plural"
+    },
+    "dtoNameRegexp": {
+      "type": "string",
+      "title": "DTO Declaration: class name regexp linking a DTO to its entity by type name; needs an (?<entity>...) group holding the entity simple name, empty disables",
+      "default": ""
+    },
+    "dtoCommentLinkRegexp": {
+      "type": "string",
+      "title": "DTO Declaration: comment link regexp linking a DTO to its entity through its Javadoc; needs an (?<entity>...) group holding the entity name or qualified name, empty disables",
+      "default": ""
+    },
     "queryFindPrefix": {
       "type": "string",
       "title": "Subject prefix for generated find query methods (Spring Data query subject keywords find, read, get, query, search; count, exists and delete are unaffected)",

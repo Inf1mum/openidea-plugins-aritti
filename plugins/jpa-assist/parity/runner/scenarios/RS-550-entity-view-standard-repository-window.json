@@ -1,0 +1,109 @@
+{
+  "id": "RS-550",
+  "rows": [
+    "G074"
+  ],
+  "claimIds": [
+    "G074-C6"
+  ],
+  "verifies": {
+    "G074-C6": "with the Blaze-Persistence Spring Data integration declared in the build and an entity view of the entity in the project (created by a preAction), the standard repository action Create Spring Data repository with options first asks Repository for (the entity or the entity view) and, when the view is chosen, creates a repository extending EntityViewRepository<WidgetView, Long>. Without Blaze or without a view the prompt is absent (unit tests). The original shows the view choice inside one window with the other repository options; here it is a leading choice and the repository parent options are not shown for views."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Widget.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Widget {\n\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    private String name;\n\n    private String email;\n\n    public Long getId() {\n        return id;\n    }\n\n    public void setId(Long id) {\n        this.id = id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public void setName(String name) {\n        this.name = name;\n    }\n\n    public String getEmail() {\n        return email;\n    }\n\n    public void setEmail(String email) {\n        this.email = email;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/dto/WidgetDto.java",
+        "content": "package com.example.crm.dto;\n\npublic record WidgetDto(Long id, String name, String email) {\n}\n"
+      }
+    },
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "pom-blaze.xml"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create Blaze entity view…",
+      "target": {
+        "file": "src/main/java/com/example/crm/domain/Widget.java",
+        "anchor": "class Widget"
+      },
+      "prompts": [
+        {
+          "input": "WidgetView"
+        },
+        {
+          "pickMany": [
+            "name"
+          ]
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "title": "Create Spring Data repository with options…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "Entity view WidgetView"
+    },
+    {
+      "input": "WidgetViewRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Repository for",
+        "optionsInclude": [
+          "The entity Widget",
+          "Entity view WidgetView"
+        ]
+      },
+      {
+        "kind": "input",
+        "titleContains": "Entity view repository name"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/WidgetViewRepository.java",
+        "contains": [
+          "public interface WidgetViewRepository extends EntityViewRepository<WidgetView, Long> {",
+          "import com.blazebit.persistence.spring.data.repository.EntityViewRepository;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Entity view in repository window."
+}

@@ -1,0 +1,89 @@
+{
+  "id": "RS-541",
+  "rows": [
+    "G064"
+  ],
+  "claimIds": [
+    "G064-C2"
+  ],
+  "verifies": {
+    "G064-C2": "with the DTO Declaration settings dtoNameRegexp ((?<entity>.*)View) and dtoCommentLinkRegexp ({@link (?<entity>[\\w.]+)}) a DTO linked to the entity by its class name (GadgetView) or by its Javadoc (GadgetCard) is offered as the existing class in the DTO creation flow even though its fields differ from the entity; the offer ends the flow with an Already exists message naming the linked type. The empty (disabled) state is RS-542. The original resolves links through an index (Structure view, gutter); only the reuse offer is checked here."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "setup": [
+    {
+      "settings": {
+        "dtoNameRegexp": "(?<entity>.*)View",
+        "dtoCommentLinkRegexp": "\\{@link (?<entity>[\\w.]+)\\}"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Gadget.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n\n    @Id\n    private Long id;\n\n    private String title;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/web/GadgetView.java",
+        "content": "package com.example.crm.web;\n\npublic record GadgetView(String label) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/web/GadgetCard.java",
+        "content": "package com.example.crm.web;\n\n/**\n * Card of {@link com.example.crm.domain.Gadget}.\n */\npublic class GadgetCard {\n\n    private String caption;\n}\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Gadget.java",
+    "anchor": "class Gadget"
+  },
+  "action": {
+    "title": "Create scalar DTO with preview…"
+  },
+  "prompts": [
+    {
+      "input": "GadgetDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "title"
+      ]
+    },
+    {
+      "pickLabel": "GadgetView"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "DTO type name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "scalar fields"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "already exists",
+        "optionsInclude": [
+          "Use existing GadgetView",
+          "Use existing GadgetCard",
+          "create-new"
+        ],
+        "name": "both linked types offered"
+      }
+    ],
+    "resolveErrorContains": "GadgetCard.java (linked by comment)",
+    "noFilesChanged": true
+  },
+  "checks": {
+    "cancelEach": true
+  },
+  "note": "DTO link regexps."
+}

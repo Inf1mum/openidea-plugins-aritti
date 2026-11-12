@@ -21,10 +21,12 @@ const MAX_PAIRS: usize = 64;
 const MAX_MAPPERS: u32 = 65;
 const RESERVED: [&str; 7] = ["Mapper", "Mapping", "Mappings", "MappingTarget", "ReportingPolicy", "List", "MappingConstants"];
 const MODIFIERS: [&str; 6] = ["public", "private", "protected", "abstract", "default", "static"];
-const DIRECTIONS: [(&str, &str); 3] = [
+const DIRECTIONS: [(&str, &str); 5] = [
     ("toDto", "toDto(entity): entity to DTO"),
     ("toEntity", "toEntity(dto): DTO to new entity"),
     ("updateEntity", "updateEntity(dto, @MappingTarget entity): update an existing entity"),
+    ("toDtoList", "List of entities to List of DTOs (name follows mapperCollectionNaming)"),
+    ("toEntityList", "List of DTOs to List of entities (name follows mapperCollectionNaming)"),
 ];
 const UNSUPPORTED: &str = "A mapper member has a layout that is not supported; nothing is changed.";
 
@@ -217,6 +219,8 @@ enum Dir {
     ToDto,
     ToEntity,
     Update,
+    ToDtoList,
+    ToEntityList,
 }
 
 impl Dir {
@@ -234,6 +238,7 @@ struct Methods<'a> {
     pairs: &'a [(String, String)],
     dto_fields: Vec<&'a str>,
     entity_attributes: Vec<&'a str>,
+    names: &'a mapper_naming::Names,
 }
 
 fn mapping_lines(kotlin: bool, pairs: &[(String, String)], ignores: &[String]) -> String {
@@ -266,20 +271,27 @@ fn render_methods(spec: &Methods) -> (Vec<String>, Vec<&'static str>) {
         let (block, signature) = match direction {
             Dir::ToDto => (
                 mapping_lines(kotlin, spec.pairs, &to_dto_ignores),
-                if kotlin { format!("    fun toDto(entity: {entity}): {dto}") } else { format!("    {dto} toDto({entity} entity);") },
+                if kotlin { format!("    fun {}(entity: {entity}): {dto}", spec.names.to_dto) } else { format!("    {dto} {}({entity} entity);", spec.names.to_dto) },
             ),
             Dir::ToEntity => (
                 mapping_lines(kotlin, &swapped, &to_entity_ignores),
-                if kotlin { format!("    fun toEntity(dto: {dto}): {entity}") } else { format!("    {entity} toEntity({dto} dto);") },
+                if kotlin { format!("    fun {}(dto: {dto}): {entity}", spec.names.to_entity) } else { format!("    {entity} {}({dto} dto);", spec.names.to_entity) },
             ),
             Dir::Update => (
                 mapping_lines(kotlin, &swapped, &to_entity_ignores),
                 if kotlin {
-                    format!("    fun updateEntity(dto: {dto}, @MappingTarget entity: {entity})")
+                    format!("    fun {}(dto: {dto}, @MappingTarget entity: {entity})", spec.names.update)
                 } else {
-                    format!("    void updateEntity({dto} dto, @MappingTarget {entity} entity);")
+                    format!("    void {}({dto} dto, @MappingTarget {entity} entity);", spec.names.update)
                 },
             ),
+            Dir::ToDtoList | Dir::ToEntityList => {
+                let list = spec.names.collection_methods(kotlin, entity, dto, *direction == Dir::ToDtoList, *direction == Dir::ToEntityList);
+                if !kotlin {
+                    imports.push("java.util.List");
+                }
+                (String::new(), list.concat())
+            }
         };
         if !block.is_empty() {
             imports.push("org.mapstruct.Mapping");
@@ -431,7 +443,7 @@ fn directions() -> Result<Vec<Dir>, Error> {
     let chosen = host::pick_many("Mapping methods to add", &items)?.ok_or(Error::Cancelled)?;
     let mut found = Vec::new();
     for key in &chosen {
-        let direction = [Dir::ToDto, Dir::ToEntity, Dir::Update].into_iter().find(|direction| direction.key() == key);
+        let direction = [Dir::ToDto, Dir::ToEntity, Dir::Update, Dir::ToDtoList, Dir::ToEntityList].into_iter().find(|direction| direction.key() == key);
         match direction {
             Some(direction) if !found.contains(&direction) => found.push(direction),
             _ => return Err("Choose only offered methods, each once.".into()),
@@ -482,6 +494,7 @@ pub(super) fn resolve_add(pending: &Pending, doc: &Document, project: &Project) 
         return Err("This mapper extends another type; inherited mapping methods are not read, so a new method could be ambiguous. Nothing is changed.".into());
     }
     let sigs = signatures(&mapper).map_err(Error::from)?;
+    let names = mapper_naming::Names::load()?;
     let chosen = choose(project, pending, doc, mapper.kotlin)?;
     let directions = directions()?;
     let pairs = explicit_pairs(&chosen)?;
@@ -489,10 +502,14 @@ pub(super) fn resolve_add(pending: &Pending, doc: &Document, project: &Project) 
     unchanged(project, &chosen)?;
     let (entity, dto) = (chosen.entity.class.name.as_str(), chosen.dto.name.as_str());
     for direction in &directions {
+        let (list_dto, list_entity) = (format!("List<{dto}>"), format!("List<{entity}>"));
+        let (list_entity_param, list_dto_param) = (format!("List<{entity}>"), format!("List<{dto}>"));
         let (name, params, ret): (&str, Vec<&str>, &str) = match direction {
-            Dir::ToDto => ("toDto", vec![entity], dto),
-            Dir::ToEntity => ("toEntity", vec![dto], entity),
-            Dir::Update => ("updateEntity", vec![dto, entity], "void"),
+            Dir::ToDto => (&names.to_dto, vec![entity], dto),
+            Dir::ToEntity => (&names.to_entity, vec![dto], entity),
+            Dir::Update => (&names.update, vec![dto, entity], "void"),
+            Dir::ToDtoList => (&names.collection(&names.to_dto), vec![list_entity_param.as_str()], list_dto.as_str()),
+            Dir::ToEntityList => (&names.collection(&names.to_entity), vec![list_dto_param.as_str()], list_entity.as_str()),
         };
         if clash(&sigs, name, &params, ret) {
             return Err(format!("A method with the same signature as {name} already exists in this mapper; nothing is changed.").into());
@@ -501,7 +518,7 @@ pub(super) fn resolve_add(pending: &Pending, doc: &Document, project: &Project) 
     let shared: Vec<String> = chosen.shared.iter().map(|(name, _)| name.clone()).collect();
     let mut accessor_names = shared.clone();
     accessor_names.extend(pairs.iter().map(|(entity, _)| entity.clone()));
-    let writes = directions.iter().any(|direction| *direction != Dir::ToDto);
+    let writes = directions.iter().any(|direction| matches!(direction, Dir::ToEntity | Dir::Update));
     base::accessors(&chosen.entity.doc, &chosen.entity.class, &chosen.entity.scalars, &accessor_names, writes)?;
     let own_package = package(doc).ok_or(Error::Stale)?;
     let entity_package = chosen.entity.class.package.clone().ok_or(Error::Stale)?;
@@ -514,6 +531,7 @@ pub(super) fn resolve_add(pending: &Pending, doc: &Document, project: &Project) 
         pairs: &pairs,
         dto_fields: chosen.dto.fields.iter().map(|(field, _)| field.as_str()).collect(),
         entity_attributes: chosen.entity.class.attributes.iter().map(|attribute| attribute.name.as_str()).collect(),
+        names: &names,
     };
     let (methods, framework) = render_methods(&spec);
     let mut framework: Vec<&str> = framework;
@@ -542,7 +560,7 @@ pub(super) fn resolve_add(pending: &Pending, doc: &Document, project: &Project) 
     })
 }
 
-fn render_base(kotlin: bool, package: &str, name: &str) -> String {
+pub(super) fn render_base(kotlin: bool, package: &str, name: &str) -> String {
     if kotlin {
         return format!(
             "package {package}\n\nimport org.mapstruct.MappingTarget\n\ninterface {name}<D, E> {{\n    fun toEntity(dto: D): E\n\n    fun toDto(entity: E): D\n\n    fun toEntity(dtoList: List<D>): List<E>\n\n    fun toDto(entityList: List<E>): List<D>\n\n    fun updateEntity(dto: D, @MappingTarget entity: E)\n}}\n"
@@ -596,12 +614,12 @@ pub(super) fn resolve_base(pending: &Pending, doc: &Document, project: &Project)
     })
 }
 
-struct BaseMapper {
-    name: String,
-    package: String,
+pub(super) struct BaseMapper {
+    pub(super) name: String,
+    pub(super) package: String,
 }
 
-fn base_mappers(project: &Project, root: &str, doc: &Document, kotlin: bool) -> Result<Vec<BaseMapper>, Error> {
+pub(super) fn base_mappers(project: &Project, root: &str, doc: &Document, kotlin: bool) -> Result<Vec<BaseMapper>, Error> {
     let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
     let mut found = Vec::new();
     for file in nearby(project, root, directory, kotlin)?.into_iter().filter(|file| file != &doc.path) {
@@ -813,6 +831,23 @@ mod tests {
         let text = add(MAPPER, &["toDto", "toEntity", "updateEntity"], Some(&["title|name"])).unwrap();
         let expected = "package shop;\n\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\nimport org.mapstruct.MappingTarget;\n\n@Mapper\npublic interface CustomerMapper {\n    @Mapping(source = \"title\", target = \"name\")\n    @Mapping(target = \"parent\", ignore = true)\n    CustomerDto toDto(Customer entity);\n\n    @Mapping(source = \"name\", target = \"title\")\n    @Mapping(target = \"parent\", ignore = true)\n    Customer toEntity(CustomerDto dto);\n\n    @Mapping(source = \"name\", target = \"title\")\n    @Mapping(target = \"parent\", ignore = true)\n    void updateEntity(CustomerDto dto, @MappingTarget Customer entity);\n}\n";
         assert_eq!(text, expected);
+    }
+
+    #[test]
+    fn list_directions_follow_the_naming_settings_and_keep_the_other_methods() {
+        let text = add(MAPPER, &["toDto", "toDtoList", "toEntityList"], Some(&[])).unwrap();
+        for line in ["import java.util.List;", "    List<CustomerDto> toDtos(List<Customer> entities);", "    List<Customer> toEntities(List<CustomerDto> dtos);", "    @Mapping(target = \"parent\", ignore = true)\n    CustomerDto toDto(Customer entity);"] {
+            assert!(text.contains(line), "{text}");
+        }
+        let host_text = {
+            let (host, mut plugin, doc) = java(MAPPER);
+            host.set_setting("mapperCollectionNaming", "\"collection-type\"");
+            host.set_setting("mapperToDtoPattern", "\"asModel\"");
+            let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == ADD_TITLE).unwrap();
+            answer_add(&host, ENTITY_PATH, DTO_PATH, &["toDto", "toDtoList"], Some(&[]), true);
+            apply(&doc, &plugin.resolve_file_action(&doc, pending).unwrap())
+        };
+        assert!(host_text.contains("CustomerDto asModel(Customer entity);") && host_text.contains("List<CustomerDto> asModelList(List<Customer> entity);"), "{host_text}");
     }
 
     #[test]

@@ -9,7 +9,9 @@ pub(super) const TITLE: &str = "Create MapStruct mapper with preview…";
 pub(super) const MAX_FIELDS: usize = 32;
 pub(super) const MAX_CANDIDATES: usize = 16;
 const COMPONENT_MODELS: [&str; 3] = ["default", "spring", "jakarta-cdi"];
-const OPTIONS: [(&str, &str); 3] = [
+const EXTEND_BASE: &str = "extendBase";
+const OPTIONS: [(&str, &str); 4] = [
+    ("collections", "List variants of the generated mapping methods (names follow the Mapper Declaration settings)"),
     ("toEntity", "toEntity(dto): DTO to new entity"),
     ("updateEntity", "updateEntity(dto, @MappingTarget entity): update an existing entity"),
     ("ignoreUnmapped", "unmappedTargetPolicy = ReportingPolicy.IGNORE"),
@@ -326,6 +328,9 @@ struct Spec<'a> {
     update: bool,
     ignore_unmapped: bool,
     error_unmapped: bool,
+    names: &'a mapper_naming::Names,
+    collections: bool,
+    base: Option<(&'a str, Option<&'a str>)>,
 }
 
 fn configured_component() -> Result<Option<String>, Error> {
@@ -374,11 +379,17 @@ fn render(spec: &Spec) -> String {
     if spec.update {
         imports.push("org.mapstruct.MappingTarget".to_owned());
     }
+    if spec.collections && !spec.kotlin {
+        imports.push("java.util.List".to_owned());
+    }
     if spec.ignore_unmapped || spec.error_unmapped {
         imports.push("org.mapstruct.ReportingPolicy".to_owned());
     }
     if let Some(dto_package) = spec.dto_package {
         imports.push(format!("{dto_package}.{}", spec.dto));
+    }
+    if let Some((base, Some(base_package))) = spec.base {
+        imports.push(format!("{base_package}.{base}"));
     }
     imports.sort();
     let mut arguments = Vec::new();
@@ -395,33 +406,39 @@ fn render(spec: &Spec) -> String {
     let mut methods = vec![format!(
         "{}{}",
         mapping(&to_dto_ignores),
-        if spec.kotlin { format!("    fun toDto(entity: {entity}): {dto}") } else { format!("    {dto} toDto({entity} entity);") }
+        if spec.kotlin { format!("    fun {}(entity: {entity}): {dto}", spec.names.to_dto) } else { format!("    {dto} {}({entity} entity);", spec.names.to_dto) }
     )];
     if spec.to_entity {
         methods.push(format!(
             "{}{}",
             mapping(&to_entity_ignores),
-            if spec.kotlin { format!("    fun toEntity(dto: {dto}): {entity}") } else { format!("    {entity} toEntity({dto} dto);") }
+            if spec.kotlin { format!("    fun {}(dto: {dto}): {entity}", spec.names.to_entity) } else { format!("    {entity} {}({dto} dto);", spec.names.to_entity) }
         ));
+    }
+    if spec.collections {
+        methods.extend(spec.names.collection_methods(spec.kotlin, entity, dto, true, spec.to_entity));
     }
     if spec.update {
         methods.push(format!(
             "{}{}",
             mapping(&to_entity_ignores),
             if spec.kotlin {
-                format!("    fun updateEntity(dto: {dto}, @MappingTarget entity: {entity})")
+                format!("    fun {}(dto: {dto}, @MappingTarget entity: {entity})", spec.names.update)
             } else {
-                format!("    void updateEntity({dto} dto, @MappingTarget {entity} entity);")
+                format!("    void {}({dto} dto, @MappingTarget {entity} entity);", spec.names.update)
             }
         ));
     }
     let header = if spec.kotlin { "interface" } else { "public interface" };
+    let (parent, body) = match spec.base {
+        Some((base, _)) => (if spec.kotlin { format!(" : {base}<{dto}, {entity}>") } else { format!(" extends {base}<{dto}, {entity}>") }, String::new()),
+        None => (String::new(), format!("{}\n", methods.join("\n\n"))),
+    };
     format!(
-        "package {}{semi}\n\n{}\n\n{annotation}\n{header} {} {{\n{}\n}}\n",
+        "package {}{semi}\n\n{}\n\n{annotation}\n{header} {}{parent} {{\n{body}}}\n",
         spec.package,
         imports.iter().map(|import| format!("import {import}{semi}")).collect::<Vec<_>>().join("\n"),
         spec.mapper,
-        methods.join("\n\n")
     )
 }
 
@@ -502,16 +519,35 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         return Err("Choose one or more offered shared fields exactly once.".into());
     }
     current(pending, doc)?;
-    let option_items: Vec<_> = OPTIONS.iter().map(|(key, label)| PickItem::new(key, label)).collect();
+    let bases = mapper_more_action::base_mappers(project, &pending.root, doc, class.kotlin)?;
+    let mut option_items: Vec<_> = OPTIONS.iter().map(|(key, label)| PickItem::new(key, label)).collect();
+    if !bases.is_empty() {
+        option_items.push(PickItem::new(EXTEND_BASE, "Extend a generic base mapper (inherits its methods; none is declared here)"));
+    }
     let Some(options) = host::pick_many("Extra mapper options (toDto is always generated)", &option_items)? else {
         return Err(Error::Cancelled);
     };
     let mut seen = HashSet::new();
-    if options.iter().any(|option| !OPTIONS.iter().any(|(key, _)| key == option) || !seen.insert(option.as_str())) {
+    if options.iter().any(|option| !option_items.iter().any(|item| item.key == *option) || !seen.insert(option.as_str())) {
         return Err("Choose only offered options, each once.".into());
     }
     let has = |key: &str| options.iter().any(|option| option == key);
+    let base = if has(EXTEND_BASE) {
+        if has("toEntity") || has("updateEntity") || has("collections") {
+            return Err("The generic base mapper already declares the entity/DTO, list and update methods; choose either the base or those methods.".into());
+        }
+        let picked = if bases.len() == 1 {
+            0
+        } else {
+            let items: Vec<_> = bases.iter().enumerate().map(|(index, found)| PickItem::new(&index.to_string(), &found.name).description(&found.package)).collect();
+            host::pick("Generic base mapper", &items)?.ok_or(Error::Cancelled)?.parse::<usize>().map_err(|_| Error::Stale)?
+        };
+        Some(bases.get(picked).ok_or("Choose one of the offered base mappers.")?)
+    } else {
+        None
+    };
     let policy = configured_policy()?;
+    let names = mapper_naming::Names::load()?;
     let ignore_unmapped = has("ignoreUnmapped") || policy == Some("IGNORE");
     current(pending, doc)?;
     reread(project, dto)?;
@@ -533,6 +569,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         update: has("updateEntity"),
         ignore_unmapped,
         error_unmapped: policy == Some("ERROR") && !ignore_unmapped,
+        names: &names,
+        collections: has("collections"),
+        base: base.map(|found| (found.name.as_str(), (found.package != declared).then_some(found.package.as_str()))),
     };
     let mut generated = render(&spec);
     if doc.text.contains("\r\n") {
@@ -551,8 +590,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     } else {
         "Java interface mapper: MapStruct generates the implementation at compile time."
     };
+    let base_note = base.map_or_else(String::new, |found| format!("Extends the generic base mapper {} ({}); the methods are inherited and none is declared. ", found.name, found.package));
     let preview = format!(
-        "Source: {}\nSource version: {}\nDTO: {}\nTarget: {target}\n\n{note}\nDTO fields not selected but present on both sides get explicit ignore mappings. No existing mapper was searched or reused.\n\nExact new file:\n{generated}\nOne atomic host-managed Create; no existing file is overwritten.",
+        "Source: {}\nSource version: {}\nDTO: {}\nTarget: {target}\n\n{note}\nDTO fields not selected but present on both sides get explicit ignore mappings. {base_note}No existing mapper was searched or reused.\n\nExact new file:\n{generated}\nOne atomic host-managed Create; no existing file is overwritten.",
         doc.path, doc.version, dto.path
     );
     if !ui_kit::prompts::confirm_exact("Create MapStruct mapper?", &preview)? {
@@ -867,6 +907,9 @@ mod tests {
                 update,
                 ignore_unmapped,
                 error_unmapped: false,
+                names: &mapper_naming::Names::standard(),
+                collections: to_entity,
+                base: None,
             })
         };
         let ent = ENTITY.replace("@ManyToOne Other parent;", "String parent;");
@@ -968,6 +1011,9 @@ mod tests {
                 update,
                 ignore_unmapped,
                 error_unmapped: false,
+                names: &mapper_naming::Names::standard(),
+                collections: to_entity,
+                base: None,
             });
             let files: Vec<_> = [("Customer.kt", KOTLIN_ENTITY.to_owned()), ("CustomerDto.kt", KOTLIN_DTO.to_owned()), ("CustomerMapper.kt", mapper.clone())]
                 .iter()
@@ -987,5 +1033,44 @@ mod tests {
             assert!(result.status.success(), "{component}: {}\n{mapper}", String::from_utf8_lossy(&result.stderr));
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn generated(settings: &[(&str, &str)], options: &[&str], files: &[(&str, String)]) -> Result<String, Error> {
+        let (host, mut plugin, doc) = java();
+        for (key, value) in settings {
+            host.set_setting(key, value);
+        }
+        for (name, text) in files {
+            host.add_file(name, text);
+        }
+        let pending = action(&mut plugin, &doc);
+        answer(&host, DTO_PATH, "CustomerMapper", "default", &["id", "title", "joined"], options, true);
+        plugin.resolve_file_action(&doc, pending).map(|resolved| created(&resolved).1.to_owned())
+    }
+
+    #[test]
+    fn collection_option_writes_list_methods_named_by_the_mapper_declaration_settings() {
+        let plural = generated(&[], &["toEntity", "collections"], &[]).unwrap();
+        for line in ["    List<CustomerDto> toDtos(List<Customer> entities);", "    List<Customer> toEntities(List<CustomerDto> dtos);", "import java.util.List;"] {
+            assert!(plural.contains(line), "{plural}");
+        }
+        let same = generated(&[("mapperCollectionNaming", "\"same\"")], &["collections"], &[]).unwrap();
+        assert!(same.contains("    List<CustomerDto> toDto(List<Customer> entity);"), "{same}");
+        let typed = generated(&[("mapperCollectionNaming", "\"collection-type\"")], &["collections"], &[]).unwrap();
+        assert!(typed.contains("    List<CustomerDto> toDtoList(List<Customer> entity);"), "{typed}");
+        let renamed = generated(&[("mapperToDtoPattern", "\"asModel\""), ("mapperToEntityPattern", "\"asEntity\""), ("mapperUpdatePattern", "\"patch\"")], &["toEntity", "updateEntity", "collections"], &[]).unwrap();
+        for line in ["CustomerDto asModel(Customer entity);", "Customer asEntity(CustomerDto dto);", "void patch(CustomerDto dto, @MappingTarget Customer entity);", "List<CustomerDto> asModels(List<Customer> entities);", "List<Customer> asEntities(List<CustomerDto> dtos);"] {
+            assert!(renamed.contains(line), "{renamed}");
+        }
+        assert!(generated(&[("mapperToDtoPattern", "\"not valid\"")], &[], &[]).is_err());
+    }
+
+    #[test]
+    fn extending_a_generic_base_mapper_declares_no_methods_and_excludes_the_method_options() {
+        let base = ("src/main/java/shop/EntityMapper.java", mapper_more_action::render_base(false, "shop", "EntityMapper"));
+        let text = generated(&[], &[EXTEND_BASE], &[base.clone()]).unwrap();
+        assert_eq!(text, "package shop;\n\nimport org.mapstruct.Mapper;\n\n@Mapper\npublic interface CustomerMapper extends EntityMapper<CustomerDto, Customer> {\n}\n");
+        assert!(generated(&[], &[EXTEND_BASE, "toEntity"], &[base]).is_err());
+        assert!(generated(&[], &[EXTEND_BASE], &[]).is_err(), "the option is offered only when a generic base mapper exists");
     }
 }

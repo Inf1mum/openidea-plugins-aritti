@@ -1,0 +1,71 @@
+{
+  "id": "RS-542",
+  "rows": [
+    "G064"
+  ],
+  "claimIds": [
+    "G064-C2"
+  ],
+  "verifies": {
+    "G064-C2": "the disabled half of the sentence: with both DTO Declaration regexps empty (the default) the same linked types GadgetView and GadgetCard are not offered, so the flow goes from the field selection straight to the confirmation (3 prompts) and creates the new DTO. The linking itself is RS-541."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Gadget.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n\n    @Id\n    private Long id;\n\n    private String title;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/web/GadgetView.java",
+        "content": "package com.example.crm.web;\n\npublic record GadgetView(String label) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/web/GadgetCard.java",
+        "content": "package com.example.crm.web;\n\n/**\n * Card of {@link com.example.crm.domain.Gadget}.\n */\npublic class GadgetCard {\n\n    private String caption;\n}\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Gadget.java",
+    "anchor": "class Gadget"
+  },
+  "action": {
+    "title": "Create scalar DTO with preview…"
+  },
+  "prompts": [
+    {
+      "input": "GadgetDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "title"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptCount": 3,
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/GadgetDto.java",
+        "contains": [
+          "GadgetDto"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Link regexps disabled."
+}

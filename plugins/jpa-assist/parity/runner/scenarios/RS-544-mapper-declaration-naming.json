@@ -1,0 +1,128 @@
+{
+  "id": "RS-544",
+  "rows": [
+    "G069"
+  ],
+  "claimIds": [
+    "G069-C3"
+  ],
+  "verifies": {
+    "G069-C3": "the Mapper Declaration settings mapperToDtoPattern=asModel, mapperToEntityPattern=asEntity and mapperCollectionNaming=collection-type change the generated method names (asModel, asEntity) and the collection mapping method names (asModelList, asEntityList); the default plural strategy and the same-name strategy are unit-tested. The settings are plugin settings (schema), not a Tools | JPA Buddy page, and the patterns are plain method names (no placeholders)."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "setup": [
+    {
+      "settings": {
+        "mapperToDtoPattern": "asModel",
+        "mapperToEntityPattern": "asEntity",
+        "mapperCollectionNaming": "collection-type"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Widget.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Widget {\n\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    private String name;\n\n    private String email;\n\n    public Long getId() {\n        return id;\n    }\n\n    public void setId(Long id) {\n        this.id = id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public void setName(String name) {\n        this.name = name;\n    }\n\n    public String getEmail() {\n        return email;\n    }\n\n    public void setEmail(String email) {\n        this.email = email;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/dto/WidgetDto.java",
+        "content": "package com.example.crm.dto;\n\npublic record WidgetDto(Long id, String name, String email) {\n}\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "title": "Create MapStruct mapper with preview…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "WidgetDto"
+    },
+    {
+      "input": "WidgetModelMapper"
+    },
+    {
+      "pick": "spring"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name",
+        "email"
+      ]
+    },
+    {
+      "pickMany": [
+        "toEntity",
+        "collections"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Existing DTO"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Mapper type name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "componentModel"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Fields mapped"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "mapper options",
+        "optionsInclude": [
+          "collections",
+          "toEntity"
+        ]
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/WidgetModelMapper.java",
+        "contains": [
+          "WidgetDto asModel(Widget entity);",
+          "Widget asEntity(WidgetDto dto);",
+          "List<WidgetDto> asModelList(List<Widget> entity);",
+          "List<Widget> asEntityList(List<WidgetDto> dto);",
+          "import java.util.List;"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/crm/domain/WidgetModelMapper.java",
+        "notContains": [
+          "toDto",
+          "toEntity"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Mapper naming settings."
+}
