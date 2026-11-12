@@ -123,6 +123,38 @@ class EvidenceLevelAndDocumentationTests(unittest.TestCase):
         self.assertEqual(self.validate(), [])
         self.assertEqual(CHECKER['verified_split'](self.ledger['requirements']), ([self.row['id']], []))
 
+    def source_case(self, **overrides):
+        case = {
+            'scenario': 'src', 'implementationEvidence': EXISTING, 'test': 't', 'scope': 's', 'result': 'pass',
+            'referenceType': 'source-reading', 'referenceFiles': ['audit/jpa-buddy-263.7307.112/decompiled/main/X.java'],
+            'referenceClaims': ['Original defaults to Y'], 'sourceReadOn': '2026-11-12',
+        }
+        case.update(overrides)
+        return case
+
+    def test_valid_source_reading_case_verifies_row_and_is_counted_separately(self):
+        self.verify_row(self.source_case())
+        self.assertEqual(self.validate(), [])
+        entries = self.ledger['requirements']
+        self.assertEqual(CHECKER['verified_split'](entries), ([], []))
+        self.assertEqual(CHECKER['verified_source_reading'](entries), [self.row['id']])
+
+    def test_a_documentation_case_makes_a_mixed_row_documentation_only(self):
+        self.row.update(status='verified-parity', implementation=['x'], evidence=[EXISTING],
+                        acceptance=[self.source_case(), self.docs_case()])
+        entries = self.ledger['requirements']
+        self.assertEqual(CHECKER['verified_split'](entries), ([], [self.row['id']]))
+        self.assertEqual(CHECKER['verified_source_reading'](entries), [])
+
+    def test_source_reading_case_requires_audit_files_claims_date_and_evidence(self):
+        for override in (
+            {'referenceFiles': []}, {'referenceFiles': ['src/lib.rs']}, {'referenceFiles': ['audit/jpa-buddy-1/../../x']},
+            {'referenceClaims': []}, {'sourceReadOn': 'today'}, {'implementationEvidence': 'no/such/file'},
+            {'result': 'fail'}, {'test': ''},
+        ):
+            self.verify_row(self.source_case(**override))
+            self.assertTrue(self.validate(), override)
+
     def test_documentation_case_requires_sources_claims_date_and_file(self):
         for override in (
             {'referenceSources': []}, {'referenceSources': ['http://example.com']}, {'referenceSources': 'https://x'},
