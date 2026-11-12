@@ -1,0 +1,31 @@
+{
+  "id": "RS-600",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w6/Flag.java",
+        "content": "package com.example.shop.w6;\n\nimport jakarta.persistence.AttributeConverter;\nimport jakarta.persistence.Converter;\n\n@Converter\npublic class Flag implements AttributeConverter<Object, String> {\n    public String convertToDatabaseColumn(Object v) { return null; }\n    public Object convertToEntityAttribute(String s) { return null; }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w6/ObjHolder.java",
+        "content": "package com.example.shop.w6;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Convert;\n\n@Entity\npublic class ObjHolder {\n    @Id\n    private Long id;\n\n    @Convert(converter = Flag.class)\n    private Long value;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-converter-type-mismatch",
+        "file": "src/main/java/com/example/shop/w6/ObjHolder.java"
+      }
+    ]
+  },
+  "note": "A converter for Object accepts a Long attribute: assignable, so quiet."
+}

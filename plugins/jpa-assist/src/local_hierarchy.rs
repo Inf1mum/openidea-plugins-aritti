@@ -163,11 +163,13 @@ fn converter_findings_with(doc: &Document, load: &dyn Fn(&str) -> Option<String>
             let plain = !model::has_word(args, "attributeName") && !model::has_word(args, "disableConversion");
             let declared = plain.then(|| attribute_type(doc, &masked, &class, a)).flatten();
             if let (Some(declared), Some(converts)) = (declared, converter_source_type(&text, &fqcn)) {
-                let (declared, converts) = (jdk_type(&declared, &class.imports), jdk_type(&converts.0, &converts.1));
-                if let (Some(declared), Some(converts)) = (declared, converts) {
-                    if declared != converts {
-                        findings.push(Finding::new(start, start + literal.len(), Severity::Info, "jpa-converter-type-mismatch", format!("The attribute is declared {declared}, but this AttributeConverter converts {converts} (Jakarta Persistence 3.1, section 10.6).")));
-                    }
+                let by_jdk = jdk_type(&declared, &class.imports).zip(jdk_type(&converts.0, &converts.1));
+                let mismatch = match by_jdk {
+                    Some((d, c)) => Some(!jdk_assignable(&d, &c)),
+                    None => plain_class(&text, &path, &fqcn).and_then(|converter| project_mismatch(&class, &declared, &converter, &converts.0, load)),
+                };
+                if mismatch == Some(true) {
+                    findings.push(Finding::new(start, start + literal.len(), Severity::Warning, "jpa-converter-type-mismatch", format!("The attribute is declared {declared}, but this AttributeConverter converts {}, which is not assignable from it (Jakarta Persistence 3.1, section 10.6).", converts.0)));
                 }
             }
             continue;
@@ -188,9 +190,61 @@ fn attribute_type(doc: &Document, masked: &str, class: &Class, a: &model::Annota
     }
 }
 
+fn jdk_assignable(declared: &str, converts: &str) -> bool {
+    let supers: &[&str] = match declared {
+        "String" => &["CharSequence", "Comparable", "Serializable"],
+        "Long" | "Integer" | "Short" | "Byte" | "Double" | "Float" | "BigDecimal" | "BigInteger" => &["Number", "Comparable", "Serializable"],
+        "Object" => &[],
+        "Number" | "Serializable" | "CharSequence" | "Comparable" => &[],
+        _ => &["Comparable", "Serializable"],
+    };
+    declared == converts || converts == "Object" || supers.contains(&converts)
+}
+
+fn plain_class(text: &str, path: &str, fqcn: &str) -> Option<Class> {
+    let (package, name) = fqcn.rsplit_once('.')?;
+    let imports = text.lines().filter_map(|l| l.trim().strip_prefix("import ")).map(|r| r.trim().trim_end_matches(';').trim().to_owned()).collect();
+    Some(Class {
+        name: name.to_owned(),
+        kind: Kind::Entity,
+        kotlin: false,
+        path: path.to_owned(),
+        pos: openidea_plugin::text::position(text, 0),
+        package: Some(package.to_owned()),
+        imports,
+        table: None,
+        superclass: None,
+        has_id: false,
+        attributes: vec![],
+        body_end: None,
+    })
+}
+
+/// `Some(true)` only when both are classes in saved project sources and the declared class's closed `extends` chain never reaches the converter's type.
+fn project_mismatch(class: &Class, declared: &str, converter: &Class, converts: &str, load: &dyn Fn(&str) -> Option<String>) -> Option<bool> {
+    let target = resolve(converter, converts)?;
+    converter_head(&load(&sibling_path(converter, &target)?)?, &target)?;
+    let mut current = resolve(class, declared)?;
+    let mut from = class.clone();
+    for _ in 0..MAX_HOPS {
+        if current == target {
+            return Some(false);
+        }
+        let path = sibling_path(&from, &current)?;
+        let text = load(&path)?;
+        let head = converter_head(&text, &current)?;
+        if !head.starts_with("extends") {
+            return (!head.starts_with('<')).then_some(true);
+        }
+        from = plain_class(&text, &path, &current)?;
+        current = resolve(&from, extended(&head)?)?;
+    }
+    None
+}
+
 fn jdk_type(ty: &str, imports: &[String]) -> Option<String> {
-    const LANG: [&str; 9] = ["String", "Long", "Integer", "Short", "Byte", "Boolean", "Double", "Float", "Character"];
-    const OTHER: [&str; 11] = ["BigDecimal", "BigInteger", "LocalDate", "LocalDateTime", "LocalTime", "Instant", "OffsetDateTime", "ZonedDateTime", "Duration", "UUID", "Date"];
+    const LANG: [&str; 13] = ["Object", "Number", "CharSequence", "Comparable", "String", "Long", "Integer", "Short", "Byte", "Boolean", "Double", "Float", "Character"];
+    const OTHER: [&str; 12] = ["Serializable", "BigDecimal", "BigInteger", "LocalDate", "LocalDateTime", "LocalTime", "Instant", "OffsetDateTime", "ZonedDateTime", "Duration", "UUID", "Date"];
     let boxed = match ty {
         "long" => "Long",
         "int" => "Integer",
@@ -204,7 +258,7 @@ fn jdk_type(ty: &str, imports: &[String]) -> Option<String> {
     };
     if boxed.contains('.') {
         let (package, simple) = boxed.rsplit_once('.')?;
-        let jdk = matches!(package, "java.lang" | "java.math" | "java.time" | "java.util");
+        let jdk = matches!(package, "java.lang" | "java.io" | "java.math" | "java.time" | "java.util");
         return (jdk && (LANG.contains(&simple) || OTHER.contains(&simple))).then(|| simple.to_owned());
     }
     if LANG.contains(&boxed) {

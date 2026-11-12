@@ -696,7 +696,7 @@ mod tests {
         let header = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Version;\n";
         for (body, code, expected) in [
             ("@Entity class Person { @Id long id; @Version long revision; @Version long other; }", "jpa-duplicate-version", openidea_plugin::Severity::Error),
-            ("@Entity class Person { String name; }", "jpa-source-identifier-absent", openidea_plugin::Severity::Info),
+            ("@Entity class Person { String name; }", "jpa-source-identifier-absent", openidea_plugin::Severity::Error),
         ] {
             let document = Document { path: "/project/src/main/java/shop/Person.java".into(), language: "java".into(), text: format!("{header}{body}"), version: 1 };
             let found = JpaAssist::default().diagnostics(&document);

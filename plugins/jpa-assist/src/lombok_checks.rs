@@ -29,6 +29,7 @@ struct Field {
     initialized: bool,
     notes: Vec<String>,
     association: bool,
+    lazy: bool,
     generated_id: bool,
 }
 
@@ -189,6 +190,7 @@ fn facts(text: &str, class: &Class) -> Option<Facts> {
             association: attribute.is_some_and(|a| {
                 matches!(a.relation, Relation::ManyToOne | Relation::OneToOne | Relation::OneToMany | Relation::ManyToMany | Relation::ElementCollection)
             }),
+            lazy: attribute.is_some_and(|a| is_lazy(&masked[start..end], declaration_at, a.relation.to_many())),
             generated_id: attribute.is_some_and(|a| a.id && a.generated.is_some()),
         });
     }
@@ -197,6 +199,16 @@ fn facts(text: &str, class: &Class) -> Option<Facts> {
     }
 
     Some(Facts { masked, imports, insert_at, annotations: class_annotations, fields, constructors, methods })
+}
+
+/// Explicit `fetch = ...LAZY`, or no `fetch` on a to-many association. Any other fetch expression is unknown.
+fn is_lazy(member: &str, declaration_at: usize, to_many: bool) -> bool {
+    let association = |a: &crate::model::Annotation| matches!(a.name, "ManyToOne" | "OneToOne" | "OneToMany" | "ManyToMany" | "ElementCollection");
+    let found = annotations(member);
+    let Some(a) = found.iter().filter(|a| a.start < declaration_at).find(|a| association(a)) else { return false };
+    let args = a.args.map_or("", |(from, to)| &member[from..to]);
+    let Some(at) = words(args, "fetch").next() else { return to_many };
+    words(&args[at..], "LAZY").next().is_some() && words(&args[at..], "EAGER").next().is_none()
 }
 
 fn first_blank_free(slice: &str) -> usize {
@@ -312,14 +324,14 @@ fn exclusion(text: &str, facts: &Facts, field: &Field, owner: &str, title: &'sta
 
 fn to_string_findings(text: &str, facts: &Facts) -> Vec<Finding> {
     let annotation = facts.has("ToString");
-    if (annotation.is_none() && facts.has("Data").is_none()) || facts.declares("toString") {
+    if annotation.is_none() || facts.declares("toString") {
         return vec![];
     }
     let Some(spec) = spec(text, facts, annotation) else { return vec![] };
     facts
         .fields
         .iter()
-        .filter(|f| f.association && included(f, "ToString", &spec))
+        .filter(|f| f.lazy && included(f, "ToString", &spec))
         .map(|f| {
             let message = format!(
                 "The generated toString includes the association `{}`: it can load lazy data or recurse through a bidirectional association.",
@@ -509,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn to_string_flags_every_association_and_fixes_with_exclude() {
+    fn to_string_flags_lazy_associations_and_fixes_with_exclude() {
         let text = entity("@ToString\n", BODY);
         let found = run(&text, false, true, false);
         assert_eq!(found.len(), 2);
@@ -520,10 +532,9 @@ mod tests {
     }
 
     #[test]
-    fn data_without_import_uses_import_edit_and_crlf_is_kept() {
-        let text = entity("@Data\n", BODY).replace('\n', "\r\n");
+    fn crlf_is_kept_by_the_to_string_fix() {
+        let text = entity("@ToString\n", BODY).replace('\n', "\r\n");
         let after = &fixed(&text, "jpa-lombok-to-string")[0];
-        assert!(after.contains("import lombok.ToString;\r\n"));
         assert!(after.contains("    @ToString.Exclude\r\n    @ManyToOne"));
         assert!(!after.replace("\r\n", "").contains('\n'));
     }
@@ -536,6 +547,15 @@ mod tests {
         assert!(run(&entity("@ToString(onlyExplicitlyIncluded = true)\n", BODY), false, true, false).is_empty());
         assert!(run(&entity("@ToString(of = \"id\")\n", BODY), false, true, false).is_empty());
         assert!(run(&entity("@Getter\n", BODY), false, true, false).is_empty());
+        assert!(run(&entity("@Data\n", BODY), false, true, false).is_empty());
+        let eager_one = BODY.replace("FetchType.LAZY", "FetchType.EAGER");
+        assert_eq!(run(&entity("@ToString\n", &eager_one), false, true, false).len(), 1);
+        let default_one = BODY.replace("(fetch = FetchType.LAZY)", "");
+        assert_eq!(run(&entity("@ToString\n", &default_one), false, true, false).len(), 1);
+        let eager_all = eager_one.replace("@OneToMany(mappedBy", "@OneToMany(fetch = FetchType.EAGER, mappedBy");
+        assert!(run(&entity("@ToString\n", &eager_all), false, true, false).is_empty());
+        let unknown_fetch = BODY.replace("FetchType.LAZY", "pick()");
+        assert_eq!(run(&entity("@ToString\n", &unknown_fetch), false, true, false).len(), 1);
         let own = BODY.to_owned() + "    public String toString() { return \"\"; }\n";
         assert!(run(&entity("@ToString\n", &own), false, true, false).is_empty());
         assert!(run(&entity("@ToString\n", &BODY.replace("private Customer", "private transient Customer")), false, true, false).len() == 1);
