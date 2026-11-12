@@ -1,0 +1,44 @@
+{
+  "id": "RS-810",
+  "rows": [
+    "G001",
+    "G004"
+  ],
+  "claimIds": [
+    "G001-C1",
+    "G004-C1"
+  ],
+  "verifies": {
+    "G001-C1": "The native Persistence tree view model lists a persistence unit (shopPu from persistence.xml), a managed @Entity under it (Customer) and its Spring Data repository (CustomerRepository under Repositories). NOT checked: the tool window chrome, layout, icons as drawn, and configuration-file or converter rows of the original's tool window.",
+    "G004-C1": "Same tree check: persistence unit, managed entity and Spring Data repository nodes are present and nested unit > entity > Repositories > repository. NOT checked: how the host draws the tool window."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "copy": {
+        "from": "persistence-xml-variant/persistence-clean.xml",
+        "to": "src/main/resources/META-INF/persistence.xml"
+      }
+    }
+  ],
+  "kind": "tree",
+  "action": {
+    "view": "structure"
+  },
+  "expect": {
+    "treeNodes": [
+      "shopPu",
+      "persistence.xml \u00b7 ",
+      "Spring Data repository"
+    ],
+    "treeChildren": [
+      [
+        "shopPu",
+        "Customer",
+        "Repositories",
+        "CustomerRepository"
+      ]
+    ]
+  },
+  "note": "Persistence tree shows unit, entity and repository nodes nested as the documented structure describes."
+}

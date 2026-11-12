@@ -26,7 +26,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
    "ourFeature": "repository scan incomplete (structure_related.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the Persistence view: Repositories group across packages (RS-811), create-new from the group item menu (RS-812), jump-to as an accepted open-location call (RS-813). Not checked: an editor really opening; tool window drawing."
   },
   {
    "id": "G002-C2",

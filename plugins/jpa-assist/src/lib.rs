@@ -1420,6 +1420,7 @@ impl Plugin for JpaAssist {
             }
             "new-entity" => new_entity(ctx),
             tree if tree.starts_with("tree-new-") => file_actions::run_tree_command(self, tree, ctx),
+            structure if structure.starts_with("structure-new-") || structure == "structure-add" => file_actions::run_structure_command(self, structure, ctx, arg),
             "jdbc-manage" | "jdbc-test" | "jdbc-browse" => jdbc_connect::run(id, ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
@@ -1853,13 +1854,14 @@ impl Views for JpaAssist {
             self.structure_groups = structure_groups;
 
             if items.is_empty() {
-                return Ok(View::message("No JPA entities found in this project.").button(Button::new("refresh", "Refresh").icon("refresh")));
+                return Ok(View::message("No JPA entities found in this project.").button(Button::new("add", "Add…").icon("plus")).button(Button::new("refresh", "Refresh").icon("refresh")));
             }
 
-            Ok(View::new(Body::Tree(items)).button(Button::new("refresh", "Refresh").icon("refresh"))
+            Ok(View::new(Body::Tree(file_actions::structure_filter(items))).button(Button::new("add", "Add…").icon("plus")).button(Button::new("refresh", "Refresh").icon("refresh"))
                 .button(Button::new("locate-open-file", "Locate Open File").icon("locate").enabled(opened.is_some()))
                 .button(Button::new("expand-all", "Expand All").icon("expand-all"))
-                .button(Button::new("collapse-all", "Collapse All").icon("collapse-all")).status(&status))
+                .button(Button::new("collapse-all", "Collapse All").icon("collapse-all"))
+                .button(Button::new("filter", "Filter Groups").icon("filter")).status(&status))
         })().map(ui_kit::actions::available)
     }
 
@@ -1870,6 +1872,8 @@ impl Views for JpaAssist {
         if view==source_diagram::VIEW{return self.handle_source_diagram(event,_ctx);}
         if view != "structure" { return Err(Error::NotFound(view.into())); }
         match event {
+            ViewEvent::Select(key) => file_actions::structure_select(key),
+            ViewEvent::Button(id) if id == "add" || id == "filter" => file_actions::structure_button(self, &id, _ctx)?,
             ViewEvent::Button(id) if id == "locate-open-file" => self.locate_opened_structure_entity(_ctx)?,
             ViewEvent::Button(id) if id == "refresh" => {
                 self.sources.clear();

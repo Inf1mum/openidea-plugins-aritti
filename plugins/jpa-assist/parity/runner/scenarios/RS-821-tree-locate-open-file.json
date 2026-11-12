@@ -1,0 +1,34 @@
+{
+  "id": "RS-821",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "tree",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Customer.java",
+    "anchor": "class Customer"
+  },
+  "action": {
+    "view": "structure",
+    "viewEvents": [
+      {
+        "button": "locate-open-file"
+      }
+    ]
+  },
+  "expect": {
+    "treeNodes": [
+      "Opened file"
+    ],
+    "treeChildren": [
+      [
+        "Customer",
+        "Repositories",
+        "CustomerRepository"
+      ]
+    ]
+  },
+  "note": "Kind exerciser, covers no claim: S006-C1 says Locate SELECTS the entity of the caret; OpenIDEA has no tree selection API, so Locate Open File expands the entity and marks it 'Opened file'. The scenario checks that behaviour only.",
+  "kindExerciser": true
+}

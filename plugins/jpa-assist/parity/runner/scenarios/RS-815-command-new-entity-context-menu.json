@@ -1,0 +1,53 @@
+{
+  "id": "RS-815",
+  "rows": [
+    "G003"
+  ],
+  "claimIds": [
+    "G003-C1"
+  ],
+  "verifies": {
+    "G003-C1": "The right-click New > Entity entry of an entity item (command structure-new-entity with the item key) creates a new entity in that entity's package folder. NOT checked: menu placement and the original's New popup."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "grants": [
+    "project.write"
+  ],
+  "kind": "command",
+  "action": {
+    "command": "structure-new-entity",
+    "arg": "entity:$PROJECT/src/main/java/com/example/shop/domain/Customer.java"
+  },
+  "prompts": [
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "Voucher"
+    },
+    "default",
+    {
+      "pick": "IDENTITY"
+    },
+    {
+      "pickMany": [
+        "version"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Voucher.java",
+        "contains": [
+          "@Entity",
+          "class Voucher"
+        ]
+      }
+    ]
+  },
+  "note": "Context menu New > Entity on the Customer item."
+}

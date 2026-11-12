@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
    "strength": "explicit",
    "ourFeature": "structure_related.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the native Persistence tree view model: persistence units, managed entities and Spring Data repositories are listed and nested (RS-810). Not checked: tool window layout and drawing."
   },
   {
    "id": "G004-C2",
@@ -25,7 +26,8 @@
    "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
    "strength": "explicit",
    "ourFeature": "structure_related.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the behaviour: @Entity classes appear in the Persistence tree without any persistence.xml, and Add > Persistence Unit creates a persistence unit with a reviewed META-INF/persistence.xml, either a new file or an appended unit of an existing file (RS-818, RS-819). Not checked: the original's dialog fields, module-level creation and exclude-unlisted-classes options."
   }
  ],
  "undocumented": [

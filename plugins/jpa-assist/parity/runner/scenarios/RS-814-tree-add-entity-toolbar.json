@@ -1,0 +1,77 @@
+{
+  "id": "RS-814",
+  "rows": [
+    "G003"
+  ],
+  "claimIds": [
+    "G003-C1"
+  ],
+  "verifies": {
+    "G003-C1": "The Persistence view toolbar Add button offers Entity among its kinds and the chosen flow creates a new entity file (reviewed, non-overwriting). NOT checked: the original's Add button glyph/dropdown (ours is a toolbar button opening a pick list) and where in the tool window it sits."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "grants": [
+    "project.write"
+  ],
+  "kind": "tree",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Customer.java",
+    "anchor": "class Customer"
+  },
+  "action": {
+    "view": "structure",
+    "viewEvents": [
+      {
+        "button": "add"
+      }
+    ]
+  },
+  "prompts": [
+    {
+      "pick": "structure-new-entity"
+    },
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "Coupon"
+    },
+    "default",
+    {
+      "pick": "IDENTITY"
+    },
+    {
+      "pickMany": [
+        "version"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Add",
+        "optionsInclude": [
+          "Entity",
+          "JPA Converter",
+          "Hibernate Custom Type",
+          "Spring Data Repository",
+          "Persistence Unit"
+        ]
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Coupon.java",
+        "contains": [
+          "@Entity",
+          "class Coupon"
+        ]
+      }
+    ]
+  },
+  "note": "Toolbar Add > Entity from the Persistence view."
+}

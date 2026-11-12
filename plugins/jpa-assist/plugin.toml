@@ -261,6 +261,93 @@ view = "structure"
 command = "copy-dto"
 when = "viewItemKind == entity"
 
+[[contributes.commands]]
+id = "structure-new-entity"
+title = "JPA: New Entity in Persistence…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-new-converter"
+title = "JPA: New Attribute Converter in Persistence…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-new-user-type"
+title = "JPA: New Hibernate Custom Type in Persistence…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-new-repository"
+title = "JPA: New Spring Data Repository in Persistence…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-new-dto"
+title = "JPA: New DTO in Persistence…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-new-projection"
+title = "JPA: New Projection in Persistence…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-new-persistence-unit"
+title = "JPA: New Persistence Unit…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "structure-add"
+title = "JPA: Add to Persistence…"
+category = "JPA Assist"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-entity"
+submenu = "New"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-converter"
+submenu = "New"
+when = "viewItemKind == entity || viewItemKind == attribute || viewItemKind == group || viewItemKind == artifact"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-user-type"
+submenu = "New"
+when = "viewItemKind == entity || viewItemKind == attribute || viewItemKind == group || viewItemKind == artifact"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-repository"
+submenu = "New"
+when = "viewItemKind == entity || viewItemKind == attribute || viewItemKind == group || viewItemKind == artifact"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-dto"
+submenu = "New"
+when = "viewItemKind == entity || viewItemKind == attribute || viewItemKind == group || viewItemKind == artifact"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-projection"
+submenu = "New"
+when = "viewItemKind == entity || viewItemKind == attribute || viewItemKind == group || viewItemKind == artifact"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "structure"
+command = "structure-new-persistence-unit"
+submenu = "New"
+
 [[contributes.languages]]
 path = "languages/jpql.toml"
 
