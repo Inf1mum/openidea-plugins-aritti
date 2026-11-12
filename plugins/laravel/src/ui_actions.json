@@ -40,20 +40,6 @@
   },
   {
     "menu": "viewItem.context",
-    "view": "laravel-external",
-    "command": "sentry-details",
-    "label": "Show Issue Details",
-    "icon": "info"
-  },
-  {
-    "menu": "viewItem.context",
-    "view": "laravel-external",
-    "command": "cloud-environments",
-    "label": "Load Environments",
-    "icon": "services"
-  },
-  {
-    "menu": "viewItem.context",
     "view": "laravel-models",
     "command": "model-open-source",
     "label": "Open Model Source",
@@ -79,12 +65,5 @@
     "command": "runtime-database-remove",
     "label": "Remove Database Connection…",
     "icon": "delete"
-  },
-  {
-    "menu": "viewItem.context",
-    "view": "laravel-external",
-    "command": "cloud-details-select",
-    "label": "Show Environment Details",
-    "icon": "info"
   }
 ]

@@ -199,19 +199,37 @@ fn model(text: &str) -> Result<(Vec<TreeItem>, HashMap<String, usize>, String), 
         ),
     ))
 }
+fn nearest_lockfile(project: &Project, root: &str) -> Result<String, Error> {
+    let mut found: Vec<String> = project
+        .find_files("**/package-lock.json", 50)?
+        .into_iter()
+        .filter(|path| !path.contains("/node_modules/"))
+        .map(|path| if path.starts_with('/') { path } else { format!("{}/{path}", root.trim_end_matches('/')) })
+        .collect();
+    found.sort_by_key(|path| path.matches('/').count());
+    let depth = |path: &String| path.matches('/').count();
+    match found.as_slice() {
+        [] => Err("No package-lock.json in the project.".into()),
+        [only] => Ok(only.clone()),
+        [first, second, ..] if depth(first) < depth(second) => Ok(first.clone()),
+        _ => Err("Several package-lock.json files; focus the one to inspect.".into()),
+    }
+}
 impl Snapshot {
     pub(crate) fn capture(ctx: &Invocation) -> Result<Self, Error> {
-        let editor = ctx.editor().ok_or("Open package-lock.json first.")?;
-        let path = editor.path();
-        if !path.ends_with("/package-lock.json") {
-            return Err("Open package-lock.json first.".into());
-        }
         let project = ctx.project().ok_or(Error::Stale)?;
         let root = project.root()?;
+        let (path, text) = match ctx.editor().filter(|editor| editor.path().ends_with("/package-lock.json")) {
+            Some(editor) => (editor.path(), editor.document()?.text),
+            None => {
+                let path = nearest_lockfile(&project, &root)?;
+                let text = project.read_file(&path)?;
+                (path, text)
+            }
+        };
         if !owned_source_path(&root, &path) {
             return Err(Error::Stale);
         }
-        let text = editor.document()?.text;
         let (items, targets, status) = model(&text)?;
         Ok(Self {
             root,
@@ -255,7 +273,7 @@ impl Snapshot {
                     .any(|item| item.parent.as_deref() == Some(key)) =>
             {
                 self.expansion.handle(&event);
-                host::refresh_view(VIEW);
+                crate::refresh(VIEW);
                 Ok(())
             }
             ViewEvent::Activate(key) => self.activate(key, ctx),
@@ -329,6 +347,24 @@ mod tests {
                 .filter(|item| item.parent.is_some())
                 .all(|item| !item.expandable)
         );
+    }
+    #[test]
+    fn capture_falls_back_to_the_project_root_lockfile_without_a_focused_lockfile() {
+        let h = openidea_plugin::mock::MockHost::install();
+        h.set_project_root(Some("/project"));
+        h.add_file("/project/package-lock.json", r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"a":"*"}},"node_modules/a":{"version":"1"}}}"#);
+        assert!(Snapshot::capture(&h.invocation()).is_ok());
+    }
+    #[test]
+    fn capture_finds_a_single_subfolder_lockfile_and_refuses_ties() {
+        let h = openidea_plugin::mock::MockHost::install();
+        h.set_project_root(Some("/project"));
+        let lock = r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"a":"*"}},"node_modules/a":{"version":"1"}}}"#;
+        h.add_file("web/package-lock.json", lock);
+        let snapshot = Snapshot::capture(&h.invocation()).unwrap();
+        assert_eq!(snapshot.path, "/project/web/package-lock.json");
+        h.add_file("api/package-lock.json", lock);
+        assert!(Snapshot::capture(&h.invocation()).is_err());
     }
     #[test]
     fn snapshot_uses_current_buffer_and_withholds_stale_navigation() {

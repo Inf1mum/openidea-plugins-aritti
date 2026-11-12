@@ -129,6 +129,23 @@
     if(toolbar && overflow) b.dataset.uiToolbarOverflow="";
     b.addEventListener("click", () => {if(targetView !== state.activeView)return;flushForm();event({ kind: "button", key: button.key },targetView);}); return b;
   }
+  function groupMenu(group, buttons) {
+    const targetView=state.activeView,members=(group.items || []).map(key=>buttons.find(b=>b.key === key)).filter(Boolean);
+    const id=`toolbar-menu-${group.id}`,title=tr(`toolbar.${group.id}`,group.label);
+    const trigger=element("button");trigger.type="button";trigger.setAttribute("popovertarget",id);trigger.setAttribute("aria-haspopup","menu");trigger.title=title;
+    trigger.append(element("span",title,"action-label"));
+    const icon=viewIcon(group.icon);if(icon)trigger.prepend(icon);
+    const chevron=viewIcon("chevron-down");if(chevron)trigger.append(chevron);
+    const menu=element("div");menu.id=id;menu.dataset.uiMenu="";menu.setAttribute("popover","manual");menu.setAttribute("aria-label",title);
+    for(const b of members) {
+      const item=element("button");item.type="button";item.setAttribute("role","menuitem");
+      const label=tr(`action.${b.key}`,b.label),content=element("span",null,"ui-menu-label"),glyph=viewIcon(b.icon) || element("span",null,"view-icon");
+      glyph.setAttribute("aria-hidden","true");content.append(glyph,document.createTextNode(label));item.append(content);item.title=label;
+      item.addEventListener("click",()=>{if(targetView !== state.activeView)return;flushForm();event({ kind: "button", key: b.key },targetView);});
+      menu.append(item);
+    }
+    return [trigger,menu];
+  }
   function header() {
     const model = state.model; document.title = model.title;
     document.querySelector("main").setAttribute("aria-label", model.title);
@@ -163,10 +180,21 @@
     // Only producer-declared actions belong in the toolbar. Invalidation keeps
     // local content current without adding a generic Refresh action.
     const inlineButtons=new Set(model.body.kind === "form" ? model.body.fields.flatMap(field=>model.fieldActions?.[field.key]?.button || []) : []);
-    const toolbarButtons=model.toolbar.filter(b => b.enabled && !b.key.startsWith("section:") && !inlineButtons.has(b.key)).map(b=>actionButton(b,true));
+    const visibleButtons=model.toolbar.filter(b => b.enabled && !b.key.startsWith("section:") && !inlineButtons.has(b.key));
+    const groupOf=new Map();
+    for(const group of Array.isArray(model.toolbarGroups) ? model.toolbarGroups : [])for(const key of group.items || [])if(!groupOf.has(key))groupOf.set(key,group);
+    const emittedGroups=new Set(),toolbarButtons=[];
+    for(const b of visibleButtons) {
+      const group=groupOf.get(b.key);
+      if(!group){toolbarButtons.push(actionButton(b,true));continue;}
+      if(emittedGroups.has(group.id))continue;
+      emittedGroups.add(group.id);
+      toolbarButtons.push(...groupMenu(group,visibleButtons));
+    }
     const toolbarOrder=button=>button.hasAttribute("data-ui-toolbar-overflow") ? 2 : Number(button.classList.contains("ui-toolbar-end"));
     toolbarButtons.sort((a,b)=>toolbarOrder(a)-toolbarOrder(b));
     $("toolbar").replaceChildren(...toolbarButtons);
+    if(emittedGroups.size)window.uiKitWidgets?.enhance($("toolbar"));
     $("search").value = queryState().query;
     $("search").placeholder = typeof model.body.searchPlaceholder === "string" ? tr(`search.${state.activeView}`,model.body.searchPlaceholder) : tr("shared.searchPlaceholder","Search…");
   }
@@ -432,7 +460,7 @@
       const nodes=[...tbody.querySelectorAll('tr')],next=nodes.find(node=>node.dataset.resourceKey === focusedKey) || nodes.find(node=>node.dataset.resourceKey === q.selected) || nodes.find(node=>node.tabIndex === 0);
       next?.focus({preventScroll:true});
     }
-    $("status").textContent = tr("shared.resourceCount","{visible} of {total} resources",{visible:visible.length,total:rows.length})+(body.totalRows>rows.length?" "+tr("shared.availableCount","({count} available)",{count:body.totalRows}):"")+(state.model.status?` · ${state.model.status}`:"");
+    $("status").textContent = tr("shared.resourceCount","{visible} of {total} resources",body.kind === "tree" ? {visible:visible.filter(row=>!row.parent).length,total:rows.filter(row=>!row.parent).length} : {visible:visible.length,total:rows.length})+(body.totalRows>rows.length?" "+tr("shared.availableCount","({count} available)",{count:body.totalRows}):"")+(state.model.status?` · ${state.model.status}`:"");
   }
   function inlineActionState(model) {
     const keys=Object.values(model?.fieldActions || {}).map(action=>action.button);

@@ -32,6 +32,8 @@ pub struct Render {
     pub template: String,
     /// Keys of the literal parameter array: the template's variables.
     pub variables: Vec<String>,
+    /// What the controller's source says about the types of those variables.
+    pub variable_types: std::collections::BTreeMap<String, crate::php_types::TypeHint>,
     /// `BlogController::index`.
     pub caller: String,
     pub path: String,
@@ -563,12 +565,14 @@ pub fn php_renders(path: &str, text: &str) -> Vec<Render> {
             let Some((template, offset)) = quoted_at(text, at + call.len()) else { continue };
             let after_literal = offset + template.len() + 1;
             let rest = text[after_literal..].trim_start();
-            let variables = rest
+            let entries = rest
                 .strip_prefix(',')
                 .map(str::trim_start)
                 .filter(|r| r.starts_with('['))
-                .map(|r| array_keys(text, text.len() - r.len() + 1))
+                .map(|r| array_entries(text, text.len() - r.len() + 1))
                 .unwrap_or_default();
+            let variables: Vec<String> = entries.iter().map(|(key, _)| key.clone()).collect();
+            let variable_types = crate::php_types::render_variable_types(text, at, &entries);
 
             let method = text[..at]
                 .rfind("function ")
@@ -582,6 +586,7 @@ pub fn php_renders(path: &str, text: &str) -> Vec<Render> {
             renders.push(Render {
                 template: template.to_owned(),
                 variables,
+                variable_types,
                 caller: format!("{class}::{method}"),
                 path: path.to_owned(),
                 at: lines.position(offset),
@@ -593,7 +598,45 @@ pub fn php_renders(path: &str, text: &str) -> Vec<Render> {
     renders
 }
 
+/// `'key' => expression` pairs at the top level of the array literal starting after `[` at `from`.
+fn array_entries(text: &str, from: usize) -> Vec<(String, String)> {
+    let end = closing_paren(text, from);
+    let bytes = text.as_bytes();
+    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut depth = 0;
+    let mut i = from;
+    let mut value_from = None;
+
+    while i < end {
+        match bytes[i] {
+            b'[' | b'(' | b'{' => depth += 1,
+            b']' | b')' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                if let (Some(start), Some(last)) = (value_from.take(), entries.last_mut()) {
+                    last.1 = text[start..i].trim().to_owned();
+                }
+            }
+            b'\'' | b'"' => {
+                let Some((value, offset)) = quoted_at(text, i) else { break };
+                i = offset + value.len();
+                if depth == 0 && value_from.is_none() && text[i + 1..].trim_start().starts_with("=>") {
+                    entries.push((value.to_owned(), String::new()));
+                    value_from = Some(i + 1 + text[i + 1..].find("=>").unwrap_or(0) + 2);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if let (Some(start), Some(last)) = (value_from, entries.last_mut()) {
+        last.1 = text[start..end.min(text.len())].trim().trim_end_matches(']').trim().to_owned();
+    }
+    entries
+}
+
 /// `'key' =>` keys at the top level of the array literal starting after `[` at `from`.
+#[allow(dead_code)]
 fn array_keys(text: &str, from: usize) -> Vec<String> {
     let end = closing_paren(text, from);
     let mut keys = Vec::new();

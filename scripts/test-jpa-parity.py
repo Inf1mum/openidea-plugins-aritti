@@ -155,6 +155,35 @@ class EvidenceLevelAndDocumentationTests(unittest.TestCase):
             self.verify_row(self.source_case(**override))
             self.assertTrue(self.validate(), override)
 
+    def inherited_pair(self, target_status='verified-parity', case=None):
+        reqs = self.ledger['requirements']
+        target, child = reqs[0], reqs[1]
+        target.update(status=target_status, implementation=['x'], evidence=[EXISTING], acceptance=[self.docs_case()])
+        child.update(status='verified-parity', implementation=['x'], evidence=[EXISTING],
+                     acceptance=[case or {'scenario': 'inherited', 'referenceType': 'inherited', 'inheritedFrom': [target['id']],
+                                          'scope': 's', 'result': 'pass'}])
+        return target, child
+
+    def test_inherited_case_needs_a_verified_non_inherited_target_and_is_counted_apart(self):
+        target, child = self.inherited_pair()
+        self.assertEqual(self.validate(), [])
+        entries = self.ledger['requirements']
+        self.assertEqual(CHECKER['verified_inherited'](entries), [child['id']])
+        self.assertNotIn(child['id'], CHECKER['verified_split'](entries)[0] + CHECKER['verified_split'](entries)[1])
+
+    def test_inherited_case_from_an_open_unknown_self_or_inherited_row_is_rejected(self):
+        self.inherited_pair(target_status='partial')
+        self.assertTrue(any('verified-parity' in e for e in self.validate()))
+        _, child = self.inherited_pair(case={'scenario': 'i', 'referenceType': 'inherited', 'inheritedFrom': ['NOPE'], 'scope': 's', 'result': 'pass'})
+        self.assertTrue(any('unknown or self' in e for e in self.validate()))
+        _, child = self.inherited_pair(case={'scenario': 'i', 'referenceType': 'inherited', 'inheritedFrom': [self.ledger['requirements'][1]['id']], 'scope': 's', 'result': 'pass'})
+        self.assertTrue(any('unknown or self' in e for e in self.validate()))
+        reqs = self.ledger['requirements']
+        self.inherited_pair()
+        reqs[2].update(status='verified-parity', implementation=['x'], evidence=[EXISTING],
+                       acceptance=[{'scenario': 'i', 'referenceType': 'inherited', 'inheritedFrom': [reqs[1]['id']], 'scope': 's', 'result': 'pass'}])
+        self.assertTrue(any('its own evidence' in e for e in self.validate()))
+
     def test_documentation_case_requires_sources_claims_date_and_file(self):
         for override in (
             {'referenceSources': []}, {'referenceSources': ['http://example.com']}, {'referenceSources': 'https://x'},

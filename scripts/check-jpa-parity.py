@@ -12,7 +12,7 @@ STATUSES = {'unverified', 'missing', 'partial', 'blocked', 'verified-parity'}
 CLAIMS_DIR = ROOT / 'plugins/jpa-assist/parity/claims'
 LEVELS = ('L0', 'L1', 'L2', 'L3')
 LEVEL_STATES = {'pass', 'fail', 'none'}
-REFERENCE_TYPES = {'observed', 'documentation', 'source-reading'}
+REFERENCE_TYPES = {'observed', 'documentation', 'source-reading', 'inherited'}
 REQUIRED_IDS = {f'{prefix}{i:03}' for prefix, count in [('G', 134), ('A', 44), ('I', 12), ('S', 7), ('F', 19), ('E', 139)] for i in range(1, count + 1)}
 
 
@@ -102,6 +102,23 @@ def validate_source_reading_case(key, case):
     return errors
 
 
+def validate_inherited_case(key, case, entries):
+    errors = []
+    sources = case.get('inheritedFrom')
+    if not strings(sources):
+        return [f'{key}: inherited case needs inheritedFrom (mapped G/S/F row ids)']
+    if case.get('result') != 'pass' or not case.get('scope'):
+        errors.append(f'{key}: incomplete inherited acceptance case')
+    for source in sources:
+        target = entries.get(source)
+        if target is None or source == key:
+            errors.append(f'{key}: inheritedFrom {source} is unknown or self')
+        elif target.get('status') != 'verified-parity' or any(
+                isinstance(c, dict) and c.get('referenceType') == 'inherited' for c in target.get('acceptance') or []):
+            errors.append(f'{key}: inheritedFrom {source} must itself be verified-parity by its own evidence')
+    return errors
+
+
 def validate(data, claims_dir=CLAIMS_DIR):
     errors = []
     if data.get('schemaVersion') != 1:
@@ -113,6 +130,7 @@ def validate(data, claims_dir=CLAIMS_DIR):
     if not isinstance(requirements, list) or not requirements:
         return ['A nonempty requirements inventory is required']
     ids = set()
+    by_id = {e.get('id'): e for e in requirements if isinstance(e, dict)}
     for entry in requirements:
         key = entry.get('id')
         if not isinstance(key, str) or not key or key in ids:
@@ -144,6 +162,8 @@ def validate(data, claims_dir=CLAIMS_DIR):
                     errors.extend(validate_documentation_case(key, case))
                 elif isinstance(case, dict) and case.get('referenceType') == 'source-reading':
                     errors.extend(validate_source_reading_case(key, case))
+                elif isinstance(case, dict) and case.get('referenceType') == 'inherited':
+                    errors.extend(validate_inherited_case(key, case, by_id))
                 elif not isinstance(case, dict) or not all(case.get(k) for k in ('scenario', 'referenceEvidence', 'implementationEvidence', 'test', 'scope')) or case.get('result') != 'pass':
                     errors.append(f'{key}: incomplete differential acceptance case')
             try:
@@ -193,9 +213,14 @@ def verified_split(entries):
         types = {c.get('referenceType', 'observed') for c in e.get('acceptance') or [] if isinstance(c, dict)}
         if 'documentation' in types:
             documentation.append(e.get('id'))
-        elif 'source-reading' not in types:
+        elif not types & {'source-reading', 'inherited'}:
             observed.append(e.get('id'))
     return observed, documentation
+
+
+def verified_inherited(entries):
+    return [e.get('id') for e in entries if e.get('status') == 'verified-parity'
+            and any(isinstance(c, dict) and c.get('referenceType') == 'inherited' for c in e.get('acceptance') or [])]
 
 
 def verified_source_reading(entries):
@@ -204,7 +229,7 @@ def verified_source_reading(entries):
         if e.get('status') != 'verified-parity':
             continue
         types = {c.get('referenceType', 'observed') for c in e.get('acceptance') or [] if isinstance(c, dict)}
-        if 'source-reading' in types and 'documentation' not in types:
+        if 'source-reading' in types and not types & {'documentation', 'inherited'}:
             result.append(e.get('id'))
     return result
 
@@ -232,9 +257,10 @@ def main():
     }
     observed, documentation = verified_split(entries)
     source_reading = verified_source_reading(entries)
+    inherited = verified_inherited(entries)
     levels = coverage(entries)
     passed = not errors and (not args.release or not gaps)
-    summary = {'valid': not errors, 'fullParity': not errors and not gaps and bool(entries), 'requirements': len(entries), 'statuses': counts, 'openGaps': gaps, 'mapping': mapping, 'evidenceCoverage': levels, 'verifiedObservedReference': observed, 'verifiedDocumentationReference': documentation, 'verifiedSourceReadingReference': source_reading, 'errors': errors}
+    summary = {'valid': not errors, 'fullParity': not errors and not gaps and bool(entries), 'requirements': len(entries), 'statuses': counts, 'openGaps': gaps, 'mapping': mapping, 'evidenceCoverage': levels, 'verifiedObservedReference': observed, 'verifiedDocumentationReference': documentation, 'verifiedSourceReadingReference': source_reading, 'verifiedInherited': inherited, 'errors': errors}
     if args.json:
         print(json.dumps(summary, indent=2))
     else:
@@ -243,6 +269,7 @@ def main():
         print('Evidence coverage (rows by highest passing level): ' + ', '.join(f'{k}={v}' for k, v in levels.items()))
         print(f'Verified with observed reference: {len(observed)}; verified with documentation-derived reference (weaker): {len(documentation)}')
         print(f'Verified from reading the original source (read-only, between documentation and observed): {len(source_reading)}')
+        print(f'Verified by inheritance from verified G/S/F rows (no independent test): {len(inherited)}')
         if documentation:
             print('Documentation-derived: ' + ', '.join(map(str, documentation)))
         for error in errors:

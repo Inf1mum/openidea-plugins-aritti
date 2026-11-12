@@ -10,6 +10,11 @@
       "multiline": true,
       "title": "Ignored advisories (one id per line, # starts a comment)",
       "default": ""
+    },
+    "autoResolveBuilds": {
+      "type": "boolean",
+      "title": "Resolve Maven/Gradle dependencies after each scan (runs the project's build tool, no confirmation)",
+      "default": true
     }
   }
 }

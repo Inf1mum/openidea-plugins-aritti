@@ -285,6 +285,36 @@ pub fn twig_variable_at(text: &str, at: usize) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+/// `root.a.b.` before the word being typed in Twig code: the identifiers before the last dot,
+/// and the word being typed. `None` after a filter, a call or an index, or inside a string.
+pub fn twig_member_chain_at(text: &str, at: usize) -> Option<(Vec<String>, usize, usize)> {
+    let code = twig_code_start(text, at)?;
+    literal_at("twig", text, at).is_none().then_some(())?;
+
+    let (start, end) = word_at(text, at, is_identifier);
+    let mut before = text[code + 2..start].strip_suffix('.')?;
+    let mut chain = Vec::new();
+    loop {
+        let length = before.bytes().rev().take_while(|byte| is_identifier(*byte)).count();
+        if length == 0 {
+            return None;
+        }
+        chain.push(before[before.len() - length..].to_owned());
+        before = &before[..before.len() - length];
+        match before.strip_suffix('.') {
+            Some(rest) => before = rest,
+            None => break,
+        }
+    }
+
+    if before.trim_end().ends_with(['|', ')', ']', '\'', '"']) && before.ends_with(|c: char| !c.is_whitespace() && c != '(' && c != ',') {
+        return None;
+    }
+
+    chain.reverse();
+    Some((chain, start, end))
+}
+
 /// Every reference in a document, in order.
 pub fn references(language: &str, text: &str) -> Vec<Reference> {
     if language=="twig" {

@@ -1,31 +1,24 @@
-//! Session-owned long-running Artisan jobs. Browsing never starts PHP.
+//! Long-running Artisan commands opened in terminal tabs. Browsing never starts PHP.
 use crate::artisan_runner::Runner;
 use openidea_plugin::{Error, Invocation, Project, host};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
-use std::time::Instant;
 
 pub(super) const VIEW: &str = "laravel-processes";
 #[derive(Default)]
 pub(super) struct State { projects: BTreeMap<String, Session> }
 #[derive(Default)]
-struct Session { jobs: Vec<Process>, seen: VecDeque<String>, preview: Option<Preview> }
+struct Session { jobs: Vec<Launch>, seen: VecDeque<String>, preview: Option<Preview> }
 #[derive(Clone)]
 struct Preview { command: String, runner: Runner, argv: Vec<String>, executable: Vec<String>, token: String, target: Option<String> }
-struct Process {
-    child: Option<host::Child>, id: String, command: String, runner: Runner,
-    argv: Vec<String>, target: Option<String>, stdout: String, stderr: String,
-    status: Option<i32>, stopped: bool, truncated: bool, started: Instant,
-}
+struct Launch { id: String, command: String, runner: Runner, argv: Vec<String>, target: Option<String> }
 #[derive(Deserialize)]
 #[serde(tag="op", rename_all="kebab-case", deny_unknown_fields)]
 enum Request {
     State,
     Preview { command: String, #[serde(default)] runner: Runner, #[serde(default)] options: Options },
     Run { id: String, token: String },
-    Poll,
-    Stop { id: String },
 }
 #[derive(Default, Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
@@ -69,32 +62,15 @@ fn preview(project:&Project,root:&str,command:&str,runner:Runner,argv:Vec<String
     let token=crate::artisan_metadata::hash(&json!([root,runner.name(),executable,target,artisan]).to_string());
     Ok(Preview{command:command.into(),runner,argv,executable,token,target})
 }
-impl Process {
-    fn poll(&mut self,stop:bool)->Result<(),Error> {
-        let Some(child)=&self.child else{return Ok(())};
-        if stop {child.kill()?;self.stopped=true;}
-        // Drain bounded chunks even when the child has exited; release only at EOF.
-        for _ in 0..8 {
-            let chunk=match self.child.as_ref().unwrap().poll(16*1024){Ok(c)=>c,Err(error)=>{let _=self.child.as_ref().unwrap().kill();self.child=None;self.status=Some(-1);return Err(error)}};
-            let empty=chunk.stdout.is_empty()&&chunk.stderr.is_empty();
-            append(&mut self.stdout,&chunk.stdout,64*1024,&mut self.truncated);
-            append(&mut self.stderr,&chunk.stderr,16*1024,&mut self.truncated);
-            if let Some(status)=chunk.status {self.status=Some(status);}
-            if self.status.is_some()&&empty {self.child=None;break;}
-            if self.status.is_none(){break;}
-        }
-        Ok(())
-    }
-    fn json(&self)->Value {json!({"id":self.id,"command":self.command,"runner":self.runner.name(),"argv":self.argv,"targetLabel":self.target,"running":self.child.is_some(),"status":self.status,"stopped":self.stopped,"stdout":self.stdout,"stderr":self.stderr,"truncated":self.truncated,"elapsedMs":self.started.elapsed().as_millis()})}
+impl Launch {
+    fn json(&self)->Value {json!({"id":self.id,"command":self.command,"runner":self.runner.name(),"argv":self.argv,"targetLabel":self.target})}
 }
-fn append(out:&mut String,value:&str,limit:usize,truncated:&mut bool){let mut end=value.len().min(limit.saturating_sub(out.len()));while !value.is_char_boundary(end){end-=1;}out.push_str(&value[..end]);*truncated|=end<value.len();}
 impl State {
     pub fn handle(&mut self,ctx:&Invocation,message:&str)->Result<Value,Error> {
         if message.len()>8192{return Err(Error::Invalid(crate::ui_text::t("process.error10","Process request is too large.")));}
         let request:Request=serde_json::from_str(message).map_err(|e|Error::Invalid(e.to_string()))?;
         let(project,root)=owner(ctx)?;
         if !self.projects.contains_key(&root)&&self.projects.len()>=8{return Err(Error::Invalid(crate::ui_text::t("process.error11","Too many process sessions; stop processes and reload the plugin.")));}
-        let active=self.projects.values().flat_map(|s|&s.jobs).filter(|j|j.child.is_some()).count();
         let session=self.projects.entry(root.clone()).or_default();
         let mut response=json!({"root":root,"sessionOnly":true});
         match request {
@@ -108,25 +84,21 @@ impl State {
             Request::Run{id,token}=>{
                 if id.len()<16||id.len()>128||!id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'){return Err(Error::Invalid(crate::ui_text::t("process.error12","Invalid process operation id.")));}
                 if session.seen.contains(&id){return Err(Error::Invalid(crate::ui_text::t("process.error13","This start request was already used.")));}
-                if active>=6||session.jobs.iter().filter(|j|j.child.is_some()).count()>=4{return Err(Error::Invalid(crate::ui_text::t("process.error14","Stop an existing process before starting another.")));}
                 let draft=session.preview.as_ref().filter(|p|p.token==token).ok_or(Error::Stale)?.clone();
                 if preview(&project,&root,&draft.command,draft.runner,draft.argv.clone())?.token!=token{session.preview=None;return Err(Error::Stale);}
-                if session.jobs.iter().any(|j|j.child.is_some()&&j.runner==draft.runner&&j.argv==draft.argv&&j.target==draft.target){return Err(Error::Invalid(crate::ui_text::t("process.error15","This process is already running.")));}
-                let child=host::start(&host::Command::new(draft.runner.name()).args(&draft.executable),Some(&project))?;
-                if let Err(error)=child.close_stdin(){let _=child.kill();return Err(error);}
+                let command=host::Command::new(draft.runner.name()).args(&draft.executable);
+                host::open_terminal_session(&format!("laravel-process-{id}"),&format!("artisan {}",draft.command),&command)?;
                 session.preview=None;
                 session.seen.push_back(id.clone());if session.seen.len()>128{session.seen.pop_front();}
-                if session.jobs.len()>=12 {if let Some(at)=session.jobs.iter().position(|j|j.child.is_none()){session.jobs.remove(at);}}
-                session.jobs.push(Process{child:Some(child),id,command:draft.command,runner:draft.runner,argv:draft.argv,target:draft.target,stdout:String::new(),stderr:String::new(),status:None,stopped:false,truncated:false,started:Instant::now()});
+                if session.jobs.len()>=12 {session.jobs.remove(0);}
+                session.jobs.push(Launch{id,command:draft.command,runner:draft.runner,argv:draft.argv,target:draft.target});
             },
-            Request::Poll=>{for job in &mut session.jobs {job.poll(false)?;}},
-            Request::Stop{id}=>{session.jobs.iter_mut().find(|j|j.id==id).ok_or(Error::Stale)?.poll(true)?;},
         }
-        response["jobs"]=json!(session.jobs.iter().map(Process::json).collect::<Vec<_>>());
+        response["jobs"]=json!(session.jobs.iter().map(Launch::json).collect::<Vec<_>>());
         Ok(response)
     }
 }
-pub(super) fn html()->String {r#"<section data-managed-processes aria-label="Managed Laravel processes" data-i18n-aria-label="process.panel"><style>[data-managed-processes]{padding:12px;display:grid;gap:12px;min-width:0}[data-managed-processes] [hidden]{display:none!important}[data-managed-processes] form{display:flex;gap:8px;align-items:end;flex-wrap:wrap}[data-managed-processes] label{display:grid;gap:4px}[data-managed-processes] pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--ui-font-mono,monospace);max-height:240px;overflow:auto}[data-managed-processes] article{border-top:1px solid var(--ui-border,#80808055);padding-top:8px}[data-managed-processes] .process-output{display:grid;gap:4px;min-width:0}[data-managed-processes] .process-actions{display:flex;flex-wrap:wrap;gap:var(--ui-space-2,8px)}[data-managed-processes] .process-stop{margin-inline-start:var(--ui-space-2,8px)}</style><p><span data-i18n="process.sessionHelp">Processes are managed for this plugin session. They do not restart automatically or persist after reload. Stop them before closing the project.</span></p><form autocomplete="off"><label><span data-i18n="process.command">Command</span><select id="process-command"><option value="serve" data-i18n="process.developmentServer">Development server</option><option value="queue:work" data-i18n="process.queueWorker">Queue worker</option><option value="schedule:work" data-i18n="process.scheduleWorker">Schedule worker</option></select></label><label><span data-i18n="process.runner">Runner</span><select id="process-runner"><option value="php" data-i18n="process.localPhp">Local PHP</option><option value="docker" data-i18n="process.dockerTarget">Selected Docker target</option></select></label><label data-process-serve><span data-i18n="process.host">Host</span><input id="process-host" value="127.0.0.1"></label><label data-process-serve><span data-i18n="process.port">Port</span><input id="process-port" type="number" min="1" max="65535" value="8000"></label><label data-process-queue hidden><span data-i18n="process.connection">Connection</span><input id="process-connection" placeholder="Application default" data-i18n-placeholder="process.applicationDefault"></label><label data-process-queue hidden><span data-i18n="process.queues">Queues</span><input id="process-queue" placeholder="Application default" data-i18n-placeholder="process.applicationDefault"></label></form><div class="process-actions"><button type="button" id="process-preview" class="ui-button"><span data-ui-icon="eye" aria-hidden="true"></span><span data-i18n="process.preview">Preview</span></button><button type="button" id="process-start" class="ui-button" disabled><span data-ui-icon="run" aria-hidden="true"></span><span data-i18n="process.start">Start</span></button><button type="button" id="process-refresh" class="ui-button"><span data-ui-icon="refresh" aria-hidden="true"></span><span data-i18n="process.refresh">Refresh</span></button></div><pre id="process-argv" aria-label="Exact process command" data-i18n-aria-label="process.exactCommand"></pre><p id="process-error" role="alert"></p><div id="process-jobs" aria-live="polite"></div></section>"#.into()}
+pub(super) fn html()->String {r#"<section data-managed-processes aria-label="Managed Laravel processes" data-i18n-aria-label="process.panel"><style>[data-managed-processes]{padding:12px;display:grid;gap:12px;min-width:0}[data-managed-processes] [hidden]{display:none!important}[data-managed-processes] form{display:flex;gap:8px;align-items:end;flex-wrap:wrap}[data-managed-processes] label{display:grid;gap:4px}[data-managed-processes] pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--ui-font-mono,monospace);max-height:240px;overflow:auto}[data-managed-processes] article{border-top:1px solid var(--ui-border,#80808055);padding-top:8px}[data-managed-processes] .process-output{display:grid;gap:4px;min-width:0}[data-managed-processes] .process-actions{display:flex;flex-wrap:wrap;gap:var(--ui-space-2,8px)}[data-managed-processes] .process-stop{margin-inline-start:var(--ui-space-2,8px)}</style><p><span data-i18n="process.terminalHelp">Commands open in a terminal tab. Stop or restart them from that tab.</span></p><form autocomplete="off"><label><span data-i18n="process.command">Command</span><select id="process-command"><option value="serve" data-i18n="process.developmentServer">Development server</option><option value="queue:work" data-i18n="process.queueWorker">Queue worker</option><option value="schedule:work" data-i18n="process.scheduleWorker">Schedule worker</option></select></label><label><span data-i18n="process.runner">Runner</span><select id="process-runner"><option value="php" data-i18n="process.localPhp">Local PHP</option><option value="docker" data-i18n="process.dockerTarget">Selected Docker target</option></select></label><label data-process-serve><span data-i18n="process.host">Host</span><input id="process-host" value="127.0.0.1"></label><label data-process-serve><span data-i18n="process.port">Port</span><input id="process-port" type="number" min="1" max="65535" value="8000"></label><label data-process-queue hidden><span data-i18n="process.connection">Connection</span><input id="process-connection" placeholder="Application default" data-i18n-placeholder="process.applicationDefault"></label><label data-process-queue hidden><span data-i18n="process.queues">Queues</span><input id="process-queue" placeholder="Application default" data-i18n-placeholder="process.applicationDefault"></label></form><div class="process-actions"><button type="button" id="process-preview" class="ui-button"><span data-ui-icon="eye" aria-hidden="true"></span><span data-i18n="process.preview">Preview</span></button><button type="button" id="process-start" class="ui-button" disabled><span data-ui-icon="run" aria-hidden="true"></span><span data-i18n="process.start">Start</span></button></div><pre id="process-argv" aria-label="Exact process command" data-i18n-aria-label="process.exactCommand"></pre><p id="process-error" role="alert"></p></section>"#.into()}
 
 #[cfg(test)]
 mod tests {
@@ -134,10 +106,10 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     fn setup()->MockHost {let host=MockHost::install().with_capabilities(&["project.read","process:php"]);host.add_file("artisan","<?php // artisan");host}
     fn send(state:&mut State,host:&MockHost,v:Value)->Result<Value,Error>{state.handle(&host.invocation(),&v.to_string())}
-    #[test] fn browsing_and_preview_do_not_execute_and_options_are_exact(){let host=setup();let mut state=State::default();send(&mut state,&host,json!({"op":"state"})).unwrap();let reply=send(&mut state,&host,json!({"op":"preview","command":"queue:work","options":{"connection":"redis","queue":"high,default"}})).unwrap();assert_eq!(reply["preview"]["argv"],json!(["artisan","queue:work","redis","--queue=high,default","--no-interaction"]));assert!(host.process_runs().is_empty());}
-    #[test] fn start_poll_stop_and_duplicate_submission(){let host=setup();let mut state=State::default();let token=send(&mut state,&host,json!({"op":"preview","command":"serve"})).unwrap()["preview"]["token"].clone();let request=json!({"op":"run","id":"process-123456789","token":token});let reply=send(&mut state,&host,request.clone()).unwrap();assert_eq!(reply["jobs"][0]["running"],true);assert!(send(&mut state,&host,request).is_err());let reply=send(&mut state,&host,json!({"op":"poll"})).unwrap();assert!(reply["jobs"][0]["stdout"].as_str().unwrap().contains("started: php"));let reply=send(&mut state,&host,json!({"op":"stop","id":"process-123456789"})).unwrap();assert_eq!(reply["jobs"][0]["running"],false);assert_eq!(reply["jobs"][0]["stopped"],true);send(&mut state,&host,json!({"op":"stop","id":"process-123456789"})).unwrap();}
-    #[test] fn stale_entrypoint_and_invalid_options_never_start(){let host=setup();let mut state=State::default();let token=send(&mut state,&host,json!({"op":"preview","command":"serve"})).unwrap()["preview"]["token"].clone();host.add_file("artisan","<?php changed");assert!(send(&mut state,&host,json!({"op":"run","id":"process-123456789","token":token})).is_err());assert!(send(&mut state,&host,json!({"op":"preview","command":"queue:work","options":{"connection":"--evil"}})).is_err());assert!(send(&mut state,&host,json!({"op":"preview","command":"schedule:work","options":{"port":8000}})).is_err());assert!(host.process_runs().is_empty());}
-    #[test] fn denied_execution_is_reported_and_foreign_ids_cannot_stop(){let host=MockHost::install().with_capabilities(&["project.read"]);host.add_file("artisan","<?php");let mut state=State::default();let token=send(&mut state,&host,json!({"op":"preview","command":"serve"})).unwrap()["preview"]["token"].clone();assert!(matches!(send(&mut state,&host,json!({"op":"run","id":"process-123456789","token":token})),Err(Error::Denied(_))));assert!(send(&mut state,&host,json!({"op":"stop","id":"foreign"})).is_err());}
-    #[test] fn long_running_worker_has_no_artisan_command_timeout(){let host=setup();let mut state=State::default();let token=send(&mut state,&host,json!({"op":"preview","command":"queue:work"})).unwrap()["preview"]["token"].clone();send(&mut state,&host,json!({"op":"run","id":"process-123456789","token":token})).unwrap();let root=host.invocation().project().unwrap().root().unwrap();state.projects.get_mut(&root).unwrap().jobs[0].started=Instant::now()-std::time::Duration::from_secs(600);let reply=send(&mut state,&host,json!({"op":"poll"})).unwrap();assert_eq!(reply["jobs"][0]["running"],true);assert_eq!(reply["jobs"][0]["stopped"],false);}
-    #[test] fn clipping_is_bounded_and_unicode_safe(){let mut text=String::new();let mut truncated=false;append(&mut text,"a💡b",4,&mut truncated);assert_eq!(text,"a");assert!(truncated);}
+    fn token(state:&mut State,host:&MockHost,command:&str)->Value {send(state,host,json!({"op":"preview","command":command})).unwrap()["preview"]["token"].clone()}
+    #[test] fn browsing_and_preview_do_not_execute_and_options_are_exact(){let host=setup();let mut state=State::default();send(&mut state,&host,json!({"op":"state"})).unwrap();let reply=send(&mut state,&host,json!({"op":"preview","command":"queue:work","options":{"connection":"redis","queue":"high,default"}})).unwrap();assert_eq!(reply["preview"]["argv"],json!(["artisan","queue:work","redis","--queue=high,default","--no-interaction"]));assert!(host.process_runs().is_empty());assert!(host.terminal_writes().is_empty());}
+    #[test] fn start_opens_a_terminal_tab_and_rejects_duplicate_submission(){let host=setup();let mut state=State::default();let token=token(&mut state,&host,"serve");let request=json!({"op":"run","id":"process-123456789","token":token});let reply=send(&mut state,&host,request.clone()).unwrap();assert_eq!(reply["jobs"][0]["command"],"serve");assert!(host.process_runs().is_empty());assert!(send(&mut state,&host,request).is_err());}
+    #[test] fn stale_entrypoint_and_invalid_options_never_start(){let host=setup();let mut state=State::default();let token=token(&mut state,&host,"serve");host.add_file("artisan","<?php changed");assert!(send(&mut state,&host,json!({"op":"run","id":"process-123456789","token":token})).is_err());assert!(send(&mut state,&host,json!({"op":"preview","command":"queue:work","options":{"connection":"--evil"}})).is_err());assert!(send(&mut state,&host,json!({"op":"preview","command":"schedule:work","options":{"port":8000}})).is_err());assert!(host.process_runs().is_empty());}
+    #[test] fn denied_terminal_is_reported(){let host=MockHost::install().with_capabilities(&["project.read"]);host.add_file("artisan","<?php");let mut state=State::default();let token=token(&mut state,&host,"serve");assert!(matches!(send(&mut state,&host,json!({"op":"run","id":"process-123456789","token":token})),Err(Error::Denied(_))));}
+    #[test] fn running_workers_are_not_tracked_by_the_plugin(){let host=setup();let mut state=State::default();let token=token(&mut state,&host,"queue:work");let reply=send(&mut state,&host,json!({"op":"run","id":"process-123456789","token":token})).unwrap();assert!(reply["jobs"][0].get("running").is_none());assert!(send(&mut state,&host,json!({"op":"stop","id":"process-123456789"})).is_err());}
 }

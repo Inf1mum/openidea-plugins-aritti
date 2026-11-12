@@ -416,8 +416,8 @@ impl State {
         });
         self.message="Analysis running. Poll for completion; previous evidence retained until valid success.".into();
         self.log.clear();
-        host::reveal_view(VIEW)?;
-        host::refresh_view(VIEW);
+        crate::reveal(VIEW)?;
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn poll(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -449,7 +449,7 @@ impl State {
                 let (facts, packages) = parse(&run.root, run.language, &text)?;
                 if !facts.iter().any(|f| !f.status.starts_with("Unknown")) {
                     self.message="No explicit advisory call facts were returned. Call status is Unknown; previous dated evidence retained.".into();
-                    host::refresh_view(VIEW);
+                    crate::refresh(VIEW);
                     return Ok(());
                 }
                 current(run, ctx)?;
@@ -477,7 +477,7 @@ impl State {
                 )
             }
         }
-        host::refresh_view(VIEW);
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn cancel(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -491,7 +491,7 @@ impl State {
         r.child = None;
         r.status = Some(-1);
         self.message = "Cancelled; previous evidence retained.".into();
-        host::refresh_view(VIEW);
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn render(&self, ctx: &Invocation) -> View {

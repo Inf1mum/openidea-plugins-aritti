@@ -22,6 +22,8 @@ mod live;
 mod namespace_paths;
 mod php_checks;
 mod php_text;
+mod php_types;
+mod processes;
 mod practice_checks;
 mod profiler;
 mod profiler_details;
@@ -58,7 +60,6 @@ pub use index::Index;
 use index::{Entry, Names, Sink};
 use refs::{Kind, Reference};
 use ui_kit::routes::{self, Handler, Route, RouteEvent, RouteList};
-use ui_kit::sections::{SectionDef, Switcher};
 
 const VIEW: &str = "symfony";
 /// Main source index only; profiler/native editors keep their own protocols.
@@ -66,15 +67,18 @@ fn refresh_profiler_view() {
     ui_kit::web::refresh_view(PROFILER_VIEW, include_str!("ui_config.json"));
 }
 fn refresh_main_view() {
-    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
+    for view in MAIN_VIEWS {
+        ui_kit::web::refresh_view(view, include_str!("ui_config.json"));
+    }
 }
 
 const STATUS_ITEM: &str = "symfony";
-const SECTIONS_KEY: &str = "symfony.section";
 const ROUTES_KEY: &str = "symfony.routes";
 const DEFAULT_BASE_URL: &str = "http://localhost:8000";
-const ROUTES_SECTION: &str = "routes";
-const SECTIONS: &[SectionDef] = &[SectionDef { id: ROUTES_SECTION, label: "Routes" }, SectionDef { id: "index", label: "Index" }];
+const TEMPLATES_VIEW: &str = "symfony-templates";
+const SERVICES_VIEW: &str = "symfony-services";
+const TRANSLATIONS_VIEW: &str = "symfony-translations";
+const MAIN_VIEWS: [&str; 4] = [VIEW, TEMPLATES_VIEW, SERVICES_VIEW, TRANSLATIONS_VIEW];
 const PROFILER_VIEW: &str = "symfony-profiler";
 const SOURCE: &str = "Symfony";
 const DEFAULT_DOMAIN: &str = "messages";
@@ -346,6 +350,57 @@ fn twig_variables(index: &Index, doc: &Document, offset: usize) -> Vec<Completio
     }
 
     items
+}
+
+/// Members of `var.` / `var.a.b.` in Twig, typed from `{# @var #}` comments and from what
+/// controllers render the template with.
+fn twig_members(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionItem> {
+    if doc.language != "twig" {
+        return Vec::new();
+    }
+
+    let Some((chain, start, end)) = refs::twig_member_chain_at(&doc.text, offset) else {
+        return Vec::new();
+    };
+    let Some(project) = project_for(&doc.path) else {
+        return Vec::new();
+    };
+    let load = |fqcn: &str| -> Option<String> {
+        let entry = index.classes.get(fqcn.trim_start_matches('\\'))?;
+        project.read_file(&entry.path).ok()
+    };
+
+    let template = index.template_of(&doc.path);
+    let mut class = php_types::var_comment_types(&doc.text, offset).remove(&chain[0]);
+    if class.is_none() {
+        class = index
+            .renders
+            .iter()
+            .filter(|render| Some(render.template.as_str()) == template)
+            .find_map(|render| php_types::hint_class(render.variable_types.get(&chain[0])?, &load));
+    }
+
+    let mut class = class;
+    for segment in &chain[1..] {
+        class = class.and_then(|class| php_types::member_class(&load, &class, segment));
+    }
+    let Some(class) = class else {
+        return Vec::new();
+    };
+
+    let replace = range_of(&doc.text, start, end);
+    php_types::members(&load, &class)
+        .into_iter()
+        .map(|member| {
+            let mut item = CompletionItem::new(&member.name, if member.detail.ends_with("()") { CompletionKind::Method } else { CompletionKind::Property });
+            item.detail = Some(match &member.type_name {
+                Some(type_name) => format!("{} \u{b7} {}", member.detail, php_text::short_name(type_name)),
+                None => member.detail.clone(),
+            });
+            item.replace = Some(replace);
+            item
+        })
+        .collect()
 }
 
 /// Twig tags, filters, functions and tests, plus variables where an expression can start.
@@ -682,19 +737,19 @@ fn extra_problems(index: &Index, groups: Groups, read: checks::Reader, path: &st
 }
 
 struct Window {
-    sections: Switcher,
     routes: RouteList,
 }
 
 impl Window {
     fn new() -> Window {
-        Window { sections: Switcher::new(SECTIONS_KEY, SECTIONS), routes: RouteList::new(ROUTES_KEY, "aritti.symfony") }
+        Window { routes: RouteList::new(ROUTES_KEY, "aritti.symfony") }
     }
 }
 
 #[derive(Default)]
 pub struct Main {
     profiler_snapshot: profiler::Snapshot,
+    processes: processes::Processes,
     namespace_editor: namespace_paths::Editor,
     template_creation: file_actions::Creation,
     service_registration: service_file_actions::Registration,
@@ -1142,6 +1197,10 @@ impl Providers for Main {
         }
 
         let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else {
+            let members = twig_members(index, doc, offset);
+            if !members.is_empty() {
+                return members;
+            }
             return twig_names(index, doc, offset);
         };
         let replace = range_of(&doc.text, reference.start, reference.end);
@@ -1601,57 +1660,51 @@ fn entry_for<'a>(index: &'a Index, key: &str) -> Option<&'a Entry> {
 }
 
 impl Main {
-    fn tree(&self, index: &Index) -> Vec<TreeItem> {
-        let mut items = Vec::new();
-        let leaf = |key: String, name: &str, entry: &Entry, parent: &str, icon: &str| {
-            let item = TreeItem::new(&key, name).parent(parent).icon(icon);
+    fn web_config(&self, ctx: &Invocation) -> String {
+        let mut config: serde_json::Value = serde_json::from_str(include_str!("ui_config.json")).expect("packaged Symfony UI config");
+        if let Some(index) = self.view_index(ctx) {
+            for tab in config["group"]["tabs"].as_array_mut().expect("Symfony tabs") {
+                let count = match tab["id"].as_str().unwrap_or_default() {
+                    VIEW => Some(self.routes(index).len()),
+                    TEMPLATES_VIEW => Some(index.templates.len()),
+                    SERVICES_VIEW => Some(index.services.len()),
+                    TRANSLATIONS_VIEW => Some(index.translations.values().map(Names::len).sum()),
+                    _ => None,
+                };
+                if let Some(count) = count {
+                    tab["count"] = count.into();
+                }
+            }
+        }
+        config.to_string()
+    }
+
+    fn group_tree(&self, index: &Index, group: &str) -> Vec<TreeItem> {
+        let icon = GROUPS.iter().find(|(id, _, _)| *id == group).map_or("file", |(_, _, icon)| *icon);
+        let leaf = |key: String, name: &str, entry: &Entry, icon: &str| {
+            let item = TreeItem::new(&key, name).icon(icon);
             match &entry.detail {
                 Some(detail) if !detail.is_empty() => item.detail(detail),
                 _ => item,
             }
         };
 
-        for (group, label, icon) in GROUPS {
-            let key = format!("group:{group}");
-            let count = match group_names(index, group) {
-                Some(names) => names.len(),
-                None => index.translations.values().map(Names::len).sum(),
-            };
-            let expanded = self.expanded.contains(&key);
-            let item = TreeItem::new(&key, &format!("{label} ({count})")).icon(icon);
-            // An expandable item without children shows as loading forever.
-            if count == 0 {
-                items.push(item);
-                continue;
-            }
+        if let Some(names) = group_names(index, group) {
+            return names.iter().map(|(name, entry)| leaf(format!("{group}:{name}"), name, entry, icon)).collect();
+        }
 
-            items.push(item.expandable(expanded));
-
-            if !expanded {
-                continue;
-            }
-
-            if let Some(names) = group_names(index, group) {
-                items.extend(names.iter().map(|(name, entry)| leaf(format!("{group}:{name}"), name, entry, &key, icon)));
-                continue;
-            }
-
-            for (domain, names) in &index.translations {
-                let domain_key = format!("domain:{domain}");
-                let domain_expanded = self.expanded.contains(&domain_key);
-                let domain_item = TreeItem::new(&domain_key, &format!("{domain} ({})", names.len())).parent(&key).icon("folder");
-                items.push(domain_item.expandable(domain_expanded));
-
-                if domain_expanded {
-                    items.extend(
-                        names
-                            .iter()
-                            .map(|(name, entry)| leaf(format!("translation:{domain}:{name}"), name, entry, &domain_key, "property")),
-                    );
+        let mut items = Vec::new();
+        for (domain, names) in &index.translations {
+            let domain_key = format!("domain:{domain}");
+            let expanded = self.expanded.contains(&domain_key);
+            items.push(TreeItem::new(&domain_key, &format!("{domain} ({})", names.len())).icon("folder").expandable(expanded));
+            if expanded {
+                for (name, entry) in names {
+                    let item = leaf(format!("translation:{domain}:{name}"), name, entry, "property");
+                    items.push(item.parent(&domain_key));
                 }
             }
         }
-
         items
     }
 
@@ -1763,8 +1816,18 @@ impl Views for Main {
             if view == PROFILER_VIEW {
                 return Ok(self.profiler_snapshot.render(ctx));
             }
+            if view == processes::VIEW {
+                return Ok(self.processes.render());
+            }
 
-            let routes_active = self.window.get_or_insert_with(Window::new).sections.active() == ROUTES_SECTION;
+            let group = match view {
+                VIEW => "route",
+                TEMPLATES_VIEW => "template",
+                SERVICES_VIEW => "service",
+                TRANSLATIONS_VIEW => "translation",
+                _ => return Err(Error::NotFound(view.into())),
+            };
+            let routes_active = group == "route";
             let reindex = Button::new("reindex", "Reindex").icon("refresh");
             let stale_settings=ctx.project().and_then(|project|project.root().ok()).and_then(|root|self.indexes.get(&root)).is_some_and(|index|!index.settings_current());
             let Some(index) = self.view_index(ctx) else {
@@ -1794,7 +1857,7 @@ impl Views for Main {
                 .status(&status);
             let (routes, tree) = match routes_active {
                 true => (self.routes(index), Vec::new()),
-                false => (Vec::new(), self.tree(index)),
+                false => (Vec::new(), self.group_tree(index, group)),
             };
             let root = ctx.project().and_then(|p| p.root().ok());
             if self.route_owner != root { self.selected = None; self.route_selection = None; }
@@ -1806,14 +1869,18 @@ impl Views for Main {
             } else {
                 View { body: Body::Tree(tree), ..base }
             };
-            let view = window.sections.buttons(view, &[]);
             Ok(view)
         })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+        let config = self.web_config(ctx);
+        if ui_kit::web::handle(self, view, &event, ctx, &config)? {
             return Ok(());
+        }
+
+        if view == processes::VIEW {
+            return self.processes.handle(&event, ctx);
         }
 
         if view == PROFILER_VIEW {
@@ -1856,13 +1923,8 @@ impl Views for Main {
             ui_kit::web::refresh_view(view, include_str!("ui_config.json"));
             return Ok(());
         }
-        if view == VIEW {
-            if self.window.get_or_insert_with(Window::new).sections.handle(&event) {
-                refresh_main_view();
-                return Ok(());
-            }
-            let routes_active = self.window.as_ref().is_some_and(|w| w.sections.active() == ROUTES_SECTION);
-            if routes_active {
+        if MAIN_VIEWS.contains(&view) {
+            if view == VIEW {
                 let root = ctx.project().and_then(|p| p.root().ok());
                 if root.is_none() || root != self.route_owner || self.view_index(ctx).is_none() { return Err(Error::Stale); }
                 if let ViewEvent::Select(key) = &event {
@@ -1968,12 +2030,12 @@ mod tests {
         let path="var/cache/dev/url_generating_routes.php";
         host.add_file(path,"<?php\nreturn [\n'owned_cache_route' => [[], ['_controller' => 'App\\\\Controller\\\\HomeController::index'], [], []]];");
         let before=host.view_messages().len();plugin.handle_events(&[Event::FileSaved(format!("/project/{path}"))],&host.invocation());
-        assert!(plugin.indexes["/project"].routes.contains_key("owned_cache_route"));assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        assert!(plugin.indexes["/project"].routes.contains_key("owned_cache_route"));assert_eq!(main_notices(&host,before),MAIN_VIEWS.map(String::from));
         let before=host.view_messages().len();plugin.handle_events(&[Event::FileSaved("/other/var/cache/dev/url_generating_routes.php".into()),Event::FileSaved("/project/var/cache/dev/profiler/index.csv".into())],&host.invocation());
         assert!(main_notices(&host,before).is_empty());
         host.add_file(path,"<?php return [];");let before=host.view_messages().len();
         plugin.handle_events(&[Event::FileSaved("/project/var/cache/dev".into())],&host.invocation());
-        assert!(!plugin.indexes["/project"].routes.contains_key("owned_cache_route"));assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        assert!(!plugin.indexes["/project"].routes.contains_key("owned_cache_route"));assert_eq!(main_notices(&host,before),MAIN_VIEWS.map(String::from));
     }
     #[test]
     fn custom_cache_and_extra_source_events_invalidate_exact_inputs_and_ancestors() {
@@ -1990,14 +2052,14 @@ mod tests {
         assert!(plugin.indexes["/project"].routes.contains_key("custom_cache_route"));
         assert!(plugin.indexes["/project"].services.contains_key("custom_compiled"));
         assert!(plugin.indexes["/project"].services.contains_key("custom_source"));
-        assert_eq!(main_notices(&host, before), [VIEW.to_owned()]);
+        assert_eq!(main_notices(&host, before), MAIN_VIEWS.map(String::from));
         host.add_file("build/cache/routes.php", "<?php\nreturn [];" );
         host.add_file("build/cache/container.xml", "<container/>" );
         let before = host.view_messages().len();
         plugin.handle_events(&[Event::FileSaved("/project/build".into())], &host.invocation());
         assert!(!plugin.indexes["/project"].routes.contains_key("custom_cache_route"));
         assert!(!plugin.indexes["/project"].services.contains_key("custom_compiled"));
-        assert_eq!(main_notices(&host, before), [VIEW.to_owned()]);
+        assert_eq!(main_notices(&host, before), MAIN_VIEWS.map(String::from));
         let before = host.view_messages().len();
         plugin.handle_events(&[Event::FileSaved("/project/build/cache/routes.php.old".into()), Event::FileSaved("/other/build/cache/routes.php".into())], &host.invocation());
         assert!(main_notices(&host, before).is_empty());
@@ -2010,19 +2072,19 @@ mod tests {
     #[test]
     fn main_commit_and_framework_removal_notify_only_main_view(){
         let host=MockHost::install();let mut plugin=activated(&host);let before=host.view_messages().len();
-        plugin.index_project(&host.invocation().project().unwrap());assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        plugin.index_project(&host.invocation().project().unwrap());assert_eq!(main_notices(&host,before),MAIN_VIEWS.map(String::from));
         host.add_file("composer.json","{}");let before=host.view_messages().len();plugin.index_project(&host.invocation().project().unwrap());
-        assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);assert!(plugin.view_index(&host.invocation()).is_none());
+        assert_eq!(main_notices(&host,before),MAIN_VIEWS.map(String::from));assert!(plugin.view_index(&host.invocation()).is_none());
         let before=host.view_messages().len();plugin.index_project(&host.invocation().project().unwrap());assert!(main_notices(&host,before).is_empty());
     }
     #[test]
     fn overflow_clear_and_closed_root_prune_notify_but_do_not_rebuild_from_render(){
         let host=MockHost::install();let mut plugin=activated(&host);let before=host.view_messages().len();
         let events=vec![Event::FileSaved("/project/a.php".into());1025];plugin.handle_events(&events,&host.invocation());
-        assert!(plugin.indexes.is_empty());assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        assert!(plugin.indexes.is_empty());assert_eq!(main_notices(&host,before),MAIN_VIEWS.map(String::from));
         let before=host.view_messages().len();plugin.render(VIEW,None,&host.invocation()).unwrap();assert_eq!(host.view_messages().len(),before);
         plugin.index_project(&host.invocation().project().unwrap());let before=host.view_messages().len();host.set_project_root(None);
-        plugin.handle_events(&[],&host.invocation());assert!(plugin.indexes.is_empty());assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        plugin.handle_events(&[],&host.invocation());assert!(plugin.indexes.is_empty());assert_eq!(main_notices(&host,before),MAIN_VIEWS.map(String::from));
     }
     #[test]
     fn stable_main_ui_kit_render_replies_without_index_invalidation_loop(){
@@ -2174,6 +2236,37 @@ mod tests {
         assert_eq!(labels(plugin.completion(&twig, Position::new(1, 9), None)), ["body", "title"]);
         let variables = labels(plugin.completion(&twig, Position::new(2, 4), None));
         assert_eq!(variables.iter().filter(|v| ["posts", "title"].contains(&v.as_str())).count(), 2);
+    }
+
+    #[test]
+    fn twig_members_are_typed_from_controllers_var_comments_and_parent_classes() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/post/show.html.twig", "{{ post }}");
+        host.add_file("src/Entity/Base.php", "<?php\nnamespace App\\Entity;\nabstract class Base\n{\n    public function getId(): ?int { return 1; }\n}\n");
+        host.add_file("src/Entity/User.php", "<?php\nnamespace App\\Entity;\nclass User\n{\n    public function getEmail(): string { return ''; }\n}\n");
+        host.add_file("src/Entity/Post.php", "<?php\nnamespace App\\Entity;\nclass Post extends Base\n{\n    public function getTitle(): string { return ''; }\n    public function getAuthor(): ?User { return null; }\n    public function isPublished(): bool { return true; }\n    private function internal(): void {}\n}\n");
+        host.add_file("src/Repository/PostRepository.php", "<?php\nnamespace App\\Repository;\nuse App\\Entity\\Post;\n/**\n * @extends ServiceEntityRepository<Post>\n */\nclass PostRepository extends ServiceEntityRepository {}\n");
+        host.add_file(
+            "src/Controller/PostController.php",
+            "<?php\nnamespace App\\Controller;\nuse App\\Entity\\Post;\nuse App\\Repository\\PostRepository;\nclass PostController\n{\n    public function show(PostRepository $repo, int $id)\n    {\n        $post = $repo->find($id);\n        return $this->render('post/show.html.twig', ['post' => $post, 'draft' => new Post(), 'count' => 3]);\n    }\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let complete = |plugin: &mut Main, text: &str, line: u32, character: u32| {
+            let twig = doc("/project/templates/post/show.html.twig", "twig", text);
+            labels(plugin.completion(&twig, Position::new(line, character), None))
+        };
+
+        assert_eq!(complete(&mut plugin, "{{ post. }}", 0, 8), ["author", "id", "published", "title"]);
+        assert_eq!(complete(&mut plugin, "{{ draft.ti }}", 0, 11), ["author", "id", "published", "title"]);
+        assert_eq!(complete(&mut plugin, "{{ post.author. }}", 0, 15), ["email"]);
+        assert!(complete(&mut plugin, "{{ count. }}", 0, 9).is_empty());
+        assert!(!complete(&mut plugin, "{{ unknown. }}", 0, 11).contains(&"title".to_owned()));
+        assert!(!complete(&mut plugin, "{{ post|upper. }}", 0, 14).contains(&"title".to_owned()));
+
+        let commented = "{# @var item \\App\\Entity\\User #}\n{{ item. }}";
+        assert_eq!(complete(&mut plugin, commented, 1, 8), ["email"]);
     }
 
     #[test]
@@ -2557,21 +2650,19 @@ mod tests {
         let mut plugin = activated(&host);
         let ctx = host.invocation();
 
-        plugin.handle(VIEW, ViewEvent::Button("section:index".into()), &ctx).unwrap();
-        plugin.handle(VIEW, ViewEvent::Expand("group:route".into()), &ctx).unwrap();
-        let View { body: Body::Tree(items), .. } = plugin.render(VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, ["Routes (1)", "blog_index", "Templates (2)", "Services (1)", "Translations (2)"]);
-        let icons: Vec<_> = items.iter().map(|i| i.icon.as_deref().unwrap_or_default()).collect();
-        assert_eq!(icons, ["web", "web", "file-html", "class", "text"]);
+        for (view, count, icon) in [(TEMPLATES_VIEW, 2, "file-html"), (SERVICES_VIEW, 1, "class")] {
+            let View { body: Body::Tree(items), .. } = plugin.render(view, None, &ctx).unwrap() else { panic!("not a tree") };
+            assert_eq!(items.len(), count, "{view}");
+            assert!(items.iter().all(|item| item.icon.as_deref() == Some(icon) && item.parent.is_none()), "{view}");
+        }
 
-        plugin.handle(VIEW, ViewEvent::Expand("group:translation".into()), &ctx).unwrap();
-        plugin.handle(VIEW, ViewEvent::Expand("domain:admin".into()), &ctx).unwrap();
-        let View { body: Body::Tree(items), .. } = plugin.render(VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
+        plugin.handle(TRANSLATIONS_VIEW, ViewEvent::Expand("domain:admin".into()), &ctx).unwrap();
+        let View { body: Body::Tree(items), .. } = plugin.render(TRANSLATIONS_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
         let icon = |key: &str| items.iter().find(|i| i.key == key).and_then(|i| i.icon.clone());
         assert_eq!(icon("domain:admin").as_deref(), Some("folder"));
         assert_eq!(icon("translation:admin:menu").as_deref(), Some("property"));
 
+        plugin.render(VIEW, None, &ctx).unwrap();
         plugin.handle(VIEW, ViewEvent::Activate("route:blog_index".into()), &ctx).unwrap();
         assert_eq!(host.opened_locations(), [("/project/src/Controller/BlogController.php".into(), 4, 28)]);
     }
@@ -2581,19 +2672,27 @@ mod tests {
     }
 
     #[test]
-    fn symfony_window_has_routes_and_index_sections() {
+    fn symfony_window_has_a_tab_per_inventory_with_counts() {
         let host = MockHost::install();
-        let mut plugin = activated(&host);
+        let plugin = activated(&host);
         let ctx = host.invocation();
 
-        let view = plugin.render(VIEW, None, &ctx).unwrap();
-        assert!(matches!(view.body, Body::List(_)));
-        assert_eq!(toolbar_labels(&view)[..2], ["\u{25cf} Routes", "Index"]);
-
-        plugin.handle(VIEW, ViewEvent::Button("section:index".into()), &ctx).unwrap();
-        let view = plugin.render(VIEW, None, &ctx).unwrap();
-        assert!(matches!(view.body, Body::Tree(_)));
-        assert_eq!(toolbar_labels(&view)[..2], ["Routes", "\u{25cf} Index"]);
+        let config: serde_json::Value = serde_json::from_str(&plugin.web_config(&ctx)).unwrap();
+        let counts: Vec<_> = config["group"]["tabs"].as_array().unwrap().iter().map(|tab| (tab["id"].as_str().unwrap(), tab["count"].as_u64())).collect();
+        assert_eq!(
+            counts,
+            [
+                (VIEW, Some(1)),
+                (TEMPLATES_VIEW, Some(2)),
+                (SERVICES_VIEW, Some(1)),
+                (TRANSLATIONS_VIEW, Some(2)),
+                (PROFILER_VIEW, None),
+                (namespace_paths::VIEW, None),
+                (processes::VIEW, None),
+            ]
+        );
+        let group: serde_json::Value = serde_json::from_str(include_str!("ui_group.json")).unwrap();
+        assert_eq!(group["tabs"].as_array().unwrap().len(), counts.len());
     }
 
     #[test]
@@ -2638,8 +2737,7 @@ mod tests {
         assert!(labels.iter().any(|label| label.starts_with("Filter")), "{labels:?}");
         assert!(labels.contains(&"Tree".to_owned()), "{labels:?}");
 
-        plugin.handle(VIEW, ViewEvent::Button("section:index".into()), &ctx).unwrap();
-        let labels = toolbar_labels(&plugin.render(VIEW, None, &ctx).unwrap());
+        let labels = toolbar_labels(&plugin.render(TEMPLATES_VIEW, None, &ctx).unwrap());
         assert!(!labels.iter().any(|label| label.starts_with("Filter") || label == "Tree" || label == "Clear"), "{labels:?}");
     }
 
@@ -3926,7 +4024,7 @@ mod grouped_ui_parity_tests {
         let host=MockHost::install();let mut plugin=Main::default();
         let answer=send(&mut plugin,&host,VIEW,json!({"op":"select-view","target":namespace_paths::VIEW}));
         assert_eq!(answer["model"]["activeView"],namespace_paths::VIEW);
-        assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(),3);
+        assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(),7);
         let answer=send(&mut plugin,&host,namespace_paths::VIEW,json!({"op":"event","event":{"kind":"button","key":"twig-path-add"}}));
         let fields=answer["model"]["body"]["fields"].as_array().unwrap();
         let field=fields.iter().find(|field|field["label"]=="Existing project-relative directory").unwrap()["key"].as_str().unwrap().to_owned();

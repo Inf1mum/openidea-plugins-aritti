@@ -1,7 +1,11 @@
 {
   "title": "Dependency Audit",
   "views": {
-    "vulnerabilities": "Vulnerable Dependencies"
+    "vulnerabilities": "Dependency Audit",
+    "npm-dependency-graph": "npm Graph",
+    "build-resolution": "Resolution",
+    "call-analysis": "Call Evidence",
+    "sbt-resolution": "sbt Resolution"
   },
   "actions": [
     {
@@ -51,6 +55,38 @@
   "project_independent": false,
   "project_bound_buttons": [],
   "context_buttons": {
-    "vulnerabilities": []
-  }
+    "vulnerabilities": [],
+    "npm-dependency-graph": [],
+    "build-resolution": [],
+    "call-analysis": [],
+    "sbt-resolution": []
+  },
+  "group": {
+    "primary": "vulnerabilities",
+    "tabs": [
+      {
+        "id": "vulnerabilities",
+        "label": "Dependency Audit"
+      },
+      {
+        "id": "npm-dependency-graph",
+        "label": "npm Graph"
+      },
+      {
+        "id": "build-resolution",
+        "label": "Resolution"
+      },
+      {
+        "id": "call-analysis",
+        "label": "Call Evidence"
+      },
+      {
+        "id": "sbt-resolution",
+        "label": "sbt Resolution"
+      }
+    ]
+  },
+  "opaque_views": [
+    "build-resolution"
+  ]
 }

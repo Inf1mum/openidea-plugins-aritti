@@ -56,7 +56,6 @@ mod generate;
 mod generator_plan;
 mod generator_presets;
 mod generator_preset_actions;
-mod external_services;
 mod generator_workspace;
 mod existing_model_fields;
 mod vite;
@@ -707,10 +706,10 @@ pub struct Main {
     generator_workspace: generator_workspace::State,
     project_wizard: project_wizard::State,
     managed_processes: managed_processes::State,
-    external_services: external_services::State,
-    external_details: BTreeMap<String, String>,
     model_tree_expanded: BTreeMap<String, BTreeMap<String, bool>>,
     runtime_inspection: runtime_inspection::State,
+    index_ticks: u32,
+    model_rows: std::cell::RefCell<BTreeMap<String, Vec<serde_json::Value>>>,
 }
 
 fn refresh_laravel() {
@@ -926,45 +925,6 @@ impl Plugin for Main {
         match id {
             "new-project" => self.project_wizard.run(ctx),
             "project-installation-recovery" => self.project_wizard.recover(ctx),
-            "sentry-configure" => { self.external_services.configure_sentry(ctx)?; refresh_laravel(); Ok(None) }
-            "sentry-refresh" => { self.external_services.refresh_sentry(ctx)?; refresh_laravel(); Ok(None) }
-            "sentry-more" => { self.external_services.load_more_sentry(ctx)?; refresh_laravel(); Ok(None) }
-            "cloud-more" => { self.external_services.load_more_cloud(ctx)?; refresh_laravel(); Ok(None) }
-            "cloud-environments-more" => { self.external_services.load_more_environments(ctx)?; refresh_laravel(); Ok(None) }
-            "sentry-forget" => {
-                self.external_services.forget_sentry(ctx)?;
-                if let Some(root) = ctx.project().and_then(|project|project.root().ok()) { self.external_details.remove(&root); }
-                refresh_laravel(); Ok(None)
-            }
-            "cloud-refresh" => { self.external_services.refresh_cloud(ctx)?; refresh_laravel(); Ok(None) }
-            "sentry-disconnect" => { self.external_services.disconnect_sentry()?; self.external_details.clear(); refresh_laravel(); Ok(None) }
-            "cloud-disconnect" => { self.external_services.disconnect_cloud()?; self.external_details.clear(); refresh_laravel(); Ok(None) }
-            "cloud-details-select" => {
-                self.external_services.cloud_select_environment(ctx,arg.ok_or(Error::Stale)?).map_err(external_services::cloud_ui_error)?;
-                if let Some(root)=ctx.project().and_then(|project|project.root().ok()) { self.external_details.remove(&root); }
-                refresh_laravel(); Ok(None)
-            }
-            "cloud-details" | "cloud-selected-refresh" | "cloud-logs" | "cloud-manage" | "cloud-open-domain" | "cloud-variable-reveal" | "cloud-variable-copy" | "cloud-hide-variables" => {
-                self.external_services.cloud_action(ctx,id,arg).map_err(external_services::cloud_ui_error)?;
-                refresh_laravel(); Ok(None)
-            }
-            "cloud-import-database" => {
-                self.external_services.cloud_import_database(ctx,&self.runtime_inspection).map_err(external_services::cloud_ui_error)?;
-                refresh_laravel(); Ok(None)
-            }
-            "cloud-environments" => { self.external_services.cloud_environments(ctx, arg.ok_or(crate::ui_text::text("native.lib.971e205231", "Select a captured Cloud application."))?)?; refresh_laravel(); Ok(None) }
-            "sentry-details" => {
-                self.external_services.cloud_clear_view(ctx)?;
-                let root = ctx.project().ok_or(Error::Stale)?.root()?;
-                let details = self.external_services.sentry_details(ctx, arg.ok_or(crate::ui_text::text("native.lib.26af3c791d", "Select a captured Sentry issue."))?)?;
-                self.external_details.insert(root, details);
-                refresh_laravel(); Ok(None)
-            }
-            "external-list" => {
-                self.external_services.cloud_clear_view(ctx)?;
-                let root = ctx.project().ok_or(Error::Stale)?.root()?;
-                self.external_details.remove(&root); refresh_laravel(); Ok(None)
-            }
             "runtime-schema" => {
                 self.runtime_inspection.capture_selected_schema(ctx,self.artisan_workspace.runner(ctx)?)?;
                 refresh_laravel();
@@ -1003,10 +963,6 @@ impl Plugin for Main {
                 if selected.is_empty()||selected.len()>32||selected.iter().any(|name|!models.iter().any(|(full,_)|full==name)){return Err(Error::Invalid(crate::ui_text::text("native.lib.ab12ffa832", "Select 1–32 owned models").into()));}
                 let models=models.into_iter().filter(|(full,_)|selected.contains(full)).collect::<Vec<_>>();
                 self.runtime_inspection.capture_model_connections(ctx,self.artisan_workspace.runner(ctx)?,&models)?;refresh_laravel();Ok(None)
-            }
-            "sentry-oauth-start" | "sentry-oauth-poll" | "sentry-oauth-cancel" => {
-                let value=match id{"sentry-oauth-start"=>self.external_services.start_sentry_device(ctx)?,"sentry-oauth-poll"=>self.external_services.poll_sentry_device(ctx)?,_=>self.external_services.cancel_sentry_device(ctx)?};
-                host::notify(NotificationLevel::Info,SOURCE,&value.to_string());refresh_laravel();Ok(None)
             }
             "helper-parameters" => {
                 model_actions::configure(ctx)?;
@@ -1236,12 +1192,7 @@ impl Plugin for Main {
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
         for event in events {
-            if let Event::VcsChanged(repository)=event {
-                for project in host::projects().unwrap_or_default() {
-                    if let Ok(root)=project.root() {
-                        if root==*repository || under(&root,repository) { self.external_services.cloud_dirty(&root); }
-                    }
-                }
+            if let Event::VcsChanged(_)=event {
                 refresh_laravel();
             }
             if let Event::Other{kind,data}=event {
@@ -1893,6 +1844,23 @@ fn missing_key_actions(index: &Index, doc: &Document, language: &str, offset: us
         .collect()
 }
 
+fn model_gutter(index: &Index, doc: &Document) -> Option<openidea_plugin::language_features::GutterAction> {
+    let full = eloquent_members::declaration(&doc.text)?;
+    let is_model = eloquent_members::model_inventory(&index.eloquent_models).iter().any(|(model, path, _)| model.eq_ignore_ascii_case(&full) && *path == doc.path);
+    if !is_model {
+        return None;
+    }
+    let short = full.rsplit('\\').next()?;
+    let offset = doc.text.find(&format!("class {short}"))?;
+    Some(openidea_plugin::language_features::GutterAction {
+        line: text::position(&doc.text, offset).line,
+        icon: Some("navigate".into()),
+        tooltip: format!("Eloquent model {short}: open Laravel hub"),
+        command: "reveal".into(),
+        argument: None,
+    })
+}
+
 fn php_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMarker> {
     let mut markers = Vec::new();
     let line_of = |offset: usize| text::position(&doc.text, offset).line;
@@ -2203,17 +2171,13 @@ impl Main {
             }
         }
         if let Some(opaque)=config["opaque_views"].as_array_mut() {
-            for view in ["laravel-models","laravel-external"] { if !opaque.iter().any(|id|id.as_str()==Some(view)) { opaque.push(view.into()); } }
+            for view in ["laravel-models"] { if !opaque.iter().any(|id|id.as_str()==Some(view)) { opaque.push(view.into()); } }
         }
         let runtime = self.artisan_workspace.runner(ctx).ok().and_then(|runner| self.runtime_inspection.cached(ctx, runner).ok());
-        let services = self.external_services.rows(ctx);
         for action in config["actions"].as_array_mut().expect("Laravel actions") {
             let keys: Option<Vec<serde_json::Value>> = match action["id"].as_str() {
                 Some("runtime-database-connect" | "runtime-database-remove") => Some(self.runtime_inspection.database_source_rows(ctx).unwrap_or_default().into_iter().filter_map(|row|row.get("key").cloned()).collect()),
                 Some("runtime-open-frame") => Some(runtime.as_ref().into_iter().flat_map(|snapshot| snapshot["snapshots"].as_array().into_iter().flatten()).flat_map(|snapshot| snapshot["rows"].as_array().into_iter().flatten()).filter(|row| row.get("error").is_some()).filter_map(|row|row.get("key").cloned()).collect()),
-                Some("sentry-details") => Some(services.iter().filter(|row|row["key"].as_str().is_some_and(|key|key.starts_with("sentry-issue:"))).filter_map(|row|row.get("key").cloned()).collect()),
-                Some("cloud-details-select") => Some(services.iter().filter(|row|row["key"].as_str().is_some_and(|key|key.starts_with("cloud-env:"))).filter_map(|row|row.get("key").cloned()).collect()),
-                Some("cloud-environments") => Some(services.iter().filter(|row|row["key"].as_str().is_some_and(|key|key.starts_with("cloud-app:"))).filter_map(|row|row.get("key").cloned()).collect()),
                 Some("model-open-source" | "model-create-fields") => Some(ctx.project().and_then(|project| self.view_index(ctx).map(|index| model_overview::source_keys(index, &project))).unwrap_or_default()),
                 _ => None,
             };
@@ -2224,6 +2188,7 @@ impl Main {
                 let count = match tab["id"].as_str().unwrap_or_default() {
                     VIEW => Some(self.active_routes(ctx).len()),
                     "laravel-components" => ctx.project().map(|project| [&index.components, &index.livewire].into_iter().flat_map(|names| names.values()).filter(|entry| !entry.path.is_empty() && owns_current_path(&project, &entry.path)).count()),
+                    "laravel-models" => ctx.project().map(|project| crate::eloquent_members::model_inventory(&index.eloquent_models).into_iter().filter(|(_, path, _)| owns_current_path(&project, path)).count()),
                     "laravel-views" => Some(index.views.values().filter(|entry|ctx.project().as_ref().is_some_and(|project|owns_current_path(project,&entry.path))).count()),
                     "laravel-config" => Some(index.config.len()),
                     "laravel-translations" => Some(index.translations_by_locale.values().map(Names::len).sum()),
@@ -2247,7 +2212,7 @@ impl Main {
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-external"|"laravel-runtime") && self.view_index(ctx).is_none() {
+        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-runtime") && self.view_index(ctx).is_none() {
             if let Some(pending)=self.pending_index_view(ctx) { return Ok(pending); }
         }
         (|| -> Result<View, Error> {
@@ -2268,36 +2233,14 @@ impl Views for Main {
         if view == managed_processes::VIEW {
                 return Ok(View::new(Body::Html(managed_processes::html())));
             }
-            if view == "laravel-external" {
-                let root = ctx.project().ok_or(crate::ui_text::text("process.error0", "Open a Laravel project first."))?.root()?;
-                let pagination = self.external_services.pagination(ctx);
-                let body = if let Some(details) = self.external_details.get(&root) {
-                    Body::Message(details.clone())
-                } else if let Some(cloud)=self.external_services.cloud_body(ctx) {
-                    cloud
-                } else {
-                    Body::Other { kind: "resources".into(), data: serde_json::json!({"columns":[crate::ui_text::text("column.service", "Service"),crate::ui_text::text("shared.resource", "Resource"),crate::ui_text::text("column.status", "Status")],"items": self.external_services.rows(ctx),"searchPlaceholder":crate::ui_text::text("search.laravel-external", "Filter captured external resources…")}).to_string() }
-                };
-                let mut rendered=View::new(body)
-                    .button(Button::new("sentry-configure", crate::ui_text::text("native.lib.a7c7f1fc9e", "Configure Sentry…")).icon("settings"))
-                    .button(Button::new("sentry-oauth-start", crate::ui_text::text("native.lib.919a99e110", "Connect Sentry OAuth…")).icon("login"))
-                    .button(Button::new("sentry-oauth-poll", crate::ui_text::text("native.lib.f64b3c328f", "Complete OAuth Connection")).icon("refresh"))
-                    .button(Button::new("sentry-oauth-cancel", crate::ui_text::text("native.lib.ecde74ca9d", "Cancel OAuth Connection")).icon("cancel"))
-                    .button(Button::new("sentry-refresh", crate::ui_text::text("native.lib.40c3e5e3f7", "Refresh Sentry")).icon("refresh"))
-                    .button(Button::new("cloud-refresh", crate::ui_text::text("native.lib.9891689b08", "Refresh Cloud")).icon("refresh"))
-                    .button(Button::new("sentry-more", crate::ui_text::text("native.lib.2c3b087465", "More Sentry Issues")).icon("page-last").enabled(pagination["sentry"] == true))
-                    .button(Button::new("cloud-more", crate::ui_text::text("native.lib.cafc266b3e", "More Cloud Applications")).icon("page-last").enabled(pagination["cloud"] == true))
-                    .button(Button::new("cloud-environments-more", crate::ui_text::text("native.lib.61a9336a3d", "More Environments")).icon("page-last").enabled(pagination["environments"] == true))
-                    .button(Button::new("external-list", crate::ui_text::text("native.lib.5ed009a5eb", "Resource List")).icon("list"));
-                rendered.toolbar.extend(self.external_services.cloud_buttons(ctx));
-                return Ok(rendered);
-            }
             if view == "laravel-models" {
                 let project = ctx.project().ok_or(crate::ui_text::text("process.error0", "Open a Laravel project first."))?;
                 let Some(index) = self.view_index(ctx) else { return Ok(View::new(Body::Message(crate::ui_text::text("final.models.indexBeforeBrowse","Index this Laravel project to browse models.").into()))); };
                 let schema = self.runtime_inspection.schema_snapshot(ctx, self.artisan_workspace.runner(ctx)?).ok();
                 let expanded = self.model_tree_expanded.get(&project.root()?).cloned().unwrap_or_default();
-                return Ok(View::new(model_overview::inventory_with_schema(index, &project, schema.as_ref(), &expanded))
+                let rows = self.model_rows.borrow_mut().entry(project.root()?).or_insert_with(|| model_overview::rows(index, &project)).clone();
+                let inventory = model_overview::inventory_with_rows(rows, index, &project, schema.as_ref(), &expanded);
+                return Ok(View::new(inventory)
                     .button(Button::new("new-model", crate::ui_text::text("native.lib.c52a01384f", "New Model…")).icon("add"))
                     .button(Button::new("helper-parameters", crate::ui_text::text("native.lib.902d026067", "Helper Parameters…")).icon("settings"))
                     .button(Button::new("helper-source-automation", crate::ui_text::text("native.lib.d6933a0cc5", "Helper Source & Automation…")).icon("settings"))
@@ -2351,7 +2294,6 @@ impl Views for Main {
             let toolbar = |body| {
                 let mut view = View::new(body);
                 if routes_active {
-                    view = view.button(Button::new("route-search", crate::ui_text::text("native.lib.6cff5afd25", "Search Routes…")).icon("search"));
                     view = view.button(Button::new("routes-runtime-refresh", crate::ui_text::text("native.lib.ec05187d0a", "Refresh Routes (PHP)")).icon("refresh"));
                     view = view.button(Button::new("route-list", crate::ui_text::text("native.lib.ed2e28eb59", "Route List")).icon("terminal"));
                 } else {
@@ -2429,23 +2371,13 @@ impl Views for Main {
                             ui_kit::web::post_view_message(view,&state.to_string(),&config)?;
                         }
                     }
-                    refresh_laravel();
+                    self.index_ticks=self.index_ticks.wrapping_add(1);
+                    if self.index_ticks%10==0 { refresh_laravel(); }
                     return Ok(());
                 }
             }
         }
 
-        if view=="laravel-external" {
-            if let ViewEvent::Message(message)=&event {
-                let request=serde_json::from_str::<serde_json::Value>(message).map_err(|_|Error::Stale)?;
-                if request["op"]!="cloud-tick" { return Err(Error::Stale); }
-                let mut reply=match self.external_services.cloud_tick(ctx,message).map_err(external_services::cloud_ui_error) { Ok(reply)=>reply,Err(error)=>serde_json::json!({"error":error.to_string()}) };
-                reply["_backgroundPoll"]=request["_backgroundPoll"].clone();
-                ui_kit::web::post_view_message(view,&reply.to_string(),&config)?;
-                refresh_laravel();
-                return Ok(());
-            }
-        }
             if view == "laravel-models" && matches!(&event,ViewEvent::Message(_)) {
             if let ViewEvent::Message(message)=event {
                 let request=serde_json::from_str::<serde_json::Value>(&message).map_err(|_|Error::Stale)?;
@@ -2616,7 +2548,10 @@ impl openidea_plugin::language_features::LanguageFeatures for Main {
         let Some(project) = project_for(&doc.path) else { return Vec::new() };
         let owns=|path:&str| owns_current_path(&project,path);
         let mut gutters=console_editor::gutters(doc,&owns);
-        if let Some(index)=self.index_for(&doc.path) {gutters.extend(route_editor::gutters(index,doc,&owns));}
+        if let Some(index)=self.index_for(&doc.path) {
+            gutters.extend(route_editor::gutters(index,doc,&owns));
+            gutters.extend(model_gutter(index,doc));
+        }
         gutters
     }
 }

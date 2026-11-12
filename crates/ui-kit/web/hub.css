@@ -16,7 +16,10 @@ button{white-space:nowrap}
 #view-tabs .tab-count{color:var(--ui-muted);font-weight:400;font-variant-numeric:tabular-nums}
 #view-tabs>button[aria-selected=true],#sections>button[aria-current=page]{border-bottom-color:var(--ui-accent)}
 main{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
-.toolbar{flex:none;border-bottom:1px solid var(--ui-separator)}
+.bar{display:flex;align-items:center;flex-wrap:wrap;flex:none;border-bottom:1px solid var(--ui-separator)}
+.toolbar{flex:none}
+.bar .filters{flex:1;min-width:0;border-bottom:0}
+.bar:has(.toolbar:empty):has(.filters[hidden]){display:none}
 .toolbar:empty{display:none}
 .filters{display:flex;align-items:center;gap:var(--ui-space-2);flex-wrap:wrap;flex:none;padding:var(--ui-space-1) var(--ui-space-2);border-bottom:1px solid var(--ui-separator)}
 .search{position:relative;display:flex;align-items:center;flex:1;min-width:130px}

@@ -7856,7 +7856,7 @@
       "id": "A002",
       "family": "action",
       "capability": "JpbSyncEntityWithDto",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -7864,11 +7864,37 @@
         "class": "com.intellij.jpb.action.creation.projection.SyncEntityWithDtosAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Dto"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-465.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-466.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-468.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076, G054",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076",
+            "G054"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076",
         "G054"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/attribute_refactor.rs",
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/projection_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -7892,7 +7918,7 @@
       "id": "A004",
       "family": "action",
       "capability": "JpbSafeDeleteAttributeAction",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -7900,10 +7926,28 @@
         "class": "com.intellij.jpb.action.insight.SafeDeleteAttributeAction",
         "icon": "com.intellij.icons.AllIcons.Diff.Remove"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -8023,7 +8067,7 @@
       "id": "A011",
       "family": "action",
       "capability": "JpbSyncDtoWithEntity",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8031,10 +8075,28 @@
         "class": "com.intellij.jpb.action.creation.projection.SyncDtoWithEntityAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Dto"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -8115,7 +8177,7 @@
       "id": "A016",
       "family": "action",
       "capability": "JpbCreateRevisionEntity",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8123,10 +8185,30 @@
         "class": "com.intellij.jpb.action.creation.entity.CreateRevisionEntityAction",
         "icon": "com.intellij.icons.AllIcons.Javaee.PersistenceEntity"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-004.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-205.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-423.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-424.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-425.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-426.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G029",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G029"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G029"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/envers_action.rs"
       ]
     },
     {
@@ -8152,7 +8234,7 @@
       "id": "A018",
       "family": "action",
       "capability": "JpbCreateJpaDto",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8160,17 +8242,34 @@
         "class": "com.intellij.jpb.action.creation.projection.CreateDtoAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Dto"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-005.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-114.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G059",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G059"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G059"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/projection_action.rs"
       ]
     },
     {
       "id": "A019",
       "family": "action",
       "capability": "JpbCreateDto",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8178,17 +8277,34 @@
         "class": "com.intellij.jpb.action.creation.projection.CreateDtoAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Dto"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-005.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-114.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G059",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G059"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G059"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/projection_action.rs"
       ]
     },
     {
       "id": "A020",
       "family": "action",
       "capability": "JpbCreateSpringProjection",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8196,17 +8312,33 @@
         "class": "com.intellij.jpb.action.creation.projection.CreateProjectionAction",
         "icon": "com.intellij.jpa.jpb.model.JpaIcons.SpringData.Projection"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-109.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-110.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G053",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G053"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G053"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/projection_action.rs"
       ]
     },
     {
       "id": "A021",
       "family": "action",
       "capability": "JpbCreateEntityView",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8214,17 +8346,34 @@
         "class": "com.intellij.jpb.action.creation.projection.entityview.CreateEntityViewAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.BlazePersistenceEntityView"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-128.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-549.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-550.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G074",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G074"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G074"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/modelmapper_action.rs"
       ]
     },
     {
       "id": "A022",
       "family": "action",
       "capability": "JpbCreateMapper",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8232,10 +8381,28 @@
         "class": "com.intellij.jpb.action.creation.mapping.MapperCreationAction",
         "icon": "com.intellij.icons.AllIcons.Actions.Diff"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-125.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-126.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-544.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G069",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G069"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G069"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/file_actions.rs",
+        "plugins/jpa-assist/src/mapper_action.rs"
       ]
     },
     {
@@ -8298,7 +8465,7 @@
       "id": "A026",
       "family": "action",
       "capability": "JpbCreateCustomType",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8306,17 +8473,35 @@
         "class": "com.intellij.jpb.action.creation.customType.CreateCustomTypeAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Converter"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-201.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-420.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-422.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G026",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G026"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G026"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/hibernate_action.rs"
       ]
     },
     {
       "id": "A027",
       "family": "action",
       "capability": "JpbCreateHibernateEvent",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8324,17 +8509,32 @@
         "class": "com.intellij.jpb.action.creation.hibernateEvent.CreateHibernateEventAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.HibernateEvent"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-202.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G027",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G027"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G027"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/hibernate_action.rs"
       ]
     },
     {
       "id": "A028",
       "family": "action",
       "capability": "JpbExtractMappedSuperClass",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8342,17 +8542,35 @@
         "class": "com.intellij.jpb.action.creation.mappedSuperClass.ExtractMappedSuperClassAction",
         "icon": "com.intellij.jpa.jpb.model.JpaIcons.MappedSuperclass"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-003.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-403.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-404.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G019",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G019"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G019"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/extract_superclass.rs",
+        "plugins/jpa-assist/src/file_actions.rs"
       ]
     },
     {
       "id": "A029",
       "family": "action",
       "capability": "JpbAddAttributesToDTO",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8360,18 +8578,41 @@
         "class": "com.intellij.jpb.action.creation.projection.AddAttributesToDtoAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Dto"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-005.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-114.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076, G059",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076",
+            "G059"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076",
         "G059"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
       "id": "A030",
       "family": "action",
       "capability": "JpbAddAttributesFromPojo",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8379,10 +8620,26 @@
         "class": "com.intellij.jpb.action.creation.projection.AddAttributesFromDtoAction",
         "icon": "com.intellij.jpb.JpbIcons.Jpa.Dto"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-543.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G067",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G067"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G067"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_convert_action.rs"
       ]
     },
     {
@@ -8478,7 +8735,7 @@
       "id": "A036",
       "family": "action",
       "capability": "JpbSafeDeleteAttribute",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8486,10 +8743,28 @@
         "class": "com.intellij.jpb.action.insight.SafeDeleteAttributeAction",
         "icon": "com.intellij.icons.AllIcons.Diff.Remove"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -8530,7 +8805,7 @@
       "id": "A039",
       "family": "action",
       "capability": "CreateLiquibaseChangeLog",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "action",
@@ -8538,17 +8813,37 @@
         "class": "com.intellij.liquibase.orm.action.CreateChangeLogAction",
         "icon": "com.intellij.liquibase.core.LiquibaseIcons.AddChangelog"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
       "id": "A040",
       "family": "action",
       "capability": "CreateLiquibaseChangeLogItem",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "action",
@@ -8556,11 +8851,37 @@
         "class": "com.intellij.jpb.liquibase.action.CreateLiquibaseChangeLogItemAction",
         "icon": "AllIcons.Providers.Liquibase"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-530.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112, G116",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112",
+            "G116"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112",
         "G116"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs",
+        "plugins/jpa-assist/src/template_settings.rs"
       ]
     },
     {
@@ -8585,7 +8906,7 @@
       "id": "A042",
       "family": "action",
       "capability": "JpbFlywayCreateSqlChange",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "action",
@@ -8593,11 +8914,37 @@
         "class": "com.intellij.jpb.flyway.action.CreateSqlChangeAction",
         "icon": "com.intellij.jpb.JpbIcons.Sql"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-530.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112, G116",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112",
+            "G116"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112",
         "G116"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs",
+        "plugins/jpa-assist/src/template_settings.rs"
       ]
     },
     {
@@ -9388,17 +9735,40 @@
       "id": "E002",
       "family": "Registered fileBasedIndex",
       "capability": "com.intellij.jpb.ed.indexing.DtoAndProjectionFileIndex",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "fileBasedIndex",
         "implementation": "com.intellij.jpb.ed.indexing.DtoAndProjectionFileIndex"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-542.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076, G064",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076",
+            "G064"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076",
         "G064"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -9553,17 +9923,34 @@
       "id": "E012",
       "family": "Registered implicitUsageProvider",
       "capability": "com.intellij.jpb.usages.NoArgConstructorImplicitUsageProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "implicitUsageProvider",
         "implementation": "com.intellij.jpb.usages.NoArgConstructorImplicitUsageProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from F005, G022",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "F005",
+            "G022"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "F005",
         "G022"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/inspections_more.rs",
+        "plugins/jpa-assist/src/lombok_checks.rs"
       ]
     },
     {
@@ -9638,17 +10025,35 @@
       "id": "E017",
       "family": "Registered psi.referenceContributor",
       "capability": "com.intellij.jpb.reference.HibernateTypeUastReferenceContributor",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "psi.referenceContributor",
         "language": "UAST",
         "implementation": "com.intellij.jpb.reference.HibernateTypeUastReferenceContributor"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-201.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-420.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-422.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G026",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G026"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G026"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/hibernate_action.rs"
       ]
     },
     {
@@ -9692,17 +10097,38 @@
       "id": "E020",
       "family": "Registered automaticRenamerFactory",
       "capability": "com.intellij.jpb.action.creation.projection.AutomaticEntityAttributeRenamerFactory",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "automaticRenamerFactory",
         "implementation": "com.intellij.jpb.action.creation.projection.AutomaticEntityAttributeRenamerFactory"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-562.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G075, G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G075",
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G075",
         "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/attribute_refactor.rs",
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -9848,7 +10274,7 @@
       "id": "E030",
       "family": "Registered completion.contributor",
       "capability": "com.intellij.jpa.jpb.model.bean.injection.completion",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "completion.contributor",
@@ -9857,28 +10283,71 @@
         "order": "first",
         "implementationClass": "com.intellij.jpb.completion.bean.injection.InjectionCompletionContributor"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G130, G134",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G130",
+            "G134"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G130",
         "G134"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/injection_action.rs"
       ]
     },
     {
       "id": "E031",
       "family": "Registered editorNotificationProvider",
       "capability": "com.intellij.jpb.enp.SpringRepositoryNotificationProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "editorNotificationProvider",
         "implementation": "com.intellij.jpb.enp.SpringRepositoryNotificationProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-002.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-100.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-102.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-460.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G036, G040",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G036",
+            "G040"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G036",
         "G040"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/file_actions.rs",
+        "plugins/jpa-assist/src/query_method_action.rs",
+        "plugins/jpa-assist/src/repository_action.rs"
       ]
     },
     {
@@ -9999,17 +10468,33 @@
       "id": "E039",
       "family": "Registered repositoryGenerator",
       "capability": "com.intellij.jpb.completion.bean.injection.JpbRepositoryGenerator",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "repositoryGenerator",
         "implementation": "com.intellij.jpb.completion.bean.injection.JpbRepositoryGenerator",
         "order": "first"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-132.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G130",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G130"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G130"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/injection_action.rs"
       ]
     },
     {
@@ -10180,33 +10665,68 @@
       "id": "E050",
       "family": "Registered dtoDialogProvider",
       "capability": "com.intellij.jpb.action.creation.projection.DtoDialogProviderImpl",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "dtoDialogProvider",
         "implementation": "com.intellij.jpb.action.creation.projection.DtoDialogProviderImpl",
         "order": "last"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-005.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-114.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G059",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G059"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G059"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/projection_action.rs"
       ]
     },
     {
       "id": "E051",
       "family": "Registered dtoFieldSearcherEp",
       "capability": "com.intellij.jpb.action.creation.entity.DefaultDtoFieldSearcher",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "dtoFieldSearcherEp",
         "implementation": "com.intellij.jpb.action.creation.entity.DefaultDtoFieldSearcher"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -10272,51 +10792,111 @@
       "id": "E056",
       "family": "Registered beanInjector",
       "capability": "com.intellij.jpb.palette.bean.ConstructorBeanInjector",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "beanInjector",
         "implementation": "com.intellij.jpb.palette.bean.ConstructorBeanInjector"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G130, G134",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G130",
+            "G134"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G130",
         "G134"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/injection_action.rs"
       ]
     },
     {
       "id": "E057",
       "family": "Registered beanInjector",
       "capability": "com.intellij.jpb.palette.bean.FieldBeanInjector",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "beanInjector",
         "implementation": "com.intellij.jpb.palette.bean.FieldBeanInjector"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G130, G134",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G130",
+            "G134"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G130",
         "G134"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/injection_action.rs"
       ]
     },
     {
       "id": "E058",
       "family": "Registered beanInjector",
       "capability": "com.intellij.jpb.palette.bean.MethodBeanInjector",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "beanInjector",
         "implementation": "com.intellij.jpb.palette.bean.MethodBeanInjector"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-132.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G130, G134",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G130",
+            "G134"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G130",
         "G134"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/injection_action.rs"
       ]
     },
     {
@@ -10511,17 +11091,32 @@
       "id": "E070",
       "family": "Registered hibernateEventProvider",
       "capability": "com.intellij.jpb.action.creation.hibernateEvent.HibernateEventProviderImpl",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "hibernateEventProvider",
         "implementation": "com.intellij.jpb.action.creation.hibernateEvent.HibernateEventProviderImpl",
         "order": "last"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-202.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G027",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G027"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G027"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/hibernate_action.rs"
       ]
     },
     {
@@ -10592,34 +11187,74 @@
       "id": "E075",
       "family": "Registered springAuditingDialogProvider",
       "capability": "com.intellij.jpb.ui.entity.audit.SpringAuditingDialogProviderImpl",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "springAuditingDialogProvider",
         "implementation": "com.intellij.jpb.ui.entity.audit.SpringAuditingDialogProviderImpl",
         "order": "last"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-111.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-473.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-474.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G056",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G056"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G056"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/auditing_action.rs"
       ]
     },
     {
       "id": "E076",
       "family": "Registered index.dtoProvider",
       "capability": "com.intellij.jpb.ed.indexing.JavaDtoIndexProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "index.dtoProvider",
         "implementation": "com.intellij.jpb.ed.indexing.JavaDtoIndexProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-542.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076, G064",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076",
+            "G064"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076",
         "G064"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -10748,17 +11383,37 @@
       "id": "E084",
       "family": "Registered group",
       "capability": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "group",
         "id": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-302.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-303.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G104, G105",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G104",
+            "G105"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G104",
         "G105"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/schema.rs",
+        "plugins/jpa-assist/src/schema_snapshot.rs"
       ]
     },
     {
@@ -10825,17 +11480,40 @@
       "id": "E089",
       "family": "Registered index.dtoProvider",
       "capability": "com.intellij.jpb.kt.ed.indexing.KtDtoIndexProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.kt.xml",
         "tag": "index.dtoProvider",
         "implementation": "com.intellij.jpb.kt.ed.indexing.KtDtoIndexProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-542.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076, G064",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076",
+            "G064"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076",
         "G064"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -10877,17 +11555,38 @@
       "id": "E092",
       "family": "Registered automaticRenamerFactory",
       "capability": "com.intellij.jpb.kt.kotlinAsJava.KtAutomaticEntityAttributeRenamerFactory",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.kt.xml",
         "tag": "automaticRenamerFactory",
         "implementation": "com.intellij.jpb.kt.kotlinAsJava.KtAutomaticEntityAttributeRenamerFactory"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-562.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G075, G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G075",
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G075",
         "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/attribute_refactor.rs",
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -10978,18 +11677,38 @@
       "id": "E098",
       "family": "Registered codeInsight.lineMarkerProvider",
       "capability": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "codeInsight.lineMarkerProvider",
         "language": "JSON",
         "implementationClass": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-302.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-303.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G104, G105",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G104",
+            "G105"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G104",
         "G105"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/schema.rs",
+        "plugins/jpa-assist/src/schema_snapshot.rs"
       ]
     },
     {
@@ -11045,16 +11764,36 @@
       "id": "E102",
       "family": "Registered changelogProvider",
       "capability": "com.intellij.jpb.liquibase.JpbChangelogDirectoryProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "changelogProvider",
         "implementation": "com.intellij.jpb.liquibase.JpbChangelogDirectoryProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
@@ -11254,48 +11993,102 @@
       "id": "E115",
       "family": "Registered group",
       "capability": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider.liquibase",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "group",
         "id": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider.liquibase"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G104",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G104"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G104"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/schema.rs",
+        "plugins/jpa-assist/src/schema_snapshot.rs"
       ]
     },
     {
       "id": "E116",
       "family": "Registered group",
       "capability": "JsonSnapshotDiffLineMarkerProvider.Liquibase",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "group",
         "id": "JsonSnapshotDiffLineMarkerProvider.Liquibase"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G104",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G104"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G104"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/schema.rs",
+        "plugins/jpa-assist/src/schema_snapshot.rs"
       ]
     },
     {
       "id": "E117",
       "family": "Registered group",
       "capability": "com.intellij.jpb.liquibase.structure.new",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "group",
         "id": "com.intellij.jpb.liquibase.structure.new"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
@@ -11366,16 +12159,37 @@
       "id": "E122",
       "family": "Registered paletteContributor",
       "capability": "com.intellij.jpb.flyway.toolwindow.palette.type.FlywayPaletteType",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "paletteContributor",
         "implementation": "com.intellij.jpb.flyway.toolwindow.palette.type.FlywayPaletteType"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-530.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G116",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G116"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G116"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/template_settings.rs"
       ]
     },
     {
@@ -11399,39 +12213,76 @@
       "id": "E124",
       "family": "Registered group",
       "capability": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider.flyway",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
         "id": "com.intellij.jpb.liquibase.linemarker.JsonSnapshotDiffLineMarkerProvider.flyway"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G104",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G104"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G104"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/schema.rs",
+        "plugins/jpa-assist/src/schema_snapshot.rs"
       ]
     },
     {
       "id": "E125",
       "family": "Registered group",
       "capability": "com.intellij.jpb.structure.new.flyway",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
         "id": "com.intellij.jpb.structure.new.flyway"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
       "id": "E126",
       "family": "Registered group",
       "capability": "com.intellij.jpb.structure.toolbar.new.flyway",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
@@ -11439,27 +12290,67 @@
         "icon": "AllIcons.General.Add",
         "popup": "true"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
       "id": "E127",
       "family": "Registered group",
       "capability": "com.intellij.jpb.structure.flyway",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
         "id": "com.intellij.jpb.structure.flyway",
         "popup": "false"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
@@ -11498,32 +12389,69 @@
       "id": "E130",
       "family": "Registered group",
       "capability": "com.intellij.liquibase.common.linemarker.JsonSnapshotDiffLineMarkerProvider.flyway",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
         "id": "com.intellij.liquibase.common.linemarker.JsonSnapshotDiffLineMarkerProvider.flyway"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G104",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G104"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G104"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/schema.rs",
+        "plugins/jpa-assist/src/schema_snapshot.rs"
       ]
     },
     {
       "id": "E131",
       "family": "Registered group",
       "capability": "JpbDbVersioningGenerateGroup",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
         "id": "JpbDbVersioningGenerateGroup"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
@@ -11546,7 +12474,7 @@
       "id": "E133",
       "family": "Registered group",
       "capability": "JpbFlywayAddDdlChange",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
@@ -11554,10 +12482,30 @@
         "class": "com.intellij.jpb.flyway.database.AddDdlChangeAction",
         "icon": "com.intellij.icons.AllIcons.General.Add"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
@@ -11614,16 +12562,36 @@
       "id": "E137",
       "family": "Registered bulk.settings.provider",
       "capability": "com.intellij.jpb.re.JpbEntityDeclarationSettingsProviderImpl",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "bulk.settings.provider",
         "implementation": "com.intellij.jpb.re.JpbEntityDeclarationSettingsProviderImpl"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-221.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-222.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-223.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-224.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-225.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G099",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G099"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G099"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/settings.schema.json",
+        "plugins/jpa-assist/src/ddl_entities_action.rs"
       ]
     },
     {
@@ -11646,16 +12614,32 @@
       "id": "E139",
       "family": "Registered group",
       "capability": "com.intellij.jpb.re.toolwindow.inspector.JpaReInspectorActionsProvider.InspectorActions",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "group",
         "id": "com.intellij.jpb.re.toolwindow.inspector.JpaReInspectorActionsProvider.InspectorActions"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-441.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G088",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G088"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G088"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/ddl_parse.rs",
+        "plugins/jpa-assist/src/ddl_entities_action.rs"
       ]
     }
   ]

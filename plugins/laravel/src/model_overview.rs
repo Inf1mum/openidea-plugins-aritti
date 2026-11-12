@@ -501,7 +501,16 @@ pub(crate) fn inventory_with_schema(
     snapshot: Option<&Value>,
     expanded: &BTreeMap<String, bool>,
 ) -> Body {
-    let mut items = rows(index, project);
+    inventory_with_rows(rows(index, project), index, project, snapshot, expanded)
+}
+
+pub(crate) fn inventory_with_rows(
+    mut items: Vec<Value>,
+    index: &Index,
+    project: &Project,
+    snapshot: Option<&Value>,
+    expanded: &BTreeMap<String, bool>,
+) -> Body {
     if let Some(tables) = snapshot.and_then(|s| s["tables"].as_array()) {
         for (full, _, table) in crate::eloquent_members::model_inventory(&index.eloquent_models) {
             let captured_connection = snapshot.and_then(|s| s["connection"].as_str());

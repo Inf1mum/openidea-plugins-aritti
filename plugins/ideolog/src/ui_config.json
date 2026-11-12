@@ -2,7 +2,9 @@
   "title": "Ideolog",
   "views": {
     "patterns": "Ideolog",
-    "log-snapshot": "Log Snapshot"
+    "log-snapshot": "Log Snapshot",
+    "jvm-observations": "JVM Observations",
+    "live-tail": "Live Log Tail"
   },
   "actions": [],
   "project_independent": true,
@@ -17,6 +19,14 @@
       {
         "id": "log-snapshot",
         "label": "Log Snapshot"
+      },
+      {
+        "id": "jvm-observations",
+        "label": "JVM Observations"
+      },
+      {
+        "id": "live-tail",
+        "label": "Live Log Tail"
       }
     ]
   },
@@ -28,6 +38,11 @@
       "move-down",
       "remove"
     ],
-    "log-snapshot": []
-  }
+    "log-snapshot": [],
+    "jvm-observations": [],
+    "live-tail": []
+  },
+  "opaque_views": [
+    "live-tail"
+  ]
 }
