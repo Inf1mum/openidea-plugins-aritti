@@ -2068,7 +2068,7 @@ impl Main {
                     ENTITIES_VIEW => Some(index.entities.len()),
                     TEMPLATES_VIEW => Some(index.templates.len()),
                     SERVICES_VIEW => Some(index.services.len()),
-                    CONFIG_VIEW => Some(index.parameters.len()),
+                    CONFIG_VIEW => Some(index.parameters.keys().filter(|name| !name.starts_with('.')).count()),
                     ENV_VIEW => Some(index.env.len()),
                     TRANSLATIONS_VIEW => Some(index.translations.values().map(Names::len).sum()),
                     _ => None,
@@ -2079,6 +2079,28 @@ impl Main {
             }
         }
         config.to_string()
+    }
+
+    fn names_table(index: &Index, group: &str, root: &str) -> Body {
+        let icon = GROUPS.iter().find(|(id, _, _)| *id == group).map_or("file", |(_, _, icon)| *icon);
+        let names = group_names(index, group).expect("parameter and env groups are name maps");
+        let items: Vec<serde_json::Value> = names
+            .iter()
+            .filter(|(name, _)| group != "parameter" || !name.starts_with('.'))
+            .map(|(name, entry)| {
+                let detail = entry.detail.as_deref().unwrap_or_default();
+                let file = entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches(['/', '\\']);
+                let value = index.env_values.get(name).map_or("", String::as_str);
+                let cells = if group == "env" { vec![name.as_str(), value, detail.strip_prefix("defined in ").unwrap_or(detail)] } else { vec![name.as_str(), detail, file] };
+                serde_json::json!({"key":format!("{group}:{name}"),"cells":cells,"icon":icon})
+            })
+            .collect();
+        let data = if group == "env" {
+            serde_json::json!({"columns":["Variable","Value","File"],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":"Filter environment variables…","items":items})
+        } else {
+            serde_json::json!({"columns":["Key","Value","File"],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":"Filter parameters…","facetLabels":{"2":"All files"},"facets":[2],"items":items})
+        };
+        Body::Other { kind: "resources".into(), data: data.to_string() }
     }
 
     fn group_tree(&self, index: &Index, group: &str) -> Vec<TreeItem> {
@@ -2297,12 +2319,15 @@ impl Views for Main {
                 false => (Vec::new(), self.group_tree(index, group)),
             };
             let root = ctx.project().and_then(|p| p.root().ok());
+            let names_table = matches!(group, "parameter" | "env").then(|| Self::names_table(index, group, root.as_deref().unwrap_or_default()));
             if self.route_owner != root { self.selected = None; self.route_selection = None; }
             self.route_owner = root;
             let window = self.window.get_or_insert_with(Window::new);
             let view = if routes_active {
                 window.routes.set_routes(routes);
                 window.routes.render(base)
+            } else if let Some(body) = names_table {
+                View { body, ..base }
             } else {
                 View { body: Body::Tree(tree), ..base }
             };
@@ -3054,19 +3079,27 @@ mod tests {
         plugin.handle(ENTITIES_VIEW, ViewEvent::Activate("field:App\\Entity\\Post:title".into()), &ctx).unwrap();
         assert_eq!(host.opened_locations(), [("/project/src/Entity/Post.php".into(), 10, 21)]);
 
-        let View { body: Body::Tree(items), .. } = plugin.render(CONFIG_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-        assert!(items.iter().any(|item| item.label == "app.items_per_page"), "{:?}", items.iter().map(|item| &item.label).collect::<Vec<_>>());
-        let View { body: Body::Tree(items), .. } = plugin.render(ENV_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-        let env: Vec<_> = items.iter().map(|item| (item.label.as_str(), item.detail.clone().unwrap_or_default())).collect();
+        let mut table = |view: &str| {
+            let View { body: Body::Other { kind, data }, .. } = plugin.render(view, None, &ctx).unwrap() else { panic!("not a table") };
+            assert_eq!(kind, "resources");
+            serde_json::from_str::<serde_json::Value>(&data).unwrap()
+        };
+        let config = table(CONFIG_VIEW);
+        assert_eq!(config["columns"], serde_json::json!(["Key", "Value", "File"]));
+        assert!(config["items"].as_array().unwrap().iter().any(|item| item["cells"][0] == "app.items_per_page"), "{config}");
+        let env_table = table(ENV_VIEW);
+        let env: Vec<_> = env_table["items"].as_array().unwrap().iter().map(|item| (item["cells"][0].as_str().unwrap(), item["cells"][2].as_str().unwrap().to_owned())).collect();
         assert_eq!(
             env,
             [
-                ("APP_ENV", "defined in .env".to_owned()),
-                ("APP_SECRET", "defined in .env.local".to_owned()),
-                ("DATABASE_URL", "defined in .env, .env.local".to_owned()),
+                ("APP_ENV", ".env".to_owned()),
+                ("APP_SECRET", ".env.local".to_owned()),
+                ("DATABASE_URL", ".env, .env.local".to_owned()),
             ]
         );
-        assert!(items.iter().all(|item| !item.detail.clone().unwrap_or_default().contains("secret") && !item.detail.clone().unwrap_or_default().contains("postgresql")));
+        assert!(env.iter().all(|(_, detail)| !detail.contains("secret") && !detail.contains("postgresql")));
+        let secret = env_table["items"].as_array().unwrap().iter().find(|item| item["cells"][0] == "APP_SECRET").unwrap();
+        assert_eq!(secret["cells"][1], "••••••");
     }
 
     #[test]

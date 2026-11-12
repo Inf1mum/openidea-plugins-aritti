@@ -95,6 +95,8 @@ pub struct Index {
     pub entities: std::collections::BTreeMap<String, crate::entities::Entity>,
     /// Variable names of the `.env*` files; values are never kept.
     pub env: Names,
+    /// Masked display values of env variables, last defining file wins.
+    pub env_values: std::collections::BTreeMap<String, String>,
     pub roles: Names,
     /// Container parameters of the project's config and of the compiled container.
     pub parameters: Names,
@@ -570,10 +572,11 @@ impl Index {
             for (number, line) in text.lines().enumerate() {
                 let line = line.trim_start();
                 let line = line.strip_prefix("export ").unwrap_or(line);
-                let Some((name, _)) = line.split_once('=') else { continue };
+                let Some((name, raw_value)) = line.split_once('=') else { continue };
                 let name = name.trim();
                 let valid = name.bytes().next().is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_') && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
                 if valid {
+                    index.env_values.insert(name.to_owned(), ui_kit::env_value::display_value(name, raw_value));
                     let slot = env_variables.entry(name.to_owned()).or_insert_with(|| (Entry { detail: None, path: path.clone(), at: Position::new(number as u32, 0) }, Vec::new()));
                     if !slot.1.contains(&file) {
                         slot.1.push(file);
@@ -1615,19 +1618,69 @@ pub fn yaml_params(path: &str, text: &str, names: &mut impl Sink) {
 
         let name = key.key.trim_matches(['\'', '"']);
         let quote = usize::from(name.len() != key.key.len());
-        names.add(name, None, path, lines.position(key.offset + quote));
+        let after_key = &text[key.offset + key.key.len()..];
+        let raw = after_key.lines().next().unwrap_or_default().trim_start().strip_prefix(':').unwrap_or_default();
+        let value = ui_kit::env_value::display_value(name, raw);
+        names.add(name, Some(value).filter(|value| !value.is_empty()), path, lines.position(key.offset + quote));
     }
 }
 
-/// `<parameter key="…">` of an XML file.
+/// Top-level `<parameter key="…">` of an XML file with a display value; collections show their item count
+/// and nested keys are not parameters.
 pub fn xml_params(path: &str, text: &str, names: &mut impl Sink) {
-    let lines = Lines::new(text);
-
-    for (tag, at) in xml_tags(text, "parameter") {
-        if let Some((key, offset)) = xml_attribute(tag, "key") {
-            names.add(key, None, path, lines.position(at + offset));
-        }
+    struct Open<'a> {
+        key: &'a str,
+        at: usize,
+        collection: bool,
+        children: usize,
+        value_from: usize,
     }
+
+    let lines = Lines::new(text);
+    let mut events: Vec<(usize, Option<&str>)> = xml_tags(text, "parameter").into_iter().map(|(tag, at)| (at, Some(tag))).collect();
+    events.extend(text.match_indices("</parameter>").map(|(at, _)| (at, None)));
+    events.sort_by_key(|(at, _)| *at);
+
+    let mut stack: Vec<Open> = Vec::new();
+    let mut add = |key: &str, value: String, at: usize| names.add(key, Some(value).filter(|value| !value.is_empty()), path, lines.position(at));
+
+    for (at, tag) in events {
+        let Some(tag) = tag else {
+            let Some(open) = stack.pop() else { continue };
+            if stack.is_empty() {
+                let value = if open.collection {
+                    format!("[{} items]", open.children)
+                } else {
+                    let raw = text.get(open.value_from..at).unwrap_or_default();
+                    ui_kit::env_value::mask_value(open.key, &xml_unescape(raw.trim()))
+                };
+                add(open.key, value, open.at);
+            }
+            continue;
+        };
+
+        if let Some(parent) = stack.last_mut() {
+            parent.children += 1;
+        }
+        let Some((key, offset)) = xml_attribute(tag, "key") else { continue };
+        if tag.ends_with('/') {
+            if stack.is_empty() {
+                add(key, String::new(), at + offset);
+            }
+            continue;
+        }
+        stack.push(Open {
+            key,
+            at: at + offset,
+            collection: xml_attribute(tag, "type").is_some_and(|(kind, _)| kind == "collection"),
+            children: 0,
+            value_from: at + tag.len() + 1,
+        });
+    }
+}
+
+fn xml_unescape(text: &str) -> String {
+    text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
 }
 
 /// The fully qualified name of a PHP file's class and the offset of its name.
@@ -1786,6 +1839,33 @@ mod php_literal_discovery_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn xml_params_keep_top_level_keys_with_values_and_summarize_collections() {
+        let xml = r#"<container><parameters>
+            <parameter key="kernel.debug">true</parameter>
+            <parameter key="kernel.secret">abc</parameter>
+            <parameter key="app.url">http://u:p@host/x?a=1&amp;b=2</parameter>
+            <parameter key="kernel.bundles" type="collection">
+              <parameter key="FrameworkBundle">Symfony\FrameworkBundle</parameter>
+              <parameter key="TwigBundle">Symfony\TwigBundle</parameter>
+            </parameter>
+            <parameter key="empty"/>
+        </parameters></container>"#;
+        let mut names = Names::new();
+        xml_params("/p/c.xml", xml, &mut names);
+        let shown: Vec<_> = names.iter().map(|(name, entry)| (name.as_str(), entry.detail.as_deref())).collect();
+        assert_eq!(
+            shown,
+            [
+                ("app.url", Some("http://***@host/x?a=1&b=2")),
+                ("empty", None),
+                ("kernel.bundles", Some("[2 items]")),
+                ("kernel.debug", Some("true")),
+                ("kernel.secret", Some("••••••")),
+            ]
+        );
+    }
+
     use super::*;
 
     #[test]

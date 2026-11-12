@@ -98,6 +98,8 @@ pub struct Index {
     /// `lang/<locale>/<file>.php` files by the file's key, main locale first.
     pub translation_files: BTreeMap<String, Vec<String>>,
     pub env: Names,
+    /// Masked display values of env variables; the first definition wins, like `env`.
+    pub env_values: BTreeMap<String, String>,
     pub middleware: Names,
     pub assets: Names,
     pub controllers: Names,
@@ -913,6 +915,7 @@ impl Index {
             let path = format!("{root}/{file}");
             if let Some(text) = read("source-5",&path, &mut index) {
                 env_keys(&path, &text, &mut index.env);
+                env_values(&text, &mut index.env_values);
             }
         }
 
@@ -1430,6 +1433,18 @@ fn renders(path: &str, text: &str) -> Vec<Render> {
 }
 
 /// `KEY=value` lines of an env file; values are not read.
+fn env_values(text: &str, values: &mut BTreeMap<String, String>) {
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        let Some((key, raw)) = trimmed.strip_prefix("export ").unwrap_or(trimmed).split_once('=') else { continue };
+        let key = key.trim();
+        let is_key = !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.');
+        if is_key && !trimmed.starts_with('#') {
+            values.entry(key.to_owned()).or_insert_with(|| ui_kit::env_value::display_value(key, raw));
+        }
+    }
+}
+
 fn env_keys(path: &str, text: &str, names: &mut Names) {
     for (line_number, line) in text.lines().enumerate() {
         let trimmed = line.trim_start();
