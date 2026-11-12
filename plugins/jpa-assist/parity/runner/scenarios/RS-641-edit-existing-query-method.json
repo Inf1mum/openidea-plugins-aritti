@@ -1,0 +1,155 @@
+{
+  "id": "RS-641",
+  "rows": [
+    "G047"
+  ],
+  "claimIds": [
+    "G047-C1"
+  ],
+  "verifies": {
+    "G047-C1": "the existing derived method findByName in ParcelRepository is configured through 'Edit query method\u2026': the flow offers keeping/removing conditions, adding conditions, changing an operator, ordering, limit and return type, and rewrites the declaration to List<Parcel> findByNameContainingAndColor(String name, String color) (operator of name changed to containing, condition color added). NOT checked: the original's surface (caret on the method plus the JPA Inspector panel); here the action is a file action on the repository file, with a single editable method chosen automatically and every option asked as a pick prompt. The caret is not used to select the method."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "content": "package com.example.shop.domain;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface ParcelRepository extends JpaRepository<Parcel, Long> {\n    List<Parcel> findByName(String name);\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+    "anchor": "findByName"
+  },
+  "action": {
+    "title": "Edit query method\u2026"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "0"
+      ]
+    },
+    {
+      "pickMany": [
+        "color"
+      ]
+    },
+    {
+      "pick": "is"
+    },
+    {
+      "pickMany": [
+        "0"
+      ]
+    },
+    {
+      "pick": "containing"
+    },
+    {
+      "pick": "keep"
+    },
+    {
+      "pick": "and"
+    },
+    {
+      "pick": "~keep"
+    },
+    {
+      "input": ""
+    },
+    {
+      "pick": "list"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "Conditions to keep"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Add conditions",
+        "optionsInclude": [
+          "name",
+          "color"
+        ]
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Operator for color"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Change operator"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Operator for name",
+        "optionsInclude": [
+          "is",
+          "containing"
+        ]
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Condition order"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Combine"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Ordering"
+      },
+      {
+        "kind": "input",
+        "titleContains": "limit"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Return type",
+        "optionsInclude": [
+          "list",
+          "optional",
+          "page"
+        ]
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Edit query method"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "contains": [
+          "List<Parcel> findByNameContainingAndColor(String name, String color);"
+        ],
+        "notContains": [
+          "findByName(String name)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Edit an existing derived query method."
+}

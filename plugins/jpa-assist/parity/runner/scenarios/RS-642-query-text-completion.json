@@ -1,0 +1,38 @@
+{
+  "id": "RS-642",
+  "rows": [
+    "G052"
+  ],
+  "claimIds": [
+    "G052-C1"
+  ],
+  "verifies": {
+    "G052-C1": "while editing the JPQL text of a @Query annotation in the repository source, completion after the alias dot (c.) lists the attributes of the entity Category (name, email) and no invented attribute. The completion runner sees labels only; the inserted text is not checked. NOT checked: the original's 'Query edit' window as a surface (the plugin has no such window; completion is offered in the editor inside the string), completion of entity names after from/update and alias depth."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "completion",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/repository/ProbeRepository.java",
+        "content": "package com.example.shop.repository;\n\nimport com.example.shop.domain.Category;\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.data.jpa.repository.Query;\n\npublic interface ProbeRepository extends JpaRepository<Category, Long> {\n    @Query(\"select c from Category c where c.\")\n    List<Category> search();\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/ProbeRepository.java",
+    "anchor": "where c.",
+    "at": "end"
+  },
+  "expect": {
+    "completionsInclude": [
+      "name",
+      "products"
+    ],
+    "completionsExclude": [
+      "email",
+      "nonexistent"
+    ]
+  },
+  "note": "JPQL attribute completion inside @Query."
+}

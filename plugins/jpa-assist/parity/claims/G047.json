@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
    "ourFeature": "Edit query method… (query_edit_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Action 'Edit query method\u2026' on the repository file (pick prompts for conditions, operators, order, limit, return type). Not checked: caret on the method and the JPA Inspector panel."
   }
  ],
  "undocumented": [

@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
    "strength": "explicit",
    "ourFeature": "Add mapping method to mapper…; Create generic base mapper… (mapper_action.rs, mapper_more_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Action 'Add mapping method to mapper\u2026' on the open mapper file (entity pick lists every project entity). Not checked: the IntelliJ Generate menu surface."
   }
  ],
  "undocumented": [
