@@ -1,0 +1,49 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-798/prompts.json",
+      "sha256": "9ec04cfccbabcb61d2fd9ca34f99efc0893334bec25535bb9f5f107c720bceaf"
+    },
+    {
+      "path": "artifacts/RS-798/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-798/edits.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "ac3bcb23e8187ae6bed9dee391d73bb2d3a0f8f3f0a3aeb8490dca54cc172ccb",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action is refused with a message",
+      "detail": "error \"Internal: Every column of `rs_accounts` is already mapped by RsAccount or cannot be offered; nothing to add.\"",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-798",
+  "scenarioSha256": "3b2e090392501b75516b4449b7b514963ec9b068c9235727dd46921b668c727c",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "ac3bcb23e8187ae6bed9dee391d73bb2d3a0f8f3f0a3aeb8490dca54cc172ccb",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-703/tree-labels.json",
+      "sha256": "db98d6c5bcb9fc21192a93e01e50205bfb878996712e8343046523f08418a09c"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "tree",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "tree node \"DTOs and Projections\"",
+      "detail": "187 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"CustomerDto\"",
+      "detail": "187 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"DTO · linked by class name\"",
+      "detail": "187 nodes",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-703",
+  "scenarioSha256": "e029a2a9bfb2fd4f48898b2562be2455a57768ecde5010f576fff78d58e52b1d",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

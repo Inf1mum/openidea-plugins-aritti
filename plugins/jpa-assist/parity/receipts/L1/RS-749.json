@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-749/tree-labels.json",
+      "sha256": "6ef68c85f7c893431fe41be8277d96ef456a9fa78bb27801e75c8187b3c2b52e"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "7b8ba219d4e594fc0a634d53362fea8d6fc348085b612811d0cc46e1c6f3ad96",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "tree",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "tree node \"DTOs and Projections\"",
+      "detail": "193 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"ParcelSummary\"",
+      "detail": "193 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"DTO · linked by mapper method\"",
+      "detail": "193 nodes",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-749",
+  "scenarioSha256": "2de242f3bf6de42860ade54ef7fadab191c56af7442931fd97dced626f18676c",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "7b8ba219d4e594fc0a634d53362fea8d6fc348085b612811d0cc46e1c6f3ad96",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

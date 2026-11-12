@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-733/markers.json",
+      "sha256": "bc6bd37e0075e027f50f0be3435db521cdac9cf000c54860396f7659812f45ab"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "c7d07bb39029e3e88ce225e56d58eaf8c16629c45eb0406646cc684c8cf22cef",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "lineMarkers",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "line marker \"Used by Invoice.status\"",
+      "detail": "1 markers",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-733",
+  "scenarioSha256": "5ea41b348db899bb93a39bd45a3bb104884a4be7e97779d3df9d8d671b4fb700",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "c7d07bb39029e3e88ce225e56d58eaf8c16629c45eb0406646cc684c8cf22cef",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

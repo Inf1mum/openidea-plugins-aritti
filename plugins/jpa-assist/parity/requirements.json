@@ -53,7 +53,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-620.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G003-C2"
           ],
@@ -146,7 +146,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-621.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G007-C1"
           ],
@@ -198,7 +198,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-622.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G008-C1"
           ],
@@ -229,7 +229,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-400.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G009-C2"
           ],
@@ -260,7 +260,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-623.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G010-C1",
             "G010-C2"
@@ -386,7 +386,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-402.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-624.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G013-C1",
             "G013-C2",
@@ -507,7 +507,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-228.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-229.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G014-C1",
             "G014-C2",
@@ -588,7 +588,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-237.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-238.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G015-C1",
             "G015-C2"
@@ -648,7 +648,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-238.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G016-C1",
             "G016-C2"
@@ -703,7 +703,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-239.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G017-C1"
           ],
@@ -737,7 +737,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-237.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G018-C2"
           ],
@@ -835,7 +835,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-403.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-404.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G019-C1",
             "G019-C2",
@@ -871,7 +871,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G020-C1"
           ],
@@ -924,7 +924,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G021-C1"
           ],
@@ -976,7 +976,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G022-C1"
           ],
@@ -1007,7 +1007,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-625.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G023-C1"
           ],
@@ -1060,7 +1060,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-405.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G024-C1"
           ],
@@ -1090,7 +1090,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-200.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G025-C2",
             "G025-C3"
@@ -1208,7 +1208,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-422.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G026-C1",
             "G026-C2",
@@ -1264,7 +1264,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-202.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G027-C1"
           ],
@@ -1358,7 +1358,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-204.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-206.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G028-C1",
             "G028-C2"
@@ -1517,7 +1517,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-425.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-426.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G029-C1",
             "G029-C2",
@@ -1556,7 +1556,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-427.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G030-C1"
           ],
@@ -1632,7 +1632,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-241.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-428.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G031-C1",
             "G031-C2"
@@ -1670,7 +1670,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-322.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-323.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G032-C1",
             "G032-C2",
@@ -1729,7 +1729,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-240.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G033-C1",
             "G033-C2"
@@ -1762,7 +1762,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-626.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-628.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G034-C1",
             "G034-C2"
@@ -1837,7 +1837,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-406.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-627.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G035-C1",
             "G035-C2"
@@ -1955,7 +1955,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-460.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G036-C1",
             "G036-C2",
@@ -2013,7 +2013,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G037-C1",
             "G037-C2"
@@ -2067,7 +2067,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G038-C1"
           ],
@@ -2154,7 +2154,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-102.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G040-C1",
             "G040-C2",
@@ -2233,7 +2233,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-103.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G041-C1",
             "G041-C2"
@@ -2310,7 +2310,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-104.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G042-C1",
             "G042-C2"
@@ -2385,7 +2385,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-464.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G043-C1"
           ],
@@ -2415,7 +2415,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-640.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G044-C2"
           ],
@@ -2443,7 +2443,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-640.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G045-C1"
           ],
@@ -2496,7 +2496,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-461.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G046-C1"
           ],
@@ -2548,7 +2548,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-641.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G047-C1"
           ],
@@ -2600,7 +2600,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-105.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G048-C1"
           ],
@@ -2652,7 +2652,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-106.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G049-C1"
           ],
@@ -2704,7 +2704,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-107.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G050-C1"
           ],
@@ -2756,7 +2756,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-108.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G051-C1"
           ],
@@ -2809,7 +2809,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-642.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G052-C1"
           ],
@@ -2884,7 +2884,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-109.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-110.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G053-C1",
             "G053-C2",
@@ -3000,7 +3000,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-468.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G054-C1",
             "G054-C2",
@@ -3040,7 +3040,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-471.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-472.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G055-C1",
             "G055-C2",
@@ -3142,10 +3142,10 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-473.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-474.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G056-C1",
-            "G056-C3"
+            "G056-C2"
           ],
           "claimsExplicit": [
             "G056-C1",
@@ -3242,7 +3242,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-475.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-476.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G057-C1",
             "G057-C2",
@@ -3303,7 +3303,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-130.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G058-C1",
             "G058-C2",
@@ -3405,7 +3405,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-114.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G059-C1",
             "G059-C2",
@@ -3467,7 +3467,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-113.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G060-C1",
             "G060-C2"
@@ -3542,7 +3542,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-115.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-116.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G061-C1",
             "G061-C2"
@@ -3638,7 +3638,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-118.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-119.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G062-C1",
             "G062-C2",
@@ -3715,7 +3715,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-121.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-540.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G063-C1",
             "G063-C2"
@@ -3811,7 +3811,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-542.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G064-C1",
             "G064-C2"
@@ -3865,7 +3865,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-121.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G065-C1"
           ],
@@ -4001,7 +4001,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-329.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-330.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G066-C1",
             "G066-C2",
@@ -4080,7 +4080,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-543.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G067-C1",
             "G067-C2",
@@ -4157,7 +4157,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-114.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-120.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G068-C1",
             "G068-C2"
@@ -4254,7 +4254,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-126.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-544.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G069-C1",
             "G069-C2",
@@ -4311,7 +4311,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-643.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G070-C1"
           ],
@@ -4385,7 +4385,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-546.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-547.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G071-C1"
           ],
@@ -4438,7 +4438,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-545.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G072-C1"
           ],
@@ -4468,7 +4468,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-127.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G073-C1",
             "G073-C3",
@@ -4573,7 +4573,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-549.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-550.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G074-C1",
             "G074-C2",
@@ -4632,7 +4632,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-562.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G075-C1"
           ],
@@ -4727,7 +4727,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G076-C1",
             "G076-C2",
@@ -4847,7 +4847,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-566.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G077-C1",
             "G077-C2",
@@ -4952,7 +4952,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-124.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-548.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G078-C1",
             "G078-C2",
@@ -5022,7 +5022,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-320.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-321.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G082-C2",
             "G082-C3",
@@ -5081,7 +5081,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-321.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G083-C1",
             "G083-C2"
@@ -5110,7 +5110,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-440.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G084-C2"
           ],
@@ -5163,7 +5163,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-320.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G085-C1"
           ],
@@ -5240,7 +5240,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-441.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G088-C1"
           ],
@@ -5293,7 +5293,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-219.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G089-C1"
           ],
@@ -5346,7 +5346,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-220.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G090-C1"
           ],
@@ -5440,7 +5440,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-443.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-444.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G091-C1",
             "G091-C2",
@@ -5497,7 +5497,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-215.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G092-C1"
           ],
@@ -5529,7 +5529,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-217.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-445.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G093-C1",
             "G093-C3"
@@ -5627,7 +5627,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-446.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-447.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G094-C1",
             "G094-C2"
@@ -5686,7 +5686,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-214.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G095-C1",
             "G095-C2",
@@ -5704,11 +5704,287 @@
       "id": "G096",
       "family": "Reverse engineering",
       "capability": "Existing entity updates",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "No database-column-to-existing-entity synchronization.",
-      "evidence": [],
-      "acceptance": []
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-790",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+          "test": "jpa_assist --only RS-790",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-791",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C2: The attribute dialog separates Columns (unmapped) from Mapped Columns (already mapped to entity attributes)."
+          ],
+          "claimIds": [
+            "G096-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+          "test": "jpa_assist --only RS-791",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-792",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+          "test": "jpa_assist --only RS-792",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-kotlin-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-793",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+          "test": "jpa_assist --only RS-793",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-794",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+          "test": "jpa_assist --only RS-794",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-795",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+          "test": "jpa_assist --only RS-795",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-800",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+          "test": "jpa_assist --only RS-800",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-801",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+          "test": "jpa_assist --only RS-801",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-802",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+          "test": "jpa_assist --only RS-802",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-804",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+          "test": "jpa_assist --only RS-804",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-805",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+          "test": "jpa_assist --only RS-805",
+          "scope": "released host v0.1.42, headless, fixture legacy-javax-hibernate5; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-806",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G096-C1: Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class."
+          ],
+          "claimIds": [
+            "G096-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-806.json",
+          "test": "jpa_assist --only RS-806",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/ddl_entity_attrs.rs",
+        "plugins/jpa-assist/src/ddl_entities_action.rs"
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
+          ],
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
+          "claimsCovered": [
+            "G096-C1",
+            "G096-C2"
+          ],
+          "claimsExplicit": [
+            "G096-C1",
+            "G096-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G097",
@@ -5837,7 +6113,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-213.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-660.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G097-C1",
             "G097-C2",
@@ -5992,7 +6268,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-224.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-225.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G099-C1",
             "G099-C2",
@@ -6049,7 +6325,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-218.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G100-C1"
           ],
@@ -6165,7 +6441,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-227.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-448.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G101-C1",
             "G101-C2",
@@ -6216,7 +6492,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-449.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G103-C2"
           ],
@@ -6294,7 +6570,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G104-C1",
             "G104-C2",
@@ -6372,7 +6648,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-302.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-303.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G105-C1",
             "G105-C2"
@@ -6468,7 +6744,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-500.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-501.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G106-C1",
             "G106-C2"
@@ -6503,7 +6779,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-500.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-501.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G107-C1",
             "G107-C2",
@@ -6601,7 +6877,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-502.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-503.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G108-C1",
             "G108-C2",
@@ -6680,7 +6956,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-300.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-504.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G109-C1",
             "G109-C2",
@@ -6739,7 +7015,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-006.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G110-C1"
           ],
@@ -6771,7 +7047,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-505.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-506.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G111-C2",
             "G111-C5"
@@ -6881,7 +7157,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G112-C1",
             "G112-C2",
@@ -6973,9 +7249,10 @@
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-508.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-777.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G114-C1",
             "G114-C2"
@@ -7011,7 +7288,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-307.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-661.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G115-C1",
             "G115-C3"
@@ -7138,7 +7415,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-309.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-530.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G116-C1",
             "G116-C2",
@@ -7221,7 +7498,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-314.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-315.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G117-C1",
             "G117-C2",
@@ -7256,7 +7533,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-316.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-662.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G118-C1",
             "G118-C2",
@@ -7399,7 +7676,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-520.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-521.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G119-C1",
             "G119-C2",
@@ -7572,7 +7849,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-312.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-313.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G120-C1",
             "G120-C2",
@@ -7652,7 +7929,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-509.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-510.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G121-C1",
             "G121-C2"
@@ -7687,7 +7964,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-663.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G122-C1"
           ],
@@ -7716,7 +7993,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-522.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-664.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G123-C1",
             "G123-C3"
@@ -7772,7 +8049,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-529.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G124-C1"
           ],
@@ -7911,7 +8188,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-325.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-326.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G125-C1",
             "G125-C2",
@@ -8051,7 +8328,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-528.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-665.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G126-C1",
             "G126-C2",
@@ -8092,7 +8369,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-322.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-323.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G127-C1",
             "G127-C2"
@@ -8190,7 +8467,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-524.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-525.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G128-C1",
             "G128-C2"
@@ -8275,7 +8552,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-132.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G130-C1",
             "G130-C3"
@@ -8305,7 +8582,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-568.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-569.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G131-C1"
           ],
@@ -8338,7 +8615,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-570.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-571.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G132-C2",
             "G132-C3"
@@ -8371,7 +8648,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-574.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-575.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G133-C1",
             "G133-C2",
@@ -8470,7 +8747,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-576.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-577.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "G134-C1",
             "G134-C2"
@@ -8617,7 +8894,7 @@
         "G003",
         "G009"
       ],
-      "knownGap": "MISSING capability: create a new related entity with both relationship sides. Should be owned by G003 (structure creation) with G009 as secondary; today G003 has no claim and no implementation of this flow."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "A006",
@@ -9187,7 +9464,7 @@
         "G003",
         "G009"
       ],
-      "knownGap": "MISSING: create related entity (relation to). Owner G003/G009."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "A024",
@@ -9207,7 +9484,7 @@
         "G003",
         "G009"
       ],
-      "knownGap": "MISSING: create related entity (relation from). Owner G003/G009."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "A025",
@@ -9716,7 +9993,7 @@
       "id": "A043",
       "family": "action",
       "capability": "CreateReverseEngineeringItem",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "action",
@@ -9724,17 +10001,44 @@
         "class": "com.intellij.jpb.re.action.CreateReverseEngineeringItemAction",
         "icon": "com.intellij.icons.AllIcons.Nodes.DataSchema"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G096",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G096"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G096"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/ddl_entities_action.rs",
+        "plugins/jpa-assist/src/ddl_entity_attrs.rs"
       ]
     },
     {
       "id": "A044",
       "family": "action",
       "capability": "JpbReEntityAttributeFromDb",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "action",
@@ -9742,11 +10046,41 @@
         "class": "com.intellij.jpb.re.action.EntityAttributeFromDbAction",
         "icon": "com.intellij.icons.AllIcons.Nodes.DataSchema"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-441.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G096, G088",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G096",
+            "G088"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G096",
         "G088"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/ddl_parse.rs",
+        "plugins/jpa-assist/src/ddl_entities_action.rs",
+        "plugins/jpa-assist/src/ddl_entity_attrs.rs"
       ]
     },
     {
@@ -10166,7 +10500,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-331.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "S004-C1",
             "S004-C2",
@@ -10303,7 +10637,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204",
+          "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
           "claimsCovered": [
             "F005-C1"
           ],
@@ -10604,10 +10938,10 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G002",
-        "G025"
+        "G025",
+        "G002"
       ],
-      "knownGap": "MISSING: converter and custom-type gutter navigation from attributes. OpenIDEA supports line-markers (navigate icon). Owner G002 (related artifacts) or G025."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E004",
@@ -10623,10 +10957,10 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G002",
-        "G025"
+        "G025",
+        "G002"
       ],
-      "knownGap": "MISSING: reverse converter-to-attributes gutter navigation. Owner G002 or G025."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E005",
@@ -10799,9 +11133,10 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G079"
+        "G079",
+        "G075"
       ],
-      "knownGap": "MISSING: cross-file usages and rename through mappedBy. The host supports [[contributes.documentIndexers]] (API 1.3) for definitions/references feeding Find Usages and Rename, which jpa-assist does not use. Owner G079 (related navigation), "
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E015",
@@ -10816,10 +11151,10 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G132",
-        "G069"
+        "G079",
+        "G075"
       ],
-      "knownGap": "MISSING: usages of entity members through MapStruct mapping literals; same indexer route as E014. Owner G079 / G075; G132 and G069 are not the capability."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E016",
@@ -10837,7 +11172,7 @@
       "mappedTo": [
         "G079"
       ],
-      "knownGap": "MISSING: Ctrl+click navigation from these literals. A definition provider or indexer could supply it. Owner G079."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E017",
@@ -11216,7 +11551,7 @@
         "G001",
         "G002"
       ],
-      "knownGap": "Missing capability: a 'Dto & Projections' group under each entity in the Persistence tree. Owner G002 (claims G002-C2, G002-C3), cross-reference G079-C1. Needs DTO discovery per entity (dto_links.rs already has the linking rules)."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E034",
@@ -11234,7 +11569,7 @@
       "mappedTo": [
         "G001"
       ],
-      "knownGap": "Part of the missing 'Dto & Projections' tree group (see E033); owner G002."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E035",
@@ -11252,7 +11587,7 @@
       "mappedTo": [
         "G001"
       ],
-      "knownGap": "Part of the missing 'Dto & Projections' tree group (see E033); owner G002."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E036",
@@ -11364,7 +11699,7 @@
         "G064",
         "G079"
       ],
-      "knownGap": "Missing capability: DTO discovery through MapStruct mapper methods. Owner G064 (reuse of existing DTOs); also feeds G079 and G076 sync. Ours never reads mapper interfaces for linking."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E042",
@@ -11619,19 +11954,40 @@
       "id": "E052",
       "family": "Registered dtoFieldSearcherEp",
       "capability": "com.intellij.jpb.action.creation.entity.MapStructDtoFieldSearcher",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "dtoFieldSearcherEp",
         "implementation": "com.intellij.jpb.action.creation.entity.MapStructDtoFieldSearcher"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-562.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076, G075",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076",
+            "G075"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G076",
-        "G070"
+        "G075"
       ],
-      "knownGap": "Missing capability: MapStruct @Mapping-aware field correspondence in rename/sync (owner G076, also G075). G070 (mapping methods) is not the owner. Mapper generation writes @Mapping pairs (mapper_more_action.rs) but sync/rename never reads t"
+      "builtOn": "2026-11-12",
+      "implementation": [
+        "plugins/jpa-assist/src/attribute_refactor.rs",
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
+      ]
     },
     {
       "id": "E053",
@@ -11834,7 +12190,7 @@
         "G073",
         "G132"
       ],
-      "knownGap": "Missing capability: ModelMapper mapTo call completion. Owner G073 (G073-C2 postfix scaffolding) with G132 for the call form."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E062",
@@ -11849,10 +12205,9 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G131",
-        "G130"
+        "G131"
       ],
-      "knownGap": "Missing capability: create-method items on a repository instance. Owner G131 (repository methods found or created from a call). G130 (injection) is not what this does."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E063",
@@ -11904,9 +12259,10 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G133"
+        "G133",
+        "G013"
       ],
-      "knownGap": "Missing capability: create entity / create mapped superclass from an unresolved reference. Owner G133 (G013 for the creation itself). The method-creation branch belongs to G045, which also stays open."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E066",
@@ -11924,7 +12280,7 @@
         "G133",
         "G059"
       ],
-      "knownGap": "Missing capability: context-driven DTO creation from a repository method return type. Owner G133 (G133-C3 covers only the postfix-triggered case, RS-575)."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E067",
@@ -11942,7 +12298,7 @@
         "G133",
         "G073"
       ],
-      "knownGap": "Missing capability: DTO creation from a ModelMapper call. Owner G133, with G073."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E068",
@@ -11960,7 +12316,7 @@
         "G133",
         "G069"
       ],
-      "knownGap": "Missing capability: DTO creation from a MapStruct mapper context. Owner G133, with G069."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E069",
@@ -12250,7 +12606,7 @@
         "G003",
         "G013"
       ],
-      "knownGap": "Real capability absent: no projectView.context menu with creation commands, although the host supports that menu. Owner G003 (or G013)."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E083",
@@ -12269,7 +12625,7 @@
       "mappedTo": [
         "G003"
       ],
-      "knownGap": "Same gap as E082: no project-tree creation submenu; each creator exists only as a code action or command. Owner G003."
+      "builtOn": "2026-11-12"
     },
     {
       "id": "E084",
@@ -12870,18 +13226,34 @@
       "id": "E113",
       "family": "Registered inspectorItemProvider",
       "capability": "com.intellij.jpb.liquibase.toolwindow.inspector.prop.descriptor.TableColumnNamesDescriptor",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "inspectorItemProvider",
         "implementation": "com.intellij.jpb.liquibase.toolwindow.inspector.prop.descriptor.TableColumnNamesDescriptor"
       },
-      "evidence": [],
-      "acceptance": [],
-      "mappedTo": [
-        "G113"
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
       ],
-      "knownGap": "Our completion lacks the plain columnNames attribute (addPrimaryKey, addUniqueConstraint). Owner G114 (verified for table/column completion; this is an undocumented tail)."
+      "acceptance": [
+        {
+          "scenario": "inherited from G114",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G114"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
+      "mappedTo": [
+        "G114"
+      ],
+      "builtOn": "2026-11-12",
+      "implementation": [
+        "plugins/jpa-assist/src/liquibase_completion.rs"
+      ]
     },
     {
       "id": "E114",
@@ -13458,54 +13830,134 @@
       "id": "E134",
       "family": "Registered entityEditorAction.provider",
       "capability": "com.intellij.jpb.re.enp.ReEntityEditorNotificationProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "entityEditorAction.provider",
         "implementation": "com.intellij.jpb.re.enp.ReEntityEditorNotificationProvider"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G096",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G096"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G096"
       ],
-      "knownGap": "MISSING capability: add attributes from database columns to an existing entity, owned by G096 (claims G096-C1/C2, not implemented). The DTO-attributes and auditing items belong to other rows."
+      "builtOn": "2026-11-12",
+      "implementation": [
+        "plugins/jpa-assist/src/ddl_entities_action.rs",
+        "plugins/jpa-assist/src/ddl_entity_attrs.rs"
+      ]
     },
     {
       "id": "E135",
       "family": "Registered inspectorActionsProvider",
       "capability": "com.intellij.jpb.re.toolwindow.inspector.JpaReInspectorActionsProvider",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "inspectorActionsProvider",
         "implementation": "com.intellij.jpb.re.toolwindow.inspector.JpaReInspectorActionsProvider",
         "order": "first"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G096",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G096"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "G088",
         "G096"
       ],
-      "knownGap": "G088 (column selection) is verified but implemented for new entities from SQL files, not for updating an existing entity; remove it as a target. Real owner is G096 (missing)."
+      "builtOn": "2026-11-12",
+      "implementation": [
+        "plugins/jpa-assist/src/ddl_entities_action.rs",
+        "plugins/jpa-assist/src/ddl_entity_attrs.rs"
+      ]
     },
     {
       "id": "E136",
       "family": "Registered palette.entityItems",
       "capability": "com.intellij.jpb.re.toolwindow.palette.ReEntityPaletteItemsContributor",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.reverseEngineering.xml",
         "tag": "palette.entityItems",
         "implementation": "com.intellij.jpb.re.toolwindow.palette.ReEntityPaletteItemsContributor"
       },
-      "evidence": [],
-      "acceptance": [],
-      "mappedTo": [
-        "G087"
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-790.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-791.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-792.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-793.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-794.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-795.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-800.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-801.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-802.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-804.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-805.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-806.json"
       ],
-      "knownGap": "G087 (mapped-object inventory) is not what this palette item does; it is the entry to updating an existing entity from the DB (G096, missing)."
+      "acceptance": [
+        {
+          "scenario": "inherited from G096",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G096"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
+      "mappedTo": [
+        "G096"
+      ],
+      "builtOn": "2026-11-12",
+      "implementation": [
+        "plugins/jpa-assist/src/ddl_entities_action.rs",
+        "plugins/jpa-assist/src/ddl_entity_attrs.rs"
+      ]
     },
     {
       "id": "E137",

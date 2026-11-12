@@ -1,0 +1,49 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-803/prompts.json",
+      "sha256": "8a08a6ea7b5bd2d244a2c98fd373bbc32b3eac9ec61d5eeda2aed61f747ee030"
+    },
+    {
+      "path": "artifacts/RS-803/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-803/edits.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "815b1b499fee63ec7189f3b28b37d7491ec78832e60038a10a2127760726230c",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action is refused with a message",
+      "detail": "error \"Internal: rs_accounts: column doc: unmapped SQL type 'jsonb'\"",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-803",
+  "scenarioSha256": "8ac2e2e4fe10ebc70885bcc8aec49b64bb8548001632f11b52c90d5f1c6f8251",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "815b1b499fee63ec7189f3b28b37d7491ec78832e60038a10a2127760726230c",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

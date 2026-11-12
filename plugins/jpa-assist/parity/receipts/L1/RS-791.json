@@ -1,0 +1,97 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-791/prompts.json",
+      "sha256": "5af36e66aebb7c8cbb0f93c225bc49193cd4441296499d0af93f6a4137bd3ad6"
+    },
+    {
+      "path": "artifacts/RS-791/preview.txt",
+      "sha256": "536be609750db2b1de5a579207098b96feb0f1611868ebcdcc4dfd3f420b33e9"
+    },
+    {
+      "path": "artifacts/RS-791/edits.json",
+      "sha256": "05351a6687000a43ecccf9bb852a50b97d39ec685ff0bc4ac7df9203a8f45bf4"
+    },
+    {
+      "path": "artifacts/RS-791/result-src__main__java__com__example__shop__attrs__RsAccount.java",
+      "sha256": "f4da330652fbb3e7454262bf80ad2deb65ba1ac2a5ba8011cec1f3d1c1c75399"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/attrs/RsAccount.java"
+    }
+  ],
+  "claimIds": [
+    "G096-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "8256672aa09eedef2b29fc1c776ba57f9145b11055e3007485f3f38434bb0303",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 989 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Where are the columns of table rs_accounts read from?\" options [\"sql:0\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Columns of rs_accounts not mapped by RsAccount (at most 50)\" options [\"created_at\", \"balance\", \"legacy_code\", \"doc\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Attribute options (none chosen: defaults)\" options [\"columnPrefix\", \"columnSuffix\", \"editNames\", \"typeOverrides\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "input \"Attribute name for rs_accounts.balance\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "confirm \"Add attributes from database columns?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/attrs/RsAccount.java",
+      "detail": "814 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 815b1b499fee63ec7189f3b28b37d7491ec78832e60038a10a2127760726230c vs setup 815b1b499fee63ec7189f3b28b37d7491ec78832e60038a10a2127760726230c; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G096"
+  ],
+  "scenario": "RS-791",
+  "scenarioSha256": "2a6ef26fe8abb70d01e266e5d268434365c9a2caa21d0a0c7e5692e91647e5e2",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "815b1b499fee63ec7189f3b28b37d7491ec78832e60038a10a2127760726230c",
+  "status": "pass",
+  "treeHashAfterRestore": "815b1b499fee63ec7189f3b28b37d7491ec78832e60038a10a2127760726230c",
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

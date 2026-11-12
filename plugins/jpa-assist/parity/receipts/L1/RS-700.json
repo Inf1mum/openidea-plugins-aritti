@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-700/tree-labels.json",
+      "sha256": "0c8cfad67319cc5884fc2592106caa8677e38dadf4502fd0e7e3eb31b2442cd1"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "0074255ede8d2f390bd5cb88cbe225b8308e42478faa9db7307261f5cb1c74bb",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "tree",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "tree node \"Hibernate Custom Types\"",
+      "detail": "189 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"JsonType\"",
+      "detail": "189 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"UserType\"",
+      "detail": "189 nodes",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-700",
+  "scenarioSha256": "f82671122fd29080261023341bbd569612ac631b5b22a753285c7e98abe1760a",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "0074255ede8d2f390bd5cb88cbe225b8308e42478faa9db7307261f5cb1c74bb",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

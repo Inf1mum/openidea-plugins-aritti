@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-705/tree-labels.json",
+      "sha256": "db98d6c5bcb9fc21192a93e01e50205bfb878996712e8343046523f08418a09c"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "tree",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "tree node \"Refers to\"",
+      "detail": "187 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"Referenced by\"",
+      "detail": "187 nodes",
+      "pass": true
+    },
+    {
+      "check": "tree node \"Many-to-one\"",
+      "detail": "187 nodes",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-705",
+  "scenarioSha256": "ce6dd6eb514a260f5dde27b1df5bd7c2dee907a45f3b1d6968e9f74203bc6c04",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

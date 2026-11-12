@@ -1,0 +1,49 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-746/prompts.json",
+      "sha256": "3c43871e67d49f18dfb8bd940caf8fe9c0fe1a6e3bf9c811966772239e9d2959"
+    },
+    {
+      "path": "artifacts/RS-746/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-746/edits.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "c6ef92e36385b858d273497d64806f288b7a04abe3309e4d91a403c9c4277f64",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action is refused with a message",
+      "detail": "error \"Internal: The entity and its 1 linked type(s) are already in sync.\"",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-746",
+  "scenarioSha256": "b6b3117647bad7e0d2db277880cd31dac0b5fad741accc00be39abd55122652e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "c6ef92e36385b858d273497d64806f288b7a04abe3309e4d91a403c9c4277f64",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

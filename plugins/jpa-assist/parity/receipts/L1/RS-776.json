@@ -1,0 +1,31 @@
+{
+  "artifacts": [],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "20a9fd51f273c595b58daeabbfa1390a8b2885d7a6d304098cc2b8e7ed07d805",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action offered state",
+      "detail": "expected false; offered [\"Generate JPA entity…\", \"Generate JPA embeddable or mapped superclass…\", \"Generate JPA entity with identifier options…\", \"Add mapping method to mapper…\", \"Create generic base mapper…\", \"Make mapper extend generic base mapper…\"]",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-776",
+  "scenarioSha256": "e3f52cac336fad2fb294d8e8b4c391474089580d644be15444f0fdee5eba224e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "20a9fd51f273c595b58daeabbfa1390a8b2885d7a6d304098cc2b8e7ed07d805",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

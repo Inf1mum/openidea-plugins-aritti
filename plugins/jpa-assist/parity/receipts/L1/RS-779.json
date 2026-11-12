@@ -1,0 +1,41 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-779/completions.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "b97f7540539a8ae04d8da377c869ee9d8e65605efd597c9bef3b99069a4de401",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "completion",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"display_name\"",
+      "detail": "0 items",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"email\"",
+      "detail": "0 items",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-779",
+  "scenarioSha256": "37ce483da3550731b551abed761e526069e3107e3f705d6374084c6f7f07207b",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "b97f7540539a8ae04d8da377c869ee9d8e65605efd597c9bef3b99069a4de401",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-760/completions.json",
+      "sha256": "5bda9978517f9ba1b6277ffc914bc7c4ef55970b898e2fd752e010768a78018e"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "80bd39a48e5fe1bb0a1a5fbc6f3cf8fe0539c9591d18e4fe5f99f3b248ee7bdb",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "completion",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "completion offers \"mapToParcelDto\"",
+      "detail": "1 items: [\"mapToParcelDto\"]",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-760",
+  "scenarioSha256": "b6abf9659d76ef195914e5e634ffec6ed98c3dd7f4b1e685ff710cdb6292a770",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "80bd39a48e5fe1bb0a1a5fbc6f3cf8fe0539c9591d18e4fe5f99f3b248ee7bdb",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

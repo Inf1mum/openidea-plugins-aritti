@@ -1,0 +1,83 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-745/prompts.json",
+      "sha256": "bff3b38d8e10e83d50551a76ca6e398cfc74af3adb19aeb65f7d83b1566556bd"
+    },
+    {
+      "path": "artifacts/RS-745/preview.txt",
+      "sha256": "734d342fffd2f2f8c94e6d68e8d0fae9a76ed15939dc4aff9850434c358eb20d"
+    },
+    {
+      "path": "artifacts/RS-745/edits.json",
+      "sha256": "2eb2c42a46f1aee0dc3ecd16d4343a8c769f5189265ee528e008aeb8d69162d9"
+    },
+    {
+      "path": "artifacts/RS-745/result-src__main__java__com__example__shop__dto__ParcelDto.java",
+      "sha256": "3c40c5774549f28cc7294d643e9db7c61ff11310452c8991a7eda676c63d3f65"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/dto/ParcelDto.java"
+    }
+  ],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "5c213acf502904b206c1a4448f9bc83d27585c39c21883f3bdfbee6e7165afd5",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 683 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Synchronization direction\" options [\"toDtos\", \"toEntity\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Changes to apply\" options [\"add:0:name\", \"remove:0:label\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "confirm \"Synchronize entity and linked DTOs?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/ParcelDto.java",
+      "detail": "143 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 7deef541a4b01f685f470110d0e1a54fbe8f54e1619ce9cd5ce8ff831eff37f4 vs setup 7deef541a4b01f685f470110d0e1a54fbe8f54e1619ce9cd5ce8ff831eff37f4; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-745",
+  "scenarioSha256": "be7250b4cea783045b703a0ed52e0f1583947d4d98d1ea3d9322e563e3f87dd1",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "7deef541a4b01f685f470110d0e1a54fbe8f54e1619ce9cd5ce8ff831eff37f4",
+  "status": "pass",
+  "treeHashAfterRestore": "7deef541a4b01f685f470110d0e1a54fbe8f54e1619ce9cd5ce8ff831eff37f4",
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

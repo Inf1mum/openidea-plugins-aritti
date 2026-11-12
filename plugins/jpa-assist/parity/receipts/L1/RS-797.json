@@ -1,0 +1,49 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-797/prompts.json",
+      "sha256": "500e794906f013e6f8d57d5ffd6039af74565e28bf2b98478b4d375c7f6ad047"
+    },
+    {
+      "path": "artifacts/RS-797/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-797/edits.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "6834e7d7b1758ba5c1c21a24ae26b5e7740571f45807a0605665cdbb4640e355",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action is refused with a message",
+      "detail": "error \"Internal: Table `rs_accounts` was not found in the chosen source.\"",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-797",
+  "scenarioSha256": "a7b4e70ad184a6fc1d8d7abc644132505ffa3bf7076e80a2f442540b6640bf26",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "6834e7d7b1758ba5c1c21a24ae26b5e7740571f45807a0605665cdbb4640e355",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

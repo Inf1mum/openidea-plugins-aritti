@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-474/diagnostics.json",
-      "sha256": "97c6413d6b62d388a3167ef3e333f298e7220401aafdd1fefaf6b9e50b89dfdf"
+      "sha256": "aac47597e4d6ce4f149d041f79cd4118d4e2182c93879b1e23920ed556f37100"
     }
   ],
   "changedFiles": [],
@@ -23,7 +23,7 @@
     },
     {
       "check": "diagnostic jpa-auditing-listener-missing src/main/java/com/example/shop/domain/Invoice.java:null",
-      "detail": "64 diagnostics in total",
+      "detail": "62 diagnostics in total",
       "pass": true
     },
     {
@@ -39,7 +39,8 @@
   "scenarioSha256": "0c981cce0b906ededbd532431c43f10282fe980cd891fc98b15cc6d4420e70d4",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "92dc9a6fb7aae4682dfb2705924a57c156e0d2910ed2bdc8a2142e795cab84a0",
-  "status": "pass",
+  "status": "fail",
   "treeHashAfterRestore": null,
-  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
+  "flaky": "receipts differ between runs (non-deterministic)"
 }

@@ -1,0 +1,78 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-774/prompts.json",
+      "sha256": "c644475259fb89a19794b582b195c95d72531330667f36d042695486b3cb73d8"
+    },
+    {
+      "path": "artifacts/RS-774/preview.txt",
+      "sha256": "272b0d94968c94ca7bea00b1952769a2fe9863dc0edec0bc876adc0b8a385409"
+    },
+    {
+      "path": "artifacts/RS-774/edits.json",
+      "sha256": "521b299bac513cbe2e40bb7bab4b5b01a068b29ecc54ac6d2fa5ed908143cde3"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/crm/domain/ParcelForm.java"
+    },
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/crm/mapper/ParcelMapper.java"
+    }
+  ],
+  "claimIds": [],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "c09a38e73cd0761c23ef1e750996949d9fca827c4d6a069adbb7d96ef24cb50c",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 802 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"DTO fields (scalar attributes only)\" options [\"id\", \"name\", \"color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Create the missing type?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/crm/domain/ParcelForm.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 7154852425d6a30f202ea7bb01e60f8a7280b681e7e3284c7adc84374caab8b5 vs setup 7154852425d6a30f202ea7bb01e60f8a7280b681e7e3284c7adc84374caab8b5; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-774",
+  "scenarioSha256": "e7e2ddda2a3f95da1f9fd9041a822bec2c7bea849a85d1d8ab23df9426e63f10",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "7154852425d6a30f202ea7bb01e60f8a7280b681e7e3284c7adc84374caab8b5",
+  "status": "pass",
+  "treeHashAfterRestore": "7154852425d6a30f202ea7bb01e60f8a7280b681e7e3284c7adc84374caab8b5",
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

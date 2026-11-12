@@ -1,0 +1,112 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-792/prompts.json",
+      "sha256": "1045223a19eb8129edebfa48f0226b4966aa910d3c3babad57f6a2b928cd7df2"
+    },
+    {
+      "path": "artifacts/RS-792/preview.txt",
+      "sha256": "f7d16e9fa5ca4e244532c1340a7ffa4f329de8e9c7b065f62415006a52aff78f"
+    },
+    {
+      "path": "artifacts/RS-792/edits.json",
+      "sha256": "e3e76e029aeb00da4991af5386b098283396efdf38a02806dd8b1bffbe6d5c70"
+    },
+    {
+      "path": "artifacts/RS-792/result-src__main__kotlin__com__example__kt__RsKAccount.kt",
+      "sha256": "8f39f265a4c8c78a98b8745a493c09b6c24483daee3a4f16abbee22d431c5c33"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/kotlin/com/example/kt/RsKAccount.kt"
+    }
+  ],
+  "claimIds": [
+    "G096-C1"
+  ],
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "fixtureTreeHashAfter": "a784c96acc27c80a7d3a29ffe0b0e493cde93035a06b168c0379f38c6afdfdf4",
+  "fixtureTreeHashBefore": "c3474627b665c9d01c13e23904197e8ffbd21fb283d0e904c35688a3e2c23249",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 948 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/kotlin/com/example/kt/RsKAccount.kt",
+      "detail": "457 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 59965a87a5dee16c675e89b7f75660c086294cb625a5b738c14038ff64ba5779 vs setup 59965a87a5dee16c675e89b7f75660c086294cb625a5b738c14038ff64ba5779; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G096"
+  ],
+  "scenario": "RS-792",
+  "scenarioSha256": "958f13fc379079da5844417a34ae4ac1bde7ab27798b007ab211b3ffc5c0d2b7",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "59965a87a5dee16c675e89b7f75660c086294cb625a5b738c14038ff64ba5779",
+  "status": "pass",
+  "treeHashAfterRestore": "59965a87a5dee16c675e89b7f75660c086294cb625a5b738c14038ff64ba5779",
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

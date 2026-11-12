@@ -1,0 +1,110 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-740/prompts.json",
+      "sha256": "a5c245d4d022210c2590b06171653587febadaf46623ed23821f24e902cfa7cb"
+    },
+    {
+      "path": "artifacts/RS-740/preview.txt",
+      "sha256": "54b0786c013a078e3fafe3bdea334d999ea6802f5c8f94863924712f8e2bd6aa"
+    },
+    {
+      "path": "artifacts/RS-740/edits.json",
+      "sha256": "3156547a004d11c76afa55e67ad010a5863ac935bbc3bd92d332d9e687edf45d"
+    },
+    {
+      "path": "artifacts/RS-740/result-src__main__java__com__example__shop__domain__Gizmo.java",
+      "sha256": "4dcdb728960ca378f688ae01cb7521a520c6ad80dc661301fc68b4846f6d37d9"
+    },
+    {
+      "path": "artifacts/RS-740/result-src__main__java__com__example__shop__mapper__GizmoMapper.java",
+      "sha256": "1401a9bc70a8d3d028b53413cc958a8f7f545ca195151f47eb4e090e2bafa9f2"
+    },
+    {
+      "path": "artifacts/RS-740/result-src__main__java__com__example__shop__dto__GizmoDto.java",
+      "sha256": "d535f80653914899c5a696579dda56a9ce5ee485ec6171088afc86971418a893"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Gizmo.java"
+    },
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/mapper/GizmoMapper.java"
+    }
+  ],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "8fb6d03c27bf55c4fc967320b5148abeabc29606cbaeb72c8131e4eff3e1d22d",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1518 bytes, 4 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "input \"New source-local attribute name (this file only)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Rename source-local JPA attribute?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Gizmo.java",
+      "detail": "483 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/mapper/GizmoMapper.java",
+      "detail": "375 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/GizmoDto.java",
+      "detail": "98 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 7f18df83c0d0331c25c3982ac12a50aa640e3be488979ef072f11651ce4373b9 vs setup 7f18df83c0d0331c25c3982ac12a50aa640e3be488979ef072f11651ce4373b9; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 2 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 2 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-740",
+  "scenarioSha256": "df0c398fb105f6212e68a7e8e2fe802ba7f78011796e9fcdb85508d499f2b9ae",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "7f18df83c0d0331c25c3982ac12a50aa640e3be488979ef072f11651ce4373b9",
+  "status": "pass",
+  "treeHashAfterRestore": "7f18df83c0d0331c25c3982ac12a50aa640e3be488979ef072f11651ce4373b9",
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}

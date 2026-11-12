@@ -30,7 +30,8 @@
   "scenarioSha256": "8f06014828d7695f9885045e8cc2eaadfacf54954c61d7341acd9ee55c8a62b2",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "8ede3670745fc1754085e5a4c51ae294d4063e89685536729bfae1c9f5826732",
-  "status": "pass",
+  "status": "fail",
   "treeHashAfterRestore": null,
-  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942",
+  "flaky": "receipts differ between runs (non-deterministic)"
 }

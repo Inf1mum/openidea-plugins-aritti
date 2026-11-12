@@ -1,0 +1,74 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-767/prompts.json",
+      "sha256": "96f0ad93d67cf7d78f9953185c7a7cdb615dea524bfa8a3b9ca5f7bdc47614e3"
+    },
+    {
+      "path": "artifacts/RS-767/preview.txt",
+      "sha256": "d15aa56bf593d0cc2c518a76b77de6e714885cccf4b688b1b7802e06d5ef0e8f"
+    },
+    {
+      "path": "artifacts/RS-767/edits.json",
+      "sha256": "e4b57702962cbdeb1f2807026a8a6ee6fe5e97333fefe8c44de49bf2699e9395"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/BaseEntity.java"
+    }
+  ],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "98e3f0875ae51be3b074ca4bd8e683641a4a8f127115bd6e6b559524cd750731",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 499 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "confirm \"Create the missing mapped superclass?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/BaseEntity.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree a27ecf09dd86a637aeee3be388f7eb17bb4154557c9888215d2d5c3a91cdba1c vs setup a27ecf09dd86a637aeee3be388f7eb17bb4154557c9888215d2d5c3a91cdba1c; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 1 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-767",
+  "scenarioSha256": "cfa369ff95f94ab9b5ac4db99ccd0e5106e120fbf3dc07aa844c953c79dd5613",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "a27ecf09dd86a637aeee3be388f7eb17bb4154557c9888215d2d5c3a91cdba1c",
+  "status": "pass",
+  "treeHashAfterRestore": "a27ecf09dd86a637aeee3be388f7eb17bb4154557c9888215d2d5c3a91cdba1c",
+  "wasmSha256": "c9f9938cb378aff3acfa7a3746663b195368d78cefbf848cdc0bf3b80cfef942"
+}
