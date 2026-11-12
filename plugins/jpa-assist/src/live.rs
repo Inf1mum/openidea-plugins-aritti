@@ -239,7 +239,7 @@ pub(super) const KNOWN_CODES: &[&str] = &[
     "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value",
 ];
 
-/// Every inspection is on and a warning by default, as the JPA Buddy documentation states; `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.
+/// Every inspection is on by default and, where the original registers a counterpart, a warning (see `ORIGINAL_INSPECTION_CODES`); `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.
 fn configured_severities() -> HashMap<String, Option<openidea_plugin::Severity>> {
     use openidea_plugin::Severity::*;
     let mut rules = HashMap::new();
@@ -278,11 +278,20 @@ fn apply_configured_severities(findings: &mut Vec<Finding>) {
             true
         }
         None => {
-            f.severity = openidea_plugin::Severity::Warning;
+            if ORIGINAL_INSPECTION_CODES.contains(&f.code) {
+                f.severity = openidea_plugin::Severity::Warning;
+            }
             true
         }
     });
 }
+
+/// Rules that have a counterpart among the inspections the JPA Buddy descriptors register without an explicit level
+/// (enabled, Warning). Rules with no such counterpart keep their own severity.
+const ORIGINAL_INSPECTION_CODES: &[&str] = &[
+    "jpa-data-class", "jpa-source-identifier-absent", "jpa-duplicate-version", "jpa-lombok-to-string",
+    "jpa-lombok-equals", "jpa-lombok-data", "jpa-no-arg-constructor",
+];
 // Every consumed framework annotation needs canonical source ownership before
 // live diagnostics/cache admission. Wildcards and local lookalikes are unknown.
 pub(super) fn trusted_annotations(text: &str) -> bool {
@@ -842,7 +851,7 @@ mod tests {
         let a = openidea_plugin::text::offset(&d.text, finding.range.start).unwrap();
         let b = openidea_plugin::text::offset(&d.text, finding.range.end).unwrap();
         assert_eq!(&d.text[a..b], "kotlin.collections.List");
-        assert_eq!(finding.severity, openidea_plugin::Severity::Warning);
+        assert_eq!(finding.severity, openidea_plugin::Severity::Info);
         assert!(finding.message.contains("source-declared") && finding.message.contains("read-only operations") && !finding.message.contains("provider"));
         d.text = source.replace("kotlin.collections.List", "vendor.List"); d.version += 1;
         assert!(!has(&plugin.diagnostics(&d), "jpa-immutable-collection"));
@@ -970,7 +979,7 @@ mod tests {
         let a = openidea_plugin::text::offset(&d.text, found[0].range.start).unwrap();
         let b = openidea_plugin::text::offset(&d.text, found[0].range.end).unwrap();
         assert_eq!(&d.text[a..b], "@jakarta.persistence.Id");
-        assert_eq!(found[0].severity, openidea_plugin::Severity::Warning);
+        assert_eq!(found[0].severity, openidea_plugin::Severity::Info);
         assert!(found[0].message.contains("Current source") && found[0].message.contains("setId()") && found[0].message.contains("unresolved"));
         d.text = source.replace("return id; }", "return id; } public void setId(long value) { id = value; }"); d.version += 1;
         assert!(!has(&plugin.diagnostics(&d), "jpa-missing-setter"));
@@ -1141,7 +1150,7 @@ mod tests {
         plugin.diagnostics(&value);
         let findings = plugin.diagnostics(&doc("/project/src/main/java/shop/Example.java", owner));
         let finding = findings.iter().find(|d|d.code.as_deref()==Some("attribute-type")).unwrap();
-        assert_eq!(finding.severity, openidea_plugin::Severity::Warning);
+        assert_eq!(finding.severity, openidea_plugin::Severity::Info);
         assert!(finding.message.contains("supplied source class") && finding.message.contains("unresolved"));
         let a = openidea_plugin::text::offset(owner, finding.range.start).unwrap();
         let b = openidea_plugin::text::offset(owner, finding.range.end).unwrap();
@@ -1270,7 +1279,7 @@ mod tests {
         let mixed = "@jakarta.persistence.Entity class Example { @jakarta.persistence.EmbeddedId Key id; /* 🦉 */ @jakarta.persistence.Column public String getName() {return null;} }";
         let found = plugin.diagnostics(&doc("/project/Example.java", mixed));
         let finding = found.iter().find(|d|d.code.as_deref()==Some("jpa-mixed-access")).unwrap();
-        assert_eq!(finding.severity, openidea_plugin::Severity::Warning);
+        assert_eq!(finding.severity, openidea_plugin::Severity::Info);
         assert!(finding.message.contains("Current source") && finding.message.contains("unresolved") && !finding.message.contains("ignored"));
         for unknown in [
             source.replace("class Example", "class Example extends Base"),
@@ -1490,7 +1499,7 @@ mod tests {
         let host=MockHost::install();let mut plugin=JpaAssist::default();
         let source="@jakarta.persistence.Entity class Example { /*😀*/ val title: kotlin.String = \"name\" }";
         let path="/project/Example.kt";let found=plugin.diagnostics(&doc(path,source));let f=found.iter().find(|d|d.code.as_deref()==Some("jpa-val-attribute")).unwrap();
-        assert_eq!(f.severity,openidea_plugin::Severity::Warning);assert!(f.message.contains("unresolved") && !f.message.contains("cannot set"));
+        assert_eq!(f.severity,openidea_plugin::Severity::Info);assert!(f.message.contains("unresolved") && !f.message.contains("cannot set"));
         let a=openidea_plugin::text::offset(source,f.range.start).unwrap();let b=openidea_plugin::text::offset(source,f.range.end).unwrap();assert_eq!(&source[a..b],"val");
         let imported=format!("import kotlin.String\n{}",source.replace("kotlin.String","String"));assert!(has(&plugin.diagnostics(&doc(path,&imported)),"jpa-val-attribute"));
         for unknown in [
