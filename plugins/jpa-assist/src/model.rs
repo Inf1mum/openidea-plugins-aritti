@@ -352,6 +352,29 @@ pub struct Attribute {
     pub lob: bool,
     /// `@Enumerated`: `Some(true)` for `STRING`.
     pub enum_string: Option<bool>,
+    /// What decides the column type besides the Java type: the class named by `@Type`, `@JavaType`, `@JdbcType` or
+    /// `@Convert(converter)`, else the text of `@JdbcTypeCode`, `@TimeZoneStorage` or `@TimeZoneColumn`.
+    pub custom_type: Option<String>,
+}
+
+fn custom_type(text: &str, masked: &str, anns: &[&Annotation]) -> Option<String> {
+    anns.iter().find_map(|a| {
+        let args = a.args.map(|(open, close)| text[open..close].split_whitespace().collect::<String>()).unwrap_or_default();
+        let whole = || format!("@{}({args})", a.name);
+        match a.name {
+            "JdbcTypeCode" | "TimeZoneStorage" | "TimeZoneColumn" => Some(whole()),
+            "Type" | "JavaType" | "JdbcType" => {
+                let first = args.split(',').next().unwrap_or_default();
+                let class = first.strip_prefix("value=").unwrap_or(first).trim_end_matches(".class").trim_end_matches("::class");
+                Some(if !class.is_empty() && class.bytes().all(|b| is_ident(b) || b == b'.') { class.to_owned() } else { whole() })
+            }
+            "Convert" if !args.contains("disableConversion=true") => {
+                let class = arg(text, masked, a, "converter").map(|c| c.trim().trim_end_matches(".class").trim_end_matches("::class").to_owned());
+                Some(class.filter(|c| !c.is_empty()).unwrap_or_else(whole))
+            }
+            _ => None,
+        }
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -656,6 +679,7 @@ fn attribute(text: &str, masked: &str, all: &[Annotation], (start, end): (usize,
         scale: column.and_then(|c| int_arg(text, masked, c, "scale")),
         lob: named("Lob").is_some(),
         enum_string,
+        custom_type: custom_type(text, masked, &anns),
         name,
         ty,
     })

@@ -327,6 +327,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         author: author.trim().to_owned(),
         id_prefix: id_prefix.trim().to_owned(),
         defaults: template_settings::changeset_defaults()?,
+        string_types: super::type_map::string_types()?,
     };
     let emitted = liquibase::emit_xml(plan, &options).map_err(|e| Error::from(format!("The changelog cannot be generated: {e:?}")))?;
     if emitted.emitted() == 0 {
@@ -371,6 +372,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
                 if existing.contains(&format!("id=\"{id}\"")) {
                     return Err(format!("{target} already holds a changeSet with id {id}; choose another id prefix.").into());
                 }
+            }
+            if !options.string_types.is_empty() && !existing.contains("name=\"string.type\"") {
+                return Err(format!("{target} declares no string.type property, which the new changeSets use (liquibaseStringTypes); declare it there or clear the setting.").into());
             }
             let changesets = changesets_of(&text).ok_or(Error::Stale)?;
             let edit = append_edit(existing, changesets)?;
@@ -570,6 +574,19 @@ mod tests {
         let (host, mut plugin, doc) = ready(ENTITY_PLUS);
         host.set_setting("liquibaseChangeSetDefaults", r#"[{"changeType":"dropEverything"}]"#);
         assert!(generate(&host, &mut plugin, &doc, &[], &[true]).is_err(), "unknown type");
+    }
+
+    #[test]
+    fn string_type_setting_declares_dbms_properties_and_uses_them() {
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseStringTypes", r#"[{"dbms":"postgresql","type":"varchar"},{"dbms":"mssql","type":"nvarchar"}]"#);
+        let (_, text) = file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap());
+        assert!(text.contains("<property name=\"string.type\" value=\"nvarchar\" dbms=\"mssql\"/>"), "{text}");
+        assert!(text.contains("type=\"${string.type}(100)\""), "{text}");
+        assert_parses(&text);
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseStringTypes", r#"[{"dbms":"Postgres!","type":"varchar"}]"#);
+        assert!(generate(&host, &mut plugin, &doc, &[], &[true]).is_err());
     }
 
     #[test]

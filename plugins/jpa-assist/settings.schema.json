@@ -109,6 +109,21 @@
       "enum": ["as-written", "lowercase", "uppercase"],
       "default": "as-written"
     },
+    "jpaAssist.maxIdentifierLength": {
+      "type": "string",
+      "title": "Maximum identifier length in bytes for generated SQL drafts (for example 30 for Oracle before 12.1); longer names are cut, a collision after cutting refuses. Empty or 0: unlimited",
+      "default": ""
+    },
+    "jpaAssist.primaryKeyConstraintName": {
+      "type": "string",
+      "title": "Primary key constraint name in generated SQL drafts: letters, digits, _ and an optional {table} placeholder (pk_{table}); empty leaves the key unnamed",
+      "default": ""
+    },
+    "jpaAssist.indexForeignKeys": {
+      "type": "boolean",
+      "title": "Schema baselines and migrations also index each foreign key column that no primary key, unique constraint or index already leads with",
+      "default": false
+    },
     "jpaAssist.tableNameCase": {
       "type": "string",
       "title": "Default table name case for new entities, name constants and SQL drafts",
@@ -331,6 +346,30 @@
           "preConditionsOnFail": {"type": "string", "title": "onFail of the generated preConditions", "enum": ["unset", "HALT", "CONTINUE", "MARK_RAN", "WARN"], "default": "unset"},
           "preConditionsOnError": {"type": "string", "title": "onError of the generated preConditions", "enum": ["unset", "HALT", "CONTINUE", "MARK_RAN", "WARN"], "default": "unset"},
           "addEmptyRollback": {"type": "string", "title": "Add an empty <rollback/> where Liquibase has no automatic rollback", "enum": ["unset", "true", "false"], "default": "unset"}
+        }
+      },
+      "default": []
+    },
+    "liquibaseStringTypes": {
+      "type": "array",
+      "title": "Liquibase cross-database varchar: each row declares <property name=\"string.type\" dbms=...> and varchar columns are written ${string.type}(n). dbms is a lowercase Liquibase database name (postgresql, mssql); empty writes plain varchar(n)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dbms": {"type": "string", "title": "dbms (lowercase Liquibase database name)", "default": ""},
+          "type": {"type": "string", "title": "Type used for ${string.type} on that DBMS", "default": "varchar"}
+        }
+      },
+      "default": []
+    },
+    "sqlTypeMappings": {
+      "type": "array",
+      "title": "SQL type for custom Java types, converters and Hibernate types (class name or annotation text); generic names (varchar(255), uuid, clob) are translated per database, other text is used as is. Unmapped types are asked for",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "title": "Java type, converter, Hibernate type or annotation text", "default": ""},
+          "sqlType": {"type": "string", "title": "SQL type", "default": ""}
         }
       },
       "default": []

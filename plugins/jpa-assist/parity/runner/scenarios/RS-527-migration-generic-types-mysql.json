@@ -1,0 +1,94 @@
+{
+  "id": "RS-527",
+  "rows": [
+    "G126"
+  ],
+  "claimIds": [
+    "G126-C4"
+  ],
+  "verifies": {
+    "G126-C4": "MySQL: the same answers give the MySQL spelling int (PostgreSQL gave integer) and text, and the unknown geometry(Point,4326) is still unchanged. Only int and clob of the generic names varchar, int, uuid, clob are exercised, and only PostgreSQL and MySQL exist as dialects (no Oracle varchar2 example); uuid on MySQL is refused by the emitter and is not checked."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Gadget.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n    @Id Long id;\n    Money amount;\n    Shape area;\n    Doc notes;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "mysql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "int"
+    },
+    {
+      "input": "geometry(Point,4326)"
+    },
+    {
+      "input": "clob"
+    },
+    {
+      "input": "add_gadget"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V4__add_gadget.sql",
+        "contains": [
+          "`amount` int,",
+          "`area` geometry(Point,4326),",
+          "`notes` text,"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V4__add_gadget.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Generic type translation and pass-through."
+}

@@ -318,15 +318,37 @@ fn quote_list(dialect: Dialect, names: &[String]) -> Result<String, SqlError> {
 }
 
 /// Sets the SQL type of `column` from a generic type name the user typed: `bigint`, `varchar(100)`, `numeric(19,2)`.
-/// Vendor translation stays with the emitters; a name outside this list is refused, not passed through.
+/// Vendor translation stays with the emitters; a name outside this list passes through unchanged as `Verbatim`.
+fn verbatim_ok(text: &str) -> Result<(), String> {
+    let mut depth = 0i32;
+    for c in text.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            c if c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | ',' | '.') => {}
+            _ => return Err(format!("`{text}` contains a character other than letters, digits, spaces, '_', ',', '.', '(' and ')'")),
+        }
+        if depth < 0 {
+            break;
+        }
+    }
+    let starts_with_letter = text.chars().next().is_some_and(|c| c.is_ascii_alphabetic());
+    if depth != 0 || !starts_with_letter || text.len() > 64 {
+        return Err(format!("`{text}` is not a type name of at most 64 characters with balanced parentheses"));
+    }
+    Ok(())
+}
+
 pub fn apply_type_text(column: &mut Column, text: &str) -> Result<(), String> {
     use LogicalType::*;
-    let text = text.trim().to_ascii_lowercase();
+    let original = text.trim();
+    let text = original.to_ascii_lowercase();
     let (name, args) = match text.split_once('(') {
         Some((name, rest)) => (name.trim(), Some(rest.strip_suffix(')').ok_or("a type with arguments ends with ')'")?)),
         None => (text.as_str(), None),
     };
     let numbers = args
+        .filter(|_| matches!(name, "tinyint" | "smallint" | "int" | "integer" | "bigint" | "real" | "double" | "double precision" | "decimal" | "numeric" | "char" | "varchar" | "text" | "clob" | "boolean" | "bool" | "date" | "time" | "timestamp" | "timestamptz" | "uuid" | "binary" | "bytea"))
         .map(|args| args.split(',').map(|n| n.trim().parse::<u32>().map_err(|_| format!("`{}` is not a number", n.trim()))).collect::<Result<Vec<_>, _>>())
         .transpose()?
         .unwrap_or_default();
@@ -340,7 +362,7 @@ pub fn apply_type_text(column: &mut Column, text: &str) -> Result<(), String> {
         "decimal" | "numeric" => Decimal,
         "char" => Char,
         "varchar" => Varchar,
-        "text" => Text,
+        "text" | "clob" => Text,
         "boolean" | "bool" => Boolean,
         "date" => Date,
         "time" => Time,
@@ -348,7 +370,12 @@ pub fn apply_type_text(column: &mut Column, text: &str) -> Result<(), String> {
         "timestamptz" => TimestampTz,
         "uuid" => Uuid,
         "binary" | "bytea" => Binary,
-        other => return Err(format!("`{other}` is not one of tinyint, smallint, int, bigint, real, double, decimal, numeric, char, varchar, text, boolean, date, time, timestamp, timestamptz, uuid, binary")),
+        _ => {
+            verbatim_ok(original)?;
+            column.sql_type = Fact::Known(SqlType { logical: Verbatim, raw: original.to_owned() });
+            (column.length, column.precision, column.scale) = (None, None, None);
+            return Ok(());
+        }
     };
     let (length, precision, scale) = match (logical, numbers.as_slice()) {
         (Char | Varchar, [length]) => (Some(*length), None, None),
@@ -425,6 +452,7 @@ fn type_name(dialect: Dialect, column: &Column) -> Result<String, Unsupported> {
         (Binary, true) if column.length.is_none() => Ok("bytea".into()),
         (Binary, true) => no("bytea takes no length"),
         (Binary, false) => no("MySQL binary type choice (BINARY/VARBINARY/BLOB) not guessed"),
+        (Verbatim, _) => Ok(sql_type.raw.clone()),
     }
 }
 
@@ -1068,10 +1096,14 @@ ALTER TABLE `t` ADD CONSTRAINT `fk_a` FOREIGN KEY (`a`) REFERENCES `b` (`id`);
         assert_eq!((column.length, column.precision), (Some(100), None));
         apply_type_text(&mut column, "bigint").unwrap();
         assert_eq!(type_name(Dialect::PostgreSql, &column).as_deref(), Ok("bigint"));
-        for bad in ["money", "bigint(3)", "varchar(x)", "varchar(10", "uuid(1)"] {
+        apply_type_text(&mut column, "clob").unwrap();
+        assert_eq!(column.sql_type.known().map(|t| t.logical), Some(LogicalType::Text));
+        apply_type_text(&mut column, "geometry(Point,4326)").unwrap();
+        assert_eq!((column.sql_type.known().map(|t| t.logical), type_name(Dialect::MySql, &column).as_deref()), (Some(LogicalType::Verbatim), Ok("geometry(Point,4326)")));
+        for bad in ["money; drop", "money)", "1money", "bigint(3)", "varchar(x)", "varchar(10", "uuid(1)"] {
             assert!(apply_type_text(&mut column, bad).is_err(), "{bad}");
         }
-        assert_eq!(column.sql_type.known().map(|t| t.logical), Some(LogicalType::Bigint));
+        assert_eq!(column.sql_type.known().map(|t| t.logical), Some(LogicalType::Verbatim));
     }
 
     #[test]
