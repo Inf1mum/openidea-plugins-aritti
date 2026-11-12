@@ -1,0 +1,45 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-421/diagnostics.json",
+      "sha256": "fe488b83bb024d09fb046fb845183edd9741905f73bae8c1bbbb3db75117bc7e"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G026-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "447103ceb1984bf3ae1767d8a7a9a292ea5215a8fd2672c81c613dcbf4621919",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-hibernate-type src/main/java/com/example/shop/domain/Ticket.java:14",
+      "detail": "62 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-hibernate-type src/main/java/com/example/shop/domain/Assigned.java",
+      "detail": "absence check",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G026"
+  ],
+  "scenario": "RS-421",
+  "scenarioSha256": "1b3dd0665afd6a868f02cc3c6d52b82f3e783d77496e24fb9cd6bc599391ddd1",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "447103ceb1984bf3ae1767d8a7a9a292ea5215a8fd2672c81c613dcbf4621919",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

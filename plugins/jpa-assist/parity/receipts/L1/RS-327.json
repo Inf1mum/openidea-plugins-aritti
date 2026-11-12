@@ -18,7 +18,7 @@
     },
     {
       "check": "action offered state",
-      "detail": "expected false; offered [\"Generate JPA entity…\", \"Generate JPA embeddable or mapped superclass…\", \"Generate JPA entity with identifier options…\", \"Add JPA attribute with preview…\", \"Add inverse attribute to this entity…\", \"Extract mapped superclass with preview…\", \"Generate proxy-safe equals and hashCode with preview…\", \"Generate lazy-safe toString with preview…\", \"Create schema baseline…\", \"Generate Flyway migration from model changes…\", \"Generate Liquibase changelog from model changes…\", \"Toggle audited (Envers) with preview…\", \"Create Envers revision entity with preview…\", \"Add entity graph with preview…\", \"Create Spring Data repository with options…\", \"Create repositories for entities…\", \"Add auditing fields…\", \"Create JPA auditing configuration…\", \"Add validation constraint with preview…\", \"Edit Lombok annotations…\", \"Create DTO class with preview…\", \"Create projection with preview…\", \"Create MapStruct mapper with preview…\", \"Create Blaze entity view…\", \"Create attribute converter with preview…\", \"Create Hibernate user type…\", \"Add JSON column mapping\", \"Create Hibernate event listener…\", \"Add index or unique constraint with preview…\", \"Add named query with preview…\", \"Generate name constants with preview…\"]",
+      "detail": "expected false; offered [\"Generate JPA entity…\", \"Generate JPA embeddable or mapped superclass…\", \"Generate JPA entity with identifier options…\", \"Add JPA attribute with preview…\", \"Add inverse attribute to this entity…\", \"Extract mapped superclass with preview…\", \"Generate proxy-safe equals and hashCode with preview…\", \"Generate lazy-safe toString with preview…\", \"Create schema baseline…\", \"Generate Flyway migration from model changes…\", \"Generate Liquibase changelog from model changes…\", \"Toggle audited (Envers) with preview…\", \"Create Envers revision entity with preview…\", \"Add entity graph with preview…\", \"Create Spring Data repository with options…\", \"Create repositories for entities…\", \"Add auditing fields…\", \"Create JPA auditing configuration…\", \"Add validation constraint with preview…\", \"Edit Lombok annotations…\", \"Create DTO class with preview…\", \"Create projection with preview…\", \"Synchronize linked projections with this entity…\", \"Create MapStruct mapper with preview…\", \"Create Blaze entity view…\", \"Create attribute converter with preview…\", \"Create Hibernate user type…\", \"Add JSON column mapping\", \"Create Hibernate event listener…\", \"Add index or unique constraint with preview…\", \"Add named query with preview…\", \"Generate name constants with preview…\"]",
       "pass": true
     }
   ],
@@ -31,5 +31,5 @@
   "setupTreeHash": "b9626070c7ad8b3ca03c9619ec04d6b7e9c2999d61e34d0826b4497d3ee9b8a0",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }

@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-227/prompts.json",
-      "sha256": "70c6a2acc0151cf03e978acf65869ad864824c80de8544fbc35aaa8270a8051c"
+      "sha256": "a2370df34bfc2d2149210a73847715e6fb161a1877b396cb50253a319fd9c3e1"
     },
     {
       "path": "artifacts/RS-227/preview.txt",
@@ -64,5 +64,5 @@
   "setupTreeHash": "5a8bffcc5c77ba329d9b39e3f5a3baa29978df68af6dc127481938f3c404bd0c",
   "status": "pass",
   "treeHashAfterRestore": "5a8bffcc5c77ba329d9b39e3f5a3baa29978df68af6dc127481938f3c404bd0c",
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }

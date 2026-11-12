@@ -1,0 +1,96 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-470/prompts.json",
+      "sha256": "52839f32fcb7f91fc8114adfff30fd6f0a3b305ffa707e79dd4c2b854b41b3cc"
+    },
+    {
+      "path": "artifacts/RS-470/preview.txt",
+      "sha256": "9a672056fc3735def4bc5c97bf0c9a60c9ca1037ca946206b50f76294be36618"
+    },
+    {
+      "path": "artifacts/RS-470/edits.json",
+      "sha256": "bc0a278d67bdbd5c8cfea799af22711596124b89d25c884b3d85ab7e61e76a70"
+    },
+    {
+      "path": "artifacts/RS-470/result-src__main__java__com__example__shop__dto__GadgetDto.java",
+      "sha256": "e0b41b003e902df7cf2a91bc6807ea441c14738deda48feafdc9480b7d019c18"
+    },
+    {
+      "path": "artifacts/RS-470/result-src__main__java__com__example__shop__dto__GadgetProjection.java",
+      "sha256": "ba67e3c6c336eba642de96746a13a49466a3fea7b010c5aa079b29992a1d9267"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/dto/GadgetDto.java"
+    }
+  ],
+  "claimIds": [
+    "G055-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "45d6a23db089e1469a9e6d0d8178cbaac552b7edf9ec12ca1e16f2a78a60b2f3",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 661 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Synchronization direction\" options [\"toProjections\", \"toEntity\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Changes to apply\" options [\"add:0:color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "confirm \"Synchronize entity and linked projections?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/GadgetDto.java",
+      "detail": "121 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/GadgetProjection.java",
+      "detail": "109 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 10c689944516c336efcc398e8219b7650ca6d1170886e932b8f69971c27bafdf vs setup 10c689944516c336efcc398e8219b7650ca6d1170886e932b8f69971c27bafdf; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G055"
+  ],
+  "scenario": "RS-470",
+  "scenarioSha256": "866637355c27641b10aebd1760c1a2ed1a68cd17a5e4c4f764ec8e638ec753e3",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "10c689944516c336efcc398e8219b7650ca6d1170886e932b8f69971c27bafdf",
+  "status": "pass",
+  "treeHashAfterRestore": "10c689944516c336efcc398e8219b7650ca6d1170886e932b8f69971c27bafdf",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

@@ -1,0 +1,45 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-474/diagnostics.json",
+      "sha256": "840c419448d2909d2386ebd3712d13e99be742f6cda52fbd5c0366463a8aa0e2"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G056-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "92dc9a6fb7aae4682dfb2705924a57c156e0d2910ed2bdc8a2142e795cab84a0",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-auditing-listener-missing src/main/java/com/example/shop/domain/Invoice.java:null",
+      "detail": "62 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-auditing-not-enabled src/main/java/com/example/shop/domain/Invoice.java",
+      "detail": "absence check",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G056"
+  ],
+  "scenario": "RS-474",
+  "scenarioSha256": "0c981cce0b906ededbd532431c43f10282fe980cd891fc98b15cc6d4420e70d4",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "92dc9a6fb7aae4682dfb2705924a57c156e0d2910ed2bdc8a2142e795cab84a0",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

@@ -1,0 +1,72 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-422/prompts.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "path": "artifacts/RS-422/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-422/edits.json",
+      "sha256": "ca38224d97e7dc0f09c13444710df010e9067ab0c87f7c0f7654e901db74c7c1"
+    },
+    {
+      "path": "artifacts/RS-422/result-src__main__java__com__example__shop__domain__Ticket.java",
+      "sha256": "88429f284f9fd9ba582c82e94de82d0421c55d6172bfabd3eba54d927a0cb096"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Ticket.java"
+    }
+  ],
+  "claimIds": [
+    "G026-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "f4f4046d1f6b517f7696715f9b5bff537f4bffa17b801059d62c076225e4bec6",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "action offered state",
+      "detail": "expected true; offered []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Ticket.java",
+      "detail": "409 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree df824ae7ce83270c7b10a622d49a4372b052351f7bc7c2f574cb5c7edaf1da61 vs setup df824ae7ce83270c7b10a622d49a4372b052351f7bc7c2f574cb5c7edaf1da61; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G026"
+  ],
+  "scenario": "RS-422",
+  "scenarioSha256": "dedccddfe6c5e3708acab5b306d0575ff84676ab79a147579e442cf0bd49888a",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "df824ae7ce83270c7b10a622d49a4372b052351f7bc7c2f574cb5c7edaf1da61",
+  "status": "pass",
+  "treeHashAfterRestore": "df824ae7ce83270c7b10a622d49a4372b052351f7bc7c2f574cb5c7edaf1da61",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

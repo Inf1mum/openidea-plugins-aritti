@@ -1,0 +1,98 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-445/prompts.json",
+      "sha256": "f27d0cfd72b811034d03cb728acc5cf5ddd7e37b3fb06aa9a08bb93b3eee8f07"
+    },
+    {
+      "path": "artifacts/RS-445/preview.txt",
+      "sha256": "538b6bf65eedfd0b3c0e3bfb17d5ba153457468b313993482bc10d6945e44fb0"
+    },
+    {
+      "path": "artifacts/RS-445/edits.json",
+      "sha256": "27d75d385446557ee680bf05567047400a1f4c89fd262d6e76b8d57e84b59aa5"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/Docs.java"
+    }
+  ],
+  "claimIds": [
+    "G093-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "f8ed22ceebaacdd6761c9a294f62a784ce7e74ae22fcb76b95bd5d205eeeae16",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1965 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Tables to generate entities for (at most 20)\" options [\"docs\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Target package for the entities\" options [\"com.example.billing\", \"com.example.billing.defects\", \"com.example.billing.domain\", \"com.example.billing.repository\", \"com.example.billing.service\", \"db.migration\", \"\\0other\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Generation options (none chosen: defaults)\" options [\"deferred\", \"singular\", \"tablePrefix\", \"columnPrefix\", \"tableSuffix\", \"columnSuffix\", \"editNames\", \"typeOverrides\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "quickPick \"Columns to map for docs (the primary key is always mapped)\" options [\"\\0all\", \"id\", \"body\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "quickPick \"Column body of docs has the unmapped SQL type jsonb\" options [\"suggested\", \"other\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 matches the documented shape",
+      "detail": "confirm \"Generate entities from SQL?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/billing/domain/Docs.java",
+      "detail": "892 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree ba75d0f0730471104f561eb23138e935ea9d279fec84f4cfc76a28b6b6f524ff vs setup ba75d0f0730471104f561eb23138e935ea9d279fec84f4cfc76a28b6b6f524ff; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G093"
+  ],
+  "scenario": "RS-445",
+  "scenarioSha256": "09181e93ec76a8ad4ecd2dcd6122683e02412978ca63b8fc24fe972869975c38",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "ba75d0f0730471104f561eb23138e935ea9d279fec84f4cfc76a28b6b6f524ff",
+  "status": "pass",
+  "treeHashAfterRestore": "ba75d0f0730471104f561eb23138e935ea9d279fec84f4cfc76a28b6b6f524ff",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

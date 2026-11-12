@@ -1,0 +1,148 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-462/prompts.json",
+      "sha256": "d92c56b97c2a08f3f243d54d2571bf483e2072f5368e77b531d84cfd25896470"
+    },
+    {
+      "path": "artifacts/RS-462/preview.txt",
+      "sha256": "26c763e9869e4f82d019c3cc373f3215342b2d42843b2c4c20e502a7d93d4c7b"
+    },
+    {
+      "path": "artifacts/RS-462/edits.json",
+      "sha256": "329ab57613d64ed461aa740cb57dd639d04c5c06a4b08e3edd48d69693dd5b00"
+    },
+    {
+      "path": "artifacts/RS-462/result-src__main__java__com__example__shop__repository__ProductRepository.java",
+      "sha256": "105b2d3fc8399ad1616ed68acad7a747242e1c517e6b0078df8d49d7a88e7247"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/repository/ProductNames.java"
+    },
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/repository/ProductRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G041-C2",
+    "S004-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "451899b0969c1855ef8c77db865df723bb56776f29b91d5a605e561cc0ca196f",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1082 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Query subject\" options [\"find\", \"count\", \"exists\", \"delete\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Condition attributes (plain scalar attributes only; relationship paths are not offered)\" options [\"id\", \"name\", \"price\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Operator for name (String)\" options [\"is\", \"not\", \"ignoreCase\", \"like\", \"containing\", \"containingIgnoreCase\", \"startingWith\", \"startingWithIgnoreCase\", \"endingWith\", \"endingWithIgnoreCase\", \"in\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "quickPick \"Order by\" options [\"none\", \"id\", \"name\", \"price\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "input \"Top/First limit (blank for none)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 matches the documented shape",
+      "detail": "quickPick \"Return type\" options [\"list\", \"optional\", \"single\", \"page\", \"slice\", \"stream\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 the + choice",
+      "detail": "quickPick \"Result element\" options [\"entity\", \"new\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 8 matches the documented shape",
+      "detail": "quickPick \"New result type\" options [\"projection\", \"dto\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 9 matches the documented shape",
+      "detail": "input \"New result type name (same package as the repository)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 10 matches the documented shape",
+      "detail": "quickPick \"Properties of the new type (plain scalar attributes only)\" options [\"id\", \"name\", \"price\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 11 matches the documented shape",
+      "detail": "quickPick \"Parameter binding\" options [\"derived\", \"named\", \"positional\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 12 matches the documented shape",
+      "detail": "quickPick \"Pageable parameter\" options [\"no\", \"yes\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 13 matches the documented shape",
+      "detail": "confirm \"Add query method?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/repository/ProductRepository.java",
+      "detail": "424 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/repository/ProductNames.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G041",
+    "S004"
+  ],
+  "scenario": "RS-462",
+  "scenarioSha256": "a546e862a757f40b33b9dd3be9dd9242193ee2a2579ae03424f9317e59fe9939",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

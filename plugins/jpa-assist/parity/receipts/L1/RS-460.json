@@ -1,0 +1,88 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-460/prompts.json",
+      "sha256": "3aa51b3e7e8fe8188d796c8adde4d62e70f865b0c1d4b4beda3872b8f345f7c5"
+    },
+    {
+      "path": "artifacts/RS-460/preview.txt",
+      "sha256": "fd56d33e717bf7971e5bdfb651e9c15287a6481bf38cab8e8f64beae53717873"
+    },
+    {
+      "path": "artifacts/RS-460/edits.json",
+      "sha256": "b833b7c7f35837c5057af88eb659b694809e93ee4e3e70e691d0fe58f14efe0f"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/CategoryRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G036-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "6b0a7b0419c406c6d1f0209dac64ba6f2e9e97d3fade6579d79810e8e98a0ac5",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 662 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 parent choice lists the project repository",
+      "detail": "quickPick \"Repository parent interface\" options [\"JpaRepository\", \"ListCrudRepository\", \"CrudRepository\", \"ListPagingAndSortingRepository\", \"project:BaseRepository\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Add JpaSpecificationExecutor?\" options [\"no\", \"yes\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "input \"Repository name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "confirm \"Create Spring Data repository?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/CategoryRepository.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 299a9a0e353817a6908bf901964c6abd15e562bc7ee7d05f3792dad4c195a355 vs setup 299a9a0e353817a6908bf901964c6abd15e562bc7ee7d05f3792dad4c195a355; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G036"
+  ],
+  "scenario": "RS-460",
+  "scenarioSha256": "8b6fecd2d1dcaea7a7f3d184864dab8838b6ac1d57909f77cad2bedfa989ef3b",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "299a9a0e353817a6908bf901964c6abd15e562bc7ee7d05f3792dad4c195a355",
+  "status": "pass",
+  "treeHashAfterRestore": "299a9a0e353817a6908bf901964c6abd15e562bc7ee7d05f3792dad4c195a355",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

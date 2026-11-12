@@ -1,0 +1,45 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-427/diagnostics.json",
+      "sha256": "219381e211c383edf88b313ce17e6280b9533f854b132265d4ea3010e611a09b"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G030-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "1d51b34a499d8520064159b33ab38dad3d196f6f68ddf2d2c73001f93288594e",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-source-identifier-absent src/main/java/com/example/shop/domain/NoIdDefect.java:null",
+      "detail": "63 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-duplicate-version src/main/java/com/example/shop/domain/DupVersionDefect.java:null",
+      "detail": "63 diagnostics in total",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G030"
+  ],
+  "scenario": "RS-427",
+  "scenarioSha256": "4e5830b28eb99d8f8345a1d6e35b75312fc0b1aa44536851eb1ef87c02c7b094",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "1d51b34a499d8520064159b33ab38dad3d196f6f68ddf2d2c73001f93288594e",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

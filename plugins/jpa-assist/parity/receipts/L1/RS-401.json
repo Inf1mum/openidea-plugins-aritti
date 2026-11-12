@@ -1,0 +1,153 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-401/prompts.json",
+      "sha256": "5058a65d63f50e7f7f503255d88e0b99f2e0d6aae36572def5b0e94d8d647b6e"
+    },
+    {
+      "path": "artifacts/RS-401/preview.txt",
+      "sha256": "524f89673cafbc9529acdc64b57aca17d8cbcda8c1689fa9843227a26e67f1ac"
+    },
+    {
+      "path": "artifacts/RS-401/edits.json",
+      "sha256": "d2d5e4bc8640623ed5741e5bfa70d56744fd240d846cf87eb16c918a5d90e39f"
+    },
+    {
+      "path": "artifacts/RS-401/result-src__main__java__com__example__shop__domain__Gadget.java",
+      "sha256": "f7053d6e0342ebcea54a19a03a2b4fa545ec1fefaf6be29500be9553d75afe8f"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Gadget.java"
+    }
+  ],
+  "claimIds": [
+    "G013-C2",
+    "G013-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "01936534ea02363910df51ebcc0577526da528c033a2c5b33ff090cf8e14140a",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 989 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Persistence namespace for the new entity\" options [\"jakarta\", \"javax\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 table",
+      "detail": "input \"Table name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "input \"Identifier attribute name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "input \"Identifier column name (empty uses the attribute name)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "quickPick \"Identifier type\" options [\"long\", \"integer\", \"short\", \"string\", \"uuid\", \"big-integer\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 matches the documented shape",
+      "detail": "quickPick \"Identifier generation\" options [\"assigned\", \"identity\", \"sequence\", \"table\", \"auto\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 preview",
+      "detail": "confirm \"Convert class to JPA entity?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Gadget.java",
+      "detail": "699 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree cb83cd1dd1bef30b8f64bdcf8e08cc11efe6ba4dd8be411c641ff027a47fd1bd vs setup cb83cd1dd1bef30b8f64bdcf8e08cc11efe6ba4dd8be411c641ff027a47fd1bd; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G013"
+  ],
+  "scenario": "RS-401",
+  "scenarioSha256": "0a583e16bcfa10aecab3bf4b059026766be71d36fb8ac4d38860cb59bae30dd2",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "cb83cd1dd1bef30b8f64bdcf8e08cc11efe6ba4dd8be411c641ff027a47fd1bd",
+  "status": "pass",
+  "treeHashAfterRestore": "cb83cd1dd1bef30b8f64bdcf8e08cc11efe6ba4dd8be411c641ff027a47fd1bd",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

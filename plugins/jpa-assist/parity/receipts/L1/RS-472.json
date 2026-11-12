@@ -1,0 +1,105 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-472/prompts.json",
+      "sha256": "99b3b72f161fa487f974013180b32a5d85ae5f0f46634a8bc011f9d1bcb37a85"
+    },
+    {
+      "path": "artifacts/RS-472/preview.txt",
+      "sha256": "0a765cea9a6ca21717c8c7a948554e67a744d3f7e0b62e7effa4101e147e209d"
+    },
+    {
+      "path": "artifacts/RS-472/edits.json",
+      "sha256": "a497359972b442a144269832102dbe25eedde7a17a4758b6d5f45f216811a7ea"
+    },
+    {
+      "path": "artifacts/RS-472/result-src__main__java__com__example__shop__dto__GadgetSummary.java",
+      "sha256": "29014644f4e4c67a875a3584bf56d8ba42faa226250bfe2772565ddb2009f8af"
+    },
+    {
+      "path": "artifacts/RS-472/result-src__main__java__com__example__shop__dto__GadgetOther.java",
+      "sha256": "78a4c234f0fce24a2492e84db18d5b02e4718b9ca5bc5a6b8ee8b2965ccbf8e6"
+    },
+    {
+      "path": "artifacts/RS-472/result-src__main__java__com__example__shop__dto__GadgetProjection.java",
+      "sha256": "ba67e3c6c336eba642de96746a13a49466a3fea7b010c5aa079b29992a1d9267"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/dto/GadgetSummary.java"
+    }
+  ],
+  "claimIds": [
+    "G055-C4"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "bde35743c6836d5f8198a10bd0a8bb711cbea8f3ea0836b53ef6c84de0c3d64b",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 731 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Synchronization direction\" options [\"toProjections\", \"toEntity\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Changes to apply\" options [\"add:0:color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "confirm \"Synchronize entity and linked projections?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/GadgetSummary.java",
+      "detail": "183 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/GadgetOther.java",
+      "detail": "106 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/dto/GadgetProjection.java",
+      "detail": "109 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 79968fc95e694ebd3b5b13ab106677a581c12d8ea923782926ee386449d0f1a3 vs setup 79968fc95e694ebd3b5b13ab106677a581c12d8ea923782926ee386449d0f1a3; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G055"
+  ],
+  "scenario": "RS-472",
+  "scenarioSha256": "5bc7ec91686e5fce06104b0b157bed9eac8e7844f2f9737c8e863b80d5ee5ea9",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "79968fc95e694ebd3b5b13ab106677a581c12d8ea923782926ee386449d0f1a3",
+  "status": "pass",
+  "treeHashAfterRestore": "79968fc95e694ebd3b5b13ab106677a581c12d8ea923782926ee386449d0f1a3",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

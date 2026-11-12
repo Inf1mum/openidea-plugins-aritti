@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-201/prompts.json",
-      "sha256": "a7559b3399ae3096f590c8d3f32b578e38bd2424f88c29974fe01ce65ecc1abd"
+      "sha256": "3b0921997ea7c64502ca73327df1954b34e7850586b8e040bfb7df70a001c517"
     },
     {
       "path": "artifacts/RS-201/preview.txt",
@@ -72,10 +72,10 @@
     "G026"
   ],
   "scenario": "RS-201",
-  "scenarioSha256": "388709fd2ec7b846e50535c7fd98804b2fac64ac0ec2321b784971c71aefd79e",
+  "scenarioSha256": "ffdcb602fdcd50892ceabe566588e3aedd49693a101158913b7fffcff87cf3dc",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b",
   "status": "pass",
   "treeHashAfterRestore": "21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b",
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }

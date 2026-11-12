@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-008/prompts.json",
-      "sha256": "07f1a1953c4ea00b5fc1b5c720a5210535d65f3b3a008870ad50e94f8a9ac24c"
+      "sha256": "38a60e5076740467d3adc56c43c62f30fbd1e7d6e7b1fa0046c58a15a1de9b00"
     },
     {
       "path": "artifacts/RS-008/preview.txt",
@@ -55,7 +55,7 @@
     },
     {
       "check": "prompt 3 naming options",
-      "detail": "quickPick \"Generation options (none chosen: defaults)\" options [\"singular\", \"tablePrefix\", \"columnPrefix\", \"tableSuffix\", \"columnSuffix\"]",
+      "detail": "quickPick \"Generation options (none chosen: defaults)\" options [\"singular\", \"tablePrefix\", \"columnPrefix\", \"tableSuffix\", \"columnSuffix\", \"basicReferences\", \"editNames\", \"typeOverrides\"]",
       "pass": true
     },
     {
@@ -168,5 +168,5 @@
   "setupTreeHash": "b94b1b64772ef5c9ad99c9a6cd4aa009fd2c35caff2a4c1a4353d99478999f39",
   "status": "pass",
   "treeHashAfterRestore": "b94b1b64772ef5c9ad99c9a6cd4aa009fd2c35caff2a4c1a4353d99478999f39",
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }

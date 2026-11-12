@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-446/prompts.json",
+      "sha256": "d12b8a32f513590ab63731e9e293bb5b66ec7bc5974bd022633f468073f3ec3e"
+    },
+    {
+      "path": "artifacts/RS-446/preview.txt",
+      "sha256": "6076d9abdce5f80b6d984623b703a9f67abba11305119b96f9dc6de3450df695"
+    },
+    {
+      "path": "artifacts/RS-446/edits.json",
+      "sha256": "994c7040ee551357dd6f634184fc879906d534949598f788713a9cad09cac38f"
+    },
+    {
+      "path": "artifacts/RS-446/result-src__main__java__com__example__billing__domain__Places.java",
+      "sha256": "1fa98bca55e5a82c9f3a1c07bd877d67084746f281877af10070abdeafec4560"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/billing/domain/Places.java"
+    }
+  ],
+  "claimIds": [
+    "G094-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "4c88c6cfe4b3d5f52ce831ad9fe4ba753051ef2a002accc1101361e084b4a07d",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Generate entities from SQL file…\" applied",
+      "detail": "6 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 904 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/billing/domain/Places.java",
+      "detail": "748 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 1e9b64c365ff7cfe13d6df321ce61482826d9a1b5ad05f417540f8e240ded94c vs setup 1e9b64c365ff7cfe13d6df321ce61482826d9a1b5ad05f417540f8e240ded94c; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G094"
+  ],
+  "scenario": "RS-446",
+  "scenarioSha256": "09d4532185c4a70ae06c835a81ebd3f3b9a285d4c5cb396228332d7439ed6aae",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "1e9b64c365ff7cfe13d6df321ce61482826d9a1b5ad05f417540f8e240ded94c",
+  "status": "pass",
+  "treeHashAfterRestore": "1e9b64c365ff7cfe13d6df321ce61482826d9a1b5ad05f417540f8e240ded94c",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

@@ -1,0 +1,76 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-428/prompts.json",
+      "sha256": "71730c8632bb3122408bcceb53203d7a8ab7bfabbf2573357e0650e0d9419943"
+    },
+    {
+      "path": "artifacts/RS-428/preview.txt",
+      "sha256": "5c05bfe386f685ef578ff8f1a87014811ae6c5f7e9994adbeeaf732c03ecf0c2"
+    },
+    {
+      "path": "artifacts/RS-428/edits.json",
+      "sha256": "fb41cf07e38f514615ec6e4637c496c13a08fbb8b5fd5ac0e90ff8520fbb074e"
+    },
+    {
+      "path": "artifacts/RS-428/result-src__main__java__com__example__billing__domain__GadgetItem.java",
+      "sha256": "7ea19485f5442ac4c310a8b0622ec9d2806d4281065839e95e6b32817c600ea7"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131.0004__add_gadget_item.sql"
+    }
+  ],
+  "claimIds": [
+    "G031-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "a4c578d67ec891bcee96ebd1c4338bc665d2e0714d292488e2ece58324a37de5",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Generate JPA entity…\" applied",
+      "detail": "6 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/billing/domain/GadgetItem.java",
+      "detail": "708 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131.0004__add_gadget_item.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G031"
+  ],
+  "scenario": "RS-428",
+  "scenarioSha256": "02415cfead369ce5ede6cad48d9ee7255ad2919a7be92844401ed78d8a0bf712",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "a0e69559f455f498e89e9ba75b95da9a0719849285772edd4ce11d314531a900",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

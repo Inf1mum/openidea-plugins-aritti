@@ -60,5 +60,5 @@
   "setupTreeHash": "2e843c3d6a4c676b2dcf1e2bfdf3eb39f286b27714fe02a0a7835fd6e2ea5a81",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }

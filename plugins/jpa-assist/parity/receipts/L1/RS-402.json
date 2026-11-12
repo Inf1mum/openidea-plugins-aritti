@@ -1,0 +1,123 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-402/prompts.json",
+      "sha256": "1377a25cfee6bffce18a49246c6c11bbefb11da43581016143af41a7bb66036e"
+    },
+    {
+      "path": "artifacts/RS-402/preview.txt",
+      "sha256": "b5cefe889912ede11d4e2c431c8aa3da556e33b0e94687da453317482c07f17a"
+    },
+    {
+      "path": "artifacts/RS-402/edits.json",
+      "sha256": "96118c0f6247b353bb486bf6797f3611e65574951cb7fdace318c40c26bb0042"
+    },
+    {
+      "path": "artifacts/RS-402/result-src__main__kotlin__com__example__shop__domain__Gizmo.kt",
+      "sha256": "6c4d1437d0c0b669deb7ac3eb6a736736fe815a880c47b8bef913991b07c82d1"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/kotlin/com/example/shop/domain/Gizmo.kt"
+    }
+  ],
+  "claimIds": [
+    "G013-C2",
+    "G013-C3"
+  ],
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "fixtureTreeHashAfter": "ce16bb6ea00c73308fd86cd5b453cc90399907482e591cf558bf3a20e507ce18",
+  "fixtureTreeHashBefore": "c3474627b665c9d01c13e23904197e8ffbd21fb283d0e904c35688a3e2c23249",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 587 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt count",
+      "detail": "expected 7, saw 7",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/kotlin/com/example/shop/domain/Gizmo.kt",
+      "detail": "298 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree e33a81001cbd64a8d3ca4f46c2ce8847a83b3f5e926970351d14139a007e838f vs setup e33a81001cbd64a8d3ca4f46c2ce8847a83b3f5e926970351d14139a007e838f; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 7 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G013"
+  ],
+  "scenario": "RS-402",
+  "scenarioSha256": "a9da2ad6bb0d9ab1321b534f66d9507052b78bcaf1cc78571605347480026f47",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "e33a81001cbd64a8d3ca4f46c2ce8847a83b3f5e926970351d14139a007e838f",
+  "status": "pass",
+  "treeHashAfterRestore": "e33a81001cbd64a8d3ca4f46c2ce8847a83b3f5e926970351d14139a007e838f",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

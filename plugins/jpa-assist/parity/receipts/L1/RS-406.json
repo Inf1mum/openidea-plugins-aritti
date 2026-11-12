@@ -1,0 +1,87 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-406/prompts.json",
+      "sha256": "5f70cfa5561f6c43b527c3a7e14f3edd78bf3b66d02744a075a592b47013d8aa"
+    },
+    {
+      "path": "artifacts/RS-406/preview.txt",
+      "sha256": "2911bab5a170dbc2d536945ad45bfb373fb9bc4f12a3ad3a9593a4b1702cfbaf"
+    },
+    {
+      "path": "artifacts/RS-406/edits.json",
+      "sha256": "366203b442b985367865ad092d3fc50517403fced2a911814f7af8986b1bc658"
+    },
+    {
+      "path": "artifacts/RS-406/result-src__main__java__com__example__shop__domain__Category.java",
+      "sha256": "407feb29dc9f6f1fd3ea3f0c17fa6ae93ee71e1808f50ecdadbf2a087a3332f7"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Category.java"
+    }
+  ],
+  "claimIds": [
+    "G035-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "628bc55bb5bfb650cb3ea01254180ef7090f890e33d052aa9d6fa0d946bdd335",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Generate proxy-safe equals and hashCode with preview…\" applied",
+      "detail": "2 prompts, 0 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1914 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Attributes to show (associations, collections, arrays and lazy attributes are never offered)\" options [\"id\", \"name\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Generate toString?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Category.java",
+      "detail": "1630 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 0ef586c0a11263a2745b3932d6dfcb4b12d48cc30d046f7e6937c2aa95e6cda1 vs setup 0ef586c0a11263a2745b3932d6dfcb4b12d48cc30d046f7e6937c2aa95e6cda1; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G035"
+  ],
+  "scenario": "RS-406",
+  "scenarioSha256": "ff7aa6d695c5a17f82659f1a4a7fe76d1f20f5cdd5dde2afcbd7ccac8cee5c22",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "0ef586c0a11263a2745b3932d6dfcb4b12d48cc30d046f7e6937c2aa95e6cda1",
+  "status": "pass",
+  "treeHashAfterRestore": "0ef586c0a11263a2745b3932d6dfcb4b12d48cc30d046f7e6937c2aa95e6cda1",
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
+}

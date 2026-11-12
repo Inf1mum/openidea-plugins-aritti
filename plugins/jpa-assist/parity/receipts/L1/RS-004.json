@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-004/prompts.json",
-      "sha256": "60710dc20e1ba8b5f179f1870bf4f1997827546aec8b4eb8af8154da55676455"
+      "sha256": "5a1f4db7519a517f3c818b973623f9fe383df903174ca1948c0565eaea9997c1"
     },
     {
       "path": "artifacts/RS-004/preview.txt",
@@ -45,7 +45,7 @@
     },
     {
       "check": "prompt 1 revision entity name",
-      "detail": "input \"Revision entity name (same package)\" options []",
+      "detail": "input \"Revision entity name\" options []",
       "pass": true
     },
     {
@@ -59,7 +59,37 @@
       "pass": true
     },
     {
-      "check": "prompt 4 preview shows both files",
+      "check": "prompt 4 parent choice",
+      "detail": "quickPick \"Revision entity parent\" options [\"none\", \"default\", \"tracking\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 table name",
+      "detail": "input \"Revision table name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 number field",
+      "detail": "input \"Revision number field name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 timestamp field",
+      "detail": "input \"Revision timestamp field name\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 8 source root",
+      "detail": "quickPick \"Source root\" options [\"$PROJECT/src/main/java\", \"$PROJECT/src/test/java\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 9 package",
+      "detail": "input \"Package\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 10 preview shows both files",
       "detail": "confirm \"Create Envers revision entity?\" options []",
       "pass": true
     },
@@ -84,22 +114,52 @@
       "pass": true
     },
     {
-      "check": "Cancel at prompt 1 of 4 leaves the tree unchanged",
+      "check": "Cancel at prompt 1 of 10 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 2 of 4 leaves the tree unchanged",
+      "check": "Cancel at prompt 2 of 10 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 3 of 4 leaves the tree unchanged",
+      "check": "Cancel at prompt 3 of 10 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
     {
-      "check": "Cancel at prompt 4 of 4 leaves the tree unchanged",
+      "check": "Cancel at prompt 4 of 10 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 10 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 10 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 10 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 10 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 9 of 10 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 10 of 10 leaves the tree unchanged",
       "detail": "no edit applied, tree hash equals the setup state",
       "pass": true
     },
@@ -123,10 +183,10 @@
     "G029"
   ],
   "scenario": "RS-004",
-  "scenarioSha256": "a8f5daf00896c2f0f560376618ba92e788fb47e26a4e840fbd523fe96073c933",
+  "scenarioSha256": "e5a56ddd0f08feb184c4b599a5e3ff19555142a43c2cf8391a3c270818ed1a99",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
   "status": "pass",
   "treeHashAfterRestore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }

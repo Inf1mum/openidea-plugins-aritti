@@ -124,7 +124,25 @@
       "implementation": [
         "plugins/jpa-assist/src/inspections_more.rs",
         "plugins/jpa-assist/src/checks.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-400.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-400.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G009-C2"
+          ],
+          "claimsExplicit": [
+            "G009-C1",
+            "G009-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G010",
@@ -174,7 +192,28 @@
         "plugins/jpa-assist/src/identifier_action.rs",
         "plugins/jpa-assist/src/wizard.rs",
         "plugins/jpa-assist/web/creator.js"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-401.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-401.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-402.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G013-C2",
+            "G013-C3"
+          ],
+          "claimsExplicit": [
+            "G013-C1",
+            "G013-C2",
+            "G013-C3"
+          ]
+        }
+      }
     },
     {
       "id": "G014",
@@ -283,7 +322,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-228.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-229.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G014-C1",
             "G014-C2",
@@ -364,7 +403,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-237.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-238.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G015-C1",
             "G015-C2"
@@ -424,7 +463,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-238.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G016-C1",
             "G016-C2"
@@ -479,7 +518,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-239.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G017-C1"
           ],
@@ -513,7 +552,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-237.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G018-C2"
           ],
@@ -528,11 +567,75 @@
       "id": "G019",
       "family": "Entity Designer",
       "capability": "Superclass extraction",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed Java-only action 'Extract mapped superclass with preview…' moves plain private scalar fields (literal initializers, exact conventional accessors, @Column/@Basic/@Temporal/@Lob) into a new abstract @MappedSuperclass sibling file and adds extends. Edits the invoking document plus one create (overwrite:false); other files are not version-guarded (S007). Never moves @Id/@Version/relationships; refuses existing extends/implements/generics, property access, Kotlin. Unit tests and opt-in javac compile check only. Open: identifier/relationship moves, Kotlin, reference updates in other files, native acceptance.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-003.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-403.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-404.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-003",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G019-C2: Existing JPA annotations carry over to the extracted attributes.",
+            "G019-C4: The entity is updated to extend the generated class and the extracted attributes are removed from it."
+          ],
+          "claimIds": [
+            "G019-C2",
+            "G019-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-003.json",
+          "test": "jpa_assist --only RS-003",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-403",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G019-C1: Extract to MappedSuperclass is offered from the context actions on an entity attribute and lets you choose which attributes and methods move."
+          ],
+          "claimIds": [
+            "G019-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-403.json",
+          "test": "jpa_assist --only RS-403",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-404",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G019-C3: Attributes referenced by selected methods are included automatically."
+          ],
+          "claimIds": [
+            "G019-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-404.json",
+          "test": "jpa_assist --only RS-404",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/extract_superclass.rs",
         "plugins/jpa-assist/src/file_actions.rs"
@@ -543,11 +646,15 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-003.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-003.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-003.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-403.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-404.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
+            "G019-C1",
             "G019-C2",
+            "G019-C3",
             "G019-C4"
           ],
           "claimsExplicit": [
@@ -579,7 +686,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G020-C1"
           ],
@@ -632,7 +739,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G021-C1"
           ],
@@ -684,7 +791,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G022-C1"
           ],
@@ -712,15 +819,54 @@
       "id": "G024",
       "family": "Entity Designer",
       "capability": "Lombok generation defaults",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "`lombokEntityDefaults` setting (default off) makes the Java New Entity wizard emit @Getter/@Setter/@NoArgsConstructor. Java only.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-405.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-405",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G024-C1: Which Lombok annotations are added to new entities or attributes is a setting at the bottom of the Entity Declaration window."
+          ],
+          "claimIds": [
+            "G024-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-405.json",
+          "test": "jpa_assist --only RS-405",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/wizard.rs",
         "plugins/jpa-assist/settings.schema.json"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-405.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-405.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G024-C1"
+          ],
+          "claimsExplicit": [
+            "G024-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G025",
@@ -742,7 +888,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-200.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G025-C2",
             "G025-C3"
@@ -759,11 +905,93 @@
       "id": "G026",
       "family": "Entity Designer",
       "capability": "Custom Hibernate types",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed Java-only Hibernate 6 actions in hibernate_action.rs: 'Create Hibernate user type…' (@Type + UserType<T> sibling; full implementation for String/Integer/Long/Boolean/Double/BigDecimal, others throw UnsupportedOperationException marked in preview), 'Add JSON column mapping' (@JdbcTypeCode(SqlTypes.JSON)), 'Create Hibernate event listener…' (not registered). Hibernate 6.x detected only from a literal hibernate-core 6.x version or Spring Boot 3.x + starter-data-jpa (intermediate Boot pairings inferred). Signatures cross-checked with javap on hibernate-core 6.6.49 and compile-checked there only; 6.0-6.5 and 7 unchecked; dialect JSON support and a JSON library not checked.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-201.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-420.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-422.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-201",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G026-C1: A JPA Converter or Hibernate Custom Type can be generated from the inspector or structure Add button."
+          ],
+          "claimIds": [
+            "G026-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-201.json",
+          "test": "jpa_assist --only RS-201",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-420",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G026-C2: A Hibernate custom type can be generated with an option to allow parameter-based behaviour changes."
+          ],
+          "claimIds": [
+            "G026-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-420.json",
+          "test": "jpa_assist --only RS-420",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-421",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy.html"
+          ],
+          "referenceClaims": [
+            "G026-C3: Custom Hibernate types are assigned to attributes through an inspection with a quick fix (Hibernate Types library)."
+          ],
+          "claimIds": [
+            "G026-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
+          "test": "jpa_assist --only RS-421",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-422",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy.html"
+          ],
+          "referenceClaims": [
+            "G026-C3: Custom Hibernate types are assigned to attributes through an inspection with a quick fix (Hibernate Types library)."
+          ],
+          "claimIds": [
+            "G026-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-422.json",
+          "test": "jpa_assist --only RS-422",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/hibernate_action.rs"
       ],
@@ -773,11 +1001,16 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-201.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-201.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-201.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-420.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-421.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-422.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
-            "G026-C1"
+            "G026-C1",
+            "G026-C2",
+            "G026-C3"
           ],
           "claimsExplicit": [
             "G026-C1",
@@ -829,7 +1062,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-202.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G027-C1"
           ],
@@ -923,7 +1156,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-204.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-206.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G028-C1",
             "G028-C2"
@@ -939,11 +1172,133 @@
       "id": "G029",
       "family": "Entity Designer",
       "capability": "Revision entity",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed actions in envers_action.rs: 'Toggle audited…' (class @Audited, field @Audited/@NotAudited; Kotlin class-level only; requires literal hibernate-envers in build text) and 'Create revision entity…' (Java only; int @RevisionNumber id, long @RevisionTimestamp, optional String fields and a RevisionListener as a second Create; refuses if a RevisionEntity already exists in the project). Annotation packages/targets and the user-guide revision-entity shape checked in Hibernate 5.6/6.6 Javadoc and guide; Spring Data Envers pages 404; @Audited class+field combination undocumented so refused. No hibernate-envers jar locally: string-level tests only, no compile check.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-004.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-205.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-423.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-424.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-425.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-426.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-004",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G029-C1: A Create Revision Entity wizard is offered when no @RevisionEntity exists."
+          ],
+          "claimIds": [
+            "G029-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-004.json",
+          "test": "jpa_assist --only RS-004",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-205",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G029-C5: Example output: a RevisionListener implementation and a @RevisionEntity class mapped to revinfo with @RevisionNumber and @RevisionTimestamp."
+          ],
+          "claimIds": [
+            "G029-C5"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-205.json",
+          "test": "jpa_assist --only RS-205",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-423",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G029-C2: The wizard offers a parent (DefaultRevisionEntity or DefaultTrackingModifyingEntitiesRevisionEntity) and a table name."
+          ],
+          "claimIds": [
+            "G029-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-423.json",
+          "test": "jpa_assist --only RS-423",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-424",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G029-C2: The wizard offers a parent (DefaultRevisionEntity or DefaultTrackingModifyingEntitiesRevisionEntity) and a table name."
+          ],
+          "claimIds": [
+            "G029-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-424.json",
+          "test": "jpa_assist --only RS-424",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-425",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G029-C3: The wizard can create a new revision listener or pick an existing one."
+          ],
+          "claimIds": [
+            "G029-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-425.json",
+          "test": "jpa_assist --only RS-425",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-426",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G029-C4: Revision number and timestamp fields are offered when no parent is set; source root and package are chosen."
+          ],
+          "claimIds": [
+            "G029-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-426.json",
+          "test": "jpa_assist --only RS-426",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/envers_action.rs"
       ],
@@ -954,11 +1309,18 @@
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-004.json",
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-004.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-205.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-205.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-423.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-424.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-425.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-426.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G029-C1",
+            "G029-C2",
+            "G029-C3",
+            "G029-C4",
             "G029-C5"
           ],
           "claimsExplicit": [
@@ -983,17 +1345,77 @@
       "implementation": [
         "plugins/jpa-assist/src/live.rs",
         "plugins/jpa-assist/settings.schema.json"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-427.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-427.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G030-C1"
+          ],
+          "claimsExplicit": [
+            "G030-C1",
+            "G030-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G031",
       "family": "Entity Designer",
       "capability": "Naming templates",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Structured settings `tableName{Case,Prefix,Suffix}` and `columnName{Case,Prefix,Suffix}` (snake/upper_snake/lower/upper; defaults unchanged) applied to the New Entity wizard, Designer default table, and DDL helper names. Default implicit naming rules not fetched from docs (memory); only Spring Boot's default physical strategy was verified. Open: generate::ddl and identifier_action still hard-code snake_case; no runtime strategy detection (G032).",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-241.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-428.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-241",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G031-C1: Naming templates apply automatically to new entities and attributes."
+          ],
+          "claimIds": [
+            "G031-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-241.json",
+          "test": "jpa_assist --only RS-241",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-428",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html"
+          ],
+          "referenceClaims": [
+            "G031-C2: The name given is logical and the physical naming strategy transforms it when saved."
+          ],
+          "claimIds": [
+            "G031-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-428.json",
+          "test": "jpa_assist --only RS-428",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/naming_action.rs",
         "plugins/jpa-assist/src/ddl_action.rs",
@@ -1005,11 +1427,13 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-241.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-241.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-241.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-428.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
-            "G031-C1"
+            "G031-C1",
+            "G031-C2"
           ],
           "claimsExplicit": [
             "G031-C1",
@@ -1044,7 +1468,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-322.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-323.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G032-C1",
             "G032-C2",
@@ -1103,7 +1527,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-240.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G033-C1",
             "G033-C2"
@@ -1139,17 +1563,117 @@
       "acceptance": [],
       "implementation": [
         "plugins/jpa-assist/src/equality_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-406.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-406.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G035-C2"
+          ],
+          "claimsExplicit": [
+            "G035-C1",
+            "G035-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G036",
       "family": "Spring Data",
       "capability": "Repository parents",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Partial",
       "finding": "Reviewed 'Create Spring Data repository with options…' offers parent interfaces chosen by entity namespace (jakarta: JpaRepository/ListCrudRepository/CrudRepository/ListPagingAndSortingRepository; javax: JpaRepository/CrudRepository/PagingAndSortingRepository); Spring Data version is inferred from namespace, not read from the build; ID type only from one proven simple @Id. Unit tests; Java compile check passed against a mixed commons 3.4.13 + jpa 4.1.2 classpath (not a consistent 3.x set). No Kotlin compile check.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-002.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-100.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-460.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-002",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G036-C3: Repositories can be created only for entities with an @Id field."
+          ],
+          "claimIds": [
+            "G036-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-002.json",
+          "test": "jpa_assist --only RS-002",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-100",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G036-C1: The New JPA Repository window sets entity, repository name, parent interface, JpaSpecificationExecutor option, source root and package."
+          ],
+          "claimIds": [
+            "G036-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-100.json",
+          "test": "jpa_assist --only RS-100",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-101",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G036-C3: Repositories can be created only for entities with an @Id field."
+          ],
+          "claimIds": [
+            "G036-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
+          "test": "jpa_assist --only RS-101",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-460",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G036-C2: The parent interface can be a Spring Data repository interface or any repository in the project."
+          ],
+          "claimIds": [
+            "G036-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-460.json",
+          "test": "jpa_assist --only RS-460",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/repository_action.rs",
         "plugins/jpa-assist/src/file_actions.rs"
@@ -1162,11 +1686,13 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-100.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-101.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-460.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G036-C1",
+            "G036-C2",
             "G036-C3"
           ],
           "claimsExplicit": [
@@ -1221,7 +1747,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G037-C1",
             "G037-C2"
@@ -1275,7 +1801,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-002.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G038-C1"
           ],
@@ -1362,7 +1888,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-102.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G040-C1",
             "G040-C2",
@@ -1382,11 +1908,53 @@
       "id": "G041",
       "family": "Spring Data",
       "capability": "Result wrappers",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Reviewed 'Add query method with preview…' in a repository interface (Java/Kotlin): subject find/count/exists/delete, scalar conditions with type-valid operators, And/Or, OrderBy, Top/First, return wrappers (List/Optional/single/Page/Slice/Stream) with Pageable; names verified against Spring Data docs and round-tripped through the local derived-name parser/checks. count->long and exists->boolean from doc wording only; combined IgnoreCase forms unverified; entity found by file name only. No Spring runtime/compile test. Open: relationship paths, Distinct, Sort/Limit params, unresolved-call creation, editing existing queries, keyword preferences.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-103.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-103",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G041-C1: The top of the query window sets the wrapper type for collection and query return types."
+          ],
+          "claimIds": [
+            "G041-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-103.json",
+          "test": "jpa_assist --only RS-103",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-462",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G041-C2: A + button generates new projection interfaces or DTO classes inline from the query window."
+          ],
+          "claimIds": [
+            "G041-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-462.json",
+          "test": "jpa_assist --only RS-462",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/query_method_action.rs"
       ],
@@ -1396,11 +1964,13 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-103.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-103.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-103.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
-            "G041-C1"
+            "G041-C1",
+            "G041-C2"
           ],
           "claimsExplicit": [
             "G041-C1",
@@ -1474,7 +2044,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-104.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G042-C1",
             "G042-C2"
@@ -1490,14 +2060,74 @@
       "id": "G043",
       "family": "Spring Data",
       "capability": "Parameter options",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Partial",
       "finding": "Reviewed 'Add query method with preview…' in a repository interface (Java/Kotlin): subject find/count/exists/delete, scalar conditions with type-valid operators, And/Or, OrderBy, Top/First, return wrappers (List/Optional/single/Page/Slice/Stream) with Pageable; names verified against Spring Data docs and round-tripped through the local derived-name parser/checks. count->long and exists->boolean from doc wording only; combined IgnoreCase forms unverified; entity found by file name only. No Spring runtime/compile test. Open: relationship paths, Distinct, Sort/Limit params, unresolved-call creation, editing existing queries, keyword preferences.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-464.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-463",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G043-C1: The bottom section controls named vs positional parameters and whether to include a Pageable parameter."
+          ],
+          "claimIds": [
+            "G043-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
+          "test": "jpa_assist --only RS-463",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-464",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G043-C1: The bottom section controls named vs positional parameters and whether to include a Pageable parameter."
+          ],
+          "claimIds": [
+            "G043-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-464.json",
+          "test": "jpa_assist --only RS-464",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/query_method_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-464.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G043-C1"
+          ],
+          "claimsExplicit": [
+            "G043-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G044",
@@ -1526,15 +2156,54 @@
       "id": "G046",
       "family": "Spring Data",
       "capability": "Keyword conventions",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Keyword settings (queryFindPrefix, queryEqualityKeyword, queryNegationKeyword, queryBooleanStyle, queryNullKeyword, queryContainsKeyword, queryIgnoreCaseKeyword, queryDateKeywords; defaults identical to previous output; only spellings from the Spring Data keyword table; parser-only spellings not claimed; After/Before restricted to temporal types by our choice) used by query_method_action.rs, and 'Edit query method…' (query_edit_action.rs): single derived method, conditions/operator/And-Or/OrderBy/Top/return wrapper+Pageable, declaration-span replace, round-trip refusal when the parser cannot rebuild the original name, no-op refusal, collision refusal; safe annotations preserved (Transactional, EntityGraph, QueryHints, Lock, Deprecated, SuppressWarnings). S004 covered: condition ordering, nullability, case, paging, sorting, return wrapper. pick_many order preservation on a real host unverified; mock host only.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-461.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-461",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G046-C1: A setting restricts derived-method name generation to an approved keyword set (e.g. NameContaining, NameIsContaining or NameContains)."
+          ],
+          "claimIds": [
+            "G046-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-461.json",
+          "test": "jpa_assist --only RS-461",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/query_method_action.rs",
         "plugins/jpa-assist/settings.schema.json"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-461.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-461.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G046-C1"
+          ],
+          "claimsExplicit": [
+            "G046-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G047",
@@ -1591,7 +2260,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-105.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G048-C1"
           ],
@@ -1643,7 +2312,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-106.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G049-C1"
           ],
@@ -1695,7 +2364,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-107.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G050-C1"
           ],
@@ -1747,7 +2416,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-108.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G051-C1"
           ],
@@ -1836,7 +2505,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-109.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-110.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G053-C1",
             "G053-C2",
@@ -1858,7 +2527,31 @@
       "baseline": "Missing",
       "finding": "Local attribute Rename does not propagate to projection files.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-465.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-465.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-466.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-468.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G054-C1",
+            "G054-C2",
+            "G054-C3"
+          ],
+          "claimsExplicit": [
+            "G054-C1",
+            "G054-C2",
+            "G054-C3"
+          ]
+        }
+      }
     },
     {
       "id": "G055",
@@ -1868,17 +2561,107 @@
       "baseline": "Missing",
       "finding": "No naming/comment-pattern associations or projection navigation.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-469.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-469.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-470.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-471.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-472.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G055-C1",
+            "G055-C2",
+            "G055-C3",
+            "G055-C4"
+          ],
+          "claimsExplicit": [
+            "G055-C1",
+            "G055-C2",
+            "G055-C3",
+            "G055-C4",
+            "G055-C5",
+            "G055-C6"
+          ]
+        }
+      }
     },
     {
       "id": "G056",
       "family": "Spring Data",
       "capability": "Auditing support",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Partial",
       "finding": "Reviewed 'Add auditing fields…' (createdDate/lastModifiedDate in Instant/LocalDateTime/OffsetDateTime, createdBy/lastModifiedBy in String/Long/UUID, @EntityListeners(AuditingEntityListener.class) merged into an existing literal list; Java merge only, Kotlin ::class lists refused; needs literal spring-data-jpa in build text) and 'Create JPA auditing configuration…' (@EnableJpaAuditing @Configuration + optional AuditorAware placeholder returning Optional.empty(); refused if @EnableJpaAuditing/jpa:auditing appears in a bounded scan). Facts from the Spring Data auditing pages; package names confirmed by compile checks (mixed commons 3.4.13 + jpa 4.1.2 jars), not by the pages; OffsetDateTime runtime conversion unverified; find_files skips hidden/gitignored paths on the real host.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-111.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-473.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-474.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-111",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G056-C1: Auditing support provides @CreatedBy, @CreatedDate, @LastModifiedBy and @LastModifiedDate."
+          ],
+          "claimIds": [
+            "G056-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-111.json",
+          "test": "jpa_assist --only RS-111",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-473",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G056-C2: A warning is shown if @EnableJpaAuditing is missing."
+          ],
+          "claimIds": [
+            "G056-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-473.json",
+          "test": "jpa_assist --only RS-473",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-474",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G056-C3: A warning is shown if AuditingEntityListener is not registered on the entity."
+          ],
+          "claimIds": [
+            "G056-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-474.json",
+          "test": "jpa_assist --only RS-474",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/auditing_action.rs"
       ],
@@ -1888,11 +2671,15 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-111.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-111.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-111.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-473.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-474.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
-            "G056-C1"
+            "G056-C1",
+            "G056-C2",
+            "G056-C3"
           ],
           "claimsExplicit": [
             "G056-C1",
@@ -1906,11 +2693,76 @@
       "id": "G057",
       "family": "Spring Data",
       "capability": "EntityView repositories",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "revision_repo_action.rs: 'Create revision repository…' (XRevisionRepository extends RevisionRepository<X, Id, N>, JpaRepository<X, Id>; class-level @Audited with exact envers import, literal spring-data-envers in build text, N = Integer or the single custom @RevisionNumber type int/Integer/long/Long from a bounded scan; refuses several revision entities, Kotlin revision entities, getter @RevisionNumber; Java and Kotlin), 'Enable Envers repositories…' (@Configuration @EnableEnversRepositories, Java; refuses when EnableEnversRepositories/EnversRevisionRepositoryFactoryBean/EnableJpaRepositories already appear) and 'Create entity view repository…' (EntityViewRepository<V, Id>, Java; needs the Blaze Spring Data artifact literally; @EnableBlazeRepositories not generated, its package not in the manual). Verified by javap on spring-data-envers 4.1.2, spring-data-commons 4.1.2, hibernate-envers 6.6.49, blaze spring-data-base 3.3-1.6.20 and the Spring Data JPA reference (correction: the method is findLastChangeRevision). Compile-checked against those jars (Blaze annotations stubbed); JpaRepository only against 4.1.2; XML/dependency revision entities and @Audited mapped superclasses not handled.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-129.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-475.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-476.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-129",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+            "https://www.jetbrains.com/help/idea/jpa-buddy.html"
+          ],
+          "referenceClaims": [
+            "G057-C2: The parent interface for an Entity View repository must be EntityViewRepository or a successor.",
+            "G057-C3: JPA Buddy creates an Entity View for a JPA entity and a Spring Data JPA repository for an Entity View."
+          ],
+          "claimIds": [
+            "G057-C2",
+            "G057-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-129.json",
+          "test": "jpa_assist --only RS-129",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-475",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G057-C1: Entity Views can be selected in the standard repository creation window when Blaze-Persistence is present."
+          ],
+          "claimIds": [
+            "G057-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-475.json",
+          "test": "jpa_assist --only RS-475",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-476",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G057-C1: Entity Views can be selected in the standard repository creation window when Blaze-Persistence is present."
+          ],
+          "claimIds": [
+            "G057-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-476.json",
+          "test": "jpa_assist --only RS-476",
+          "scope": "released host v0.1.42, headless, fixture mapstruct-lombok-dto; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/revision_repo_action.rs"
       ],
@@ -1920,10 +2772,13 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-129.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-129.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-129.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-475.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-476.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
+            "G057-C1",
             "G057-C2",
             "G057-C3"
           ],
@@ -1982,7 +2837,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-130.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G058-C1",
             "G058-C2",
@@ -2084,7 +2939,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-112.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-114.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G059-C1",
             "G059-C2",
@@ -2146,7 +3001,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-113.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G060-C1",
             "G060-C2"
@@ -2221,7 +3076,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-115.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-116.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G061-C1",
             "G061-C2"
@@ -2317,7 +3172,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-118.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-119.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G062-C1",
             "G062-C2",
@@ -2351,7 +3206,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-121.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G063-C2"
           ],
@@ -2382,7 +3237,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-122.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G064-C1"
           ],
@@ -2435,7 +3290,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-121.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G065-C1"
           ],
@@ -2571,7 +3426,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-329.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-330.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G066-C1",
             "G066-C2",
@@ -2605,7 +3460,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-120.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G067-C3"
           ],
@@ -2680,7 +3535,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-114.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-120.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G068-C1",
             "G068-C2"
@@ -2714,7 +3569,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-125.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-126.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G069-C1",
             "G069-C2"
@@ -2789,7 +3644,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-127.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G073-C1",
             "G073-C3",
@@ -2824,7 +3679,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-128.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G074-C1",
             "G074-C3"
@@ -2891,7 +3746,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-123.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-124.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G078-C2",
             "G078-C4"
@@ -2959,7 +3814,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-320.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-321.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G082-C2",
             "G082-C3",
@@ -3018,7 +3873,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-321.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G083-C1",
             "G083-C2"
@@ -3038,7 +3893,25 @@
       "baseline": "Missing",
       "finding": "No live non-default-schema configuration linked to reverse engineering.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-440.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-440.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G084-C2"
+          ],
+          "claimsExplicit": [
+            "G084-C1",
+            "G084-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G085",
@@ -3082,7 +3955,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-320.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G085-C1"
           ],
@@ -3120,15 +3993,54 @@
       "id": "G088",
       "family": "Reverse engineering",
       "capability": "Field selection",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "SQL-file generation extensions (ddl_entities_action.rs/ddl_parse.rs): per-table column selection (G088), @Table indexes/uniqueConstraints from parsed Known indexes with expression/partial/DESC skipped (G089), opt-in PostgreSQL schema qualifier (G090; behaviour changed from always written), opt-in PostgreSQL CREATE TYPE ENUM / MySQL ENUM as sibling enums with @Enumerated(STRING) and constants never renamed (G092; SET never mapped), table/column prefix stripping and heuristic singularize with editable class names (G101/G102; wrong for e.g. cases->cas), comments as escaped Javadoc (G100), reserved-word quoting via @Column(name=\"\\\"order\\\"\") per Jakarta 3.2 section 2.15 using PostgreSQL 18 (101 words) and MySQL 8.4 (266 words, parsed from an Internet Archive copy of the page) lists. Hibernate behavior with PostgreSQL named enums and per-database delimiter mapping unverified; MySQL NO_BACKSLASH_ESCAPES/ANSI_QUOTES not modelled. Compile-checked Java/Kotlin jakarta/javax.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-441.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-441",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G088-C1: Column/Reference checkboxes choose which columns and references are generated, and attribute names can be edited."
+          ],
+          "claimIds": [
+            "G088-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-441.json",
+          "test": "jpa_assist --only RS-441",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "crates/persistence-core/src/ddl_parse.rs",
         "plugins/jpa-assist/src/ddl_entities_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-441.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-441.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G088-C1"
+          ],
+          "claimsExplicit": [
+            "G088-C1"
+          ]
+        }
+      }
     },
     {
       "id": "G089",
@@ -3173,7 +4085,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-219.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G089-C1"
           ],
@@ -3226,7 +4138,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-220.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G090-C1"
           ],
@@ -3240,14 +4152,99 @@
       "id": "G091",
       "family": "Reverse engineering",
       "capability": "Parent mappings",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "JOINED inheritance offered in the SQL-file action when a selected table's single-column PK is also an FK to another selected table's single-column PK (not generated keys, no cycles; chains supported; Kotlin parents open); root @Inheritance(JOINED), child extends + @PrimaryKeyJoinColumn, no @Id; no discriminator prompt; @MapsId not generated (unverified). Compile-checked Java/Kotlin, jakarta/javax. Whether @DiscriminatorColumn is required for JOINED is unverified.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-442.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-443.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-444.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-442",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G091-C1: A Parent drop-down lists @MappedSuperclass classes to extend."
+          ],
+          "claimIds": [
+            "G091-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-442.json",
+          "test": "jpa_assist --only RS-442",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-443",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G091-C2: Attributes with same name and type are inherited; differing names use @AttributeOverride."
+          ],
+          "claimIds": [
+            "G091-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-443.json",
+          "test": "jpa_assist --only RS-443",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-444",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G091-C3: The IDE warns when inherited attributes are missing from the database."
+          ],
+          "claimIds": [
+            "G091-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-444.json",
+          "test": "jpa_assist --only RS-444",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "plugins/jpa-assist/src/ddl_entities_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-442.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-442.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-443.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-444.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G091-C1",
+            "G091-C2",
+            "G091-C3"
+          ],
+          "claimsExplicit": [
+            "G091-C1",
+            "G091-C2",
+            "G091-C3"
+          ]
+        }
+      }
     },
     {
       "id": "G092",
@@ -3292,7 +4289,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-215.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G092-C1"
           ],
@@ -3321,11 +4318,13 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-217.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-217.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-217.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-445.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
-            "G093-C1"
+            "G093-C1",
+            "G093-C3"
           ],
           "claimsExplicit": [
             "G093-C1",
@@ -3339,11 +4338,73 @@
       "id": "G094",
       "family": "Reverse engineering",
       "capability": "Deferred mappings",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Unmapped SQL type columns can be skipped (listed as deferred) or mapped as String with @Column(columnDefinition) only when the type text is a safe literal (letters, digits, space, parentheses, comma, underscore); no Java type is guessed. Whether a String binds to types like jsonb/geometry is unverified.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-216.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-446.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-447.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-216",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G094-C1: The TODO mapping type emits the field commented out with a TODO marker."
+          ],
+          "claimIds": [
+            "G094-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-216.json",
+          "test": "jpa_assist --only RS-216",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-446",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G094-C2: The TODO comment offers \"Uncomment as is\" and \"Remove column mapping\" actions."
+          ],
+          "claimIds": [
+            "G094-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-446.json",
+          "test": "jpa_assist --only RS-446",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-447",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G094-C2: The TODO comment offers \"Uncomment as is\" and \"Remove column mapping\" actions."
+          ],
+          "claimIds": [
+            "G094-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-447.json",
+          "test": "jpa_assist --only RS-447",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "crates/persistence-core/src/ddl_parse.rs",
         "plugins/jpa-assist/src/ddl_entities_action.rs"
@@ -3354,11 +4415,14 @@
           "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-216.json",
           "receipts": [
-            "plugins/jpa-assist/parity/receipts/L1/RS-216.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-216.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-446.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-447.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
-            "G094-C1"
+            "G094-C1",
+            "G094-C2"
           ],
           "claimsExplicit": [
             "G094-C1",
@@ -3414,7 +4478,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-214.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G095-C1",
             "G095-C2",
@@ -3462,7 +4526,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-212.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-213.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G097-C1",
             "G097-C2",
@@ -3616,7 +4680,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-224.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-225.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G099-C1",
             "G099-C2",
@@ -3673,7 +4737,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-218.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G100-C1"
           ],
@@ -3687,11 +4751,93 @@
       "id": "G101",
       "family": "Reverse engineering",
       "capability": "Name cleanup",
-      "status": "partial",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "SQL-file generation extensions (ddl_entities_action.rs/ddl_parse.rs): per-table column selection (G088), @Table indexes/uniqueConstraints from parsed Known indexes with expression/partial/DESC skipped (G089), opt-in PostgreSQL schema qualifier (G090; behaviour changed from always written), opt-in PostgreSQL CREATE TYPE ENUM / MySQL ENUM as sibling enums with @Enumerated(STRING) and constants never renamed (G092; SET never mapped), table/column prefix stripping and heuristic singularize with editable class names (G101/G102; wrong for e.g. cases->cas), comments as escaped Javadoc (G100), reserved-word quoting via @Column(name=\"\\\"order\\\"\") per Jakarta 3.2 section 2.15 using PostgreSQL 18 (101 words) and MySQL 8.4 (266 words, parsed from an Internet Archive copy of the page) lists. Hibernate behavior with PostgreSQL named enums and per-database delimiter mapping unverified; MySQL NO_BACKSLASH_ESCAPES/ANSI_QUOTES not modelled. Compile-checked Java/Kotlin jakarta/javax.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-008.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-226.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-227.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-448.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-008",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G101-C3: A setting converts table names to singular class names (users -> User)."
+          ],
+          "claimIds": [
+            "G101-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-008.json",
+          "test": "jpa_assist --only RS-008",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-226",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G101-C1: Naming rules can skip configured table and column name prefixes and suffixes (comma-separated)."
+          ],
+          "claimIds": [
+            "G101-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-226.json",
+          "test": "jpa_assist --only RS-226",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-227",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G101-C2: A reserved-keyword field suffix is appended when a column name clashes with a Java keyword (class -> classField)."
+          ],
+          "claimIds": [
+            "G101-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-227.json",
+          "test": "jpa_assist --only RS-227",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-448",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/reverse-engineering.html"
+          ],
+          "referenceClaims": [
+            "G101-C4: A setting replaces ORM references with basic attributes (customer_id -> Long customerId)."
+          ],
+          "claimIds": [
+            "G101-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-448.json",
+          "test": "jpa_assist --only RS-448",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "implementation": [
         "crates/persistence-core/src/ddl_parse.rs",
         "plugins/jpa-assist/src/ddl_entities_action.rs"
@@ -3704,13 +4850,15 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-008.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-226.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-227.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-227.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-448.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G101-C1",
             "G101-C2",
-            "G101-C3"
+            "G101-C3",
+            "G101-C4"
           ],
           "claimsExplicit": [
             "G101-C1",
@@ -3747,7 +4895,25 @@
       "implementation": [
         "crates/persistence-core/src/ddl_parse.rs",
         "plugins/jpa-assist/src/ddl_entities_action.rs"
-      ]
+      ],
+      "evidenceLevel": {
+        "L1": {
+          "status": "pass",
+          "harness": "scripts/runtime-smoke/src/bin/jpa_assist.rs",
+          "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-449.json",
+          "receipts": [
+            "plugins/jpa-assist/parity/receipts/L1/RS-449.json"
+          ],
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
+          "claimsCovered": [
+            "G103-C2"
+          ],
+          "claimsExplicit": [
+            "G103-C1",
+            "G103-C2"
+          ]
+        }
+      }
     },
     {
       "id": "G104",
@@ -3816,7 +4982,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-301.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G104-C1",
             "G104-C2",
@@ -3894,7 +5060,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-302.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-303.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G105-C1",
             "G105-C2"
@@ -3926,7 +5092,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-304.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G106-C1"
           ],
@@ -3958,7 +5124,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-305.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-306.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G107-C2"
           ],
@@ -3990,7 +5156,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-006.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G108-C2"
           ],
@@ -4022,7 +5188,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-300.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G109-C1"
           ],
@@ -4079,7 +5245,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-006.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G110-C1"
           ],
@@ -4198,7 +5364,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G112-C1",
             "G112-C2",
@@ -4258,7 +5424,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G115-C3"
           ],
@@ -4295,7 +5461,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-308.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-309.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G116-C1",
             "G116-C2",
@@ -4377,7 +5543,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-314.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-315.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G117-C1",
             "G117-C2",
@@ -4411,7 +5577,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-316.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G118-C1",
             "G118-C3"
@@ -4447,7 +5613,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-318.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-319.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G119-C1",
             "G119-C2",
@@ -4619,7 +5785,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-312.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-313.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G120-C1",
             "G120-C2",
@@ -4812,7 +5978,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-325.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-326.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G125-C1",
             "G125-C2",
@@ -4846,7 +6012,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-236.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G126-C1"
           ],
@@ -4884,7 +6050,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-322.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-323.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G127-C1",
             "G127-C2"
@@ -4984,7 +6150,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-131.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-132.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G130-C1",
             "G130-C3"
@@ -5050,7 +6216,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-132.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "G134-C2"
           ],
@@ -6173,9 +7339,73 @@
       "id": "S004",
       "family": "Query controls",
       "capability": "Condition ordering, nullability, case, paging, sorting and related return-type creation",
-      "status": "partial",
-      "evidence": [],
-      "acceptance": [],
+      "status": "verified-parity",
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-104.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-331.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-104",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "S004-C1: Fields to order results by can be specified.",
+            "S004-C4: The middle section is a table of query conditions."
+          ],
+          "claimIds": [
+            "S004-C1",
+            "S004-C4"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-104.json",
+          "test": "jpa_assist --only RS-104",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-331",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "S004-C2: The bottom section controls named vs positional parameters and whether to include a Pageable parameter."
+          ],
+          "claimIds": [
+            "S004-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-331.json",
+          "test": "jpa_assist --only RS-331",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-462",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "S004-C3: A + button generates new projection interfaces or DTO classes inline from the query window."
+          ],
+          "claimIds": [
+            "S004-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-462.json",
+          "test": "jpa_assist --only RS-462",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "finding": "Keyword settings (queryFindPrefix, queryEqualityKeyword, queryNegationKeyword, queryBooleanStyle, queryNullKeyword, queryContainsKeyword, queryIgnoreCaseKeyword, queryDateKeywords; defaults identical to previous output; only spellings from the Spring Data keyword table; parser-only spellings not claimed; After/Before restricted to temporal types by our choice) used by query_method_action.rs, and 'Edit query method…' (query_edit_action.rs): single derived method, conditions/operator/And-Or/OrderBy/Top/return wrapper+Pageable, declaration-span replace, round-trip refusal when the parser cannot rebuild the original name, no-op refusal, collision refusal; safe annotations preserved (Transactional, EntityGraph, QueryHints, Lock, Deprecated, SuppressWarnings). S004 covered: condition ordering, nullability, case, paging, sorting, return wrapper. pick_many order preservation on a real host unverified; mock host only.",
       "implementation": [
         "plugins/jpa-assist/src/query_edit_action.rs",
@@ -6188,12 +7418,14 @@
           "receipt": "plugins/jpa-assist/parity/receipts/L1/RS-104.json",
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-104.json",
-            "plugins/jpa-assist/parity/receipts/L1/RS-331.json"
+            "plugins/jpa-assist/parity/receipts/L1/RS-331.json",
+            "plugins/jpa-assist/parity/receipts/L1/RS-462.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "S004-C1",
             "S004-C2",
+            "S004-C3",
             "S004-C4"
           ],
           "claimsExplicit": [
@@ -6313,7 +7545,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
           ],
-          "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+          "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6",
           "claimsCovered": [
             "F005-C1"
           ],

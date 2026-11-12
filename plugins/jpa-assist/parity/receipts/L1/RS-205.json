@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-205/prompts.json",
-      "sha256": "60710dc20e1ba8b5f179f1870bf4f1997827546aec8b4eb8af8154da55676455"
+      "sha256": "5a1f4db7519a517f3c818b973623f9fe383df903174ca1948c0565eaea9997c1"
     },
     {
       "path": "artifacts/RS-205/preview.txt",
@@ -62,10 +62,10 @@
     "G029"
   ],
   "scenario": "RS-205",
-  "scenarioSha256": "6473a5d52a20360cd3798056df9c87b66ce48d845fe6235419f1c9116e57d632",
+  "scenarioSha256": "cebbb10c9b08d82e38b6ba9305b080eb93c384df8a225f4ed544368d9690433d",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+  "wasmSha256": "b64cf7d834c44c7089bc86d69a6119212aa88a11408aab48b46721a63a31b0a6"
 }
