@@ -119,3 +119,6 @@ table.resource-table--bounded{table-layout:fixed}
 .command-workspace-host{min-height:0;height:100%;overflow:hidden}
 main:has(.command-workspace-host){overflow:hidden}
 .workspace:has(.command-workspace-host){flex:1 1 0%;min-height:0}
+.resource-group th{text-align:left;font-weight:600;padding:0;background:var(--ui-surface-raised,transparent)}
+.resource-group-toggle{display:flex;align-items:center;gap:var(--ui-space-1);width:100%;border:0;background:none;color:inherit;font:inherit;padding:var(--ui-space-1) var(--ui-space-2);cursor:pointer}
+.resource-group-count{color:var(--ui-muted);font-weight:400}
