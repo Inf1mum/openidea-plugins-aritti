@@ -1,0 +1,95 @@
+{
+  "id": "RS-444",
+  "rows": [
+    "G091"
+  ],
+  "claimIds": [
+    "G091-C3"
+  ],
+  "verifies": {
+    "G091-C3": "when the parent declares an attribute the table has no column for (version), the confirmation preview carries a warning naming the attribute and parent; the generation still proceeds after confirmation. Not checked: a dialog banner or icon; only the preview text is observable."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table notes (\n    id bigserial primary key,\n    created_at timestamp,\n    body text\n);\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Auditable.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.MappedSuperclass;\nimport java.time.LocalDateTime;\n\n@MappedSuperclass\npublic abstract class Auditable {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    @Column(name = \"created\")\n    private LocalDateTime createdAt;\n\n    private Long version;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Stamped.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.MappedSuperclass;\n\n@MappedSuperclass\npublic abstract class Stamped {\n    private String stamp;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "notes"
+      ]
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "mappedSuperclass"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pick": "com.example.billing.domain.Auditable"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pick"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pick"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "warning: inherited attribute `version` of Auditable"
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "The table lacks the inherited version column."
+}

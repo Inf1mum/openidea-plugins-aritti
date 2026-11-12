@@ -26,6 +26,8 @@ mod flyway_misc_action;
 mod equality_action;
 #[path = "ddl_entities_action.rs"]
 mod ddl_entities_action;
+#[path = "ddl_todo_action.rs"]
+mod ddl_todo_action;
 #[path = "migration_action.rs"]
 pub(crate) mod migration_action;
 #[path = "liquibase_action.rs"]
@@ -103,6 +105,8 @@ enum Operation {
     EqualityMethods,
     LazySafeToString,
     DdlEntities,
+    TodoUncomment,
+    TodoRemove,
     SchemaBaseline,
     FlywayMigration,
     LiquibaseChangelog,
@@ -167,6 +171,8 @@ impl Operation {
             Self::EqualityMethods => "equality-methods",
             Self::LazySafeToString => "lazy-safe-to-string",
             Self::DdlEntities => "ddl-entities",
+            Self::TodoUncomment => "todo-uncomment",
+            Self::TodoRemove => "todo-remove",
             Self::SchemaBaseline => "schema-baseline",
             Self::FlywayMigration => "flyway-migration",
             Self::LiquibaseChangelog => "liquibase-changelog",
@@ -595,6 +601,10 @@ impl FileActions for JpaAssist {
         if injection_action::eligible(doc) {
             operations.push((Operation::InjectRepository, injection_action::TITLE));
         }
+        if ddl_todo_action::eligible(doc, selection) {
+            operations.push((Operation::TodoUncomment, ddl_todo_action::UNCOMMENT_TITLE));
+            operations.push((Operation::TodoRemove, ddl_todo_action::REMOVE_TITLE));
+        }
         if attribute_refactor::eligible(doc,selection) {operations.push((Operation::Rename,attribute_refactor::TITLE));}
         if self.generation.pending.len() > 8 {
             self.generation.pending.clear();
@@ -732,6 +742,8 @@ impl FileActions for JpaAssist {
             Operation::EqualityMethods => equality_action::resolve_equals(&pending, doc, &project),
             Operation::LazySafeToString => equality_action::resolve_to_string(&pending, doc),
             Operation::DdlEntities => ddl_entities_action::resolve(&pending, doc, &project),
+            Operation::TodoUncomment => ddl_todo_action::resolve(&pending, doc, true),
+            Operation::TodoRemove => ddl_todo_action::resolve(&pending, doc, false),
             Operation::SchemaBaseline => migration_action::resolve_baseline(&pending, doc, &project),
             Operation::FlywayMigration => migration_action::resolve_migration(&pending, doc, &project),
             Operation::LiquibaseChangelog => liquibase_action::resolve(&pending, doc, &project),
