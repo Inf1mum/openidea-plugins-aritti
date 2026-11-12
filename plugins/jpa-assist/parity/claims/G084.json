@@ -1,0 +1,35 @@
+{
+ "row": "G084",
+ "capability": "Schema selection",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G084-C1",
+   "statement": "The Entities from DB dialog lets the user select which database schema to reverse engineer.",
+   "supports": "Select which database schema you want to reverse engineer",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G084-C2",
+   "statement": "A 'Use table schema' option writes the schema explicitly into generated @Table annotations.",
+   "supports": "Use table schema: explicitly specify the database schema in @Table",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "default-schema handling, schema list source"
+ ],
+ "verdict": "thin"
+}

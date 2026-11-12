@@ -1,0 +1,35 @@
+{
+ "row": "G096",
+ "capability": "Existing entity updates",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G096-C1",
+   "statement": "Create Entity Attributes from DB adds columns not yet mapped to an existing entity, invoked from the Database or Persistence tool window or from an entity class.",
+   "supports": "Create Entity Attributes from DB...",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G096-C2",
+   "statement": "The attribute dialog separates Columns (unmapped) from Mapped Columns (already mapped to entity attributes).",
+   "supports": "Columns: not mapped; Mapped Columns: already mapped",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "merge/conflict behaviour, type changes, removed columns"
+ ],
+ "verdict": "thin"
+}

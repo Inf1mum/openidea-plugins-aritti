@@ -1,0 +1,35 @@
+{
+ "row": "G080",
+ "capability": "Connection management",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G080-C1",
+   "statement": "The reverse-engineering wizard requires an existing IDE data source selected from the Database tool window, and lets the user create a new one from that field.",
+   "supports": "select an existing data source from the Database tool window",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G080-C2",
+   "statement": "A database connection can be created from existing properties via a gutter icon in the configuration file for Spring, Micronaut and Quarkus projects.",
+   "supports": "Create new datasource from existing properties in the editor gutter",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "datasource_action.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "connection editor, tested connection inventory"
+ ],
+ "verdict": "thin"
+}

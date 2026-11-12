@@ -1,0 +1,27 @@
+{
+ "row": "G045",
+ "capability": "Unresolved method creation",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G045-C1",
+   "statement": "After writing the signature of a not-yet-existing method, the query or method creation wizard can be opened through special actions.",
+   "supports": "write signature of a method that doesn't exist, open wizard via special actions",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "query_method_action.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "whether Alt+Enter on the unresolved call is the trigger",
+  "generated query output"
+ ],
+ "verdict": "thin"
+}

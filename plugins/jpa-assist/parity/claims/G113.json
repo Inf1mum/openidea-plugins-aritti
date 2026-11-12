@@ -1,0 +1,35 @@
+{
+ "row": "G113",
+ "capability": "Changelog inspector",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G113-C1",
+   "statement": "In the Preview window, each change type can be placed in the primary or secondary location or ignored.",
+   "supports": "configure the location of each change type, primary or secondary, or ignore it",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
+   "strength": "implied",
+   "ourFeature": "liquibase_action.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G113-C2",
+   "statement": "In the Preview window, individual changes can be removed from the migration scripts.",
+   "supports": "choose the changes that you want to remove from the migration scripts",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
+   "strength": "implied",
+   "ourFeature": "liquibase_action.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "no changelog inspector or structured change editor is described on the fetched pages"
+ ],
+ "verdict": "none"
+}

@@ -5,10 +5,10 @@ Generated 2026-11-11 from public JetBrains IDEA help pages for JPA Buddy. No par
 Verdict rule: `documented` = 3+ explicit claims, `thin` = 1-2, `none` = 0 explicit (implied-only counts as none). Only explicit claims count toward closure. Many `thin`/`documented` rows are documented only at the level of the feature's existence or its option list: the docs state no precise output (exact generated code, error text, defaults), so verifying a claim proves the option exists, not that our output matches the original.
 
 ## Conclusion
-- Rows with at least one explicit claim: 113 of 117
-- Rows with 3+ explicit claims: 46
-- Rows with none: 4 (I008, S001, S002, S003)
-- Total explicit claims: 268 (of which headless-verifiable: 224)
+- Rows with at least one explicit claim: 134 of 141 (24 rows added 2026-11-12, see below)
+- Rows with 3+ explicit claims: 55
+- Rows with none: 7 (I008, S001, S002, S003, G086, G113, G129)
+- Total explicit claims: 322 (of which headless-verifiable: 249)
 - Closure caveat: a documented claim is usually an option/behaviour sentence; most rows also implement behaviour (limits, refusals, Java-only scopes, settings names) the docs never state, listed in each file's `undocumented`. Even a fully verified row stays partial for those parts.
 
 | Row | Family | Capability | Verdict | Explicit | Headless | Sources |
@@ -136,3 +136,6 @@ Verdict rule: `documented` = 3+ explicit claims, `thin` = 1-2, `none` = 0 explic
 - S001 Conditional precision/scale, orphan removal, collection ordering and write policies
 - S002 Join/collection tables, overrides and ownership-aware controls
 - S003 Inheritance strategy, discriminator and primary-key join controls
+
+## Added 2026-11-12 (24 rows that had no claims file)
+G003, G005, G011, G012, G039, G045, G054, G055 (entity designer, Spring Data, DTO pages); G075, G076, G077, G079, G113, G114, G121, G123 (DTO generator, database versioning, overview and Ultimate pages; the dedicated Liquibase page returned 404, so G114 rests on the overview); G080, G084, G086, G096, G098, G129, G131, G133 (reverse engineering, coding assistance, database versioning). 59 claims, 54 explicit, 25 explicit and headless-verifiable. Only G054, G055, G075, G076, G077, G114, G121, G123, G133 and G084 have headless claims; the rest are desktop surfaces. G086, G113 and G129 have implied claims only. `ourFeature` values were assigned from file names and greps, not from reading the code.

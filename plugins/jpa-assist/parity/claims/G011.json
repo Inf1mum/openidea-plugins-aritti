@@ -1,0 +1,44 @@
+{
+ "row": "G011",
+ "capability": "Editor toolbar",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G011-C1",
+   "statement": "The editor toolbar shows actions that depend on the file content.",
+   "supports": "Editor Toolbar contains relevant actions depending on the file content",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G011-C2",
+   "statement": "The toolbar appears at the top of the editor window.",
+   "supports": "appears at the top of the editor window",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G011-C3",
+   "statement": "Toolbar visibility is configurable in the visual designer settings.",
+   "supports": "visibility set in visual designer settings",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "exact action list per file kind"
+ ],
+ "verdict": "documented"
+}

@@ -1,0 +1,36 @@
+{
+ "row": "G114",
+ "capability": "Model completion",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "retrievedOn": "2026-11-12",
+   "note": "JPA Buddy overview page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G114-C1",
+   "statement": "Liquibase changelogs offer autocomplete for table and column names.",
+   "supports": "coding assistance and autocomplete in Liquibase changelogs for table and column names",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G114-C2",
+   "statement": "The completion values are taken directly from the JPA data model.",
+   "supports": "JPA Buddy takes these values directly from your data model",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "strength": "explicit",
+   "ourFeature": "not implemented",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Flyway SQL completion is not stated",
+  "completion trigger and ordering"
+ ],
+ "verdict": "thin"
+}

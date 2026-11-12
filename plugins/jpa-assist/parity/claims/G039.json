@@ -1,0 +1,35 @@
+{
+ "row": "G039",
+ "capability": "Repository grouping",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-12",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G039-C1",
+   "statement": "Every repository tied to an entity is collected in one place even across packages.",
+   "supports": "collects every repository tied to an entity in one place",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "structure_related.rs, repository_action.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G039-C2",
+   "statement": "Grouped repositories appear in a Repositories section where one can open an implementation or create a new repository.",
+   "supports": "Repositories section, open implementation or create new",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "structure_related.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "ordering, grouping of multiple matches"
+ ],
+ "verdict": "thin"
+}
