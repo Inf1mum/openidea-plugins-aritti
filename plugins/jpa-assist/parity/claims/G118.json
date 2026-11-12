@@ -25,7 +25,8 @@
    "source": "https://www.jetbrains.com/help/idea/flyway.html",
    "strength": "explicit",
    "ourFeature": "Create Flyway Java migration…; Create Flyway SQL callback… (flyway_misc_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "A pick prompt lists the Flyway callback events. Not checked: the Choose Callback Event dialog."
   },
   {
    "id": "G118-C3",

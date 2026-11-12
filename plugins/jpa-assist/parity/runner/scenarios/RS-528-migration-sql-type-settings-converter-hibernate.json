@@ -89,14 +89,17 @@
         "sqlTypeMappings": [
           {
             "type": "AmountConverter",
+            "dbms": "",
             "sqlType": "numeric(19,2)"
           },
           {
             "type": "PointType",
+            "dbms": "",
             "sqlType": "geometry(Point,4326)"
           },
           {
             "type": "@JdbcTypeCode(SqlTypes.JSON)",
+            "dbms": "",
             "sqlType": "jsonb"
           }
         ]
