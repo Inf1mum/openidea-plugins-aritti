@@ -1,7 +1,7 @@
-html, body { margin: 0; height: 100%; overflow-x: clip; background: var(--ui-bg); color: var(--ui-fg); font: var(--ui-text) var(--ui-font); }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ui-bg); color: var(--ui-fg); font: var(--ui-text) var(--ui-font); }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-.designer-shell { height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.designer-shell { height: 100vh; max-height: 100vh; display: flex; flex-direction: column; min-width: 0; }
 .source-caption { display: flex; align-items: center; gap: var(--ui-space-2); flex-wrap: wrap; }
 .source-caption > strong { overflow-wrap: anywhere; min-width: 0; }
 #source-path, #preview-path { overflow-wrap: anywhere; }
@@ -56,11 +56,11 @@ body.minimal #inspector-search, body.minimal #provenance, body.minimal #source-p
 /* Layout: toolbar on top, palette (about 40%) over inspector, each scrolling on its own, like the original tool window. */
 .designer-shell { font-size: 12px; line-height: 16px; }
 .designer-shell > main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.designer-shell > main > section[role=tabpanel] { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ui-space-2); }
+.designer-shell > main > section[id$="-panel"] { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ui-space-2); }
 .designer-shell > main > #status { flex: none; padding: 0 var(--ui-space-2); margin: 0; font-size: 11px; }
 .designer-shell > main > #status:empty { display: none; }
 #inspect-panel { display: flex; flex-direction: column; padding: 0 !important; overflow: hidden !important; }
-#palette { flex: 0 0 40%; min-height: 96px; overflow: hidden; display: flex; flex-direction: column; margin: 0; border-bottom: 1px solid var(--ui-border); }
+#palette { flex: 0 0 38%; min-height: 140px; max-height: 55%; overflow: hidden; display: flex; flex-direction: column; margin: 0; border-bottom: 1px solid var(--ui-border); }
 #inspector { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0; padding: 0; }
 body.no-palette #inspector, body.minimal #inspector { padding: 0; }
 body.no-inspector #palette { flex: 1 1 auto; }
@@ -72,7 +72,7 @@ body.no-inspector #palette { flex: 1 1 auto; }
 
 /* Palette */
 #palette > .ui-input[type=search] { min-height: 0; flex: none; width: 100%; height: 22px; padding-top: 0; padding-bottom: 0; border-width: 0 0 1px; border-radius: 0; font-size: 12px; }
-.palette-body { flex: 1 1 auto; min-height: 0; overflow: hidden; grid-template-rows: minmax(0, 1fr); display: grid; grid-template-columns: minmax(84px, 38%) minmax(0, 1fr); gap: 0; margin: 0; }
+.palette-body { flex: 1 1 auto; min-height: 0; overflow: hidden; grid-template-rows: minmax(0, 1fr); display: grid; grid-template-columns: clamp(84px, 38%, 200px) minmax(0, 1fr); gap: 0; margin: 0; }
 .palette-categories, .palette-items { display: block; margin: 0; padding: 0; list-style: none; overflow: auto; min-width: 0; min-height: 0; max-height: none; border: 0; }
 .palette-categories { background: var(--ui-panel); border-right: 1px solid var(--ui-border); }
 .palette-categories > .ui-option, .palette-item.ui-option { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 5px; width: 100%; height: 20px; min-height: 20px; padding: 0 6px; margin: 0; border: 0; border-radius: 0; background: transparent; color: var(--ui-fg); font: inherit; font-weight: 400; line-height: 20px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: none; }
@@ -134,24 +134,21 @@ body.no-inspector #palette { flex: 1 1 auto; }
 /* Real host: fixed compact columns at any width; !important because shared ui-kit/host rules otherwise win. */
 .view-switch { margin-left: auto; min-width: 0; display: block; }
 .view-switch .ui-select, .view-switch .ui-select-shell, .view-switch .ui-select-trigger { width: auto !important; min-width: 0 !important; min-height: 0 !important; height: 22px !important; font-size: 12px !important; }
-.designer-shell .ui-property-row { display: grid !important; grid-template-columns: 140px minmax(0, 220px) !important; justify-content: start !important; align-items: center !important; gap: 6px !important; min-height: 22px !important; height: auto !important; padding: 0 6px 0 22px !important; border: 0 !important; }
+.designer-shell .ui-property-row { display: grid !important; grid-template-columns: clamp(120px, 35%, 220px) minmax(0, 1fr) !important; align-items: center !important; gap: 6px !important; min-height: 22px !important; height: auto !important; padding: 0 6px 0 22px !important; border: 0 !important; }
 .designer-shell .ui-property-label { padding: 0 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.designer-shell .ui-property-editor { display: flex !important; align-items: center !important; min-width: 0; max-width: 220px; }
-.designer-shell .ui-property-editor > .ui-input { width: 100% !important; max-width: 220px !important; height: 20px !important; min-height: 0 !important; padding: 0 4px !important; font-size: 12px !important; }
+.designer-shell .ui-property-editor { display: flex !important; align-items: center !important; min-width: 0; }
+.designer-shell .ui-property-editor > .ui-input { width: 100% !important; max-width: 480px !important; height: 20px !important; min-height: 0 !important; padding: 0 4px !important; font-size: 12px !important; }
 .designer-shell .ui-property-editor > .ui-input:disabled { border-color: transparent !important; background: transparent !important; padding-left: 0 !important; }
 .designer-shell .ui-property-origin, .designer-shell .ui-property-editor > small, .designer-shell .ui-property-row .ui-help { display: none !important; }
 .designer-shell .ui-property-editor .ui-choice, .designer-shell .ui-property-editor .ui-choice-control { flex: none; }
-@media (max-width: 380px) { .designer-shell .ui-property-row { grid-template-columns: minmax(60px, 2fr) minmax(0, 3fr) !important; padding-left: 12px !important; } .designer-shell .ui-property-editor { max-width: none; } }
-.designer-shell .designer-section, .designer-shell #source { max-width: 640px; }
-.designer-shell .creator-form .ui-field, .designer-shell .creator-fields > .ui-field { display: grid !important; grid-template-columns: 140px minmax(0, 220px) !important; align-items: center; gap: 6px; min-height: 22px; }
-.designer-shell .creator-form .ui-input, .designer-shell .creator-form .ui-select, .designer-shell .creator-form .ui-select-shell, .designer-shell .creator-form .ui-select-trigger { max-width: 220px !important; min-height: 0 !important; height: 22px !important; }
+.designer-shell .creator-form .ui-field, .designer-shell .creator-fields > .ui-field { display: grid !important; grid-template-columns: clamp(120px, 35%, 220px) minmax(0, 1fr) !important; align-items: center; gap: 6px; min-height: 22px; }
+.designer-shell .creator-form .ui-input { max-width: 480px !important; min-height: 0 !important; height: 22px !important; }
+.designer-shell .creator-form .ui-select, .designer-shell .creator-form .ui-select-shell, .designer-shell .creator-form .ui-select-trigger { max-width: 240px !important; min-height: 0 !important; height: 22px !important; }
 .designer-shell .creator-form textarea.ui-input { height: auto !important; }
 .designer-shell .creator-form .ui-check { min-height: 20px; margin: 0; gap: 4px; }
 .designer-shell .creator-fields > .ui-check, .designer-shell #rel-cascade, .designer-shell #attr-cascade { display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .designer-shell .creator-form .ui-help { display: block; font-size: 11px; line-height: 14px; margin: 0; padding: 0; }
 .designer-shell .creator-form .ui-help:empty { display: none; }
 .designer-shell .creator-group { padding: 2px 6px; margin: 2px 0; }
-@media (max-width: 380px) { .designer-shell .creator-form .ui-field, .designer-shell .creator-fields > .ui-field { grid-template-columns: minmax(60px, 2fr) minmax(0, 3fr) !important; } .designer-shell .creator-form .ui-input, .designer-shell .creator-form .ui-select-shell, .designer-shell .creator-form .ui-select-trigger { max-width: none !important; } }
-@media (min-width: 700px) { .designer-shell #palette { max-width: 640px; } }
 .designer-shell .creator-form [hidden], .designer-shell .creator-fields [hidden], .designer-shell [hidden][class] { display: none !important; }
 .designer-shell .ui-property-row.is-filtered, .designer-shell .creator-form .is-filtered { display: none !important; }

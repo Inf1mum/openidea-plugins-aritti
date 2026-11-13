@@ -30,7 +30,7 @@ const paletteModel = {context: {loaded: true, kind: 'Entity', kotlin: false, lom
   {id: 'reverse', label: 'Reverse engineering', items: [act('generateEntities', 'Generate entities from SQL file', 'Generate entities from SQL file…')]},
 ]};
 try {
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[280, 400], [400, 700], [800, 600], [1200, 700], [2000, 700], [3000, 700]]) {
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[280, 400], [400, 700], [800, 600], [1200, 700], [1200, 1000], [2000, 700], [3000, 700]]) {
     const page = await browser.newPage({viewport: {width, height}, colorScheme: theme});
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(pm => {
@@ -89,7 +89,12 @@ try {
     });
     assert.equal(density.hints, 0, 'no helper text is visible in property rows');
     assert.ok(density.rows <= 26, `property rows stay compact at ${width}px (${density.rows}px)`);
-    assert.ok(density.inputs <= 330, `inputs do not stretch at ${width}px (${density.inputs}px)`);
+    assert.ok(density.inputs <= 490, `inputs are capped at 480px, not stretched, at ${width}px (${density.inputs}px)`);
+    const fill = await page.evaluate(() => ({inspector: document.querySelector('#inspector').getBoundingClientRect(), palette: document.querySelector('#palette').getBoundingClientRect(), general: document.querySelector('#section-general').open, column: document.querySelector('#section-column').open, add: document.querySelector('#add-attribute').open}));
+    assert.ok(fill.inspector.bottom >= height - 24 && fill.inspector.bottom <= height + 1, `the inspector fills the panel down to the bottom edge (${fill.inspector.bottom} of ${height})`);
+    assert.ok(fill.inspector.width >= width * 0.9 && fill.palette.width >= width * 0.9, `palette and inspector use the full width (${fill.palette.width}, ${fill.inspector.width} of ${width})`);
+    assert.ok(fill.palette.height >= Math.min(140, height * 0.3) - 1 && fill.palette.height <= height * 0.55 + 1, `palette takes a bounded share (${fill.palette.height})`);
+    assert.deepEqual([fill.general, fill.column, fill.add], [true, true, false], 'General and Column mapping start expanded, Add attribute collapsed');
     const rowHeight = (await page.locator('.ui-property-row').first().boundingBox()).height;
     assert.ok(rowHeight <= 26, `property rows are compact (${rowHeight}px)`);
     await page.getByRole('button', {name: /^From DB/}).click({force: true});

@@ -191,6 +191,8 @@
   $('apply').addEventListener('click', () => { if (model?.pending) send({kind: 'apply', token: model.pending.token}, 'apply'); });
   for (const id of ['reset', 'discard']) $(id).addEventListener('click', () => { if (model?.pending) send({kind: 'reset'}); else if (model) { render(model); creator.reset(); attr.reset(); rel.reset(); ann.reset(); controls(); } });
   $('view-select').addEventListener('change', () => tab($('view-select').value));
+  for (const section of document.querySelectorAll('.inspector-section')) section.open = true;
+  $('add-attribute').open = false;
   if (bridge) send({kind: 'snapshot'});
   else { $('inspect').disabled = true; $('status').textContent = 'Open this panel inside the IDE to inspect project source.'; }
 })();
