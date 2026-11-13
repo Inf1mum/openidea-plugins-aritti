@@ -1,0 +1,93 @@
+{
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Parcel.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\nclass Parcel {\n    @Id Long id;\n    String displayName;\n    boolean active;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Parcel.java",
+    "anchor": "class Parcel"
+  },
+  "action": {
+    "title": "Create scalar SQL table draft with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "file"
+    },
+    {
+      "pick": "postgresql"
+    },
+    {
+      "input": "parcel"
+    },
+    {
+      "input": "ParcelSchema"
+    },
+    {
+      "input": "db/drafts"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Save the SQL draft",
+        "optionsInclude": [
+          "File",
+          "Scratch file"
+        ],
+        "optionsExclude": [
+          "Database console"
+        ],
+        "name": "save target"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "dialect"
+      },
+      {
+        "kind": "input",
+        "titleContains": "table name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "filename stem"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Directory",
+        "defaultIs": "src/main/java/com/example/billing/domain"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "db/drafts/ParcelSchema.sql",
+        "contains": [
+          "CREATE TABLE \"parcel\"",
+          "PRIMARY KEY (\"id\")"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Kind exerciser, covers no documented claim (G122-C2 also lists a Database Console target, which is not expressible): the File save target asks for a directory (default: the entity's folder) and a file name, and creates the draft there without overwriting. Clipboard is the copy-ddl command (RS-013); Scratch file is RS-961.",
+  "id": "RS-960"
+}

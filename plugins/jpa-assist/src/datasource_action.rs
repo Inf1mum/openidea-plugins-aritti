@@ -170,16 +170,23 @@ pub(super) fn render(text: &str, url: &str, username: &str, jpa: &JpaOptions) ->
     Ok(format!("{lead}spring.datasource.url={url}{eol}spring.datasource.username={username}{eol}{PASSWORD_LINE}{eol}{}", jpa.lines(eol)))
 }
 
-pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
-    current(pending, doc)?;
-    if !eligible(doc) {
-        return Err(Error::Stale);
-    }
-    render(&doc.text, "x", "x", &JpaOptions::default())?;
+const PROFILE_PREFIX: &str = "profile:";
 
-    let mut items: Vec<PickItem> = CHOICES.iter().map(|c| PickItem::new(c.key, c.label)).collect();
-    crate::datasource_facts::prefer_in(&crate::datasource_facts::discover(project), &mut items);
-    let key = host::pick("Database for spring.datasource.url (no connection is made)", &items)?.ok_or(Error::Cancelled)?;
+/// URL and user of a saved connection; its password is not stored, so the placeholder line stays.
+fn profile_target(profile: &persistence_core::connection::Profile) -> Result<(String, String), Error> {
+    let url = profile.url_template.trim();
+    if url.is_empty() || url.contains(['\\', '#', '!']) {
+        return Err("This saved connection's URL cannot be written to a properties file unescaped; use another source.".into());
+    }
+    let user = profile.user.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    if user.is_some_and(|u| !name(u)) {
+        return Err("This saved connection's user name has characters a properties value should not hold; use another source.".into());
+    }
+    let user = user.unwrap_or("${DB_USERNAME}");
+    Ok((url.to_owned(), user.to_owned()))
+}
+
+fn manual_target(key: &str) -> Result<(String, String), Error> {
     let choice = CHOICES.iter().find(|c| c.key == key).ok_or(Error::Stale)?;
 
     let (host_value, port_value) = if choice.default_port.is_some() {
@@ -203,6 +210,25 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         return Err(format!("Database and user names use at most {MAX_FIELD} letters, digits, dots, dashes and underscores.").into());
     }
     let url = url(choice.key, &host_value, port_value, &database).ok_or(Error::Stale)?;
+    Ok((url, username))
+}
+
+pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    current(pending, doc)?;
+    if !eligible(doc) {
+        return Err(Error::Stale);
+    }
+    render(&doc.text, "x", "x", &JpaOptions::default())?;
+
+    let mut items: Vec<PickItem> = CHOICES.iter().map(|c| PickItem::new(c.key, c.label)).collect();
+    crate::datasource_facts::prefer_in(&crate::datasource_facts::discover(project), &mut items);
+    let profiles = crate::jdbc_connect::saved_profiles().unwrap_or_default();
+    items.extend(profiles.iter().map(|p| PickItem::new(&format!("{PROFILE_PREFIX}{}", p.name), &format!("From saved connection: {}", p.name)).description(&format!("{} {}", p.dbms.label(), p.target()))));
+    let key = host::pick("Database for spring.datasource.url (no connection is made)", &items)?.ok_or(Error::Cancelled)?;
+    let (url, username) = match key.strip_prefix(PROFILE_PREFIX) {
+        Some(name) => profile_target(profiles.iter().find(|p| p.name == name).ok_or(Error::Stale)?)?,
+        None => manual_target(&key)?,
+    };
     let ddl_items: Vec<PickItem> = DDL_AUTO_CHOICES.iter().map(|(key, label)| PickItem::new(key, label)).collect();
     let ddl_auto = host::pick("Hibernate DDL auto (spring.jpa.hibernate.ddl-auto)", &ddl_items)?.ok_or(Error::Cancelled)?;
     if !DDL_AUTO_CHOICES.iter().any(|(key, _)| *key == ddl_auto) {
@@ -340,6 +366,27 @@ mod tests {
         assert!(resolved.operations.is_empty());
         assert_eq!(h.editor_text(), "a=b\n");
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+
+    #[test]
+    fn saved_connection_supplies_url_and_user_but_never_a_password() {
+        use persistence_core::connection::{Dbms, Profile, profiles_json};
+        let saved = |user: Option<&str>, url: &str| Profile { name: "shop-db".into(), dbms: Dbms::PostgreSql, url_template: url.into(), user: user.map(str::to_owned), driver_jar: None, schema_filter: Default::default(), spring_source: None };
+        for (profile, expected) in [
+            (saved(Some("app"), "jdbc:postgresql://db.internal:5432/shop"), "spring.datasource.url=jdbc:postgresql://db.internal:5432/shop\nspring.datasource.username=app\nspring.datasource.password=${DB_PASSWORD}\n"),
+            (saved(None, "jdbc:postgresql://h:5432/s"), "spring.datasource.url=jdbc:postgresql://h:5432/s\nspring.datasource.username=${DB_USERNAME}\nspring.datasource.password=${DB_PASSWORD}\n"),
+        ] {
+            let (_, mut p, d) = setup("a=b\n", PATH);
+            let h = MockHost::install().with_capabilities(&["project.read", "editor.read", "storage"]);
+            h.open_editor(PATH, "properties", "a=b\n", &[]);
+            host::storage::set(crate::jdbc_connect::PROFILES_KEY, &profiles_json(&[profile])).unwrap();
+            let pending = offered(&mut p, &d).unwrap();
+            jpa_answers(&h, &["profile:shop-db"], "validate", false, false, true);
+            assert_eq!(appended(&p.resolve_file_action(&d, pending).unwrap()), format!("{expected}spring.jpa.hibernate.ddl-auto=validate\n"));
+        }
+        for bad in [saved(Some("app"), "jdbc:h2:file:C:\\data\\x"), saved(Some("a b"), "jdbc:postgresql://h:5432/s")] {
+            assert!(profile_target(&bad).is_err());
+        }
     }
 
     #[test]

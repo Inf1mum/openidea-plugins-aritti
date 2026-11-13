@@ -21,6 +21,12 @@
       "default": "as-written",
       "group": "Naming and constraints"
     },
+    "jpaAssist.tableDraftScratchDirectory": {
+      "type": "string",
+      "title": "Project-relative directory for SQL table drafts saved as a scratch file (a plain project folder, not the IDE scratch system); empty: .openidea/scratches",
+      "default": "",
+      "group": "Naming and constraints"
+    },
     "jpaAssist.maxIdentifierLength": {
       "type": "string",
       "title": "Maximum identifier length in bytes for generated SQL drafts (for example 30 for Oracle before 12.1); longer names are cut, a collision after cutting refuses. Empty or 0: unlimited",

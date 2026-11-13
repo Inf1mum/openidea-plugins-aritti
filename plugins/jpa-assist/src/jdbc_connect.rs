@@ -140,6 +140,7 @@ fn remember_confirmed(key: String) -> Result<(), Error> {
 pub fn run(id: &str, ctx: &Invocation) -> Result<Option<String>, Error> {
     match id {
         "jdbc-manage" => manage(ctx)?,
+        "jdbc-from-properties" => from_spring(ctx)?,
         "jdbc-test" => test_connection(ctx)?,
         "jdbc-browse" => browse(ctx)?,
         _ => return Err(Error::NotFound(format!("command {id}"))),

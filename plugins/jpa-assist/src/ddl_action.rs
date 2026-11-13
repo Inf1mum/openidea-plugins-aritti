@@ -127,6 +127,7 @@ pub(super) fn resolve(
     current(pending, doc)?;
     let class = source(doc)
         .ok_or("This source is outside the plain Java scalar field-access SQL draft subset.")?;
+    let scratch = super::ddl_target::pick_scratch()?;
     let mut choices = [
         PickItem::new("postgresql", "PostgreSQL scalar draft"),
         PickItem::new("mysql", "MySQL scalar draft"),
@@ -157,8 +158,29 @@ pub(super) fn resolve(
             "Use a Java-style ASCII filename stem of at most 128 bytes; .sql is appended.".into(),
         );
     }
-    let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
-    let target = format!("{directory}/{stem}.sql");
+    let entity_directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
+    let directory = if scratch {
+        super::ddl_target::scratch_directory(&pending.root, host::setting_string(super::ddl_target::SCRATCH_SETTING).as_deref())?
+    } else {
+        let default = entity_directory.strip_prefix(&format!("{}/", pending.root.trim_end_matches('/'))).unwrap_or_default();
+        let chosen = host::input("Directory for the SQL draft (relative to the project root)", Some(default))?.ok_or(Error::Cancelled)?;
+        super::ddl_target::directory(&pending.root, &chosen)?
+    };
+    let target = if scratch {
+        super::ddl_target::unique_target(project, &directory, &stem)?
+    } else {
+        format!("{directory}/{stem}.sql")
+    };
+    let target_kind = if scratch { "Scratch file (a plain project file; not the IDE scratch system)" } else { "File" };
+    let check_free = |target: &str| {
+        if scratch {
+            return match super::ddl_target::exists(project, target)? {
+                true => Err("SQL draft target exists or has a current buffer; choose another file stem.".into()),
+                false => Ok(()),
+            };
+        }
+        absent(project, &pending.root, target)
+    };
     if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) {
         return Err(Error::Stale);
     }
@@ -179,9 +201,9 @@ pub(super) fn resolve(
         options.primary_key_constraint(&table).map_or("unnamed".to_owned(), |name| format!("{}{}", options.shorten(&policy.apply(&name)), if dialect == Dialect::MySql { " (MySQL always names a primary key PRIMARY)" } else { "" })),
     );
     current(pending, doc)?;
-    absent(project, &pending.root, &target)?;
+    check_free(&target)?;
     let preview = format!(
-        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. Detected physical naming strategy: {}; the names below come from the naming templates, not from it. Identifier policy: {policy:?} (all names are quoted). {limits} No DB/schema diff, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
+        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nSave target: {target_kind}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. Detected physical naming strategy: {}; the names below come from the naming templates, not from it. Identifier policy: {policy:?} (all names are quoted). {limits} No DB/schema diff, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
         doc.path,
         doc.version,
         package(doc).ok_or(Error::Stale)?,
@@ -192,7 +214,7 @@ pub(super) fn resolve(
         return Err(Error::Cancelled);
     }
     current(pending, doc)?;
-    absent(project, &pending.root, &target)?;
+    check_free(&target)?;
     Ok(FileAction {
         title: format!("Create scalar SQL draft {stem}.sql"),
         kind: Some("refactor.rewrite".into()),
@@ -233,10 +255,50 @@ mod tests {
             .unwrap()
     }
     fn answer(h: &MockHost, dialect: &str, table: &str, stem: &str, confirm: bool) {
-        for value in [dialect, table, stem] {
+        for value in ["file", dialect, table, stem, "src/main/java/shop"] {
             h.answer_next_prompt(Some(&[value]));
         }
         h.answer_next_prompt(confirm.then_some(&[]));
+    }
+    fn answer_scratch(h: &MockHost, stem: &str) {
+        for value in ["scratch", "postgresql", "customers", stem] {
+            h.answer_next_prompt(Some(&[value]));
+        }
+        h.answer_next_prompt(Some(&[]));
+    }
+    #[test]
+    fn file_target_asks_for_the_directory_and_keeps_it_inside_the_project() {
+        let (h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        for value in ["file", "mysql", "customers", "Moved", "db/drafts"] {
+            h.answer_next_prompt(Some(&[value]));
+        }
+        h.answer_next_prompt(Some(&[]));
+        let resolved = p.resolve_file_action(&d, a).unwrap();
+        let [FileOperation::Create { path, overwrite: false, .. }] = resolved.operations.as_slice() else { panic!("one create") };
+        assert_eq!(path, "/project/db/drafts/Moved.sql");
+        let (h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        for value in ["file", "mysql", "customers", "Moved", "../outside"] {
+            h.answer_next_prompt(Some(&[value]));
+        }
+        assert!(p.resolve_file_action(&d, a).is_err());
+    }
+    #[test]
+    fn scratch_target_uses_the_setting_directory_and_a_unique_name_without_a_directory_prompt() {
+        let (h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        answer_scratch(&h, "Draft");
+        let resolved = p.resolve_file_action(&d, a).unwrap();
+        let [FileOperation::Create { path, overwrite: false, .. }] = resolved.operations.as_slice() else { panic!("one create") };
+        assert_eq!(path, "/project/.openidea/scratches/Draft.sql");
+        let (h, mut p, d) = setup();
+        h.add_file(".openidea/scratches/Draft.sql", "old");
+        let a = action(&mut p, &d);
+        answer_scratch(&h, "Draft");
+        let resolved = p.resolve_file_action(&d, a).unwrap();
+        let [FileOperation::Create { path, .. }] = resolved.operations.as_slice() else { panic!("one create") };
+        assert_eq!(path, "/project/.openidea/scratches/Draft2.sql");
     }
     #[test]
     fn scalar_sql_draft_is_exact_quoted_nonoverwriting_create_without_writes_or_processes() {

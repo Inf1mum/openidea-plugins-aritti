@@ -15,8 +15,9 @@
    "supports": "a gutter icon in application.properties or application.yml creates a data source from existing properties",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "Add datasource configuration… (datasource_facts.rs)",
-   "verifiableHeadless": false
+   "ourFeature": "Add datasource configuration\u2026 (datasource_facts.rs)",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Code equivalent: the same context-menu command (RS-963) reads the existing spring.datasource properties. Not available: the gutter icon, YAML."
   }
  ],
  "undocumented": [

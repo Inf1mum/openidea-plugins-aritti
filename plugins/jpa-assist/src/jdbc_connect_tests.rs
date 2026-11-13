@@ -520,6 +520,17 @@ fn spring_discovery_creates_a_profile_and_the_literal_password_is_read_at_connec
 }
 
 #[test]
+fn properties_command_creates_a_profile_without_the_manage_menu() {
+    let host = setup(&[]);
+    host.add_file("src/main/resources/application.properties", APPLICATION);
+    say(&host, &["0", "shop", "app", "manual", JAR]);
+    run("jdbc-from-properties", &host.invocation()).unwrap();
+    let profiles = parse(Some(&host.storage()[PROFILES_KEY])).unwrap();
+    assert_eq!((profiles[0].name.as_str(), profiles[0].url_template.as_str()), ("shop", "jdbc:postgresql://db.internal:5432/shop"));
+    assert!(!host.storage()[PROFILES_KEY].contains(SENTINEL));
+}
+
+#[test]
 fn spring_discovery_skips_disabled_databases_and_placeholder_urls_with_reasons() {
     let host = setup(&[]);
     host.add_file(
