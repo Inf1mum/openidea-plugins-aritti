@@ -735,7 +735,7 @@ impl State {
 /// Visibility settings of the Designer view, read again on every reply.
 fn layout() -> Value {
     let flag = |key: &str, default: bool| host::setting_bool(&format!("jpaAssist.designer.{key}")).unwrap_or(default);
-    json!({"palette":flag("showPalette",true),"inspector":flag("showInspector",true),"toolbar":flag("showEditorToolbar",true),"minimal":flag("minimalMode",false)})
+    json!({"palette":flag("showPalette",true),"inspector":flag("showInspector",true),"toolbar":flag("showEditorToolbar",true),"minimal":flag("minimalMode",false),"webStamp":env!("JPA_WEB_STAMP")})
 }
 
 const MAX_PLAN_CHANGES: usize = 500;
@@ -1483,13 +1483,13 @@ mod tests {
     fn replies_carry_the_visibility_settings_of_the_layout() {
         let (host, mut plugin) = setup();
         let reply = request(&mut plugin, &host, 1, json!({"kind":"snapshot"})).unwrap();
-        assert_eq!(reply["layout"], json!({"palette":true,"inspector":true,"toolbar":true,"minimal":false}));
+        assert_eq!(reply["layout"], json!({"palette":true,"inspector":true,"toolbar":true,"minimal":false,"webStamp":env!("JPA_WEB_STAMP")}));
         for key in ["showPalette", "showInspector", "showEditorToolbar"] {
             host.set_setting(&format!("jpaAssist.designer.{key}"), "false");
         }
         host.set_setting("jpaAssist.designer.minimalMode", "true");
         let reply = request(&mut plugin, &host, 2, json!({"kind":"inspect"})).unwrap();
-        assert_eq!(reply["layout"], json!({"palette":false,"inspector":false,"toolbar":false,"minimal":true}));
+        assert_eq!(reply["layout"], json!({"palette":false,"inspector":false,"toolbar":false,"minimal":true,"webStamp":env!("JPA_WEB_STAMP")}));
     }
     fn attribute_draft(kind: &str, name: &str, ty: &str) -> Value {
         json!({"name":name,"kind":kind,"type":ty,"enumerated":false,"notNull":false,"unique":false,
