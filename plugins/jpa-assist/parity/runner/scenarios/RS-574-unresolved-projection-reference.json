@@ -34,6 +34,9 @@
   },
   "prompts": [
     {
+      "pick": "interface"
+    },
+    {
       "pickMany": [
         "name"
       ]
@@ -44,6 +47,10 @@
   ],
   "expect": {
     "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Projection form"
+      },
       {
         "kind": "pickMany",
         "titleContains": "Projection properties"

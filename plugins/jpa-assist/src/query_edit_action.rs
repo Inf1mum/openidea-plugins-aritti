@@ -469,6 +469,11 @@ fn choose_operator(attr: &Attr, keywords: &Keywords) -> Result<&'static str, Err
 }
 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    resolve_method(pending, doc, project, None)
+}
+
+/// `preselected`: the method to edit when the flow starts from a call of it, so no method is asked for.
+pub(super) fn resolve_method(pending: &Pending, doc: &Document, project: &Project, preselected: Option<&str>) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let mut facts = source(doc).map_err(Error::from)?;
     facts.keywords = Keywords::load().map_err(Error::from)?;
@@ -481,6 +486,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let repo = queries::parse_repository(&doc.text, facts.kotlin).ok_or("The repository could not be read.")?;
     let found = candidates(doc).unwrap_or_default();
     let index = match found.as_slice() {
+        _ if preselected.is_some() => found.iter().copied().find(|at| Some(repo.methods[*at].name.as_str()) == preselected).ok_or("The called method is not a derived query method this editor can change.")?,
         [] => return Err("The interface has no derived query method without @Query.".into()),
         [only] => *only,
         many => {

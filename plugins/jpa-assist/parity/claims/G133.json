@@ -43,7 +43,8 @@
       "source": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
       "strength": "explicit",
       "ourFeature": "not implemented",
-      "verifiableHeadless": false
+      "verifiableHeadless": true,
+      "surfaceEquivalent": "The accepted code action opens an options prompt sequence (pick, pick-many) ahead of the exact preview and the choices shape the created file; checked on those prompts and on the created file. The original's wizard dialog window (layout, entity selector, directory chooser) is not checked."
     }
   ],
   "undocumented": [

@@ -18,15 +18,24 @@
     "anchor": "BaseEntity"
   },
   "action": {
-    "title": "Create missing mapped superclass\u2026"
+    "title": "Create missing mapped superclass…"
   },
   "prompts": [
+    {
+      "pickMany": [
+        "version"
+      ]
+    },
     {
       "confirm": "yes"
     }
   ],
   "expect": {
     "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "Additional mappings"
+      },
       {
         "kind": "confirm",
         "messageContains": "BaseEntity"

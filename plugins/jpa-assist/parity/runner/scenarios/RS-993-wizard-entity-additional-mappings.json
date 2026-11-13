@@ -1,0 +1,95 @@
+{
+  "id": "RS-993",
+  "rows": [
+    "G133"
+  ],
+  "claimIds": [
+    "G133-C4"
+  ],
+  "verifies": {
+    "G133-C4": "accepting 'Create missing entity…' on the unresolved attribute type opens the relationship pick, the ID strategy pick, the table name input and an 'Additional mappings' pick (version field, auditing fields, equals/hashCode) before the exact preview; the chosen mappings are in the created entity. The create-missing mapped superclass has the same 'Additional mappings' pick (unit tests, RS-767). Not checked: the original's wizard dialog window (layout, entity selector, directory chooser); the type name is fixed by the reference as in the original and the file goes in the entity's package."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n\n    private Carrier carrier;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Parcel.java",
+    "anchor": "Carrier carrier"
+  },
+  "action": {
+    "title": "Create missing entity…"
+  },
+  "prompts": [
+    {
+      "pick": "ManyToOne"
+    },
+    {
+      "pick": "IDENTITY"
+    },
+    "default",
+    {
+      "pickMany": [
+        "version",
+        "equals"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Relationship"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "ID strategy"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Table name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Additional mappings"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "Carrier"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Carrier.java",
+        "contains": [
+          "@Version",
+          "public boolean equals(Object o)"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "contains": [
+          "@ManyToOne\n    private Carrier carrier;",
+          "import jakarta.persistence.ManyToOne;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "Creation wizard options of the context entity fix."
+}

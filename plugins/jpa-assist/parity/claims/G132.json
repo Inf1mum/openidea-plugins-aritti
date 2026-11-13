@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
    "strength": "explicit",
    "ourFeature": "Add mapping method to mapper…; Create generic base mapper… (mapper_action.rs, mapper_more_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "A code action on the mapTo call creates the MapStruct mapper file and replaces the call with the mapper call plus injection (the new-mapper branch); applying methods of an existing mapper is the mapTo completion (RS-570, RS-571). The original's mapper creation dialog window is not checked."
   },
   {
    "id": "G132-C2",

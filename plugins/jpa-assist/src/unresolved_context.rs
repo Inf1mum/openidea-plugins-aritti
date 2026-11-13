@@ -332,7 +332,8 @@ fn resolve_persistence(pending: &Pending, doc: &Document, project: &Project, cre
     } else {
         (String::new(), "none".to_owned())
     };
-    let spec = EntitySpec { role, name: name.clone(), table, package: Some(declared), kotlin: false, id, auditing: false, version: false, equals: false };
+    let mappings = super::wizard::additional_mappings(collection.is_some())?;
+    let spec = EntitySpec { role, name: name.clone(), table, package: Some(declared), kotlin: false, id, auditing: mappings.auditing, version: mappings.version, equals: mappings.equals };
     let source = crate::wizard::entity_source_annotated(&spec, &crate::lombok_entity_annotations());
     let source = if namespace == "javax" { source.replace("jakarta.persistence.", "javax.persistence.") } else { source };
     let target = format!("{directory}/{name}.java");
@@ -428,11 +429,13 @@ mod tests {
         host.answer_next_prompt(Some(&["ManyToOne"]));
         host.answer_next_prompt(Some(&["IDENTITY"]));
         host.answer_next_prompt(Some(&["invoice"]));
+        host.answer_next_prompt(Some(&["version", "equals"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { path, text, overwrite }] = action.operations.as_slice() else { panic!("one file") };
         assert!(path.ends_with("shop/domain/Invoice.java") && !overwrite, "{path}");
         assert!(text.contains("@Entity") && text.contains("@Table(name = \"invoice\")") && text.contains("GenerationType.IDENTITY"), "{text}");
+        assert!(text.contains("@Version") && text.contains("public boolean equals(Object o)"), "{text}");
         let [(edited, edits)] = action.edits.as_slice() else { panic!("one edit") };
         assert_eq!(edited, ORDER_PATH);
         let after = patched(ORDER, edits).unwrap();
@@ -445,10 +448,12 @@ mod tests {
         let start = doc.text.find("BaseEntity").unwrap();
         let range = Range::new(position(&doc.text, start), position(&doc.text, start + 1));
         let pending = plugin.file_actions(&doc, range).into_iter().find(|action| action.title == SUPERCLASS_TITLE).unwrap();
+        host.answer_next_prompt(Some(&["version", "auditing"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { text, .. }] = action.operations.as_slice() else { panic!("one file") };
         assert!(text.contains("@MappedSuperclass") && text.contains("class BaseEntity"), "{text}");
+        assert!(text.contains("@Version") && text.contains("AuditingEntityListener") && !text.contains("@Id"), "{text}");
         assert!(action.edits.is_empty());
     }
 
@@ -471,6 +476,7 @@ mod tests {
         let range = Range::new(position(&doc.text, start), position(&doc.text, start + 1));
         let pending = plugin.file_actions(&doc, range).into_iter().find(|action| action.title == CONTEXT_DTO_TITLE).unwrap();
         host.answer_next_prompt(Some(&["id", "title"]));
+        host.answer_next_prompt(Some(&["setting"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { path, text, .. }] = action.operations.as_slice() else { panic!("one file") };
@@ -497,6 +503,7 @@ mod tests {
         let range = Range::new(position(&doc.text, start), position(&doc.text, start + 1));
         let pending = plugin.file_actions(&doc, range).into_iter().find(|action| action.title == CONTEXT_DTO_TITLE).unwrap();
         host.answer_next_prompt(Some(&["title"]));
+        host.answer_next_prompt(Some(&["setting"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { text, .. }] = action.operations.as_slice() else { panic!("one file") };
@@ -513,7 +520,7 @@ mod tests {
         let (host, mut plugin, doc) = prepare(ORDER_PATH, &order, None);
         let mut files: Vec<(String, String)> = vec![("shop/domain/Customer.java".into(), ENTITY.into())];
         let mut caller = order.clone();
-        for (word, answers) in [("BaseEntity", vec![vec![]]), ("Invoice invoice", vec![vec!["ManyToOne"], vec!["IDENTITY"], vec!["invoice"], vec![]])] {
+        for (word, answers) in [("BaseEntity", vec![vec!["version"], vec![]]), ("Invoice invoice", vec![vec!["ManyToOne"], vec!["IDENTITY"], vec!["invoice"], vec!["version", "equals"], vec![]])] {
             let start = doc.text.find(word).unwrap();
             let range = Range::new(position(&doc.text, start), position(&doc.text, start + 1));
             let title = if word == "BaseEntity" { SUPERCLASS_TITLE } else { ENTITY_TITLE };
@@ -554,6 +561,7 @@ mod tests {
         let range = Range::new(position(&doc.text, start), position(&doc.text, start + 1));
         let pending = plugin.file_actions(&doc, range).into_iter().find(|action| action.title == CONTEXT_DTO_TITLE).unwrap();
         host.answer_next_prompt(Some(&["id", "title"]));
+        host.answer_next_prompt(Some(&["setting"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { text, .. }] = action.operations.as_slice() else { panic!("one file") };

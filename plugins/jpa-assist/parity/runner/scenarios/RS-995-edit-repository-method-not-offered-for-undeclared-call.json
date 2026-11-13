@@ -1,0 +1,46 @@
+{
+  "id": "RS-995",
+  "rows": [
+    "G131"
+  ],
+  "claimIds": [
+    "G131-C2"
+  ],
+  "verifies": {
+    "G131-C2": "the action is offered only for a call of a method the repository already declares: on parcelRepository.findByColor(\"x\"), which ParcelRepository does not declare, it is absent (the existing 'Create repository method from this call…' is offered instead, RS-569). Not checked: the original's visual query designer window; the editing prompts are the same ones 'Edit query method…' opens in the repository."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "content": "package com.example.shop.domain;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface ParcelRepository extends JpaRepository<Parcel, Long> {\n    List<Parcel> findByName(String name);\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.ParcelRepository;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    private final ParcelRepository parcelRepository;\n\n    ParcelService(ParcelRepository parcelRepository) {\n        this.parcelRepository = parcelRepository;\n    }\n\n    void run() {\n        parcelRepository.findByColor(\"x\");\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "findByColor"
+  },
+  "action": {
+    "title": "Edit repository method from this call…"
+  },
+  "expect": {
+    "actionOffered": false
+  },
+  "checks": {},
+  "note": "The edit action is absent for an undeclared method."
+}

@@ -9,6 +9,8 @@ use openidea_plugin::text::offset;
 
 #[path = "unresolved_context.rs"]
 mod context;
+#[path = "unresolved_wizard.rs"]
+mod wizard;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Created {
@@ -174,10 +176,11 @@ fn resolve_with(pending: &Pending, doc: &Document, project: &Project, created: C
     let (target, text) = match created {
         Created::Repository => {
             let facts = repository_action::source(&entity_doc).map_err(Error::from)?;
-            repository_action::render(&entity_doc, &facts, "JpaRepository", false, &name)?
+            let (parent, specification) = wizard::repository(facts.jakarta)?;
+            repository_action::render(&entity_doc, &facts, &parent, specification, &name)?
         }
         Created::Projection => {
-            let form = projection_action::Form::Interface;
+            let form = wizard::projection_form(dto_action::record_offered(&entity_doc.path))?;
             let available = projection_action::offered(&class, form);
             if available.is_empty() {
                 return Err("No plain scalar attribute has a name usable as a projection property.".into());
@@ -200,6 +203,7 @@ fn resolve_with(pending: &Pending, doc: &Document, project: &Project, created: C
             let mut narrowed = source.clone();
             narrowed.attributes.retain(|attribute| attribute.relation == Relation::None && chosen.contains(&attribute.name));
             let none = |_: &str| None;
+            let serialization = wizard::dto_serialization()?;
             let generated = dto(&narrowed, &none, Some(&chosen));
             let (original, replacement) = if source.kotlin {
                 (format!("data class {}Dto(", source.name), format!("data class {name}("))
@@ -210,7 +214,7 @@ fn resolve_with(pending: &Pending, doc: &Document, project: &Project, created: C
                 return Err(Error::Stale);
             }
             let conventions = dto_conventions::conventions()?;
-            let generated = dto_conventions::finish(generated.replacen(&original, &replacement, 1), &source, &name, &conventions, dto_conventions::serializable()?)?;
+            let generated = dto_conventions::finish(generated.replacen(&original, &replacement, 1), &source, &name, &conventions, serialization)?;
             (format!("{directory}/{name}.{}", if source.kotlin { "kt" } else { "java" }), generated)
         }
         _ => return Err(Error::Stale),
@@ -302,11 +306,13 @@ mod tests {
     fn creating_the_repository_derives_the_id_type_and_imports_it_into_the_caller() {
         let (host, mut plugin, doc) = prepare();
         let pending = plugin.file_actions(&doc, at("CustomerRepository")).into_iter().find(|action| action.title == REPOSITORY_TITLE).unwrap();
+        host.answer_next_prompt(Some(&["JpaRepository"]));
+        host.answer_next_prompt(Some(&["yes"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { path, text, .. }] = action.operations.as_slice() else { panic!("one file") };
         assert!(path.ends_with("shop/domain/CustomerRepository.java"), "{path}");
-        assert!(text.contains("public interface CustomerRepository extends JpaRepository<Customer, Long>"), "{text}");
+        assert!(text.contains("public interface CustomerRepository extends JpaRepository<Customer, Long>, JpaSpecificationExecutor<Customer>"), "{text}");
         let [(_, edits)] = action.edits.as_slice() else { panic!("one import edit") };
         assert!(patched(SERVICE, edits).unwrap().contains("import shop.domain.CustomerRepository;"));
     }
@@ -317,12 +323,15 @@ mod tests {
         host.set_setting("dtoClassComment", "\"Transfer object of {@link {entity}}\"");
         let pending = plugin.file_actions(&doc, at("CustomerDto")).into_iter().find(|action| action.title == DTO_TITLE).unwrap();
         host.answer_next_prompt(Some(&["id", "title"]));
+        host.answer_next_prompt(Some(&["serializable"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
         let [FileOperation::Create { text, .. }] = action.operations.as_slice() else { panic!("one file") };
         assert!(text.contains("/** Transfer object of {@link shop.domain.Customer} */") && text.contains("public record CustomerDto("), "{text}");
+        assert!(text.contains("implements Serializable"), "{text}");
         let (host, mut plugin, doc) = prepare();
         let pending = plugin.file_actions(&doc, at("CustomerView")).into_iter().find(|action| action.title == PROJECTION_TITLE).unwrap();
+        host.answer_next_prompt(Some(&["interface"]));
         host.answer_next_prompt(Some(&["title"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, pending).unwrap();
@@ -343,5 +352,55 @@ mod tests {
         let range = Range::new(openidea_plugin::text::position(&doc.text, start), openidea_plugin::text::position(&doc.text, start + 2));
         let pending = plugin.file_actions(&doc, range).into_iter().find(|action| action.title == REPOSITORY_TITLE).unwrap();
         assert!(plugin.resolve_file_action(&doc, pending).is_err());
+    }
+
+    #[test]
+    fn the_wizard_offers_record_projections_and_refuses_choices_it_did_not_offer() {
+        let (host, mut plugin, doc) = prepare();
+        let pending = plugin.file_actions(&doc, at("CustomerView")).into_iter().find(|action| action.title == PROJECTION_TITLE).unwrap();
+        host.answer_next_prompt(Some(&["record"]));
+        host.answer_next_prompt(Some(&["id", "title"]));
+        host.answer_next_prompt(Some(&[]));
+        let action = plugin.resolve_file_action(&doc, pending).unwrap();
+        let [FileOperation::Create { text, .. }] = action.operations.as_slice() else { panic!("one file") };
+        assert!(text.contains("public record CustomerView(") && text.contains("Long id,") && text.contains("String title"), "{text}");
+
+        let pending = plugin.file_actions(&doc, at("CustomerRepository")).into_iter().find(|action| action.title == REPOSITORY_TITLE).unwrap();
+        host.answer_next_prompt(Some(&["PagingAndSortingRepository"]));
+        assert!(plugin.resolve_file_action(&doc, pending).is_err(), "javax-only parent for a jakarta entity");
+    }
+
+    #[test]
+    #[ignore = "requires javac and SPRING_DATA_CLASSPATH (source scripts/jpa-compile-env.sh); compiles the repository, record projection and serializable DTO made through the wizard options"]
+    fn generated_wizard_types_compile() {
+        let classpath = std::env::var("SPRING_DATA_CLASSPATH").expect("spring data classpath");
+        let (host, mut plugin, doc) = prepare();
+        let mut files = vec![("Customer.java".to_owned(), ENTITY.to_owned())];
+        for (word, title, answers) in [
+            ("CustomerRepository", REPOSITORY_TITLE, vec![vec!["ListCrudRepository"], vec!["yes"], vec![]]),
+            ("CustomerView", PROJECTION_TITLE, vec![vec!["record"], vec!["id", "title"], vec![]]),
+            ("CustomerDto", DTO_TITLE, vec![vec!["id", "title"], vec!["serializable-with-version-uid"], vec![]]),
+        ] {
+            let pending = plugin.file_actions(&doc, at(word)).into_iter().find(|action| action.title == title).unwrap();
+            for answer in answers {
+                host.answer_next_prompt(Some(&answer));
+            }
+            let action = plugin.resolve_file_action(&doc, pending).unwrap();
+            let [FileOperation::Create { path, text, .. }] = action.operations.as_slice() else { panic!("one file") };
+            files.push((path.rsplit_once('/').unwrap().1.to_owned(), text.clone()));
+        }
+        let dir = std::env::temp_dir().join(format!("jpa-wizard-types-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths: Vec<_> = files
+            .iter()
+            .map(|(name, body)| {
+                let path = dir.join(name);
+                std::fs::write(&path, body).unwrap();
+                path
+            })
+            .collect();
+        let result = std::process::Command::new("javac").args(["--release", "17", "-proc:none", "-classpath", &classpath, "-d"]).arg(&dir).args(&paths).output().expect("javac installed");
+        assert!(result.status.success(), "{}\n{files:?}", String::from_utf8_lossy(&result.stderr));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

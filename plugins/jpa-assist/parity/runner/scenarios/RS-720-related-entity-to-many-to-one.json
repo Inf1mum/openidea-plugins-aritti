@@ -19,7 +19,7 @@
     "anchor": "class Ticket"
   },
   "action": {
-    "title": "Create related entity (relation to)\u2026"
+    "title": "Create related entity (relation to)…"
   },
   "prompts": [
     {
@@ -30,6 +30,9 @@
     },
     "default",
     "default",
+    {
+      "pick": "keep"
+    },
     {
       "confirm": "yes"
     }
@@ -67,6 +70,10 @@
         "titleContains": "Inverse attribute on Note",
         "defaultIs": "tickets",
         "name": "inverse attribute on the new entity"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization"
       },
       {
         "kind": "confirm",

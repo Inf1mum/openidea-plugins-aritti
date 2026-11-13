@@ -30,7 +30,7 @@
     "anchor": "ParcelView"
   },
   "action": {
-    "title": "Create missing DTO from this usage\u2026"
+    "title": "Create missing DTO from this usage…"
   },
   "prompts": [
     {
@@ -38,6 +38,9 @@
         "id",
         "name"
       ]
+    },
+    {
+      "pick": "setting"
     },
     {
       "confirm": "yes"
@@ -48,6 +51,10 @@
       {
         "kind": "pickMany",
         "titleContains": "DTO fields"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "DTO serialization"
       },
       {
         "kind": "confirm",

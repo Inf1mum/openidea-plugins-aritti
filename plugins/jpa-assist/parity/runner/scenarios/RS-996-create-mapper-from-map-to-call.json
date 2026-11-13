@@ -1,0 +1,105 @@
+{
+  "id": "RS-996",
+  "rows": [
+    "G132"
+  ],
+  "claimIds": [
+    "G132-C1"
+  ],
+  "verifies": {
+    "G132-C1": "on parcel.mapToParcelDto() ('parcel' declared Parcel in a Spring bean, MapStruct declared in the build), 'Create mapper for this call…' asks for the target type, the mapper name and mapper options, creates ParcelMapper (@Mapper(componentModel = \"spring\"), ParcelDto toParcelDto(Parcel source)) beside Parcel with overwrite false, and in the caller replaces the call with parcelMapper.toParcelDto(parcel) and injects the mapper (the new-mapper branch of the sentence; the collection form, the refusal without the build proof and the mapstruct compile are unit tests). Not checked: the original's mapper creation dialog window (direction selector, mapper bean name field layout); methods of an existing mapper are the mapTo completion (RS-570, RS-571)."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Parcel.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/dto/ParcelDto.java",
+        "content": "package com.example.crm.dto;\n\npublic record ParcelDto(Long id, String name) {}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/service/ParcelService.java",
+        "content": "package com.example.crm.service;\n\nimport com.example.crm.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    Object one(Parcel parcel) {\n        return parcel.mapToParcelDto();\n    }\n\n    Object many(List<Parcel> parcels) {\n        return parcels.mapTo;\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/service/ParcelService.java",
+    "anchor": "mapToParcelDto"
+  },
+  "action": {
+    "title": "Create mapper for this call…"
+  },
+  "prompts": [
+    "default",
+    "default",
+    {
+      "pickMany": [
+        "collections"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "Type the call maps to",
+        "defaultIs": "ParcelDto"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Mapper type name",
+        "defaultIs": "ParcelMapper"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Mapper options"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "ParcelMapper"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/ParcelMapper.java",
+        "contains": [
+          "@Mapper(componentModel = \"spring\")",
+          "import com.example.crm.dto.ParcelDto;",
+          "ParcelDto toParcelDto(Parcel source);",
+          "List<ParcelDto> toParcelDtos(List<Parcel> sources);"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/crm/service/ParcelService.java",
+        "contains": [
+          "return parcelMapper.toParcelDto(parcel);",
+          "private final ParcelMapper parcelMapper;",
+          "import com.example.crm.domain.ParcelMapper;"
+        ],
+        "notContains": [
+          "parcel.mapToParcelDto"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "New mapper from a mapTo call."
+}

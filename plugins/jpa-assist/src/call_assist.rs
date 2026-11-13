@@ -21,18 +21,18 @@ const VERBS: [&str; 4] = ["find", "exists", "count", "delete"];
 const MAX_ITEMS: usize = 128;
 const MAX_FILES: u32 = 64;
 
-fn spring_component(doc: &Document) -> bool {
+pub(super) fn spring_component(doc: &Document) -> bool {
     annotations(&mask(&doc.text)).iter().any(|annotation| SPRING_STEREOTYPES.contains(&annotation.name))
 }
 
-struct Receiver {
-    start: usize,
-    name: String,
-    word_start: usize,
-    word_end: usize,
+pub(super) struct Receiver {
+    pub(super) start: usize,
+    pub(super) name: String,
+    pub(super) word_start: usize,
+    pub(super) word_end: usize,
 }
 
-fn receiver(text: &str, cursor: usize) -> Option<Receiver> {
+pub(super) fn receiver(text: &str, cursor: usize) -> Option<Receiver> {
     let bytes = text.as_bytes();
     let word_start = cursor - bytes[..cursor].iter().rev().take_while(|&&byte| is_ident(byte)).count();
     let word_end = cursor + bytes[cursor..].iter().take_while(|&&byte| is_ident(byte)).count();
@@ -93,7 +93,7 @@ fn package_of_source(text: &str) -> Option<String> {
     mask(text).lines().find_map(|line| line.trim().strip_prefix("package ")).map(|package| package.trim().trim_end_matches(';').trim().to_owned())
 }
 
-fn bean_edits(doc: &Document, project: &Project, root: &str, bean: &Repo) -> Option<Vec<TextEdit>> {
+pub(super) fn bean_edits(doc: &Document, project: &Project, root: &str, bean: &Repo) -> Option<Vec<TextEdit>> {
     let source = injection_action::analyze(doc).ok()?;
     let style = injection_detect::style_for(&doc.text).ok()?;
     let lombok = style == Style::Lombok && injection_action::lombok_provable(doc, project, root).ok()?;
@@ -332,6 +332,13 @@ fn call_under(doc: &Document, selection: Range) -> Option<(String, String)> {
 
 pub(super) fn eligible(doc: &Document, selection: Range) -> bool {
     spring_component(doc) && call_under(doc, selection).is_some()
+}
+
+/// The called method and the declared repository type of the repository call under `selection`.
+pub(super) fn call_method(doc: &Document, selection: Range) -> Option<(String, String)> {
+    let (_, repository) = call_under(doc, selection)?;
+    let receiver = receiver(&doc.text, offset(&doc.text, selection.start)?)?;
+    Some((doc.text[receiver.word_start..receiver.word_end].to_owned(), repository))
 }
 
 fn repository_source(project: &Project, root: &str, name: &str) -> Result<(String, String), Error> {

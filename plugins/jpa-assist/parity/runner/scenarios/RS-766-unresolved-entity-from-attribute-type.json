@@ -18,7 +18,7 @@
     "anchor": "Carrier carrier"
   },
   "action": {
-    "title": "Create missing entity\u2026"
+    "title": "Create missing entity…"
   },
   "prompts": [
     {
@@ -28,6 +28,11 @@
       "pick": "IDENTITY"
     },
     "default",
+    {
+      "pickMany": [
+        "version"
+      ]
+    },
     {
       "confirm": "yes"
     }
@@ -45,6 +50,10 @@
       {
         "kind": "input",
         "titleContains": "Table name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Additional mappings"
       },
       {
         "kind": "confirm",
