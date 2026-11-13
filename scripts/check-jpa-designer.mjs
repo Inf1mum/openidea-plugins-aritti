@@ -30,7 +30,7 @@ const paletteModel = {context: {loaded: true, kind: 'Entity', kotlin: false, lom
   {id: 'reverse', label: 'Reverse engineering', items: [act('generateEntities', 'Generate entities from SQL file', 'Generate entities from SQL file…')]},
 ]};
 try {
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[280, 400], [400, 700], [800, 600]]) {
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[280, 400], [400, 700], [800, 600], [1200, 700], [2000, 700], [3000, 700]]) {
     const page = await browser.newPage({viewport: {width, height}, colorScheme: theme});
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(pm => {
@@ -49,7 +49,8 @@ try {
       await page.waitForFunction(n => window.requests.length > n, count);
       await reply(fixture, {layout: {palette: true, inspector: true, toolbar: true, minimal: false, ...layout}});
     };
-    const openViews = async () => { if (!(await page.locator('#view-switch').evaluate(d => d.open))) await page.locator('#view-current').click(); };
+    const view = async name => page.locator('#view-select').evaluate((el, v) => { el.value = v; el.dispatchEvent(new Event('change', {bubbles: true})); }, name);
+    const current = async () => page.locator('#view-select').inputValue();
     const shown = async selector => page.locator(selector).first().isVisible();
     await withLayout({palette: false});
     assert.deepEqual([await shown('#palette'), await shown('#inspector-title'), await shown('#inspect')], [false, true, true], 'showPalette off hides the palette only');
@@ -69,12 +70,26 @@ try {
     assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Association', 'Basic Type', 'Element Collection', 'Embedded', 'Embedded Id', 'Enum', 'Id', 'Transient', 'Version', 'From DB']);
     assert.equal(await page.getByRole('option', {name: 'Attributes'}).getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('.palette-item[aria-disabled=true]').count(), 2, 'Version and From DB are disabled, attribute kinds are enabled once a source is loaded');
-    assert.equal(await page.getByRole('tab').count(), 0, 'the default view has no tab strip; the view switcher is collapsed');
+    assert.equal(await page.getByRole('tab').count(), 0, 'no role=tab element is visible by default');
+    assert.equal(await page.locator('#view-select').evaluate(e => e.tagName), 'SELECT', 'the view switcher is a native select');
+    assert.equal(await page.locator('[role=tablist], #view-switch details').count(), 0);
     assert.equal(await page.locator('.palette-note').count(), 0, 'disabled reasons are tooltips, not extra rows');
     assert.match(await page.getByRole('button', {name: /^From DB/}).getAttribute('title'), /closing brace starts its own line/);
     assert.match(await page.getByRole('button', {name: /^From DB/}).getAttribute('aria-description'), /closing brace/);
     assert.ok((await page.locator('.palette-item').first().boundingBox()).height <= 22, 'palette rows are dense');
     assert.equal(await page.locator('#general-properties .ui-property-row').first().getAttribute('title'), 'Read-only here', 'property provenance moved to a tooltip');
+    const density = await page.evaluate(() => {
+      const visible = e => e.getBoundingClientRect().height > 0 && e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none';
+      const rows = [...document.querySelectorAll('.ui-property-row')].filter(visible);
+      return {
+        rows: Math.max(...rows.map(r => r.getBoundingClientRect().height)),
+        hints: [...document.querySelectorAll('.ui-property-row .ui-help, .ui-property-origin')].filter(visible).length,
+        inputs: Math.max(...[...document.querySelectorAll('#inspector :is(.ui-property-row, .creator-form) :is(input.ui-input:not([type=search]), .ui-select-trigger)')].filter(visible).map(i => i.getBoundingClientRect().width)),
+      };
+    });
+    assert.equal(density.hints, 0, 'no helper text is visible in property rows');
+    assert.ok(density.rows <= 26, `property rows stay compact at ${width}px (${density.rows}px)`);
+    assert.ok(density.inputs <= 330, `inputs do not stretch at ${width}px (${density.inputs}px)`);
     const rowHeight = (await page.locator('.ui-property-row').first().boundingBox()).height;
     assert.ok(rowHeight <= 26, `property rows are compact (${rowHeight}px)`);
     await page.getByRole('button', {name: /^From DB/}).click({force: true});
@@ -178,8 +193,7 @@ try {
     assert.equal(await page.locator('#prepare').getAttribute('aria-busy'), 'true');
     const prepared = {...fixture, pending: {token: 'fixture-review-token', before, after}};
     await reply(prepared);
-    await openViews();
-    assert.equal(await page.getByRole('tab', {name: 'Changes', exact: true}).getAttribute('aria-selected'), 'true');
+    assert.equal(await current(), 'changes', 'a prepared preview switches the view to Changes');
     assert.equal(await page.locator('#after').textContent(), after);
     await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
     assert.equal((await page.evaluate(() => window.requests.at(-1))).operation.token, 'fixture-review-token');
@@ -296,12 +310,8 @@ try {
     await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
     await reply(fixture);
     assert.equal(await page.locator('#relationship-form').isVisible(), false);
-    await openViews();
-    await page.getByRole('tab', {name: 'Designer', exact: true}).focus();
-    await page.keyboard.press('ArrowRight');
-    assert.equal(await page.getByRole('tab', {name: 'Create', exact: true}).getAttribute('aria-selected'), 'true');
-    await page.keyboard.press('Escape');
-    assert.equal(await page.locator('#view-switch').evaluate(d => d.open), false, 'Escape closes the view switcher');
+    await view('create');
+    assert.equal(await current(), 'create');
     await page.getByRole('button', {name: 'Use Open File', exact: true}).click();
     const target = {root: '/project', path: '/project/src/main/java/shop/Customer.java', language: 'java', version: 1};
     const creation = {name: 'Customer', package: 'shop', source: target, defaultTableName: 'customer'};
@@ -367,19 +377,11 @@ try {
     await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
     await reply({...fixture, source: {...target, version: 2}, className: 'Customer', attributes: [{name: 'key', type: 'java.lang.Integer'}], selected: 'key', properties: [], creation: null});
     assert.match(await page.locator('#status').textContent(), /Source updated/);
-    await openViews();
-    assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Designer', 'Create', 'Changes', 'Migration']);
-    await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
-    await page.keyboard.press('ArrowRight');
-    assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
-    await page.keyboard.press('ArrowRight');
-    assert.equal(await page.getByRole('tab', {name: 'Designer', exact: true}).getAttribute('aria-selected'), 'true');
-    await page.keyboard.press('ArrowLeft');
-    assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
-    await page.keyboard.press('Home');
-    await page.keyboard.press('End');
-    assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
-    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.locator('#view-select option').allTextContents(), ['Designer', 'Create', 'Changes', 'Migration']);
+    for (const name of ['create', 'changes', 'migration', 'inspect']) { await view(name); assert.equal(await current(), name); assert.equal(await page.locator(`#${name}-panel`).isVisible(), true); }
+    await page.locator('.view-switch [role=combobox]').focus();
+    assert.equal(await page.locator('.view-switch [role=combobox]').evaluate(e => e === document.activeElement), true, 'the view dropdown is keyboard focusable');
+    await view('migration');
     assert.equal(await page.locator('#mig-empty').isVisible(), true);
     assert.equal(await page.locator('#mig-generate').isDisabled(), true);
     await page.locator('#mig-plan').click();
@@ -505,8 +507,7 @@ try {
     assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'plan-migration'});
     await reply({root: '/project', empty: true}, {migration: routed});
     // From database / SQL panel.
-    await openViews();
-    await page.getByRole('tab', {name: 'Create', exact: true}).click();
+    await view('create');
     assert.equal(await page.locator('#rev-details').evaluate(d => d.open), false);
     await page.locator('#rev-details > summary').click();
     await page.waitForFunction(() => window.requests.at(-1).operation.kind === 'reverse-sources');
@@ -554,13 +555,11 @@ try {
     await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-reverse.png`)});
     const reverseGeometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth}));
     assert.ok(reverseGeometry.scroll <= reverseGeometry.width + 1, JSON.stringify(reverseGeometry));
-    await openViews();
-    await page.getByRole('tab', {name: 'Migration', exact: true}).click();
+    await view('migration');
     const migrationGeometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth}));
     assert.ok(migrationGeometry.scroll <= migrationGeometry.width + 1, JSON.stringify(migrationGeometry));
-    await openViews();
-    await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
-    await page.keyboard.press('Home');
+    await view('changes');
+    assert.equal(await current(), 'changes');
     await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}.png`)});
     const geometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth, panel: document.querySelector('main').getBoundingClientRect().width}));
     assert.ok(geometry.scroll <= geometry.width + 1, JSON.stringify(geometry));

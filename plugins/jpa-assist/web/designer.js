@@ -12,14 +12,9 @@
   let frame = makeFrame(), sequence = 0, root = null, busy = false, grid = null, model = null;
   let pendingRequest = null;
   function makeFrame() { const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); return [...bytes].map(b => b.toString(16).padStart(2, '0')).join(''); }
-  function tab(name, focus = false) {
-    for (const key of tabs) {
-      const active = key === name, button = $(`tab-${key}`);
-      if (active) $('view-current').textContent = button.textContent;
-      button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1; $(`${key}-panel`).hidden = !active;
-      if (active && focus) button.focus();
-    }
-    if (!focus) $('view-switch').open = false;
+  function tab(name) {
+    if ($('view-select').value !== name) { $('view-select').value = name; $('view-select').dispatchEvent(new Event('change')); }
+    for (const key of tabs) $(`${key}-panel`).hidden = key !== name;
   }
   function controls() {
     const pending = !!model?.pending;
@@ -179,9 +174,6 @@
   document.addEventListener('click', event => { if (!event.target.closest('#inspector-actions')) $('inspector-actions').open = false; });
   $('inspector-actions').addEventListener('keydown', event => { if (event.key === 'Escape' && event.currentTarget.open) { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); } });
   $('tool-add').addEventListener('click', openAttributeForm);
-  $('view-switch').addEventListener('keydown', event => { if (event.key === 'Escape' && event.currentTarget.open) { event.currentTarget.open = false; $('view-current').focus(); } });
-  document.addEventListener('click', event => { if (!event.target.closest('#view-switch')) $('view-switch').open = false; });
-  $('view-switch').addEventListener('focusout', event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; });
   $('inspect').addEventListener('click', () => send({kind: 'inspect'}, 'inspect'));
   $('bind-creation').addEventListener('click', () => send({kind: 'bind-creation'}, 'bind-creation'));
   $('prepare-class').addEventListener('click', () => { if (creator.valid()) send({kind: 'prepare-class', draft: creator.draft()}, 'prepare-class'); });
@@ -198,16 +190,7 @@
   $('prepare').addEventListener('click', () => { if (grid?.valid()) send({kind: 'prepare', changes: grid.changes()}, 'prepare'); });
   $('apply').addEventListener('click', () => { if (model?.pending) send({kind: 'apply', token: model.pending.token}, 'apply'); });
   for (const id of ['reset', 'discard']) $(id).addEventListener('click', () => { if (model?.pending) send({kind: 'reset'}); else if (model) { render(model); creator.reset(); attr.reset(); rel.reset(); ann.reset(); controls(); } });
-  for (const [index, key] of tabs.entries()) {
-    const button = $(`tab-${key}`); button.addEventListener('click', event => tab(key, event.detail === 0));
-    button.addEventListener('keydown', event => {
-      let target;
-      if (event.key === 'ArrowRight') target = tabs[(index + 1) % tabs.length];
-      else if (event.key === 'ArrowLeft') target = tabs[(index + tabs.length - 1) % tabs.length];
-      else if (event.key === 'Home') target = 'inspect'; else if (event.key === 'End') target = 'migration';
-      if (target) { event.preventDefault(); tab(target, true); }
-    });
-  }
+  $('view-select').addEventListener('change', () => tab($('view-select').value));
   if (bridge) send({kind: 'snapshot'});
   else { $('inspect').disabled = true; $('status').textContent = 'Open this panel inside the IDE to inspect project source.'; }
 })();

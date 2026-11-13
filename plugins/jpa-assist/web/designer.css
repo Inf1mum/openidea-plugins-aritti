@@ -69,15 +69,6 @@ body.no-inspector #palette { flex: 1 1 auto; }
 .designer-tools > .ui-icon-button { flex: 0 0 24px; width: 24px; min-width: 24px; height: 24px; min-height: 24px; padding: 4px; }
 .designer-tools > .ui-icon-button svg { width: 16px; height: 16px; }
 .designer-tools { display: flex; align-items: center; }
-.view-switch { position: relative; margin-left: auto; min-width: 0; }
-.view-switch > summary { list-style: none; display: inline-flex; align-items: center; height: 24px; min-width: 0; padding: 0 6px; font-size: 12px; cursor: pointer; }
-.view-switch > summary::-webkit-details-marker { display: none; }
-.view-switch > summary::after { content: ''; margin-left: 5px; border: 4px solid transparent; border-top-color: currentColor; border-bottom-width: 0; }
-.view-menu { position: absolute; right: 0; top: 100%; z-index: 5; min-width: 120px; display: grid; padding: 2px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-popup-bg, var(--ui-panel)); box-shadow: 0 4px 12px rgb(0 0 0 / .25); }
-.view-menu > button { display: block; width: 100%; height: 22px; padding: 0 8px; border: 0; border-radius: 3px; background: transparent; color: var(--ui-fg); font: inherit; text-align: left; cursor: pointer; }
-.view-menu > button:hover { background: var(--ui-hover); }
-.view-menu > button[aria-selected=true] { background: var(--ui-selected); }
-.view-menu > button:focus-visible, .view-switch > summary:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
 
 /* Palette */
 #palette > .ui-input[type=search] { min-height: 0; flex: none; width: 100%; height: 22px; padding-top: 0; padding-bottom: 0; border-width: 0 0 1px; border-radius: 0; font-size: 12px; }
@@ -138,16 +129,29 @@ body.no-inspector #palette { flex: 1 1 auto; }
 .annotation-entry { min-height: 20px; padding: 0 6px; }
 
 /* Property grid: two compact columns, values as plain text unless editable */
-.designer-shell .ui-property-row { grid-template-columns: minmax(70px, 2fr) minmax(0, 3fr); gap: 4px; align-items: center; min-height: 22px; padding: 0 6px 0 22px; border-bottom: 0; }
-.designer-shell .ui-property-label { padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-fg); }
-.designer-shell .ui-property-editor { display: flex; align-items: center; min-width: 0; }
-.designer-shell .ui-property-editor > .ui-input { height: 20px; min-height: 0; padding: 0 4px; font-size: 12px; }
-.designer-shell .ui-property-editor > .ui-input:disabled { border-color: transparent; background: transparent; color: var(--ui-fg); -webkit-text-fill-color: var(--ui-fg); opacity: 1; padding-left: 0; text-overflow: ellipsis; }
-.designer-shell .ui-property-editor > .ui-input:disabled::placeholder { color: transparent; }
-.designer-shell .ui-property-origin { position: absolute !important; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (max-width: 300px) {
-  .designer-shell .ui-property-row { grid-template-columns: minmax(60px, 2fr) minmax(0, 3fr); padding-left: 14px; }
-  .source-caption { padding-left: 6px; }
-}
-.inspector-actions.ui-disclosure, .view-switch.ui-disclosure { border: 0; padding: 0; margin: 0; }
 #properties-form { padding-left: 0 !important; padding-right: 0 !important; }
+
+/* Real host: fixed compact columns at any width; !important because shared ui-kit/host rules otherwise win. */
+.view-switch { margin-left: auto; min-width: 0; display: block; }
+.view-switch .ui-select, .view-switch .ui-select-shell, .view-switch .ui-select-trigger { width: auto !important; min-width: 0 !important; min-height: 0 !important; height: 22px !important; font-size: 12px !important; }
+.designer-shell .ui-property-row { display: grid !important; grid-template-columns: 140px minmax(0, 220px) !important; justify-content: start !important; align-items: center !important; gap: 6px !important; min-height: 22px !important; height: auto !important; padding: 0 6px 0 22px !important; border: 0 !important; }
+.designer-shell .ui-property-label { padding: 0 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.designer-shell .ui-property-editor { display: flex !important; align-items: center !important; min-width: 0; max-width: 220px; }
+.designer-shell .ui-property-editor > .ui-input { width: 100% !important; max-width: 220px !important; height: 20px !important; min-height: 0 !important; padding: 0 4px !important; font-size: 12px !important; }
+.designer-shell .ui-property-editor > .ui-input:disabled { border-color: transparent !important; background: transparent !important; padding-left: 0 !important; }
+.designer-shell .ui-property-origin, .designer-shell .ui-property-editor > small, .designer-shell .ui-property-row .ui-help { display: none !important; }
+.designer-shell .ui-property-editor .ui-choice, .designer-shell .ui-property-editor .ui-choice-control { flex: none; }
+@media (max-width: 380px) { .designer-shell .ui-property-row { grid-template-columns: minmax(60px, 2fr) minmax(0, 3fr) !important; padding-left: 12px !important; } .designer-shell .ui-property-editor { max-width: none; } }
+.designer-shell .designer-section, .designer-shell #source { max-width: 640px; }
+.designer-shell .creator-form .ui-field, .designer-shell .creator-fields > .ui-field { display: grid !important; grid-template-columns: 140px minmax(0, 220px) !important; align-items: center; gap: 6px; min-height: 22px; }
+.designer-shell .creator-form .ui-input, .designer-shell .creator-form .ui-select, .designer-shell .creator-form .ui-select-shell, .designer-shell .creator-form .ui-select-trigger { max-width: 220px !important; min-height: 0 !important; height: 22px !important; }
+.designer-shell .creator-form textarea.ui-input { height: auto !important; }
+.designer-shell .creator-form .ui-check { min-height: 20px; margin: 0; gap: 4px; }
+.designer-shell .creator-fields > .ui-check, .designer-shell #rel-cascade, .designer-shell #attr-cascade { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.designer-shell .creator-form .ui-help { display: block; font-size: 11px; line-height: 14px; margin: 0; padding: 0; }
+.designer-shell .creator-form .ui-help:empty { display: none; }
+.designer-shell .creator-group { padding: 2px 6px; margin: 2px 0; }
+@media (max-width: 380px) { .designer-shell .creator-form .ui-field, .designer-shell .creator-fields > .ui-field { grid-template-columns: minmax(60px, 2fr) minmax(0, 3fr) !important; } .designer-shell .creator-form .ui-input, .designer-shell .creator-form .ui-select-shell, .designer-shell .creator-form .ui-select-trigger { max-width: none !important; } }
+@media (min-width: 700px) { .designer-shell #palette { max-width: 640px; } }
+.designer-shell .creator-form [hidden], .designer-shell .creator-fields [hidden], .designer-shell [hidden][class] { display: none !important; }
+.designer-shell .ui-property-row.is-filtered, .designer-shell .creator-form .is-filtered { display: none !important; }

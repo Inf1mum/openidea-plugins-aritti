@@ -13,18 +13,10 @@
       <button class="ui-button ui-icon-button" id="inspect" type="button" title="Inspect at Caret" aria-label="Inspect at Caret"><span data-ui-icon="locate" aria-hidden="true"></span></button>
       <button class="ui-button ui-icon-button" id="reset" type="button" title="Reset" aria-label="Reset" disabled><span data-ui-icon="undo" aria-hidden="true"></span></button>
     </div>
-    <details class="view-switch" id="view-switch">
-      <summary class="ui-button ui-button--quiet" id="view-current" aria-haspopup="true" title="Switch view: Designer, Create, Changes, Migration">Designer</summary>
-      <div class="view-menu" role="tablist" aria-label="Designer pages">
-        <button type="button" id="tab-inspect" role="tab" aria-controls="inspect-panel" aria-selected="true">Designer</button>
-        <button type="button" id="tab-create" role="tab" aria-controls="create-panel" aria-selected="false" tabindex="-1">Create</button>
-        <button type="button" id="tab-changes" role="tab" aria-controls="changes-panel" aria-selected="false" tabindex="-1">Changes</button>
-        <button type="button" id="tab-migration" role="tab" aria-controls="migration-panel" aria-selected="false" tabindex="-1">Migration</button>
-      </div>
-    </details>
+    <label class="view-switch"><span class="ui-visually-hidden">View</span><select class="ui-select" id="view-select" title="Switch view"><option value="inspect">Designer</option><option value="create">Create</option><option value="changes">Changes</option><option value="migration">Migration</option></select></label>
   </div>
   <main class="ui-scroll-area">
-    <section id="inspect-panel" role="tabpanel" aria-labelledby="tab-inspect">
+    <section id="inspect-panel" aria-label="Designer">
       <section class="designer-section" id="palette" aria-labelledby="palette-title">
         <h2 class="ui-visually-hidden" id="palette-title">JPA Palette</h2>
         <input class="ui-input" type="search" id="palette-search" aria-label="Search palette" placeholder="Search palette" autocomplete="off">
@@ -155,7 +147,7 @@
       </div>
       </section>
     </section>
-    <section id="create-panel" role="tabpanel" aria-labelledby="tab-create" hidden>
+    <section id="create-panel" aria-label="Create" hidden>
       <p class="ui-help">Create a persistence class in an empty Java or Kotlin editor. The source path determines its name, package and language.</p>
       <button class="ui-button" id="bind-creation" type="button">Use Open File</button>
       <p id="create-target" class="ui-help"></p>
@@ -214,7 +206,7 @@
       </form>
       <section class="designer-section" id="reverse-root" aria-label="From database / SQL"></section>
     </section>
-    <section id="changes-panel" role="tabpanel" aria-labelledby="tab-changes" hidden>
+    <section id="changes-panel" aria-label="Changes" hidden>
       <div class="ui-empty" id="no-changes"><p>No prepared changes. Edit a supported property, then preview the result.</p></div>
       <div id="preview" hidden>
         <p id="preview-path" class="ui-help"></p>
@@ -223,7 +215,7 @@
         <div class="designer-actions"><button class="ui-button ui-button--primary" id="apply" type="button">Apply to Source</button><button class="ui-button" id="discard" type="button">Discard Changes</button></div>
       </div>
     </section>
-    <section id="migration-panel" role="tabpanel" aria-labelledby="tab-migration" hidden>
+    <section id="migration-panel" aria-label="Migration" hidden>
       <div class="designer-actions"><button class="ui-button ui-button--primary" id="mig-plan" type="button">Compare with Baseline</button></div>
       <div class="ui-empty" id="mig-empty"><p>Compare the current entity sources with the schema baseline to list what a migration would change. Nothing is written and no database is contacted.</p></div>
       <div class="ui-empty" id="mig-nobaseline" hidden><p>No schema baseline exists yet. Run the file action "Create schema baseline…" from an entity first; the comparison needs it.</p></div>
