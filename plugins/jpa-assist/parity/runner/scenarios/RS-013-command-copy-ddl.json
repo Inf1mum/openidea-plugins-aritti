@@ -37,5 +37,5 @@
     ],
     "noFilesChanged": true
   },
-  "note": "Kind exerciser, covers no documented claim (G122-C2 lists more save targets than the command offers): the copy-ddl command asks for a dialect and puts CREATE TABLE text on the clipboard without touching any file."
+  "note": "Kind exerciser, covers no documented claim: the Clipboard save target of the single-entity DDL options is this command (a FileAction cannot copy). It asks for a dialect and puts CREATE TABLE text on the clipboard without touching any file; it has no directory or file name (the File target asks for those, RS-960)."
 }

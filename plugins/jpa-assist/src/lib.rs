@@ -1445,7 +1445,7 @@ impl Plugin for JpaAssist {
             "new-entity" => new_entity(ctx),
             tree if tree.starts_with("tree-new-") => file_actions::run_tree_command(self, tree, ctx),
             structure if structure.starts_with("structure-new-") || structure == "structure-add" => file_actions::run_structure_command(self, structure, ctx, arg),
-            "jdbc-manage" | "jdbc-test" | "jdbc-browse" => jdbc_connect::run(id, ctx),
+            "jdbc-manage" | "jdbc-from-properties" | "jdbc-test" | "jdbc-browse" => jdbc_connect::run(id, ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
@@ -2583,6 +2583,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
                 ("copy-dto".to_owned(), "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-assist.isEntity".to_owned()),
                 ("copy-entity".to_owned(), "editorLangId == sql && plugin.aritti.jpa-assist.hasCreateTable".to_owned()),
                 ("find-attribute-usages".to_owned(), "editorLangId == java && plugin.aritti.jpa-assist.isEntity".to_owned()),
+                ("jdbc-from-properties".to_owned(), "editorLangId == properties || editorLangId == yaml".to_owned()),
             ]
         );
     }

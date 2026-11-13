@@ -99,6 +99,11 @@ title = "JPA: Manage Database Connections"
 category = "JPA Assist"
 
 [[contributes.commands]]
+id = "jdbc-from-properties"
+title = "JPA: Create Database Connection from These Properties…"
+category = "JPA Assist"
+
+[[contributes.commands]]
 id = "jdbc-test"
 title = "JPA: Test Database Connection"
 category = "JPA Assist"
@@ -281,6 +286,11 @@ category = "JPA Assist"
 menu = "editor.context"
 command = "find-attribute-usages"
 when = "editorLangId == java && plugin.aritti.jpa-assist.isEntity"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "jdbc-from-properties"
+when = "editorLangId == properties || editorLangId == yaml"
 
 [[contributes.commands]]
 id = "structure-source"

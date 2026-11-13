@@ -1,0 +1,73 @@
+{
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Parcel.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\nclass Parcel {\n    @Id Long id;\n    String displayName;\n    boolean active;\n}\n"
+      }
+    },
+    {
+      "settings": {
+        "jpaAssist.tableDraftScratchDirectory": "tmp/drafts"
+      }
+    },
+    {
+      "write": {
+        "path": "tmp/drafts/ParcelSchema.sql",
+        "content": "-- earlier\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Parcel.java",
+    "anchor": "class Parcel"
+  },
+  "action": {
+    "title": "Create scalar SQL table draft with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "scratch"
+    },
+    {
+      "pick": "postgresql"
+    },
+    {
+      "input": "parcel"
+    },
+    {
+      "input": "ParcelSchema"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "tmp/drafts/ParcelSchema2.sql",
+        "contains": [
+          "CREATE TABLE \"parcel\"",
+          "PRIMARY KEY (\"id\")"
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "tmp/drafts/ParcelSchema.sql",
+      "contains": [
+        "-- earlier"
+      ]
+    }
+  },
+  "checks": {
+    "undo": true
+  },
+  "note": "Kind exerciser, covers no documented claim: the scratch directory comes from the setting and a taken name gets a numeric suffix, never overwriting.",
+  "id": "RS-962"
+}

@@ -15,8 +15,9 @@
    "supports": "Automatic Database Properties ... Requires an existing data source",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
-   "ourFeature": "Add datasource configuration… (datasource_action.rs)",
-   "verifiableHeadless": true
+   "ourFeature": "Add datasource configuration\u2026 (datasource_action.rs)",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: Add datasource configuration writes spring.datasource url, username and a placeholder password for each of the eight databases (RS-964..RS-947). Not checked: the original's 'requires an existing data source' (ours asks for the details or can take them from a saved connection profile, unit-tested only; profiles exist for PostgreSQL, MySQL, MariaDB and H2), YAML files."
   },
   {
    "id": "G082-C2",
@@ -24,7 +25,7 @@
    "supports": "Hibernate DDL auto: empty, validate, update, create, or create-drop",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
-   "ourFeature": "Add datasource configuration… (datasource_action.rs)",
+   "ourFeature": "Add datasource configuration\u2026 (datasource_action.rs)",
    "verifiableHeadless": true
   },
   {
@@ -33,7 +34,7 @@
    "supports": "Show SQL and Format SQL toggles",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
-   "ourFeature": "Add datasource configuration… (datasource_action.rs)",
+   "ourFeature": "Add datasource configuration\u2026 (datasource_action.rs)",
    "verifiableHeadless": true
   },
   {
@@ -42,7 +43,7 @@
    "supports": "Supported databases: H2, HSQLDB, IBM Db2 LUW, MariaDB, Microsoft SQL Server, MySQL, Oracle, PostgreSQL",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
-   "ourFeature": "Add datasource configuration… (datasource_action.rs)",
+   "ourFeature": "Add datasource configuration\u2026 (datasource_action.rs)",
    "verifiableHeadless": true
   }
  ],

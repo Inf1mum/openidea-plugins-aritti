@@ -25,7 +25,8 @@
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
    "ourFeature": "datasource_action.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Code equivalent: the editor context-menu command 'JPA: Create Database Connection from These Properties\u2026' creates a saved connection profile from the project's Spring datasource properties (RS-963). Not available: the gutter icon (a plugin line marker can only navigate), Micronaut and Quarkus."
   }
  ],
  "undocumented": [

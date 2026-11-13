@@ -58,6 +58,8 @@ mod template_settings;
 mod type_map;
 #[path = "ddl_options.rs"]
 mod ddl_options;
+#[path = "ddl_target.rs"]
+mod ddl_target;
 #[path = "envers_action.rs"]
 mod envers_action;
 #[path = "entity_graph_action.rs"]

@@ -7,7 +7,7 @@
     "G122-C1"
   ],
   "verifies": {
-    "G122-C1": "surfaceEquivalent: DDL for one entity is reached from the editor's code-action menu (the Alt+Enter equivalent) with the caret on the entity class: 'Create scalar SQL table draft with preview…' generates the CREATE TABLE of exactly that entity (Parcel). NOT checked: the gutter icon and New > DDL by Entity in the Project tool window (we have neither; the copy-ddl command and structure-view context menu are other entries), and the IDE intention list itself."
+    "G122-C1": "surfaceEquivalent: DDL for one entity is reached from the editor's code-action menu (the Alt+Enter equivalent) with the caret on the entity class: 'Create scalar SQL table draft with preview\u2026' generates the CREATE TABLE of exactly that entity (Parcel). NOT checked: the gutter icon and New > DDL by Entity in the Project tool window (we have neither; the copy-ddl command and structure-view context menu are other entries), and the IDE intention list itself."
   },
   "fixture": "envers-flyway-liquibase",
   "setup": [
@@ -24,9 +24,12 @@
     "anchor": "class Parcel"
   },
   "action": {
-    "title": "Create scalar SQL table draft with preview…"
+    "title": "Create scalar SQL table draft with preview\u2026"
   },
   "prompts": [
+    {
+      "pick": "file"
+    },
     {
       "pick": "postgresql"
     },
@@ -35,6 +38,9 @@
     },
     {
       "input": "ParcelSchema"
+    },
+    {
+      "input": "src/main/java/com/example/billing/domain"
     },
     {
       "confirm": "yes"
