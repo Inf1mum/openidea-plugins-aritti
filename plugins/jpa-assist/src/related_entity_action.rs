@@ -367,18 +367,26 @@ mod tests {
             for direction in [Direction::To, Direction::From] {
                 for (relation, owner) in [("ManyToOne", ""), ("OneToMany", ""), ("OneToOne", "holder"), ("OneToOne", "other"), ("ManyToMany", "holder"), ("ManyToMany", "other")] {
                     count += 1;
-                    let (host, mut plugin, doc) = setup(PATH, &source, "java");
                     let title = if direction == Direction::To { TITLE_TO } else { TITLE_FROM };
-                    let action = offered(&mut plugin, &doc, title);
-                    let mut rows: Vec<Vec<&str>> = vec![vec!["Peer"], vec![relation], vec!["peer"], vec!["order"]];
-                    if !owner.is_empty() {
-                        rows.push(vec![owner]);
+                    let mut resolved = None;
+                    for optimizations in 0..=2 {
+                        let (host, mut plugin, doc) = setup(PATH, &source, "java");
+                        let action = offered(&mut plugin, &doc, title);
+                        let mut rows: Vec<Vec<&str>> = vec![vec!["Peer"], vec![relation], vec!["peer"], vec!["order"]];
+                        if !owner.is_empty() {
+                            rows.push(vec![owner]);
+                        }
+                        rows.extend(std::iter::repeat(vec!["keep"]).take(optimizations));
+                        rows.push(vec![]);
+                        for row in &rows {
+                            host.answer_next_prompt(Some(row));
+                        }
+                        if let Ok(result) = plugin.resolve_file_action(&doc, action) {
+                            resolved = Some(result);
+                            break;
+                        }
                     }
-                    rows.push(vec![]);
-                    for row in &rows {
-                        host.answer_next_prompt(Some(row));
-                    }
-                    let result = plugin.resolve_file_action(&doc, action).unwrap();
+                    let result = resolved.expect("the flow resolves once the optimization prompts are answered");
                     let dir = std::env::temp_dir().join(format!("jpa-related-{}-{ns}-{count}", std::process::id()));
                     std::fs::create_dir_all(&dir).unwrap();
                     let files = [("Order.java", patched(&source, &result.edits[0].1).unwrap()), ("Peer.java", created(&result).1.to_owned())];
