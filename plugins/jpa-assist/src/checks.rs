@@ -252,7 +252,9 @@ fn entity_findings(text: &str, kotlin: bool, owned_class: Option<&Class>) -> Vec
 
         let own_equality = ["equals", "hashCode", "toString"].iter().all(|n| overrides(&masked[class_at..], n));
 
-        if let Some(at) = words(modifiers, "data").next().filter(|_| kotlin && !own_equality).map(|i| i + entity.end()) {
+        let only_identifiers = identifier_only_constructor(&masked, class_at);
+
+        if let Some(at) = words(modifiers, "data").next().filter(|_| kotlin && !own_equality && !only_identifiers).map(|i| i + entity.end()) {
             findings.push(Finding::new(
                 at,
                 at + "data".len(),
@@ -292,6 +294,24 @@ fn entity_findings(text: &str, kotlin: bool, owned_class: Option<&Class>) -> Vec
     }
 
     findings
+}
+
+fn identifier_only_constructor(masked: &str, class_at: usize) -> bool {
+    let annotations = annotations(masked);
+    let header_end = masked[class_at..].find('{').map_or(masked.len(), |i| i + class_at);
+    let Some(open) = masked[class_at..header_end].find('(').map(|i| i + class_at) else { return true };
+    let Some(close) = closing(masked.as_bytes(), open) else { return false };
+
+    if masked[open + 1..close].trim().is_empty() {
+        return true;
+    }
+
+    crate::model::split_top_level(&masked[open + 1..close]).iter().filter(|(_, part)| !part.trim().is_empty()).all(|(offset, part)| {
+        let from = open + 1 + offset;
+        let to = from + part.len();
+
+        annotations.iter().any(|a| a.start >= from && a.start < to && matches!(a.name, "Id" | "EmbeddedId"))
+    })
 }
 
 fn overrides(masked: &str, name: &str) -> bool {

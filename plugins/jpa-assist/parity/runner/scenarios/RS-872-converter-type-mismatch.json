@@ -1,0 +1,55 @@
+{
+  "id": "RS-872",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C3"
+  ],
+  "verifies": {
+    "S005-C3": "jpa-converter-type-mismatch is reported on NumHolder (String field, converter for Number) and absent on ObjHolder (Long field, converter for Object, assignable). Level, the remove-@Convert fix and unprovable cases are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/NumberConv.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.AttributeConverter;\nimport jakarta.persistence.Converter;\n\n@Converter\npublic class NumberConv implements AttributeConverter<Number, String> {\n    public String convertToDatabaseColumn(Number v) { return null; }\n    public Number convertToEntityAttribute(String s) { return null; }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/ObjectConv.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.AttributeConverter;\nimport jakarta.persistence.Converter;\n\n@Converter\npublic class ObjectConv implements AttributeConverter<Object, String> {\n    public String convertToDatabaseColumn(Object v) { return null; }\n    public Object convertToEntityAttribute(String s) { return null; }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/NumHolder.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Convert;\n\n@Entity\npublic class NumHolder {\n    @Id\n    private Long id;\n\n    @Convert(converter = NumberConv.class)\n    private String value;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/ObjHolder.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Convert;\n\n@Entity\npublic class ObjHolder {\n    @Id\n    private Long id;\n\n    @Convert(converter = ObjectConv.class)\n    private Long value;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-converter-type-mismatch",
+        "file": "src/main/java/com/example/shop/s5/NumHolder.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-converter-type-mismatch",
+        "file": "src/main/java/com/example/shop/s5/ObjHolder.java"
+      }
+    ]
+  },
+  "note": "JDK scalar mismatch flagged, assignable pair quiet. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}

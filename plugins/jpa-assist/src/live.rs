@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn kotlin_local_checks_and_settings_are_respected() {
         let host = MockHost::install();
-        let text = "@jakarta.persistence.Entity\ndata class Example { val name: String = \"\" }";
+        let text = "@jakarta.persistence.Entity\ndata class Example(var name: String) { }";
         let d = State::default().diagnostics(&doc("/project/Example.kt", text));
         assert!(has(&d, "jpa-data-class"));
         host.set_setting("jpaAssist.checkKotlinEntities", "false");

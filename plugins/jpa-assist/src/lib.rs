@@ -2184,11 +2184,20 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert_eq!(kotlin_codes(text), ["jpa-immutable-collection"]);
     }
 
-    const DATA: &str = "@Entity\ndata class K(@Id var id: Long?) {\n}\n";
+    const DATA: &str = "@Entity\ndata class K(@Id var id: Long?, var a: String) {\n}\n";
 
     #[test]
     fn data_class_entity_warns_without_the_three_overrides() {
         assert_eq!(kotlin_codes(DATA), ["jpa-data-class"]);
+    }
+
+    #[test]
+    fn data_class_entity_whose_constructor_holds_only_identifiers_is_quiet() {
+        assert!(kotlin_codes("@Entity\ndata class K(@Id var id: Long?) {\n}\n").is_empty());
+        assert!(kotlin_codes("@Entity\ndata class K(@EmbeddedId var key: Key?) {\n}\n").is_empty());
+        assert!(kotlin_codes("@Entity\ndata class K(\n    @Id var id: Long? = null,\n) {\n}\n").is_empty());
+        assert!(!kotlin_codes("@Entity\ndata class K() {\n}\n").contains(&"jpa-data-class".to_owned()));
+        assert_eq!(kotlin_codes("@Entity\ndata class K(@Id var id: Long?, @Column var a: String) {\n}\n"), ["jpa-data-class"]);
     }
 
     #[test]
@@ -2199,7 +2208,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
     #[test]
     fn data_class_with_only_equals_still_warns() {
-        let text = "@Entity\ndata class K(@Id var id: Long?) {\n  override fun equals(other: Any?) = other is K\n}\n";
+        let text = "@Entity\ndata class K(@Id var id: Long?, var a: String) {\n  override fun equals(other: Any?) = other is K\n}\n";
         assert_eq!(kotlin_codes(text), ["jpa-data-class"]);
     }
 

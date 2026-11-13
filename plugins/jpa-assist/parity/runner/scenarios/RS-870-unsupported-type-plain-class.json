@@ -1,0 +1,55 @@
+{
+  "id": "RS-870",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C1"
+  ],
+  "verifies": {
+    "S005-C1": "jpa-unsupported-type is reported on Priced (project class Money with no supertypes and no mapping); the Serializable variant PricedSerial stays silent. Level, quick fixes and JDK/library/array types are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/Money.java",
+        "content": "package com.example.shop.s5;\n\npublic class Money {\n    long cents;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/SerialMoney.java",
+        "content": "package com.example.shop.s5;\n\npublic class SerialMoney implements java.io.Serializable {\n    long cents;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/Priced.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Priced {\n    @Id\n    private Long id;\n    private Money price;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/PricedSerial.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class PricedSerial {\n    @Id\n    private Long id;\n    private SerialMoney price;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-unsupported-type",
+        "file": "src/main/java/com/example/shop/s5/Priced.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-unsupported-type",
+        "file": "src/main/java/com/example/shop/s5/PricedSerial.java"
+      }
+    ]
+  },
+  "note": "Plain project class flagged, Serializable class quiet. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}

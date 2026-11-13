@@ -1,0 +1,59 @@
+{
+  "id": "RS-879",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C10"
+  ],
+  "verifies": {
+    "S005-C10": "jpa-lombok-to-string is reported on LazyToString (@ToString with a lazy to-one association) and absent on DataOnly (bare @Data) and EagerToString (default-eager to-one). Warning level, anchor placement and the of/exclude cases are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/Other.java",
+        "content": "package com.example.shop.s5;\n\npublic class Other {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/LazyToString.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.ManyToOne;\nimport lombok.ToString;\n\n@Entity\n@ToString\npublic class LazyToString {\n    @Id\n    private Long id;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Other owner;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/DataOnly.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.ManyToOne;\nimport lombok.Data;\n\n@Entity\n@Data\npublic class DataOnly {\n    @Id\n    private Long id;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Other owner;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/EagerToString.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport lombok.ToString;\n\n@Entity\n@ToString\npublic class EagerToString {\n    @Id\n    private Long id;\n\n    @ManyToOne\n    private Other owner;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-lombok-to-string",
+        "file": "src/main/java/com/example/shop/s5/LazyToString.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-lombok-to-string",
+        "file": "src/main/java/com/example/shop/s5/DataOnly.java"
+      },
+      {
+        "rule": "jpa-lombok-to-string",
+        "file": "src/main/java/com/example/shop/s5/EagerToString.java"
+      }
+    ]
+  },
+  "note": "Lazy association under an explicit @ToString flagged; bare @Data and eager association quiet. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}
