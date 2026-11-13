@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "Create attribute converter with preview… (converter_action.rs)",
-   "verifiableHeadless": true
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Persistence view Add list: JPA Converter (RS-952) and Hibernate Custom Type (RS-953). Not checked: the inspector Add button."
   },
   {
    "id": "G025-C2",

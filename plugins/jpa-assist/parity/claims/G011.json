@@ -35,7 +35,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Setting jpaAssist.designer.showEditorToolbar shows or hides the Persistence Designer toolbar (RS-960, RS-961). Not checked: the original's editor-window toolbar (none in the host), the status bar item setting (unit tests)."
   }
  ],
  "undocumented": [

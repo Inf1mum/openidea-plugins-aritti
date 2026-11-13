@@ -1,0 +1,41 @@
+{
+  "id": "RS-961",
+  "rows": [
+    "G011"
+  ],
+  "claimIds": [
+    "G011-C3"
+  ],
+  "verifies": {
+    "G011-C3": "With jpaAssist.designer.showEditorToolbar true the layout reply shows the designer toolbar (RS-960 is the off case). Same equivalent surface and limits as RS-960."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "settings": {
+        "jpaAssist.designer.showEditorToolbar": true
+      }
+    }
+  ],
+  "kind": "designer",
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "layout.toolbar",
+        "message": 1,
+        "equals": true
+      }
+    ]
+  },
+  "note": "Toolbar on."
+}

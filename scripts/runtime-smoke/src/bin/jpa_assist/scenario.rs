@@ -12,11 +12,11 @@ pub(crate) struct Loaded {
     value: Value,
 }
 
-const KINDS: &[&str] = &["fileaction", "diagnostics", "completion", "hover", "command", "tree", "lineMarkers", "designer"];
+const KINDS: &[&str] = &["fileaction", "diagnostics", "completion", "hover", "command", "tree", "lineMarkers", "designer", "manifest"];
 const EXPECT_KEYS: &[&str] = &[
     "promptSequence", "promptCount", "editsContain", "resultFile", "createdFiles", "noFilesChanged", "diagnostics", "diagnosticsAbsent",
     "completionsInclude", "completionsExclude", "hoverContains", "clipboardContains", "treeNodes", "treeChildren", "treeAbsent", "markersInclude", "actionOffered",
-    "resolveErrorContains", "goldenFile", "designerReplies",
+    "resolveErrorContains", "goldenFile", "designerReplies", "pluginPackage",
 ];
 const CHECK_KEYS: &[&str] = &["preview", "undo", "cancelEach", "stale"];
 const TOP_KEYS: &[&str] = &[
@@ -870,6 +870,40 @@ fn diag_matches(d: &Value, want: &Value) -> bool {
     want["rule"].as_str().is_none_or(|r| d["rule"].as_str() == Some(r))
         && want["file"].as_str().is_none_or(|f| d["file"].as_str().is_some_and(|x| x.ends_with(f)))
         && want["line"].as_u64().is_none_or(|l| d["line"].as_u64() == Some(l))
+        && want["severity"].as_str().is_none_or(|s| d["severity"].as_str().is_some_and(|x| x.eq_ignore_ascii_case(s)))
+}
+
+/// `pluginPackage` expectations (kind `manifest`): declarations of the package, read from `plugin.toml` and `settings/` of the plugin source.
+/// `{"settingsPage": "settings/x.json", "includesSchemaKeysWithPrefix": "p.", "includes": [keys]}`: the page is declared in plugin.toml and lists those keys;
+/// `{"manifestView": {"id", "location"}}`: a `[[contributes.views]]` block with that id (and location).
+fn package_checks(expect: &Value, plugin: &Path, res: &mut Results) {
+    let read = |rel: &str| std::fs::read_to_string(plugin.join(rel)).unwrap_or_default();
+    let manifest = read("plugin.toml");
+    for want in expect["pluginPackage"].as_array().cloned().unwrap_or_default() {
+        if let Some(page) = want["settingsPage"].as_str() {
+            let keys_of = |text: &str| -> Vec<String> {
+                serde_json::from_str::<Value>(text).ok().and_then(|v| v["properties"].as_object().map(|o| o.keys().cloned().collect())).unwrap_or_default()
+            };
+            let on_page = keys_of(&read(page));
+            let mut missing: Vec<String> = strs(&want["includes"]).into_iter().filter(|k| !on_page.contains(k)).collect();
+            let mut total = 0;
+            if let Some(prefix) = want["includesSchemaKeysWithPrefix"].as_str() {
+                let wanted: Vec<String> = keys_of(&read("settings.schema.json")).into_iter().filter(|k| k.starts_with(prefix)).collect();
+                total = wanted.len();
+                missing.extend(wanted.into_iter().filter(|k| !on_page.contains(k)));
+            }
+            let declared = manifest.contains(&format!("schema = \"{page}\""));
+            res.add(&format!("settings page {page} declared in plugin.toml and lists its keys"), declared && missing.is_empty() && !on_page.is_empty(), format!("declared {declared}; {} keys on the page, {total} schema keys with the prefix; missing {missing:?}", on_page.len()));
+        }
+        if want["manifestView"].is_object() {
+            let id = want["manifestView"]["id"].as_str().unwrap_or("");
+            let location = want["manifestView"]["location"].as_str();
+            let hit = manifest.split("[[").any(|b| {
+                b.starts_with("contributes.views]]") && b.contains(&format!("id = \"{id}\"")) && location.is_none_or(|l| b.contains(&format!("location = \"{l}\"")))
+            });
+            res.add(&format!("plugin.toml declares view {id} {location:?}"), hit, "manifest scan".to_owned());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1257,6 +1291,7 @@ async fn run_one(repo: &Path, out: &Path, wasm: &Path, wasm_sha: &str, loaded: &
             }
         }
     }
+    package_checks(&sc["expect"], &repo.join(PLUGIN_SOURCE), &mut res);
     // artifacts for any file a check read
     for f in match &sc["expect"]["resultFile"] {
         Value::Array(a) => a.clone(),

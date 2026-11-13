@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "designer.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "plugin.toml declares the designer view in the right panel beside the structure view in the left panel (RS-958). Not checked: host docking and layout."
   },
   {
    "id": "G012-C2",
@@ -25,7 +26,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Designer sections (palette, inspector, toolbar) each hidden by settings, all hidden together (RS-959). Not checked: closing the designer panel (host function), rendering."
   },
   {
    "id": "G012-C3",

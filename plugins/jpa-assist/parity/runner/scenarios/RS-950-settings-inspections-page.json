@@ -1,0 +1,26 @@
+{
+  "id": "RS-950",
+  "rows": [
+    "G030"
+  ],
+  "claimIds": [
+    "G030-C2"
+  ],
+  "verifies": {
+    "G030-C2": "The plugin package declares the Inspections settings page (settings/inspections.json in plugin.toml) and that page lists every jpaAssist.check* key of settings.schema.json plus the jpaAssist.inspectionSeverities table (rule code and level, or off). Read from the package files of the plugin source, not through the host's settings UI. NOT checked: the Editor > Inspections > JPA Buddy tree of the original, per-scope profiles, the rendering of the page. Equivalent surface: Settings > Plugins > JPA Assist > Inspections."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "manifest",
+  "expect": {
+    "pluginPackage": [
+      {
+        "settingsPage": "settings/inspections.json",
+        "includesSchemaKeysWithPrefix": "jpaAssist.check",
+        "includes": [
+          "jpaAssist.inspectionSeverities"
+        ]
+      }
+    ]
+  },
+  "note": "Settings page declaration vs schema."
+}

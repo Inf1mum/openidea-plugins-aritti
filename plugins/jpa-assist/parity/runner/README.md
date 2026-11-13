@@ -44,7 +44,7 @@ $BIN REPO OUT [FIXTURE_DIR] [WASM] [--smoke] [--scenario FILE|DIR ...] [--only .
   "setup": [ ... ],                     // applied to the disposable copy before the host starts
   "preActions": [ ... ],                // code actions applied (natively) after the host starts, before the main action
   "postSetup": [ ... ],                 // setup steps applied after preActions (open buffers are re-synced)
-  "kind": "fileaction|diagnostics|completion|hover|command|tree|lineMarkers|designer",
+  "kind": "fileaction|diagnostics|completion|hover|command|tree|lineMarkers|designer|manifest",
   "target": { "file": "...", ... },     // see below
   "action": { "title": "exact code-action title" } | { "command": "id", "arg": "..." } | { "view": "structure" },
   "prompts": [ answers in the order the plugin asks ],
@@ -98,7 +98,8 @@ missing or mismatching answer cancels the prompt and fails the scenario (`script
 | `resultFile` | object or list `{path, contains, notContains, matches}` read from the disposable copy after the apply |
 | `createdFiles` | `{path, contains}`: absent before, present after |
 | `noFilesChanged` | tree and applied-edit count unchanged |
-| `diagnostics` / `diagnosticsAbsent` | `{rule, file (suffix), line?}` (line is 1-based) |
+| `diagnostics` / `diagnosticsAbsent` | `{rule, file (suffix), line?, severity?}` (line is 1-based; severity is Error, Warning, Info or Hint, case-insensitive) |
+| `pluginPackage` | `manifest` kind (no host action; reads `plugin.toml` and `settings/` of the plugin source): `{settingsPage, includesSchemaKeysWithPrefix?, includes?}` the page is declared in plugin.toml and lists those keys (every `settings.schema.json` key with the prefix, and the named keys); `{manifestView: {id, location?}}` a `[[contributes.views]]` block with that id and location |
 | `completionsInclude` / `completionsExclude` | labels (substring) |
 | `hoverContains`, `clipboardContains`, `treeNodes`, `markersInclude` | substrings of hover markdown, clipboard text, tree label+detail, marker tooltip |
 | `treeChildren` | list of label chains `["Customer", "Repositories", "CustomerRepository"]`: each label is a child of the previous (the first is a root item) |

@@ -1,0 +1,86 @@
+{
+  "id": "RS-951",
+  "rows": [
+    "G020"
+  ],
+  "claimIds": [
+    "G020-C2"
+  ],
+  "verifies": {
+    "G020-C2": "With no plugin setting written (every jpaAssist.check* toggle defaults to on, unit test every_inspection_is_enabled_and_rules_the_original_forces_to_error_keep_their_severity) the rules whose counterpart the original registers without a level report as Warning: jpa-lombok-data, jpa-lombok-equals, jpa-lombok-equals-field, jpa-lombok-to-string, jpa-unsupported-type and jpa-incompatible-table, each asserted with severity Warning. The coverage is restricted to those rules: the original forces missing identifier, duplicate version, no-arg constructor and composite id serializable to ERROR, and our jpa-lombok-constructors (Error) keeps that severity, asserted here as Error. NOT checked: 'all scopes' (an IDE inspection-profile concept), the settings page, original rules we do not implement."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/defects/LombokAllArgsDefect.java",
+        "content": "package com.example.crm.defects;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport lombok.AllArgsConstructor;\nimport lombok.Getter;\n\n@Entity\n@Getter\n@AllArgsConstructor\npublic class LombokAllArgsDefect {\n\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String name;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/w2/Money.java",
+        "content": "package com.example.crm.w2;\n\npublic class Money {\n    long cents;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/w2/Priced.java",
+        "content": "package com.example.crm.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Priced {\n    @Id\n    private Long id;\n    private Money price;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/w2/Root.java",
+        "content": "package com.example.crm.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Root {\n    @Id\n    private Long id;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/w2/Leaf.java",
+        "content": "package com.example.crm.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"leaf\")\npublic class Leaf extends Root {\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-lombok-data",
+        "file": "src/main/java/com/example/crm/defects/LombokDataDefect.java",
+        "severity": "Warning"
+      },
+      {
+        "rule": "jpa-lombok-equals",
+        "file": "src/main/java/com/example/crm/defects/LombokEqualsDefect.java",
+        "severity": "Warning"
+      },
+      {
+        "rule": "jpa-lombok-equals-field",
+        "file": "src/main/java/com/example/crm/defects/LombokEqualsDefect.java",
+        "severity": "Warning"
+      },
+      {
+        "rule": "jpa-lombok-to-string",
+        "file": "src/main/java/com/example/crm/defects/LombokToStringDefect.java",
+        "severity": "Warning"
+      },
+      {
+        "rule": "jpa-unsupported-type",
+        "file": "src/main/java/com/example/crm/w2/Priced.java",
+        "severity": "Warning"
+      },
+      {
+        "rule": "jpa-incompatible-table",
+        "file": "src/main/java/com/example/crm/w2/Leaf.java",
+        "severity": "Warning"
+      },
+      {
+        "rule": "jpa-lombok-constructors",
+        "file": "src/main/java/com/example/crm/defects/LombokBuilderDefect.java",
+        "severity": "Error"
+      }
+    ]
+  },
+  "note": "Default settings; severity of the Lombok and attribute rules the original leaves at the default level."
+}
