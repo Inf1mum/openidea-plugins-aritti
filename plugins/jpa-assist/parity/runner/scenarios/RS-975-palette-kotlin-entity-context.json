@@ -1,0 +1,70 @@
+{
+  "id": "RS-975",
+  "rows": [
+    "G005"
+  ],
+  "claimIds": [
+    "G005-C1"
+  ],
+  "verifies": {
+    "G005-C1": "For a Kotlin entity the palette context reports Kotlin and the wizard items that support Kotlin (attribute forms, index, named query) are enabled. Not checked: the palette's position or rendering inside the IDE (web/palette.js and scripts/check-jpa-designer.mjs cover the rendering), starting the named action from the palette (a web view cannot start editor actions, so each item names the exact action title), a palette inside the editor itself (none exists)."
+  },
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/kotlin/com/example/shop/domain/Widget.kt",
+        "content": "package com.example.shop.domain\n\nimport jakarta.persistence.Entity\nimport jakarta.persistence.Id\nimport jakarta.persistence.Index\nimport jakarta.persistence.NamedQueries\nimport jakarta.persistence.NamedQuery\nimport jakarta.persistence.Table\n\n@Entity\n@Table(name = \"widget\", indexes = [Index(columnList = \"label\")])\n@NamedQueries([NamedQuery(name = \"Widget.all\", query = \"select w from Widget w\")])\nclass Widget {\n    @Id\n    var id: Long? = null\n    var label: String? = null\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/kotlin/com/example/shop/domain/Widget.kt",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "palette.context.kotlin",
+        "message": 1,
+        "equals": true
+      },
+      {
+        "path": "palette.categories.0.items",
+        "message": 1,
+        "anyItem": {
+          "id": "basic",
+          "enabled": true
+        }
+      },
+      {
+        "path": "palette.categories.2.items",
+        "message": 1,
+        "anyItem": {
+          "id": "index",
+          "enabled": true
+        }
+      },
+      {
+        "path": "palette.categories.3.items",
+        "message": 1,
+        "anyItem": {
+          "id": "namedQuery",
+          "enabled": true
+        }
+      }
+    ]
+  },
+  "note": "Kotlin context."
+}

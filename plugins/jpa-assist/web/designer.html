@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="./resources/property-grid.css"><link rel="stylesheet" href="./designer.css"><link rel="stylesheet" href="./reverse.css">
 <script defer src="./resources/native-icons.js"></script><script defer src="./resources/icons.js"></script>
 <script defer src="./resources/widgets.js"></script><script defer src="./resources/controls.js"></script>
-<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./palette.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./preview.js"></script><script defer src="./migration.js"></script><script defer src="./reverse.js"></script><script defer src="./designer.js"></script>
+<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./palette.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./annotations.js"></script><script defer src="./preview.js"></script><script defer src="./migration.js"></script><script defer src="./reverse.js"></script><script defer src="./designer.js"></script>
 </head><body class="ui-embedded-panel">
 <div class="designer-shell">
   <div class="ui-toolbar" role="toolbar" aria-label="Persistence inspection">
@@ -82,6 +82,28 @@
           <p id="rel-validation" class="ui-help" role="status" aria-live="polite"></p>
           <button class="ui-button ui-button--primary" id="prepare-relationship" type="button" disabled>Preview Relationship Changes</button>
         </form>
+        </details>
+        <div id="annotation-lists">
+          <details class="ui-disclosure inspector-section" id="section-indexes" open hidden><summary>Indexes</summary>
+            <ul class="annotation-list" id="index-list" aria-label="Indexes and unique constraints"></ul>
+            <p class="ui-help" id="index-empty" hidden>No @Table indexes or unique constraints are declared.</p>
+          </details>
+          <details class="ui-disclosure inspector-section" id="section-queries" open hidden><summary>Named queries</summary>
+            <ul class="annotation-list" id="query-list" aria-label="Named queries"></ul>
+          </details>
+          <p class="ui-help" id="annotation-note"></p>
+        </div>
+        <details class="ui-disclosure inspector-section" id="section-annotation-edit" open hidden><summary id="annotation-title">Edit entry</summary>
+          <form id="annotation-form" class="creator-form" novalidate>
+            <fieldset id="annotation-edit-fields" class="creator-fields"><legend class="ui-visually-hidden">Edit the selected index or query</legend>
+              <label class="ui-field">Name<input class="ui-input" id="ann-name" maxlength="128" autocomplete="off"></label>
+              <label class="ui-field" id="ann-columns-row">Columns<input class="ui-input" id="ann-columns" autocomplete="off" placeholder="column_a, column_b"></label>
+              <label class="ui-check" id="ann-unique-row"><input type="checkbox" id="ann-unique">Unique</label>
+              <label class="ui-field" id="ann-query-row">JPQL<textarea class="ui-input" id="ann-query" rows="3" maxlength="4096" autocomplete="off" spellcheck="false"></textarea></label>
+            </fieldset>
+            <p id="annotation-validation" class="ui-help" role="status" aria-live="polite"></p>
+            <button class="ui-button ui-button--primary" id="prepare-annotation" type="button" disabled>Preview Changes</button>
+          </form>
         </details>
         <p class="ui-help" id="provenance"></p>
         <details id="add-attribute" class="creator-form"><summary>Add attribute</summary>

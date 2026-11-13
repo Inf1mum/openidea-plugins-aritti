@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "The Designer's `palette` model (designer message, designer_palette.rs; unit tests there and RS-970 to RS-976) is computed from the source open in the editor: items are enabled or disabled with a reason by the class kind (entity, mapped superclass, embeddable), Kotlin, an existing identifier, a declared callback or equals(), Lombok annotations and the same eligibility checks the named code actions use, and each non-form item carries the exact editor action title it runs; web/palette.js renders that model (scripts/check-jpa-designer.mjs). Not checked: the palette inside the IDE's editor (the OpenIDEA Designer panel is the equivalent surface; a web view cannot start editor actions), the Designer's own database state (From DB lists the action; the table is chosen when the action runs)."
   },
   {
    "id": "G005-C2",
@@ -25,7 +26,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "The Designer palette model lists the categories Attributes, Lifecycle Callbacks, Indexes, Named Query, Utilities and Reverse engineering with the wizard items for attributes (association, basic, element collection, embedded, embedded id, enum, id, transient, from DB), the seven lifecycle callbacks, index or unique constraint, named query, equals/hashCode, toString and generate entities from a SQL file (RS-971). Each wizard item is either the Designer's Add attribute form or names the existing reviewed editor action. Not checked: the wizards' own dialogs (covered by their rows), the original's dialog layout, starting an action from the palette (an item shows the action title to run in the editor)."
   },
   {
    "id": "G005-C3",

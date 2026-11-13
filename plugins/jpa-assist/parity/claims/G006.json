@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "designer.rs, file_actions.rs, relationship.js, relationship_edit.rs, wizard.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "The Designer's Inspector edits, in place and through version-checked prepare and apply messages, entity attributes (column mapping and relationships, RS-941 exerciser and RS-989), existing @Table indexes and unique constraints, and existing literal @NamedQuery entries (name, columns, uniqueness, JPQL text; Java and Kotlin; RS-980 to RS-989, unit tests in designer_annotation_edit.rs, scripts/check-jpa-designer.mjs for the inspector sections). Entries that are not plain literal annotations stay listed but read-only. Not checked: selecting an element in a tool window (the Designer lists the open entity's entries and the user picks one in the Inspector), editing entities or named native queries and other elements, the original's inspector popup."
   }
  ],
  "undocumented": [

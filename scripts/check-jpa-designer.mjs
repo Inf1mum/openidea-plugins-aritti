@@ -17,18 +17,30 @@ const fixture = {root: '/project', empty: false, source: {root: '/project', path
   {key: 'length', label: 'Length', value: 40, origin: 'explicit', editable: true, detail: null},
   {key: 'precision', label: 'Precision', value: 0, origin: 'unresolved', editable: false, detail: 'Unknown effective numeric mapping.'},
 ]};
+const on = (id, label, extra = {}) => ({id, label, enabled: true, reason: null, ...extra});
+const attr = (id, label, kind, enumerated = false) => on(id, label, {attribute: {kind, enumerated}});
+const act = (id, label, action, extra = {}) => on(id, label, {action, where: 'on the entity class declaration', ...extra});
+const paletteModel = {context: {loaded: true, kind: 'Entity', kotlin: false, lombok: null}, categories: [
+  {id: 'attributes', label: 'Attributes', items: [attr('association', 'Association', 'ManyToOne'), attr('basic', 'Basic Type', 'none'), attr('elementCollection', 'Element Collection', 'ElementCollection'), attr('embedded', 'Embedded', 'Embedded'), act('embeddedId', 'Embedded Id', 'Add embedded identifier with preview…'), attr('enum', 'Enum', 'none', true), act('id', 'Id', 'Add JPA identifier with preview…'), attr('transient', 'Transient', 'transient'),
+    {id: 'version', label: 'Version', enabled: false, reason: 'No action adds a version field to an existing class.'}, act('fromDb', 'From DB', 'Add attributes from database columns…', {enabled: false, reason: 'Needs one source-owned entity whose closing brace starts its own line.'})]},
+  {id: 'callbacks', label: 'Lifecycle Callbacks', items: ['PrePersist', 'PostPersist', 'PreUpdate', 'PostUpdate', 'PreRemove', 'PostRemove', 'PostLoad'].map(e => act(`callback${e}`, `@${e}`, `Add @${e} callback`))},
+  {id: 'indexes', label: 'Indexes', items: [act('index', 'Index or Unique Constraint', 'Add index or unique constraint with preview…')]},
+  {id: 'queries', label: 'Named Query', items: [act('namedQuery', 'Named Query', 'Add named query with preview…')]},
+  {id: 'utilities', label: 'Utilities', items: [act('equals', 'equals() and hashCode()', 'Generate proxy-safe equals and hashCode with preview…', {enabled: false, reason: 'Lombok @Data already generates equals() and hashCode().'}), act('toString', 'toString()', 'Generate lazy-safe toString with preview…')]},
+  {id: 'reverse', label: 'Reverse engineering', items: [act('generateEntities', 'Generate entities from SQL file', 'Generate entities from SQL file…')]},
+]};
 try {
   for (const theme of ['light', 'dark']) for (const [width, height] of [[280, 400], [400, 700], [800, 600]]) {
     const page = await browser.newPage({viewport: {width, height}, colorScheme: theme});
     const errors = []; page.on('pageerror', error => errors.push(error.message));
-    await page.addInitScript(() => {
-      window.requests = []; const listeners = [];
+    await page.addInitScript(pm => {
+      window.requests = []; window.paletteModel = pm; const listeners = [];
       window.openidea = {postMessage: raw => window.requests.push(JSON.parse(raw)), onMessage: callback => listeners.push(callback)};
       window.reply = message => listeners.forEach(callback => callback(JSON.stringify(message)));
-    });
+    }, paletteModel);
     await page.goto(pathToFileURL(resolve(root, 'plugins/jpa-assist/web/designer.html')).href);
     await page.waitForFunction(() => window.requests.length === 1);
-    const reply = async (model, extra = {}) => page.evaluate(({model, extra}) => { const r = window.requests.at(-1); window.reply({...r, ok: true, model, ...extra}); }, {model, extra});
+    const reply = async (model, extra = {}) => page.evaluate(({model, extra}) => { const r = window.requests.at(-1); window.reply({...r, ok: true, model, palette: window.paletteModel, ...extra}); }, {model, extra});
     await reply(fixture);
     assert.equal(await page.getByLabel('Precision', {exact: true}).isDisabled(), true);
     const withLayout = async layout => {
@@ -52,12 +64,12 @@ try {
     await withLayout({});
     assert.deepEqual([await shown('#palette'), await shown('#inspector-title'), await shown('#inspect'), await shown('#section-general')], [true, true, true, true], 'default layout shows everything');
     const palette = page.locator('#palette');
-    assert.deepEqual(await page.getByRole('option').allTextContents(), ['Attributes', 'Lifecycle Callbacks', 'Indexes', 'Named Query', 'Utilities']);
+    assert.deepEqual(await page.getByRole('option').allTextContents(), ['Attributes', 'Lifecycle Callbacks', 'Indexes', 'Named Query', 'Utilities', 'Reverse engineering']);
     assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Association', 'Basic Type', 'Element Collection', 'Embedded', 'Embedded Id', 'Enum', 'Id', 'Transient', 'Version', 'From DB']);
     assert.equal(await page.getByRole('option', {name: 'Attributes'}).getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('.palette-item[aria-disabled=true]').count(), 2, 'Version and From DB are disabled, attribute kinds are enabled once a source is loaded');
     await page.getByRole('button', {name: /^From DB/}).click({force: true});
-    assert.match(await page.locator('#palette-detail').textContent(), /live database connection/);
+    assert.match(await page.locator('#palette-detail').textContent(), /closing brace starts its own line/);
     assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), false, 'a disabled item opens nothing');
     await page.getByRole('option', {name: 'Attributes'}).focus();
     await page.keyboard.press('ArrowDown');
@@ -67,13 +79,49 @@ try {
     assert.match(await page.locator('#palette-detail').textContent(), /Add @PreUpdate callback/);
     await page.getByRole('option', {name: 'Utilities'}).click();
     assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['equals() and hashCode()', 'toString()']);
+    assert.equal(await page.getByRole('button', {name: /^equals/}).getAttribute('aria-disabled'), 'true', 'a context-disabled utility is disabled');
+    await page.getByRole('button', {name: /^equals/}).click({force: true});
+    assert.match(await page.locator('#palette-detail').textContent(), /Lombok @Data/);
+    await page.getByRole('option', {name: 'Reverse engineering'}).click();
+    assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Generate entities from SQL file']);
+    await page.getByRole('option', {name: 'Utilities'}).click();
     await page.getByLabel('Search palette').fill('query');
     assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Named Query'], 'search spans every category');
-    assert.match(await page.locator('#palette-count').textContent(), /1 of 21/);
+    assert.match(await page.locator('#palette-count').textContent(), /1 of 22/);
     await page.getByLabel('Search palette').fill('zzz');
     assert.match(await palette.locator('#palette-items').textContent(), /No palette items match/);
     await page.getByLabel('Search palette').press('Escape');
     assert.equal(await page.getByLabel('Search palette').inputValue(), '');
+    const annotations = {note: null, indexes: [
+      {id: 'index:0', kind: 'index', name: 'ix_no', columns: ['invoice_no'], unique: false, query: null, editable: true, note: null},
+      {id: 'unique:0', kind: 'unique', name: null, columns: ['x'], unique: false, query: null, editable: false, note: 'Not a plain literal annotation.'}], queries: [
+      {id: 'query:0', kind: 'query', name: 'Invoice.all', columns: [], unique: false, query: 'select i from Invoice i', editable: true, note: null}]};
+    const before = await page.evaluate(() => window.requests.length);
+    await page.evaluate(() => window.reply({channel: 'jpa-designer', invalidate: true}));
+    await page.waitForFunction(n => window.requests.length > n, before);
+    await reply({...fixture, annotations});
+    assert.deepEqual([await shown('#section-indexes'), await shown('#section-queries'), await shown('#section-annotation-edit')], [true, true, false], 'indexes and queries are listed, no form before a selection');
+    await page.getByRole('button', {name: /^ix_no/}).click();
+    assert.equal(await page.locator('#ann-name').inputValue(), 'ix_no');
+    assert.equal(await page.locator('#ann-columns').inputValue(), 'invoice_no');
+    assert.equal(await page.locator('#prepare-annotation').isDisabled(), true, 'no change, no preview');
+    await page.locator('#ann-columns').fill('invoice_no, id');
+    await page.locator('#ann-unique').check();
+    assert.equal(await page.locator('#prepare-annotation').isDisabled(), false);
+    await page.locator('#prepare-annotation').click();
+    assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'prepare-annotation', edit: {id: 'index:0', columns: ['invoice_no', 'id'], unique: true}});
+    await reply({...fixture, annotations});
+    await page.getByRole('button', {name: /^Invoice.all/}).click();
+    assert.equal(await page.locator('#ann-columns-row').isVisible(), false);
+    await page.locator('#ann-query').fill('select 1 from "x"');
+    assert.equal(await page.locator('#prepare-annotation').isDisabled(), true, 'double quotes are refused before sending');
+    await page.locator('#ann-query').fill('select i from Invoice i where i.id > 0');
+    assert.equal(await page.locator('#prepare-annotation').isDisabled(), false);
+    await page.getByRole('button', {name: /^\(unnamed\)/}).click({force: true});
+    assert.equal(await page.locator('#section-annotation-edit').isVisible(), false, 'a read-only entry opens no form');
+    assert.match(await page.locator('#annotation-note').textContent(), /Not a plain literal/);
+    await page.evaluate(() => window.jpaAnnotations.reset());
+    await reply(fixture);
     await page.getByRole('option', {name: 'Attributes'}).click();
     await page.getByRole('button', {name: /^Enum/}).click();
     assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), true);

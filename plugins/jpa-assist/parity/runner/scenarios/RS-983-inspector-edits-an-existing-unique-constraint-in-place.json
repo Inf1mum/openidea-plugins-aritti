@@ -1,0 +1,101 @@
+{
+  "id": "RS-983",
+  "rows": [
+    "G006"
+  ],
+  "claimIds": [
+    "G006-C1"
+  ],
+  "verifies": {
+    "G006-C1": "The Designer prepares a change of an existing @UniqueConstraint's name and column list and applies it to the open source once. Entity attributes, existing indexes and unique constraints, and existing named queries of the open entity (Java and Kotlin) are edited in place through the Designer's reviewed prepare and apply messages. Not checked: selecting an element in a tool window (the Designer lists the entries of the open entity and the user picks one in its Inspector), constructs outside plain literal annotations (they stay read-only), or the original's inspector popup."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Index;\nimport jakarta.persistence.NamedQuery;\nimport jakarta.persistence.Table;\nimport jakarta.persistence.UniqueConstraint;\nimport java.lang.Long;\nimport java.lang.String;\n\n@Entity\n@Table(name = \"widget\", indexes = {@Index(name = \"ix_widget_label\", columnList = \"label\"), @Index(columnList = \"id, label\", unique = true)}, uniqueConstraints = {@UniqueConstraint(columnNames = {\"label\", \"code\"})})\n@NamedQuery(name = \"Widget.byLabel\", query = \"select w from Widget w where w.label = :label\")\n@NamedQuery(name = \"Widget.dynamic\", query = \"select w from Widget w \" + \"order by w.id\")\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"label\")\n    private String label;\n\n    private String code;\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "inspect"
+        }
+      },
+      {
+        "operation": {
+          "kind": "prepare-annotation",
+          "edit": {
+            "id": "unique:0",
+            "name": "uq_widget_label_code",
+            "columns": [
+              "label",
+              "code",
+              "id"
+            ]
+          }
+        },
+        "context": "auto"
+      },
+      {
+        "operation": {
+          "kind": "apply",
+          "token": "$last:/model/pending/token"
+        },
+        "context": "auto"
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "ok",
+        "message": 3,
+        "equals": true
+      },
+      {
+        "path": "model.pending.after",
+        "message": 3,
+        "matches": "@UniqueConstraint\\(name = \\\"uq_widget_label_code\\\", columnNames = \\{\\\"label\\\", \\\"code\\\", \\\"id\\\"\\}\\)"
+      },
+      {
+        "path": "model.pending.before",
+        "message": 3,
+        "matches": "@UniqueConstraint\\(columnNames = \\{\\\"label\\\", \\\"code\\\"\\}\\)"
+      },
+      {
+        "path": "ok",
+        "message": 4,
+        "equals": true
+      },
+      {
+        "path": "model.pending",
+        "message": 4,
+        "exists": false
+      },
+      {
+        "path": "model.annotations.indexes",
+        "message": 4,
+        "anyItem": {
+          "id": "unique:0",
+          "name": "uq_widget_label_code"
+        }
+      }
+    ]
+  },
+  "note": "Prepare shows before and after; apply edits the open buffer."
+}

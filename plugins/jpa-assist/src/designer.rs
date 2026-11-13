@@ -69,6 +69,7 @@ struct RequestContext {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
     Snapshot,
+    Palette,
     Inspect,
     BindCreation,
     PrepareClass {
@@ -79,6 +80,9 @@ enum Operation {
     },
     PrepareRelationship {
         changes: Vec<crate::relationship_edit::RelationshipChange>,
+    },
+    PrepareAnnotation {
+        edit: crate::file_actions::designer_annotation_edit::AnnotationEdit,
     },
     Select {
         attribute: String,
@@ -721,7 +725,7 @@ impl State {
             .selected
             .as_deref()
             .and_then(|name| crate::relationship_edit::association(doc, name).ok().flatten());
-        json!({"root":root,"empty":false,"relationship":relationship,"association":association,"source":SourceIdentity {root:root.into(),path:doc.path.clone(),language:if class.kotlin {Language::Kotlin} else {Language::Java},version:doc.version},
+        json!({"root":root,"empty":false,"annotations":crate::file_actions::designer_annotation_edit::list(doc),"relationship":relationship,"association":association,"source":SourceIdentity {root:root.into(),path:doc.path.clone(),language:if class.kotlin {Language::Kotlin} else {Language::Java},version:doc.version},
             "className":class.name,"role":format!("{:?}",class.kind),"attributes":class.attributes.iter().map(|a|json!({"name":a.name,"type":a.ty})).collect::<Vec<_>>(),
             "selected":self.selected,"properties":props,"inspectionNote":note,"pending":pending,"creation":null,
             "canApply":true,"provenance":"Current source declaration; inherited, compiler, XML and database mappings remain unresolved."})
@@ -1034,6 +1038,7 @@ impl JpaAssist {
                     | Operation::PrepareClass { .. }
                     | Operation::PrepareAttribute { .. }
                     | Operation::PrepareRelationship { .. }
+                    | Operation::PrepareAnnotation { .. }
                     | Operation::Apply { .. }
                     | Operation::Select { .. }
                     | Operation::Reset
@@ -1048,7 +1053,7 @@ impl JpaAssist {
                 }
             }
             match request.operation {
-                Operation::Snapshot => {}
+                Operation::Snapshot | Operation::Palette => {}
                 Operation::Inspect => self.designer.capture(ctx)?,
                 Operation::BindCreation => self.designer.bind_creation(ctx)?,
                 Operation::PrepareClass { draft } => {
@@ -1122,6 +1127,29 @@ impl JpaAssist {
                     }
                     let name = self.designer.selected.as_deref().ok_or(Error::Stale)?;
                     let (edits, after) = crate::relationship_edit::prepare(doc, name, &changes)?;
+                    self.designer.next = self.designer.next.checked_add(1).ok_or(Error::Stale)?;
+                    self.designer.pending = Some(Prepared {
+                        token: format!("{}:{}:{}", request.frame, doc.version, self.designer.next),
+                        document: doc.clone(),
+                        edits,
+                        after,
+                        creation: false,
+                    });
+                }
+                Operation::PrepareAnnotation { edit } => {
+                    if self.designer.root.as_deref() != Some(root.as_str()) {
+                        return Err(Error::Stale);
+                    }
+                    let doc = self.designer.document.as_ref().ok_or(Error::Stale)?;
+                    if editor_document(ctx)? != *doc
+                        || host::project_of(&doc.path)
+                            .and_then(|p| p.root().ok())
+                            .as_deref()
+                            != Some(root.as_str())
+                    {
+                        return Err(Error::Stale);
+                    }
+                    let (edits, after) = crate::file_actions::designer_annotation_edit::prepare(doc, &edit)?;
                     self.designer.next = self.designer.next.checked_add(1).ok_or(Error::Stale)?;
                     self.designer.pending = Some(Prepared {
                         token: format!("{}:{}:{}", request.frame, doc.version, self.designer.next),
@@ -1258,7 +1286,7 @@ impl JpaAssist {
                 &error.to_string(),
             );
         }
-        host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"ok":result.is_ok(),"layout":layout(),"model":self.designer.model(&root),"migration":migration,"reverse":reverse}).to_string())
+        host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"ok":result.is_ok(),"layout":layout(),"model":self.designer.model(&root),"palette":crate::file_actions::designer_palette::palette(editor_document(ctx).ok().as_ref()),"migration":migration,"reverse":reverse}).to_string())
     }
 }
 
