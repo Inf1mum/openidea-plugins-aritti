@@ -310,6 +310,7 @@ pub(crate) fn events(events: &[Event], invocation: &Invocation) {
             }
             Event::FilesChanged(batch) => {
                 refocus = true;
+                crate::file_actions::attribute_repo_method::forget_nearby();
                 with_index(&project, |index| {
                     for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed).filter(|p| interesting(p)) {
                         index.forget(path);
@@ -319,6 +320,7 @@ pub(crate) fn events(events: &[Event], invocation: &Invocation) {
             }
             Event::FileSaved(path) if interesting(path) => {
                 refocus = true;
+                crate::file_actions::attribute_repo_method::forget_nearby();
                 with_index(&project, |index| {
                     index.forget(path);
                     index.unread.push(path.clone());

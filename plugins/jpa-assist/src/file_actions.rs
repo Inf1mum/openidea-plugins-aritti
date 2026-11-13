@@ -126,7 +126,7 @@ mod validation_action;
 #[path = "query_method_action.rs"]
 mod query_method_action;
 #[path = "attribute_repo_method.rs"]
-mod attribute_repo_method;
+pub(crate) mod attribute_repo_method;
 #[path = "association_advice.rs"]
 mod association_advice;
 #[path = "query_extract_action.rs"]

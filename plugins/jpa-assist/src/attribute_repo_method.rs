@@ -31,7 +31,26 @@ pub(super) fn attribute_under(doc: &Document, selection: Range) -> Option<(Class
 
 /// A repository of `entity` named `<Entity>Repository` beside the entity or in a `repository`/`repositories` package next to it: a few direct reads,
 /// no project search, so code-action requests stay fast. Other layouts become eligible once the repository index is warm.
+thread_local! {
+    static NEARBY: std::cell::RefCell<std::collections::HashMap<String, bool>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Called when source files change: nearby-repository answers are remembered only until then.
+pub(crate) fn forget_nearby() {
+    NEARBY.with(|nearby| nearby.borrow_mut().clear());
+}
+
 pub(super) fn repository_nearby(project: &Project, entity_path: &str, entity: &str) -> bool {
+    let key = format!("{}\u{0}{entity_path}\u{0}{entity}", project.root().unwrap_or_default());
+    if let Some(known) = NEARBY.with(|nearby| nearby.borrow().get(&key).copied()) {
+        return known;
+    }
+    let found = repository_nearby_uncached(project, entity_path, entity);
+    NEARBY.with(|nearby| nearby.borrow_mut().insert(key, found));
+    found
+}
+
+fn repository_nearby_uncached(project: &Project, entity_path: &str, entity: &str) -> bool {
     let Some((dir, _)) = entity_path.rsplit_once('/') else {
         return false;
     };
