@@ -67,3 +67,10 @@ html, body { margin: 0; height: 100%; overflow-x: clip; background: var(--ui-bg)
 body.no-palette #palette, body.minimal #palette, body.no-toolbar .designer-shell > .ui-toolbar { display: none; }
 body.no-inspector #inspector-title, body.no-inspector #empty, body.no-inspector #source > :not(#add-attribute) { display: none; }
 body.minimal #inspector-search, body.minimal #provenance, body.minimal #source-path, body.minimal #section-general { display: none; }
+
+.annotation-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.annotation-entry { height: auto; min-height: 24px; white-space: normal; overflow-wrap: anywhere; display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ui-fg); font: inherit; line-height: 1.3; box-shadow: none; }
+.annotation-entry[aria-pressed=true] { background: var(--ui-selected); }
+.annotation-entry[aria-disabled=true] { color: var(--ui-disabled-fg); }
+.annotation-entry:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+#ann-query { resize: vertical; font-family: var(--ui-font-mono); width: 100%; min-width: 0; }

@@ -1,53 +1,22 @@
-// JPA Palette: category list, search and item list. Attribute kinds open the Add attribute form; every other
-// item names the existing editor code action, because a web view cannot start editor actions.
+// JPA Palette: category list, search and item list, rendered from the backend model (designer `palette`: items with
+// enabled state and reason for the current source). Attribute kinds open the Add attribute form; every other item names
+// the existing editor code action, because a web view cannot start editor actions.
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const ACTION = {
-    identifier: 'Add JPA identifier with preview…',
-    embeddedId: 'Add embedded identifier with preview…',
-    index: 'Add index or unique constraint with preview…',
-    namedQuery: 'Add named query with preview…',
-    equals: 'Generate proxy-safe equals and hashCode with preview…',
-    toString: 'Generate lazy-safe toString with preview…',
-  };
-  const attribute = (label, kind, enumerated = false) => ({label, attribute: {kind, enumerated}});
-  const action = (label, title, where) => ({label, action: title, where});
-  const callbacks = ['PrePersist', 'PostPersist', 'PreUpdate', 'PostUpdate', 'PreRemove', 'PostRemove', 'PostLoad']
-    .map(event => action(`@${event}`, `Add @${event} callback`, 'on the entity class declaration'));
-  const categories = [
-    {id: 'attributes', label: 'Attributes', items: [
-      attribute('Association', 'ManyToOne'),
-      attribute('Basic Type', 'none'),
-      attribute('Element Collection', 'ElementCollection'),
-      attribute('Embedded', 'Embedded'),
-      action('Embedded Id', ACTION.embeddedId, 'on the entity class declaration'),
-      attribute('Enum', 'none', true),
-      action('Id', ACTION.identifier, 'on the entity class declaration'),
-      attribute('Transient', 'transient'),
-      {label: 'Version', unavailable: 'No action adds a version field to an existing class. Tick Version field on the Create tab when creating a class.'},
-      {label: 'From DB', unavailable: 'Generating attributes from a database table needs a live database connection, which this plugin does not provide yet.'},
-    ]},
-    {id: 'callbacks', label: 'Lifecycle Callbacks', items: callbacks},
-    {id: 'indexes', label: 'Indexes', items: [action('Index or Unique Constraint', ACTION.index, 'on the entity class declaration')]},
-    {id: 'queries', label: 'Named Query', items: [action('Named Query', ACTION.namedQuery, 'on the entity class declaration')]},
-    {id: 'utilities', label: 'Utilities', items: [
-      action('equals() and hashCode()', ACTION.equals, 'on the entity class declaration'),
-      action('toString()', ACTION.toString, 'on the entity class declaration'),
-    ]},
-  ];
-  let category = 'attributes', query = '', block = 'Inspect an entity first.', selected = null, choose = () => {};
+  let categories = [];
+  let category = 'attributes', query = '', block = '', selected = null, choose = () => {};
   const catList = $('palette-categories'), itemList = $('palette-items'), search = $('palette-search');
   const entries = () => {
     const q = query.trim().toLowerCase();
-    if (!q) return categories.find(c => c.id === category).items.map(item => ({item, from: null}));
+    if (!q) return (categories.find(c => c.id === category)?.items || []).map(item => ({item, from: null}));
     return categories.flatMap(c => c.items.filter(i => i.label.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)).map(item => ({item, from: c})));
   };
-  const itemKey = item => `${item.label}|${item.action || item.attribute?.kind || 'x'}`;
-  const note = item => item.unavailable || (item.attribute && block) || '';
-  const disabled = item => !!item.unavailable || !!(item.attribute && block);
+  const itemKey = item => item.id;
+  const note = item => item.reason || (item.attribute && block) || '';
+  const disabled = item => !item.enabled || !!(item.attribute && block);
   function explain(item) {
-    if (item.unavailable) return item.unavailable;
+    if (!item.enabled) return item.reason;
     if (item.attribute) return block ? `${block} Attribute items start the Add attribute form.` : 'Fill in the Add attribute form below, then preview the attribute.';
     return `Run the editor action "${item.action}" ${item.where}. The Designer cannot start editor actions from this panel.`;
   }
@@ -101,6 +70,13 @@
   render();
   window.jpaPalette = Object.freeze({
     onChoose(callback) { choose = callback; },
+    setModel(model) {
+      const next = model?.categories || [];
+      if (JSON.stringify(next) === JSON.stringify(categories)) return;
+      categories = next; if (!categories.some(c => c.id === category)) category = categories[0]?.id || 'attributes';
+      if (selected && !categories.some(c => c.items.some(i => i.id === selected))) { selected = null; $('palette-detail').textContent = ''; }
+      render();
+    },
     configure(reason) { if (reason === block) return; block = reason; if (selected) $('palette-detail').textContent = ''; render(); },
   });
 })();

@@ -5,6 +5,7 @@
   const creator = window.jpaCreator;
   const attr = window.jpaAttribute;
   const rel = window.jpaRelationship;
+  const ann = window.jpaAnnotations;
   const mig = window.jpaMigration;
   const rev = window.jpaReverse, preview = window.jpaPreview;
   const tabs = ['inspect', 'create', 'changes', 'migration'];
@@ -20,12 +21,13 @@
   }
   function controls() {
     const pending = !!model?.pending;
-    const dirty = !!grid?.dirty() || creator.dirty() || attr.dirty() || rel.dirty();
+    const dirty = !!grid?.dirty() || creator.dirty() || attr.dirty() || rel.dirty() || ann.dirty();
     $('inspect').disabled = busy || pending || dirty;
     $('attribute').disabled = busy || pending || dirty;
     $('bind-creation').disabled = busy || pending || dirty || !root;
     $('reset').disabled = busy || (!pending && !dirty);
-    creator.freeze(busy || pending); attr.freeze(busy || pending); rel.freeze(busy || pending);
+    creator.freeze(busy || pending); attr.freeze(busy || pending); rel.freeze(busy || pending); ann.freeze(busy || pending);
+    $('prepare-annotation').disabled = busy || pending || !ann.valid();
     $('prepare-relationship').disabled = busy || pending || !rel.valid();
     $('prepare-attribute').disabled = busy || pending || !attr.valid();
     $('prepare-class').disabled = busy || pending || !creator.valid();
@@ -37,12 +39,12 @@
     $('action-prepare-relationship').disabled = $('prepare-relationship').disabled;
     $('action-discard').disabled = $('reset').disabled;
     $('action-add-attribute').disabled = busy || pending || !root || !model || !!model.empty;
-    window.jpaPalette.configure(!model || model.empty || !model.source ? 'Inspect an entity first.' : busy || pending ? 'Finish the current request or preview first.' : '');
+    window.jpaPalette.configure(busy || pending ? 'Finish the current request or preview first.' : '');
     mig.freeze(busy); rev.freeze(busy); $('mig-plan').disabled = busy || !root;
     const dirtyMessage = 'Preview or reset your edits before inspecting another attribute.';
     if (!busy && !pending && dirty) $('status').textContent = dirtyMessage;
     else if ($('status').textContent === dirtyMessage) $('status').textContent = '';
-    for (const id of ['inspect', 'prepare', 'apply', 'prepare-class', 'prepare-attribute', 'prepare-relationship', 'bind-creation', 'mig-plan', 'mig-generate']) $(id).setAttribute('aria-busy', String(busy && pendingRequest?.button === id));
+    for (const id of ['inspect', 'prepare', 'apply', 'prepare-class', 'prepare-attribute', 'prepare-relationship', 'prepare-annotation', 'bind-creation', 'mig-plan', 'mig-generate']) $(id).setAttribute('aria-busy', String(busy && pendingRequest?.button === id));
   }
   function send(operation, button = '') {
     if (!bridge || busy) return;
@@ -105,6 +107,7 @@
     model = next; root = next.root;
     creator.configure(next.creation || null); attr.configure(next.empty ? null : next.source);
     rel.configure(next.empty ? null : next.relationship || null, next.source, next.selected);
+    ann.configure(next.empty ? null : next.annotations || null, next.source);
     $('empty').hidden = !next.empty; $('source').hidden = !!next.empty;
     $('preview').hidden = !next.pending; $('no-changes').hidden = !!next.pending;
     if (!next.empty) {
@@ -127,20 +130,21 @@
     let message; try { message = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
     if (message?.channel !== 'jpa-designer') return;
     if (message.invalidate) {
-      if (!busy && !grid?.dirty() && !creator.dirty() && !attr.dirty() && !rel.dirty() && !model?.pending) send({kind: 'snapshot'});
+      if (!busy && !grid?.dirty() && !creator.dirty() && !attr.dirty() && !rel.dirty() && !ann.dirty() && !model?.pending) send({kind: 'snapshot'});
       return;
     }
     if (message.frame !== frame || message.sequence !== pendingRequest?.sequence) return;
     if (message.layout) for (const [key, shown] of Object.entries({palette: message.layout.palette, inspector: message.layout.inspector, toolbar: message.layout.toolbar})) document.body.classList.toggle(`no-${key}`, shown === false);
+    if (message.palette) window.jpaPalette.setModel(message.palette);
     if (message.layout) document.body.classList.toggle('minimal', message.layout.minimal === true);
     const completed = pendingRequest.operation.kind;
     clearTimeout(pendingRequest.timer); pendingRequest = null; busy = false;
-    if (message.reset) { frame = makeFrame(); sequence = 0; root = null; model = null; grid = null; creator.configure(null); attr.configure(null); rel.configure(null); mig.clear(); rev.clear(); send({kind: 'snapshot'}); return; }
+    if (message.reset) { frame = makeFrame(); sequence = 0; root = null; model = null; grid = null; creator.configure(null); attr.configure(null); rel.configure(null); ann.configure(null); mig.clear(); rev.clear(); send({kind: 'snapshot'}); return; }
     // A rejected request must not erase unprepared user input. A changed owner
     // or source revision still forces a fresh model rather than rebasing edits.
     const sameSource = model?.source && message.model?.source && model.root === message.model.root
       && model.source.path === message.model.source.path && model.source.version === message.model.source.version;
-    if (message.model && !(message.ok === false && sameSource && (grid?.dirty() || creator.dirty() || attr.dirty() || rel.dirty()) && !message.model.pending)) render(message.model);
+    if (message.model && !(message.ok === false && sameSource && (grid?.dirty() || creator.dirty() || attr.dirty() || rel.dirty() || ann.dirty()) && !message.model.pending)) render(message.model);
     else controls();
     $('status').textContent = message.ok === false ? 'The operation was not completed. See the IDE notification.' : '';
     if (completed === 'plan-migration' || completed === 'generate-migration') {
@@ -153,7 +157,7 @@
     if (completed.startsWith('reverse-')) { if (message.ok && message.reverse) rev.show(message.reverse); controls(); }
     if (message.ok && completed === 'apply') { tab('inspect'); $('status').textContent = 'Source updated. Undo is available in the editor.'; }
     if (message.ok && completed === 'bind-creation') tab('create');
-    if (message.ok && completed === 'reset') { creator.reset(); attr.reset(); rel.reset(); tab(model?.creation ? 'create' : 'inspect'); controls(); }
+    if (message.ok && completed === 'reset') { creator.reset(); attr.reset(); rel.reset(); ann.reset(); tab(model?.creation ? 'create' : 'inspect'); controls(); }
   });
   window.jpaPalette.onChoose(choice => { attr.preset(choice); openAttributeForm(); });
   $('inspector-search').addEventListener('input', filterInspector);
@@ -170,13 +174,14 @@
   preview.onRoutes(routes => send(routes ? {kind: 'plan-migration', routes} : {kind: 'plan-migration'}, 'mig-plan'));
   $('mig-plan').addEventListener('click', () => send({kind: 'plan-migration'}, 'mig-plan'));
   $('mig-generate').addEventListener('click', () => { if (mig.valid()) send({kind: 'generate-migration', ...mig.draft()}, 'mig-generate'); });
-  creator.onChange(controls); attr.onChange(controls); rel.onChange(controls);
+  creator.onChange(controls); attr.onChange(controls); rel.onChange(controls); ann.onChange(controls);
+  $('prepare-annotation').addEventListener('click', () => { if (ann.valid()) send({kind: 'prepare-annotation', edit: ann.draft()}, 'prepare-annotation'); });
   $('prepare-relationship').addEventListener('click', () => { if (rel.valid()) send({kind: 'prepare-relationship', changes: rel.changes()}, 'prepare-relationship'); });
   $('prepare-attribute').addEventListener('click', () => { if (attr.valid()) send({kind: 'prepare-attribute', draft: attr.draft()}, 'prepare-attribute'); });
   $('attribute').addEventListener('change', () => send({kind: 'select', attribute: $('attribute').value}));
   $('prepare').addEventListener('click', () => { if (grid?.valid()) send({kind: 'prepare', changes: grid.changes()}, 'prepare'); });
   $('apply').addEventListener('click', () => { if (model?.pending) send({kind: 'apply', token: model.pending.token}, 'apply'); });
-  for (const id of ['reset', 'discard']) $(id).addEventListener('click', () => { if (model?.pending) send({kind: 'reset'}); else if (model) { render(model); creator.reset(); attr.reset(); rel.reset(); controls(); } });
+  for (const id of ['reset', 'discard']) $(id).addEventListener('click', () => { if (model?.pending) send({kind: 'reset'}); else if (model) { render(model); creator.reset(); attr.reset(); rel.reset(); ann.reset(); controls(); } });
   for (const [index, key] of tabs.entries()) {
     const button = $(`tab-${key}`); button.addEventListener('click', () => tab(key));
     button.addEventListener('keydown', event => {

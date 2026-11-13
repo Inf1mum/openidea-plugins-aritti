@@ -30,6 +30,10 @@ mod equality_action;
 mod ddl_entities_action;
 #[path = "reverse_panel.rs"]
 pub(crate) mod reverse_panel;
+#[path = "designer_palette.rs"]
+pub(crate) mod designer_palette;
+#[path = "designer_annotation_edit.rs"]
+pub(crate) mod designer_annotation_edit;
 #[path = "ddl_todo_action.rs"]
 mod ddl_todo_action;
 #[path = "migration_action.rs"]

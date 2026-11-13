@@ -1,0 +1,67 @@
+{
+  "id": "RS-973",
+  "rows": [
+    "G005"
+  ],
+  "claimIds": [
+    "G005-C1"
+  ],
+  "verifies": {
+    "G005-C1": "With Lombok @Data on the entity the palette disables the equals/hashCode item with the reason that Lombok already generates it, names Lombok in the context, and disables the Designer attribute forms because the Designer reads only persistence annotations. Not checked: the palette's position or rendering inside the IDE (web/palette.js and scripts/check-jpa-designer.mjs cover the rendering), starting the named action from the palette (a web view cannot start editor actions, so each item names the exact action title), a palette inside the editor itself (none exists)."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport lombok.Data;\nimport java.lang.Long;\nimport java.lang.String;\n\n@Entity\n@Data\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"label\")\n    private String label;\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "palette.context.lombok",
+        "message": 1,
+        "equals": "Data"
+      },
+      {
+        "path": "palette.categories.4.items",
+        "message": 1,
+        "anyItem": {
+          "id": "equals",
+          "enabled": false
+        }
+      },
+      {
+        "path": "palette.categories.4.items.0.reason",
+        "message": 1,
+        "contains": "Lombok @Data"
+      },
+      {
+        "path": "palette.categories.0.items",
+        "message": 1,
+        "anyItem": {
+          "id": "basic",
+          "enabled": false
+        }
+      }
+    ]
+  },
+  "note": "Lombok context."
+}
