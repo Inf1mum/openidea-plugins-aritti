@@ -12,6 +12,7 @@
     if (!q) return (categories.find(c => c.id === category)?.items || []).map(item => ({item, from: null}));
     return categories.flatMap(c => c.items.filter(i => i.label.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)).map(item => ({item, from: c})));
   };
+  const badges = {attributes: 'a', callbacks: 'c', indexes: 'i', queries: 'q', utilities: 'u', reverse: 'r'};
   const itemKey = item => item.id;
   const note = item => item.reason || (item.attribute && block) || '';
   const disabled = item => !item.enabled || !!(item.attribute && block);
@@ -35,9 +36,11 @@
     itemList.replaceChildren(...list.map(({item, from}) => {
       const li = document.createElement('li'), button = document.createElement('button');
       button.type = 'button'; button.className = 'ui-option palette-item'; button.dataset.key = itemKey(item);
-      const label = document.createElement('span'); label.textContent = item.label; button.append(label);
-      const small = document.createElement('small'); small.className = 'palette-note';
-      small.textContent = [from?.label, note(item)].filter(Boolean).join(' · '); if (small.textContent) button.append(small);
+      const badge = document.createElement('i'); badge.className = 'palette-badge'; badge.setAttribute('aria-hidden', 'true');
+      if (item.id === 'fromDb') { badge.dataset.uiIcon = 'table'; badge.classList.add('palette-badge--table'); window.uiKitIcons?.enhance(badge); } else badge.textContent = badges[(from || categories.find(c => c.items.includes(item)))?.id] || 'a';
+      const label = document.createElement('span'); label.textContent = item.label; button.append(badge, label);
+      const hint = [from?.label, note(item)].filter(Boolean).join(' · ');
+      if (hint) { button.title = hint; button.setAttribute('aria-description', hint); }
       if (disabled(item)) { button.setAttribute('aria-disabled', 'true'); }
       button.setAttribute('aria-pressed', String(selected === itemKey(item)));
       li.append(button); return li;

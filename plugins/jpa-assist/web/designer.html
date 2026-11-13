@@ -7,20 +7,26 @@
 <script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./palette.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./annotations.js"></script><script defer src="./preview.js"></script><script defer src="./migration.js"></script><script defer src="./reverse.js"></script><script defer src="./designer.js"></script>
 </head><body class="ui-embedded-panel">
 <div class="designer-shell">
-  <div class="ui-toolbar" role="toolbar" aria-label="Persistence inspection">
-    <button class="ui-button" id="inspect" type="button"><span data-ui-icon="locate" aria-hidden="true"></span>Inspect at Caret</button>
-    <button class="ui-button ui-button--quiet" id="reset" type="button" disabled>Reset</button>
-  </div>
-  <div class="ui-tabs" role="tablist" aria-label="Designer pages">
-    <button type="button" id="tab-inspect" role="tab" aria-controls="inspect-panel" aria-selected="true">Designer</button>
-    <button type="button" id="tab-create" role="tab" aria-controls="create-panel" aria-selected="false" tabindex="-1">Create</button>
-    <button type="button" id="tab-changes" role="tab" aria-controls="changes-panel" aria-selected="false" tabindex="-1">Changes</button>
-    <button type="button" id="tab-migration" role="tab" aria-controls="migration-panel" aria-selected="false" tabindex="-1">Migration</button>
+  <div class="ui-toolbar designer-toolbar">
+    <div class="designer-tools" role="toolbar" aria-label="Persistence inspection">
+      <button class="ui-button ui-icon-button" id="tool-add" type="button" title="Add attribute" aria-label="Add attribute"><span data-ui-icon="add" aria-hidden="true"></span></button>
+      <button class="ui-button ui-icon-button" id="inspect" type="button" title="Inspect at Caret" aria-label="Inspect at Caret"><span data-ui-icon="locate" aria-hidden="true"></span></button>
+      <button class="ui-button ui-icon-button" id="reset" type="button" title="Reset" aria-label="Reset" disabled><span data-ui-icon="undo" aria-hidden="true"></span></button>
+    </div>
+    <details class="view-switch" id="view-switch">
+      <summary class="ui-button ui-button--quiet" id="view-current" aria-haspopup="true" title="Switch view: Designer, Create, Changes, Migration">Designer</summary>
+      <div class="view-menu" role="tablist" aria-label="Designer pages">
+        <button type="button" id="tab-inspect" role="tab" aria-controls="inspect-panel" aria-selected="true">Designer</button>
+        <button type="button" id="tab-create" role="tab" aria-controls="create-panel" aria-selected="false" tabindex="-1">Create</button>
+        <button type="button" id="tab-changes" role="tab" aria-controls="changes-panel" aria-selected="false" tabindex="-1">Changes</button>
+        <button type="button" id="tab-migration" role="tab" aria-controls="migration-panel" aria-selected="false" tabindex="-1">Migration</button>
+      </div>
+    </details>
   </div>
   <main class="ui-scroll-area">
     <section id="inspect-panel" role="tabpanel" aria-labelledby="tab-inspect">
       <section class="designer-section" id="palette" aria-labelledby="palette-title">
-        <h2 class="designer-heading" id="palette-title">JPA Palette</h2>
+        <h2 class="ui-visually-hidden" id="palette-title">JPA Palette</h2>
         <input class="ui-input" type="search" id="palette-search" aria-label="Search palette" placeholder="Search palette" autocomplete="off">
         <div class="palette-body">
           <div id="palette-categories" class="palette-categories" role="listbox" aria-label="Palette categories" aria-orientation="vertical"></div>
@@ -30,13 +36,18 @@
         <p id="palette-detail" class="ui-help" role="status" aria-live="polite"></p>
       </section>
       <section class="designer-section" id="inspector" aria-labelledby="inspector-title">
-      <h2 class="designer-heading" id="inspector-title">JPA Inspector</h2>
+      <h2 class="ui-visually-hidden" id="inspector-title">JPA Inspector</h2>
       <div class="ui-empty" id="empty"><p>Open a persistence source file, then inspect its current declaration.</p></div>
       <div id="source" hidden>
-        <div class="source-caption"><strong id="class-name"></strong><span class="ui-badge" id="role"></span></div>
-        <p id="source-path" class="ui-help"></p>
         <div class="inspector-head">
-          <label class="ui-field inspector-attribute" for="attribute">Attribute<select class="ui-select" id="attribute"></select></label>
+          <i class="palette-badge" aria-hidden="true">a</i>
+          <label class="inspector-attribute" for="attribute"><span class="ui-visually-hidden">Attribute</span><select class="ui-select" id="attribute"></select></label>
+          <span class="inspector-type" id="attribute-type"></span>
+        </div>
+        <div class="source-caption" id="source-caption"><span id="class-name"></span><span id="role"></span></div>
+        <p id="source-path" class="ui-visually-hidden"></p>
+        <div class="inspector-tools">
+          <input class="ui-input" type="search" id="inspector-search" aria-label="Search properties" placeholder="Search properties" autocomplete="off">
           <details class="inspector-actions" id="inspector-actions"><summary class="ui-button" aria-haspopup="true">Actions</summary>
             <div class="inspector-menu" role="group" aria-label="Inspector actions">
               <button class="ui-button ui-button--quiet" type="button" id="action-prepare-column" disabled>Preview column edits</button>
@@ -47,7 +58,6 @@
           </details>
         </div>
         <p id="inspection-note" class="ui-help"></p>
-        <input class="ui-input" type="search" id="inspector-search" aria-label="Search properties" placeholder="Search properties" autocomplete="off">
         <p id="inspector-no-match" class="ui-help" hidden>No properties match.</p>
         <details class="ui-disclosure inspector-section" id="section-general" open><summary>General</summary>
           <fieldset class="ui-property-grid" id="general-properties"><legend class="ui-visually-hidden">General</legend></fieldset>

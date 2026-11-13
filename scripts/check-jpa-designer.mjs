@@ -49,6 +49,7 @@ try {
       await page.waitForFunction(n => window.requests.length > n, count);
       await reply(fixture, {layout: {palette: true, inspector: true, toolbar: true, minimal: false, ...layout}});
     };
+    const openViews = async () => { if (!(await page.locator('#view-switch').evaluate(d => d.open))) await page.locator('#view-current').click(); };
     const shown = async selector => page.locator(selector).first().isVisible();
     await withLayout({palette: false});
     assert.deepEqual([await shown('#palette'), await shown('#inspector-title'), await shown('#inspect')], [false, true, true], 'showPalette off hides the palette only');
@@ -68,6 +69,14 @@ try {
     assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Association', 'Basic Type', 'Element Collection', 'Embedded', 'Embedded Id', 'Enum', 'Id', 'Transient', 'Version', 'From DB']);
     assert.equal(await page.getByRole('option', {name: 'Attributes'}).getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('.palette-item[aria-disabled=true]').count(), 2, 'Version and From DB are disabled, attribute kinds are enabled once a source is loaded');
+    assert.equal(await page.getByRole('tab').count(), 0, 'the default view has no tab strip; the view switcher is collapsed');
+    assert.equal(await page.locator('.palette-note').count(), 0, 'disabled reasons are tooltips, not extra rows');
+    assert.match(await page.getByRole('button', {name: /^From DB/}).getAttribute('title'), /closing brace starts its own line/);
+    assert.match(await page.getByRole('button', {name: /^From DB/}).getAttribute('aria-description'), /closing brace/);
+    assert.ok((await page.locator('.palette-item').first().boundingBox()).height <= 22, 'palette rows are dense');
+    assert.equal(await page.locator('#general-properties .ui-property-row').first().getAttribute('title'), 'Read-only here', 'property provenance moved to a tooltip');
+    const rowHeight = (await page.locator('.ui-property-row').first().boundingBox()).height;
+    assert.ok(rowHeight <= 26, `property rows are compact (${rowHeight}px)`);
     await page.getByRole('button', {name: /^From DB/}).click({force: true});
     assert.match(await page.locator('#palette-detail').textContent(), /closing brace starts its own line/);
     assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), false, 'a disabled item opens nothing');
@@ -169,6 +178,7 @@ try {
     assert.equal(await page.locator('#prepare').getAttribute('aria-busy'), 'true');
     const prepared = {...fixture, pending: {token: 'fixture-review-token', before, after}};
     await reply(prepared);
+    await openViews();
     assert.equal(await page.getByRole('tab', {name: 'Changes', exact: true}).getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('#after').textContent(), after);
     await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
@@ -227,7 +237,7 @@ try {
     assert.equal(await page.getByLabel('Owning side', {exact: true}).isChecked(), false);
     assert.equal(await page.getByLabel('Mapped by', {exact: true}).inputValue(), 'owner');
     await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-designer.png`)});
-    await page.locator('main').evaluate(m => { m.scrollTop = 0; });
+    await page.locator('main, #inspector').evaluateAll(nodes => nodes.forEach(m => { m.scrollTop = 0; }));
     await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-designer-top.png`)});
     assert.equal(await page.getByLabel('Mapped by', {exact: true}).isDisabled(), true);
     assert.equal(await page.getByLabel('Fetch type', {exact: true}).inputValue(), 'LAZY');
@@ -286,9 +296,12 @@ try {
     await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
     await reply(fixture);
     assert.equal(await page.locator('#relationship-form').isVisible(), false);
+    await openViews();
     await page.getByRole('tab', {name: 'Designer', exact: true}).focus();
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.getByRole('tab', {name: 'Create', exact: true}).getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#view-switch').evaluate(d => d.open), false, 'Escape closes the view switcher');
     await page.getByRole('button', {name: 'Use Open File', exact: true}).click();
     const target = {root: '/project', path: '/project/src/main/java/shop/Customer.java', language: 'java', version: 1};
     const creation = {name: 'Customer', package: 'shop', source: target, defaultTableName: 'customer'};
@@ -354,6 +367,7 @@ try {
     await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
     await reply({...fixture, source: {...target, version: 2}, className: 'Customer', attributes: [{name: 'key', type: 'java.lang.Integer'}], selected: 'key', properties: [], creation: null});
     assert.match(await page.locator('#status').textContent(), /Source updated/);
+    await openViews();
     assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Designer', 'Create', 'Changes', 'Migration']);
     await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
     await page.keyboard.press('ArrowRight');
@@ -365,6 +379,7 @@ try {
     await page.keyboard.press('Home');
     await page.keyboard.press('End');
     assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('Escape');
     assert.equal(await page.locator('#mig-empty').isVisible(), true);
     assert.equal(await page.locator('#mig-generate').isDisabled(), true);
     await page.locator('#mig-plan').click();
@@ -490,6 +505,7 @@ try {
     assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'plan-migration'});
     await reply({root: '/project', empty: true}, {migration: routed});
     // From database / SQL panel.
+    await openViews();
     await page.getByRole('tab', {name: 'Create', exact: true}).click();
     assert.equal(await page.locator('#rev-details').evaluate(d => d.open), false);
     await page.locator('#rev-details > summary').click();
@@ -538,9 +554,11 @@ try {
     await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-reverse.png`)});
     const reverseGeometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth}));
     assert.ok(reverseGeometry.scroll <= reverseGeometry.width + 1, JSON.stringify(reverseGeometry));
+    await openViews();
     await page.getByRole('tab', {name: 'Migration', exact: true}).click();
     const migrationGeometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth}));
     assert.ok(migrationGeometry.scroll <= migrationGeometry.width + 1, JSON.stringify(migrationGeometry));
+    await openViews();
     await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
     await page.keyboard.press('Home');
     await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}.png`)});

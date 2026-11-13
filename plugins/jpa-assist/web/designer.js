@@ -15,14 +15,17 @@
   function tab(name, focus = false) {
     for (const key of tabs) {
       const active = key === name, button = $(`tab-${key}`);
+      if (active) $('view-current').textContent = button.textContent;
       button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1; $(`${key}-panel`).hidden = !active;
       if (active && focus) button.focus();
     }
+    if (!focus) $('view-switch').open = false;
   }
   function controls() {
     const pending = !!model?.pending;
     const dirty = !!grid?.dirty() || creator.dirty() || attr.dirty() || rel.dirty() || ann.dirty();
     $('inspect').disabled = busy || pending || dirty;
+    $('tool-add').disabled = busy || pending || !root || !model || !!model.empty;
     $('attribute').disabled = busy || pending || dirty;
     $('bind-creation').disabled = busy || pending || dirty || !root;
     $('reset').disabled = busy || (!pending && !dirty);
@@ -85,6 +88,12 @@
       readOnly('mappedBy', 'Mapped by', association.mappedBy ?? '', association.mappedByResolved ? (association.mappedBy ? 'Declared in source' : 'Not declared') : 'Expression not understood'),
     ]);
   }
+  function tooltips() {
+    for (const row of document.querySelectorAll('.ui-property-row')) {
+      const note = row.querySelector('.ui-property-origin');
+      if (note) row.title = note.textContent;
+    }
+  }
   function filterInspector() {
     const q = $('inspector-search').value.trim().toLowerCase();
     let shown = 0, total = 0;
@@ -113,9 +122,11 @@
     if (!next.empty) {
       $('class-name').textContent = next.className; $('role').textContent = next.role;
       $('source-path').textContent = `${next.source.path} · version ${next.source.version}`;
+      $('source-caption').title = $('source-path').textContent;
+      $('attribute-type').textContent = next.attributes.find(a => a.name === next.selected)?.type ?? '';
       $('provenance').textContent = next.provenance;
       $('inspection-note').textContent = next.inspectionNote || '';
-      $('attribute').replaceChildren(...next.attributes.map(a => { const option = document.createElement('option'); option.value = a.name; option.textContent = `${a.name}: ${a.type}`; option.selected = a.name === next.selected; return option; }));
+      $('attribute').replaceChildren(...next.attributes.map(a => { const option = document.createElement('option'); option.value = a.name; option.textContent = a.name; option.selected = a.name === next.selected; return option; }));
       grid = window.uiKitPropertyGrid.render($('properties'), next.properties, controls);
       inspectorRows(next);
     } else { grid = null; $('properties').replaceChildren(); $('general-properties').replaceChildren(); $('association-properties').replaceChildren(); $('section-association').hidden = true; }
@@ -124,7 +135,7 @@
       $('before').textContent = next.pending.before; $('after').textContent = next.pending.after;
       tab('changes');
     }
-    controls(); filterInspector();
+    controls(); tooltips(); filterInspector();
   }
   if (bridge) bridge.onMessage(raw => {
     let message; try { message = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
@@ -165,7 +176,12 @@
   for (const [id, run] of [['action-prepare-column', () => $('prepare').click()], ['action-prepare-relationship', () => $('prepare-relationship').click()], ['action-add-attribute', openAttributeForm], ['action-discard', () => $('reset').click()]]) {
     $(id).addEventListener('click', () => { $('inspector-actions').open = false; run(); });
   }
+  document.addEventListener('click', event => { if (!event.target.closest('#inspector-actions')) $('inspector-actions').open = false; });
   $('inspector-actions').addEventListener('keydown', event => { if (event.key === 'Escape' && event.currentTarget.open) { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); } });
+  $('tool-add').addEventListener('click', openAttributeForm);
+  $('view-switch').addEventListener('keydown', event => { if (event.key === 'Escape' && event.currentTarget.open) { event.currentTarget.open = false; $('view-current').focus(); } });
+  document.addEventListener('click', event => { if (!event.target.closest('#view-switch')) $('view-switch').open = false; });
+  $('view-switch').addEventListener('focusout', event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; });
   $('inspect').addEventListener('click', () => send({kind: 'inspect'}, 'inspect'));
   $('bind-creation').addEventListener('click', () => send({kind: 'bind-creation'}, 'bind-creation'));
   $('prepare-class').addEventListener('click', () => { if (creator.valid()) send({kind: 'prepare-class', draft: creator.draft()}, 'prepare-class'); });
@@ -183,7 +199,7 @@
   $('apply').addEventListener('click', () => { if (model?.pending) send({kind: 'apply', token: model.pending.token}, 'apply'); });
   for (const id of ['reset', 'discard']) $(id).addEventListener('click', () => { if (model?.pending) send({kind: 'reset'}); else if (model) { render(model); creator.reset(); attr.reset(); rel.reset(); ann.reset(); controls(); } });
   for (const [index, key] of tabs.entries()) {
-    const button = $(`tab-${key}`); button.addEventListener('click', () => tab(key));
+    const button = $(`tab-${key}`); button.addEventListener('click', event => tab(key, event.detail === 0));
     button.addEventListener('keydown', event => {
       let target;
       if (event.key === 'ArrowRight') target = tabs[(index + 1) % tabs.length];
