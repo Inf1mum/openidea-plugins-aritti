@@ -133,6 +133,12 @@ mod query_method_action;
 pub(crate) mod attribute_repo_method;
 #[path = "association_advice.rs"]
 mod association_advice;
+#[path = "association_optimize.rs"]
+mod association_optimize;
+#[path = "call_edit_method.rs"]
+mod call_edit_method;
+#[path = "call_create_mapper.rs"]
+mod call_create_mapper;
 #[path = "query_extract_action.rs"]
 mod query_extract_action;
 #[path = "query_edit_action.rs"]
@@ -215,6 +221,8 @@ enum Operation {
     UnresolvedDto,
     UnresolvedContext(unresolved_create::Created),
     CreateRepositoryMethod,
+    EditRepositoryMethodFromCall,
+    CreateMapperFromCall,
     RenameWithDtos,
     NestedProjection,
     FlatDto,
@@ -304,6 +312,8 @@ impl Operation {
             Self::UnresolvedDto => "unresolved-dto",
             Self::UnresolvedContext(_) => "unresolved-context",
             Self::CreateRepositoryMethod => "create-repository-method",
+            Self::EditRepositoryMethodFromCall => "edit-repository-method-from-call",
+            Self::CreateMapperFromCall => "create-mapper-from-call",
             Self::RenameWithDtos => "rename-dtos",
             Self::QueryAsync => "query-async",
             Self::QueryDynamicProjection => "query-dynamic-projection",
@@ -751,6 +761,12 @@ impl FileActions for JpaAssist {
         if call_assist::eligible(doc, selection) {
             operations.push((Operation::CreateRepositoryMethod, call_assist::CREATE_METHOD_TITLE));
         }
+        if call_edit_method::eligible(doc, selection) {
+            operations.push((Operation::EditRepositoryMethodFromCall, call_edit_method::TITLE));
+        }
+        if call_create_mapper::eligible(doc, selection) {
+            operations.push((Operation::CreateMapperFromCall, call_create_mapper::TITLE));
+        }
         for (created, title) in unresolved_create::offers(doc, selection) {
             operations.push((match created {
                 unresolved_create::Created::Repository => Operation::UnresolvedRepository,
@@ -862,6 +878,7 @@ impl FileActions for JpaAssist {
                     return Err(Error::Cancelled);
                 };
                 let after = checked_after(doc, &edits)?;
+                let (edits, after) = association_optimize::apply(doc, edits, after)?;
                 if !ui_kit::prompts::confirm_exact(
                     "Add JPA attribute?",
                     &format!("Target: {}\nSource version: {}\n\n{after}{}", doc.path, doc.version, association_advice::note(&doc.path, &doc.language, &doc.text, &after)),
@@ -941,6 +958,8 @@ impl FileActions for JpaAssist {
             Operation::UnresolvedDto => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Dto),
             Operation::UnresolvedContext(created) => unresolved_create::resolve(&pending, doc, &project, created),
             Operation::CreateRepositoryMethod => call_assist::resolve_create_method(&pending, doc, &project),
+            Operation::EditRepositoryMethodFromCall => call_edit_method::resolve(&pending, doc, &project),
+            Operation::CreateMapperFromCall => call_create_mapper::resolve(&pending, doc, &project),
             Operation::NestedProjection => nested_dto_action::resolve(&pending, doc, &project),
             Operation::FlatDto => nested_dto_action::resolve_flat(&pending, doc, &project),
             Operation::IndexConstraint => index_query_action::resolve_index(&pending, doc),
@@ -1033,6 +1052,7 @@ impl JpaAssist {
         let edits = attribute_edits(&target, &doc.text, &mask(&doc.text), spec).ok_or(Error::Stale)?;
         let edits: Vec<_> = edits.iter().map(|edit| edit.to_text_edit(&doc.text)).collect();
         let after = checked_after(doc, &edits)?;
+        let (edits, after) = association_optimize::apply(doc, edits, after)?;
         if !ui_kit::prompts::confirm_exact(
             "Add inverse attribute to this entity?",
             &format!("{label}\nRead-only owner: {owner_path}\nEdit only: {} (version {})\n\n{after}{}", doc.path, doc.version, association_advice::note(&doc.path, &doc.language, &doc.text, &after)),

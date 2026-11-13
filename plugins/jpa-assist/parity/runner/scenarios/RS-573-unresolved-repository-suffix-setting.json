@@ -39,11 +39,25 @@
   },
   "prompts": [
     {
+      "pick": "JpaRepository"
+    },
+    {
+      "pick": "no"
+    },
+    {
       "confirm": "yes"
     }
   ],
   "expect": {
     "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Repository parent interface"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "JpaSpecificationExecutor"
+      },
       {
         "kind": "confirm",
         "messageContains": "ParcelStore"

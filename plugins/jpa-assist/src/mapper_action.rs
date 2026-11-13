@@ -105,7 +105,7 @@ pub(crate) fn build_text(project: &Project, root: &str, directory: &str) -> Resu
     Ok(gathered)
 }
 
-fn build_proof(project: &Project, root: &str, directory: &str, kotlin: bool) -> Result<(), Error> {
+pub(super) fn build_proof(project: &Project, root: &str, directory: &str, kotlin: bool) -> Result<(), Error> {
     let gathered = build_text(project, root, directory)?;
     if gathered.trim().is_empty() {
         return Err("No pom.xml, build.gradle or build.gradle.kts could be read above this source, so MapStruct cannot be proven; no mapper was generated.".into());

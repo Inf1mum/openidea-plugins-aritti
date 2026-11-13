@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 const CODES: [&str; 4] = ["jpa-unidirectional-one-to-many", "jpa-eager-fetch", "jpa-eager-to-one", "jpa-many-to-many-list"];
 
-fn explanations(path: &str, language: &str, text: &str) -> Vec<(&'static str, String)> {
+pub(super) fn findings(path: &str, language: &str, text: &str) -> Vec<crate::checks::Finding> {
     let doc = Document { path: path.into(), language: language.into(), version: 0, text: text.into() };
     let mut found = inspections_more::findings(&doc);
     if crate::setting("checkAssociationFetch") {
@@ -20,7 +20,11 @@ fn explanations(path: &str, language: &str, text: &str) -> Vec<(&'static str, St
             found.extend(inspect_entity_owned(text, language == "kotlin", &class));
         }
     }
-    found.into_iter().filter(|finding| CODES.contains(&finding.code)).map(|finding| (finding.code, finding.message)).collect()
+    found.into_iter().filter(|finding| CODES.contains(&finding.code)).collect()
+}
+
+fn explanations(path: &str, language: &str, text: &str) -> Vec<(&'static str, String)> {
+    findings(path, language, text).into_iter().map(|finding| (finding.code, finding.message)).collect()
 }
 
 /// Preview text for the associations `after` introduces over `before`; empty when there is nothing to explain.

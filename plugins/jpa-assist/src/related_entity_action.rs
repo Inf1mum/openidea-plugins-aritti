@@ -168,6 +168,8 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project, dire
     let source = if ns == "javax.persistence" { source.replace("jakarta.persistence.", "javax.persistence.") } else { source };
     let existing_edits = edits_for(&class, &doc.text, &existing_spec)?;
     let after = checked_after(doc, &existing_edits)?;
+    let (existing_edits, after) = super::association_optimize::apply(doc, existing_edits, after)?;
+    let source = super::association_optimize::optimize(&target, &doc.language, &bare, &source)?;
     if path(&target).is_none() || source.len() > MAX_TEXT || parse_class(&source, &target).is_none() {
         return Err("Generated target exceeds source/path bounds.".into());
     }
@@ -249,7 +251,7 @@ mod tests {
     fn relation_from_puts_the_attribute_on_the_new_entity() {
         let (host, mut plugin, doc) = setup(PATH, ORDER, "java");
         let action = offered(&mut plugin, &doc, TITLE_FROM);
-        answers(&host, &[&["Shipment"], &["ManyToOne"], &["order"], &["shipments"], &[]]);
+        answers(&host, &[&["Shipment"], &["ManyToOne"], &["order"], &["shipments"], &["keep"], &[]]);
         let result = plugin.resolve_file_action(&doc, action).unwrap();
 
         let (_, text) = created(&result);
@@ -262,14 +264,17 @@ mod tests {
     fn one_to_many_is_owned_by_the_new_side_and_one_to_one_asks_for_the_owner() {
         let (host, mut plugin, doc) = setup(PATH, ORDER, "java");
         let action = offered(&mut plugin, &doc, TITLE_TO);
-        answers(&host, &[&["Line"], &["OneToMany"], &["lines"], &["order"], &[]]);
+        answers(&host, &[&["Line"], &["OneToMany"], &["lines"], &["order"], &["keep"], &[]]);
         let result = plugin.resolve_file_action(&doc, action).unwrap();
         assert!(created(&result).1.contains("@ManyToOne") && created(&result).1.contains("Order order"));
         assert!(patched(ORDER, &result.edits[0].1).unwrap().contains("@OneToMany(mappedBy = \"order\")"));
 
         for (owner, on_existing) in [("holder", "@OneToOne\n"), ("other", "mappedBy = \"order\"")] {
             let action = offered(&mut plugin, &doc, TITLE_TO);
-            answers(&host, &[&["Invoice"], &["OneToOne"], &["invoice"], &["order"], &[owner], &[]]);
+            let owner_answer: &[&str] = &[owner];
+            let confirmations: &[&[&str]] = if owner == "holder" { &[&[]] } else { &[&["keep"], &[]] };
+            answers(&host, &[&["Invoice"], &["OneToOne"], &["invoice"], &["order"], owner_answer]);
+            answers(&host, confirmations);
             let result = plugin.resolve_file_action(&doc, action).unwrap();
             let after = patched(ORDER, &result.edits[0].1).unwrap();
             assert!(after.contains(on_existing), "{owner}: {after}");
@@ -282,7 +287,7 @@ mod tests {
     fn many_to_many_uses_collections_on_both_sides() {
         let (host, mut plugin, doc) = setup(PATH, ORDER, "java");
         let action = offered(&mut plugin, &doc, TITLE_TO);
-        answers(&host, &[&["Tag"], &["ManyToMany"], &["tags"], &["orders"], &["holder"], &[]]);
+        answers(&host, &[&["Tag"], &["ManyToMany"], &["tags"], &["orders"], &["holder"], &["keep"], &[]]);
         let result = plugin.resolve_file_action(&doc, action).unwrap();
         assert!(patched(ORDER, &result.edits[0].1).unwrap().contains("List<Tag> tags"));
         assert!(created(&result).1.contains("@ManyToMany(mappedBy = \"tags\")"));

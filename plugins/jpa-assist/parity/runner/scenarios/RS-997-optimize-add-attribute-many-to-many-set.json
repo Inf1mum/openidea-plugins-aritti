@@ -1,0 +1,101 @@
+{
+  "id": "RS-997",
+  "rows": [
+    "G009"
+  ],
+  "claimIds": [
+    "G009-C1"
+  ],
+  "verifies": {
+    "G009-C1": "adding a ManyToMany attribute 'tags' of Tag to Parcel through 'Add JPA attribute with preview…' explains the List bag in the preview and, after the options, offers 'Use a Set'; choosing it generates Set<Tag> with the java.util.Set import instead of the List before the preview (the unused List import is not left behind). Not checked: the original's drop-down inside the association creation dialog; the optimization is a pick of the flow. The lazy-fetch and @JoinColumn optimizations and several optimizations in one flow have unit tests."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Parcel.java",
+    "anchor": "class Parcel"
+  },
+  "action": {
+    "title": "Add JPA attribute with preview…"
+  },
+  "prompts": [
+    {
+      "input": "tags"
+    },
+    {
+      "pick": "ManyToMany"
+    },
+    {
+      "input": "Tag"
+    },
+    {
+      "pickMany": [
+        "cascadePersist"
+      ]
+    },
+    {
+      "pick": "0"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "Attribute name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Association"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Target entity"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization",
+        "optionsInclude": [
+          "keep",
+          "Use a Set"
+        ]
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "Set<Tag>"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "contains": [
+          "Set<Tag> tags",
+          "import java.util.Set;"
+        ],
+        "notContains": [
+          "List<Tag>",
+          "import java.util.List;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "Optimization in the add-attribute flow."
+}

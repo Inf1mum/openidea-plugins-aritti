@@ -19,7 +19,7 @@
     "anchor": "class Ticket"
   },
   "action": {
-    "title": "Create related entity (relation from)\u2026"
+    "title": "Create related entity (relation from)…"
   },
   "prompts": [
     {
@@ -30,6 +30,9 @@
     },
     "default",
     "default",
+    {
+      "pick": "keep"
+    },
     {
       "confirm": "yes"
     }
@@ -60,6 +63,10 @@
         "titleContains": "Inverse attribute on Ticket",
         "defaultIs": "attachments",
         "name": "inverse attribute on the invoking entity"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization"
       },
       {
         "kind": "confirm",

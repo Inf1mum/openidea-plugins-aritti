@@ -41,6 +41,9 @@
       "input": "parcels"
     },
     {
+      "pick": "keep"
+    },
+    {
       "confirm": "yes"
     }
   ],
@@ -62,6 +65,10 @@
       {
         "kind": "input",
         "name": "inverse"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization"
       },
       {
         "kind": "confirm",

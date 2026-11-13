@@ -1,0 +1,84 @@
+{
+  "id": "RS-998",
+  "rows": [
+    "G009"
+  ],
+  "claimIds": [
+    "G009-C1"
+  ],
+  "verifies": {
+    "G009-C1": "adding the inverse of Shipment.parcels (a ManyToMany List) to Parcel through 'Add inverse attribute to this entity…' offers 'Use a Set' after the owner pick and applies it: the inverse side becomes Set<Shipment> with @ManyToMany(mappedBy = \"parcels\"). Not checked: the original's drop-down inside the association creation dialog; the optimization is a pick of the flow. The lazy-fetch and @JoinColumn optimizations and several optimizations in one flow have unit tests."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Shipment.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToMany;\nimport java.util.List;\n\n@Entity\npublic class Shipment {\n\n    @Id\n    private Long id;\n\n    @ManyToMany\n    private List<Parcel> parcels;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Parcel.java",
+    "anchor": "class Parcel"
+  },
+  "action": {
+    "title": "Add inverse attribute to this entity…"
+  },
+  "prompts": [
+    {
+      "pick": "0"
+    },
+    {
+      "pick": "0"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Owning association"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization",
+        "optionsInclude": [
+          "Use a Set"
+        ]
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "Set<Shipment>"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "contains": [
+          "@ManyToMany(mappedBy = \"parcels\")",
+          "Set<Shipment>",
+          "import java.util.Set;"
+        ],
+        "notContains": [
+          "List<Shipment>"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "Optimization in the add-inverse flow."
+}

@@ -19,7 +19,7 @@
     "anchor": "class Ticket"
   },
   "action": {
-    "title": "Create related entity (relation to)\u2026"
+    "title": "Create related entity (relation to)…"
   },
   "prompts": [
     {
@@ -32,6 +32,9 @@
     "default",
     {
       "pick": "other"
+    },
+    {
+      "pick": "keep"
     },
     {
       "confirm": "yes"
@@ -70,6 +73,10 @@
         ],
         "itemDescriptions": {},
         "name": "owning side asked only for OneToOne and ManyToMany"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization"
       },
       {
         "kind": "confirm",

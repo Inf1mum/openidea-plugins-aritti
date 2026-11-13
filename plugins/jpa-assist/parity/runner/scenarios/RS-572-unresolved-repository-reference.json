@@ -7,7 +7,7 @@
     "G133-C1"
   ],
   "verifies": {
-    "G133-C1": "the reference ParcelRepository (a field type, no such type exists) ends with the default repository suffix Repository and the entity Parcel exists, so 'Create missing Spring Data repository…' creates ParcelRepository next to the entity with the entity's id type and adds the import to the referencing class. The quick-fix wizard of the original is not reproduced: this is a previewed create, no further wizard opens (G133-C4 is not covered). Nothing is offered inside an entity class or for an imported name."
+    "G133-C1": "the reference ParcelRepository (a field type, no such type exists) ends with the default repository suffix Repository and the entity Parcel exists, so 'Create missing Spring Data repository…' creates ParcelRepository next to the entity with the entity's id type and adds the import to the referencing class. The options asked before the preview (parent interface, specification executor) are answered with the defaults here and are RS-990. Nothing is offered inside an entity class or for an imported name."
   },
   "fixture": "boot-jpa-java-jakarta",
   "kind": "fileaction",
@@ -34,11 +34,25 @@
   },
   "prompts": [
     {
+      "pick": "JpaRepository"
+    },
+    {
+      "pick": "no"
+    },
+    {
       "confirm": "yes"
     }
   ],
   "expect": {
     "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Repository parent interface"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "JpaSpecificationExecutor"
+      },
       {
         "kind": "confirm",
         "messageContains": "ParcelRepository"

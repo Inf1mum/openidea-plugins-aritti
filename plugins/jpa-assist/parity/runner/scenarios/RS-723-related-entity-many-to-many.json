@@ -19,7 +19,7 @@
     "anchor": "class Ticket"
   },
   "action": {
-    "title": "Create related entity (relation to)\u2026"
+    "title": "Create related entity (relation to)…"
   },
   "prompts": [
     {
@@ -32,6 +32,12 @@
     "default",
     {
       "pick": "holder"
+    },
+    {
+      "pick": "keep"
+    },
+    {
+      "pick": "keep"
     },
     {
       "confirm": "yes"
@@ -65,6 +71,14 @@
         "kind": "pick",
         "titleContains": "Owning side",
         "name": "owning side"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Optimization"
       },
       {
         "kind": "confirm",

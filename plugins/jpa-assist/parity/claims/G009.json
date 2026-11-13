@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "checks.rs, inspections_more.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "A pick-many after the association advice lists optimizations and applies the chosen ones to the generated source before the exact preview, in the add-attribute, add-inverse and create-related-entity flows; checked on that prompt and on the resulting source. The original's drop-down inside the creation dialog is not checked."
   },
   {
    "id": "G009-C2",
