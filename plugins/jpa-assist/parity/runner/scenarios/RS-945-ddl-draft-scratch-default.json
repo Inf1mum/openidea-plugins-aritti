@@ -85,5 +85,5 @@
     "stale": true
   },
   "note": "Kind exerciser, covers no documented claim: the Scratch file save target is an equivalent, a plain project file under the jpaAssist.tableDraftScratchDirectory setting (default .openidea/scratches), not the IDE scratch system. No directory prompt.",
-  "id": "RS-961"
+  "id": "RS-945"
 }

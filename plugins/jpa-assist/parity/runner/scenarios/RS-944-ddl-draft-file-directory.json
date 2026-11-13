@@ -89,5 +89,5 @@
     "stale": true
   },
   "note": "Kind exerciser, covers no documented claim (G122-C2 also lists a Database Console target, which is not expressible): the File save target asks for a directory (default: the entity's folder) and a file name, and creates the draft there without overwriting. Clipboard is the copy-ddl command (RS-013); Scratch file is RS-961.",
-  "id": "RS-960"
+  "id": "RS-944"
 }

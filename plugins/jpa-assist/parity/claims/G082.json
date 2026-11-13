@@ -17,7 +17,7 @@
    "strength": "explicit",
    "ourFeature": "Add datasource configuration\u2026 (datasource_action.rs)",
    "verifiableHeadless": true,
-   "surfaceEquivalent": "Headless on the BEHAVIOUR: Add datasource configuration writes spring.datasource url, username and a placeholder password for each of the eight databases (RS-964..RS-971). Not checked: the original's 'requires an existing data source' (ours asks for the details or can take them from a saved connection profile, unit-tested only; profiles exist for PostgreSQL, MySQL, MariaDB and H2), YAML files."
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: Add datasource configuration writes spring.datasource url, username and a placeholder password for each of the eight databases (RS-964..RS-947). Not checked: the original's 'requires an existing data source' (ours asks for the details or can take them from a saved connection profile, unit-tested only; profiles exist for PostgreSQL, MySQL, MariaDB and H2), YAML files."
   },
   {
    "id": "G082-C2",
