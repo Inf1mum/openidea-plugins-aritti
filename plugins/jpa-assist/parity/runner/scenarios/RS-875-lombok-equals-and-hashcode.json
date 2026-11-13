@@ -1,0 +1,43 @@
+{
+  "id": "RS-875",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C6"
+  ],
+  "verifies": {
+    "S005-C6": "jpa-lombok-equals is reported on the entity EqEntity (@EqualsAndHashCode) and absent on the embeddable EqEmbeddable. Warning level and the fix are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/EqEntity.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport lombok.EqualsAndHashCode;\n\n@Entity\n@EqualsAndHashCode\npublic class EqEntity {\n    @Id\n    private Long id;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/EqEmbeddable.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Embeddable;\nimport lombok.EqualsAndHashCode;\n\n@Embeddable\n@EqualsAndHashCode\npublic class EqEmbeddable {\n    private String a;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-lombok-equals",
+        "file": "src/main/java/com/example/shop/s5/EqEntity.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-lombok-equals",
+        "file": "src/main/java/com/example/shop/s5/EqEmbeddable.java"
+      }
+    ]
+  },
+  "note": "Lombok equality on an entity flagged; on an embeddable quiet. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}

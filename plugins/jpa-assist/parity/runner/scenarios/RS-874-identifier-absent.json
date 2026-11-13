@@ -1,0 +1,53 @@
+{
+  "id": "RS-874",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C5"
+  ],
+  "verifies": {
+    "S005-C5": "jpa-source-identifier-absent is reported on NoId (annotation-mapped entity, no id, no mapping XML in the fixture) and absent on HasId and on MappedNoId (@MappedSuperclass). Error level (the Info downgrade is the unprovable case) and the Create id fix are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/NoId.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\n\n@Entity\npublic class NoId {\n    private String name;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/HasId.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class HasId {\n    @Id\n    private Long id;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/MappedNoId.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.MappedSuperclass;\n\n@MappedSuperclass\npublic class MappedNoId {\n    private String name;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-source-identifier-absent",
+        "file": "src/main/java/com/example/shop/s5/NoId.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-source-identifier-absent",
+        "file": "src/main/java/com/example/shop/s5/HasId.java"
+      },
+      {
+        "rule": "jpa-source-identifier-absent",
+        "file": "src/main/java/com/example/shop/s5/MappedNoId.java"
+      }
+    ]
+  },
+  "note": "Entity without id flagged; entity with id and mapped superclass quiet. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}

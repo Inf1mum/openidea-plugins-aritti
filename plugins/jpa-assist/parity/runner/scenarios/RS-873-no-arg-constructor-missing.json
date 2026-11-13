@@ -1,0 +1,53 @@
+{
+  "id": "RS-873",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C4"
+  ],
+  "verifies": {
+    "S005-C4": "jpa-no-arg-constructor is reported on the entity ArgsOnly and the embeddable Dims (constructors, none without parameters) and absent on Crate (private no-argument constructor present). Error level and the add-constructor fix are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/ArgsOnly.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class ArgsOnly {\n    @Id\n    private Long id;\n\n    public ArgsOnly(Long id) {\n        this.id = id;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/Dims.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Embeddable;\n\n@Embeddable\npublic class Dims {\n    private int width;\n\n    public Dims(int width) {\n        this.width = width;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/Crate.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Crate {\n    @Id\n    private Long id;\n\n    private Crate() {\n    }\n\n    public Crate(Long id) {\n        this.id = id;\n    }\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-no-arg-constructor",
+        "file": "src/main/java/com/example/shop/s5/ArgsOnly.java"
+      },
+      {
+        "rule": "jpa-no-arg-constructor",
+        "file": "src/main/java/com/example/shop/s5/Dims.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-no-arg-constructor",
+        "file": "src/main/java/com/example/shop/s5/Crate.java"
+      }
+    ]
+  },
+  "note": "Entity and embeddable without a no-arg constructor flagged, private no-arg accepted. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}

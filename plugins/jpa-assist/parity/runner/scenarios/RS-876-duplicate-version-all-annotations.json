@@ -1,0 +1,49 @@
+{
+  "id": "RS-876",
+  "rows": [
+    "S005"
+  ],
+  "claimIds": [
+    "S005-C7"
+  ],
+  "verifies": {
+    "S005-C7": "jpa-duplicate-version is reported on both @Version annotations of TwoVersions (lines 12 and 15, the first included) and absent on OneVersion. Error level is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/TwoVersions.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Version;\n\n@Entity\npublic class TwoVersions {\n    @Id\n    private Long id;\n\n    @Version\n    private Long first;\n\n    @Version\n    private Long second;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/s5/OneVersion.java",
+        "content": "package com.example.shop.s5;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Version;\n\n@Entity\npublic class OneVersion {\n    @Id\n    private Long id;\n\n    @Version\n    private Long first;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-duplicate-version",
+        "file": "src/main/java/com/example/shop/s5/TwoVersions.java",
+        "line": 12
+      },
+      {
+        "rule": "jpa-duplicate-version",
+        "file": "src/main/java/com/example/shop/s5/TwoVersions.java",
+        "line": 15
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-duplicate-version",
+        "file": "src/main/java/com/example/shop/s5/OneVersion.java"
+      }
+    ]
+  },
+  "note": "Every @Version of a duplicate pair flagged; single version quiet. The runner's diagnostics expectation does not check severity; the claimed level was read from diagnostics.json in the run artifacts, not asserted."
+}
