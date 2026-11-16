@@ -10,7 +10,7 @@ Port of the Issue Trackers plugin by JetBrains s.r.o. (com.intellij.tasks 263.73
 idea/263.7307.112: plugins/tasks, platform/tasks-platform-impl, the GitHub tracker of plugins/github and \
 GitTaskHandler of plugins/git4idea), Apache-2.0."""
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contributors (original Issue Trackers plugin)"]
-homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/tasks"
+homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/tasks"
 license = "Apache-2.0"
 change-notes = """Unreleased: a self-hosted YouTrack host (any DNS name) works through the optional net:ask grant, approved in the host dialog at first use; unattended refreshes just report it as denied. Unreleased: Jira Search Issues accepts owned JQL via a `jql:` prefix (<=256 bytes, no control chars, balanced quotes/parentheses, no dangling operator, single trailing ORDER BY field [ASC|DESC] list) with clear local refusals; the server still validates semantics. Unreleased: user-declared Generic REST/Java-regex tracker family (search and reviewed close) through the same private credential-profile bridge. Unreleased: explicit multi-profile self-hosted Redmine/MantisBT search with actual metadata/pagination and reviewed close (Redmine allowed-status fresh reads; Mantis strong ETag); credentials stay in externally provisioned private Python bridge profiles. Unreleased: explicit FogBugz Cloud search and reviewed optimistic close through an approved Python3 credential-profile bridge; no token enters native settings/logs and automatic refresh never launches the helper. Unreleased: documented Lighthouse Cloud search, descriptions and reviewed close with tenant/project identity and optional secret-header transport. Unreleased: tracker descriptions are retained as bounded plaintext (Jira ADF flattened) for cached issue hover and task description tabs. Optional closed GitHub/GitLab/Codeberg search with cache-policy isolation; automatic issue refresh remains open-only. \
 Unreleased: native Tasks tree and scoped native review forms replace the packaged panel, with selection-aware Open/Switch/Reopen, explicit Close Active Task review, Search Issues and grouped Contexts entry points. Native window-scoped task status and owned open-editor named contexts with bounded active selection restoration (API 1.4). task/context storage now carries concrete owner/schema/revision, validates legacy records and bounds without silent reset, rejects stale rendered callbacks and supports explicit project-only recovery. Tasks: Search Issues asks for a query, searches every set-up tracker and opens the picked issue. Save, Load and Remove Context keep named lists of the open files. Add and Remove Repository read issues from several GitHub, GitLab or Codeberg repositories. \
@@ -22,7 +22,7 @@ Closing a task can update the issue state; work time can be posted to YouTrack a
 The active task's commit message goes to the clipboard or to commit.template."""
 categories = ["tools", "vcs"]
 icon = "icon.svg"
-engines.openidea = "^1.5"
+engines.openidea = "^1.9"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:tasks", "on-startup-finished", "on-schedule:1200", "on-event:file-opened"]
 

@@ -9,7 +9,7 @@ its unresolved threads. Also checks out merge request branches, clones and share
 GitLab link to the current lines, and creates snippets. Port of the GitLab plugin by JetBrains s.r.o. \
 (org.jetbrains.plugins.gitlab 263.7307.200, intellij-community tag idea/263.7307.200, plugins/gitlab), Apache-2.0."""
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contributors (original GitLab plugin)"]
-homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/gitlab"
+homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/gitlab"
 license = "Apache-2.0"
 change-notes = """\
 Editor gutter markers for unresolved review threads use a packaged icon. \
@@ -33,7 +33,7 @@ gitlab.com with a personal access token: merge request list, threads and review 
 for files, Create Snippet."""
 categories = ["vcs"]
 icon = "icon.svg"
-engines.openidea = "^1.5"
+engines.openidea = "^1.9"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:merge-requests", "on-event:vcs-changed", "on-event:file-opened", "on-event:file-saved", "on-file:**/.gitlab-ci.yml", "on-file:**/*.gitlab-ci.yml"]
 

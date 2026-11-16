@@ -3,12 +3,12 @@ name = "DDEV Integration"
 version = "0.1.0" # x-release-please-version
 description = "DDEV project controls, service links and streaming logs in Services. Source port of DDEV Integration by Nico Löber and the DDEV contributors (de.php_perfect.intellij.ddev 1.2.10+261, source tag 1.2.10, revision 7291f3ea58cf937ae8c6ac7973ed24876915e308), BSD-3-Clause. Requires an approved DDEV executable and OpenIDEA API 1.4. Native database credentials, keyed terminals and a project execution target for PHP, Node and Composer."
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "Nico Löber and DDEV contributors (original plugin)"]
-homepage = "https://github.com/ddev/ddev-intellij-plugin"
+homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ddev"
 license = "BSD-3-Clause AND Apache-2.0"
 icon = "icon.svg"
 change-notes = "Run target maps Composer to `ddev composer` and refuses Run/Test when the project is not running. 0.1.0: source port of DDEV Integration 1.2.10, targeting API 1.4. Native Services, readable Overview, redacted Inspect, root logo and streaming logs. State-aware lifecycle controls and guided project preferences. Native owned Database sources, secure credentials and connection requests; non-secret legacy fallback/migration. DDEV execution target for host-selected PHP/Node/Composer runs and tests with project/cwd mapping. Keyed native terminals with command environment, exit-triggered refresh and success-only Configure opening. Window-scoped status and direct service links. Offline official v1.25.5 schema completion, hover and validation. Host-approved global/project executable selection."
 categories = ["tools"]
-engines.openidea = "^1.5"
+engines.openidea = "^1.9"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:yaml", "on-view:ddev", "on-startup-finished", "on-schedule:60", "on-event:file-saved", "on-event:files-changed", "on-event:editor-focused"]
 
