@@ -1,13 +1,7 @@
 id = "aritti.gitlab"
 name = "GitLab"
 version = "0.2.0" # x-release-please-version
-description = """\
-gitlab.com merge requests in the IDE. List them with the IntelliJ quick filters and follow their timeline. \
-Review the changes with comments on diff lines and pending reviews, then reply, resolve, approve, merge, rebase, \
-close, reopen or mark as draft or ready. The status bar shows the current branch's merge request and the editor shows \
-its unresolved threads. Also checks out merge request branches, clones and shares projects, opens or copies the \
-GitLab link to the current lines, and creates snippets. Port of the GitLab plugin by JetBrains s.r.o. \
-(org.jetbrains.plugins.gitlab 263.7307.200, intellij-community tag idea/263.7307.200, plugins/gitlab), Apache-2.0."""
+description = """gitlab.com merge requests in the IDE. List them with the IntelliJ quick filters and follow their timeline. Review the changes with comments on diff lines and pending reviews, then reply, resolve, approve, merge, rebase, close, reopen or mark as draft or ready. The status bar shows the current branch's merge request and the editor shows its unresolved threads. Also checks out merge request branches, clones and shares projects, opens or copies the GitLab link to the current lines, and creates snippets."""
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contributors (original GitLab plugin)"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/gitlab"
 license = "Apache-2.0"

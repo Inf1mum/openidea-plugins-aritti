@@ -1,14 +1,7 @@
 id = "aritti.tasks"
 name = "Tasks"
 version = "0.2.0" # x-release-please-version
-description = """\
-Work on one task at a time. Create local tasks or pick issues from GitHub, GitLab, Codeberg, YouTrack Cloud, \
-Jira Cloud and Trello. With git, each task can have its own branch and shelved changes. Switching back to a \
-task reopens its files. The plugin tracks the time spent on each task, closes tasks (optionally resolving the issue \
-and merging the branch), opens issues in the browser and copies the active task's commit message. \
-Port of the Issue Trackers plugin by JetBrains s.r.o. (com.intellij.tasks 263.7307.108, intellij-community tag \
-idea/263.7307.112: plugins/tasks, platform/tasks-platform-impl, the GitHub tracker of plugins/github and \
-GitTaskHandler of plugins/git4idea), Apache-2.0."""
+description = """Work on one task at a time. Create local tasks or pick issues from GitHub, GitLab, Codeberg, YouTrack Cloud, Jira Cloud and Trello. With git, each task can have its own branch and shelved changes. Switching back to a task reopens its files. The plugin tracks the time spent on each task, closes tasks (optionally resolving the issue and merging the branch), opens issues in the browser and copies the active task's commit message."""
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contributors (original Issue Trackers plugin)"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/tasks"
 license = "Apache-2.0"
