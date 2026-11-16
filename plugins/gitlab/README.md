@@ -13,7 +13,7 @@ The IDE puts the token in the `Authorization` header itself; the plugin never re
 
 The project needs a git remote on gitlab.com (`https://`, `ssh://` or `git@gitlab.com:`). When several remotes point there, `origin` wins.
 
-The plugin only talks to gitlab.com: the REST API under `https://gitlab.com/api/v4`, and `https://gitlab.com/api/graphql` for Mark as Draft / Mark as Ready. Self-hosted servers aren't supported: every host must be listed in `plugin.toml` as `net:<host>`, so another server means changing `SERVER` / `SERVER_HOST` in `src/api.rs` and rebuilding.
+By default the plugin talks to gitlab.com: the REST API under `https://gitlab.com/api/v4`, and `https://gitlab.com/api/graphql` for Mark as Draft / Mark as Ready. Set the **GitLab server** setting to an HTTPS URL to use a self-hosted instance instead; the IDE asks you to approve that host on first use (`net:ask`, revocable under Settings › Plugins). Plain-HTTP instances aren't supported, and an invalid value falls back to gitlab.com. The project needs a git remote on the configured server.
 
 Optional permissions:
 
@@ -75,7 +75,7 @@ Snapshots are capped at 384 KiB of UTF-8 text with a visible truncation marker; 
 
 MR caches belong to the exact repository root, GitLab project path and selected remote. A changed or unavailable owner clears list/details/thread/diff/commit/job/pipeline and branch caches; equal numeric MR IDs in different projects or worktrees cannot reuse an old cache. A nonempty unsent overview comment blocks cross-scope selection rather than exposing or discarding it; finish or clear it in the original project first. Refresh of the review pane also invalidates the list cache so the next model reloads current rows; MR data itself is never broadcast in invalidation messages.
 
-The **GitLab.com account slot** setting selects the existing primary token or the optional secondary token. Each is a declared IDE secret; the plugin receives only secret placeholders. Switching slots expires account identity, project lists, selected-MR ownership and snapshot caches, so an old account's controls cannot act as the new account. Finish or clear an unsent comment before switching; restoring the previous slot lets you finish that draft. This covers two declared gitlab.com accounts, not arbitrary self-hosted servers.
+The **GitLab.com account slot** setting selects the existing primary token or the optional secondary token. Each is a declared IDE secret; the plugin receives only secret placeholders. Switching slots expires account identity, project lists, selected-MR ownership and snapshot caches, so an old account's controls cannot act as the new account. Finish or clear an unsent comment before switching; restoring the previous slot lets you finish that draft. This covers two declared accounts on the configured server.
 
 ## Commands
 

@@ -2276,7 +2276,7 @@ mod share_prompt_tests {
         let error = share(&host).unwrap_err();
 
         nothing_happened(&host);
-        assert!(error.to_string().contains("already has a gitlab.com remote"));
+        assert!(error.to_string().contains("already has a remote on the configured GitLab server"));
     }
 
     #[test]
@@ -4242,6 +4242,21 @@ mod timeline_snapshot_tests {
 
 mod diff_row_path_receipts {
     use super::*;
+    #[test]
+    fn side_by_side_reads_both_versions_from_gitlab_and_refuses_unlisted_paths() {
+        let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+        host.on_fetch(|r|if r.url.contains("/repository/files/") {ok("file text")} else {gitlab(r)});
+        changes_message(&mut plugin,&host,ViewEvent::Message(r#"{"type":"diff","path":"src/a.rs"}"#.into())).unwrap();
+        let reads:Vec<String>=host.requests().into_iter().map(|r|r.url).filter(|u|u.contains("/repository/files/")).collect();
+        assert_eq!(reads,[
+            "https://gitlab.com/api/v4/projects/g%2Fp/repository/files/src%2Fa.rs/raw?ref=abcdef0",
+            "https://gitlab.com/api/v4/projects/g%2Fp/repository/files/src%2Fa.rs/raw?ref=abcdef1",
+        ]);
+        assert!(writes(&host).is_empty());
+        let before=host.requests().len();
+        assert!(changes_message(&mut plugin,&host,ViewEvent::Message(r#"{"type":"diff","path":"src/other.rs"}"#.into())).is_err());
+        assert_eq!(host.requests().len(),before);
+    }
     #[test]
     fn registered_current_diff_row_opens_without_remote_mutation() {
         let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();

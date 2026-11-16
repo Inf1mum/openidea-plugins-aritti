@@ -11,9 +11,31 @@ use serde_json::{Value, json};
 
 use crate::safe;
 
-// ponytail: gitlab.com only; a self-hosted server needs its own `net:<host>` capability in plugin.toml.
-pub const SERVER: &str = "https://gitlab.com";
-pub const SERVER_HOST: &str = "gitlab.com";
+const DEFAULT_SERVER: &str = "https://gitlab.com";
+
+/// The `server` setting: an HTTPS origin (optionally with a path prefix), else gitlab.com. A host other than
+/// gitlab.com is approved on first use through `net:ask`.
+// ponytail: an invalid value falls back to gitlab.com; plain-http instances need setting-derived net.http grants upstream.
+pub fn server() -> String {
+    let configured = host::setting_string("server").unwrap_or_default();
+    let Ok(url) = url::Url::parse(configured.trim()) else {
+        return DEFAULT_SERVER.to_owned();
+    };
+    let plain = url.scheme() == "https" && url.host_str().is_some() && url.username().is_empty() && url.password().is_none()
+        && url.query().is_none() && url.fragment().is_none();
+    match plain {
+        true => url.as_str().trim_end_matches('/').to_owned(),
+        false => DEFAULT_SERVER.to_owned(),
+    }
+}
+
+pub fn server_host() -> String {
+    url::Url::parse(&server()).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_else(|| "gitlab.com".to_owned())
+}
+
+pub(crate) fn server_prefix() -> String {
+    format!("{}/", server())
+}
 pub const TOKEN: &str = "token";
 pub(crate) fn token() -> &'static str { if host::setting_string("accountSlot").as_deref()==Some("secondary") {"secondary-token"} else {TOKEN} }
 
@@ -224,6 +246,7 @@ pub struct Commit {
     pub short_id: String,
     pub title: String,
     pub author_name: String,
+    pub parent_ids: Vec<String>,
 }
 
 /// A state, label or milestone change of a merge request.
@@ -296,14 +319,14 @@ pub fn encode(s: &str) -> String {
         .collect()
 }
 
-/// `group/sub/name` of a gitlab.com remote (`https://`, `ssh://` or `git@host:path`).
+/// `group/sub/name` of a remote on the configured server (`https://`, `ssh://` or `git@host:path`).
 pub fn project_path(remote: &str) -> Option<String> {
     let (authority, path) = match remote.split_once("://") {
         Some((_, rest)) => rest.split_once('/')?,
         None => remote.split_once(':')?,
     };
     let host = authority.rsplit('@').next()?.split(':').next()?;
-    if !host.eq_ignore_ascii_case(SERVER_HOST) {
+    if !host.eq_ignore_ascii_case(&server_host()) {
         return None;
     }
 
@@ -321,7 +344,7 @@ pub fn project_path(remote: &str) -> Option<String> {
 /// optional 0-based inclusive line range (`#L3-L5`).
 pub fn blob_url(project: &str, revision: &str, path: &str, lines: Option<(u32, u32)>) -> String {
     let path: Vec<String> = path.split('/').map(encode).collect();
-    let url = format!("{SERVER}/{project}/-/blob/{revision}/{}", path.join("/"));
+    let url = format!("{server}/{project}/-/blob/{revision}/{}", path.join("/"), server = server());
 
     match lines {
         Some((first, last)) if first != last => format!("{url}#L{}-L{}", first + 1, last + 1),
@@ -333,15 +356,15 @@ pub fn blob_url(project: &str, revision: &str, path: &str, lines: Option<(u32, u
 pub fn tree_url(project: &str, revision: &str, path: &str) -> String {
     let path: Vec<String> = path.split('/').map(encode).collect();
 
-    format!("{SERVER}/{project}/-/tree/{revision}/{}", path.join("/"))
+    format!("{server}/{project}/-/tree/{revision}/{}", path.join("/"), server = server())
 }
 
 pub fn new_merge_request_url(project: &str, source_branch: &str) -> String {
-    format!("{SERVER}/{project}/-/merge_requests/new?merge_request%5Bsource_branch%5D={}", encode(source_branch))
+    format!("{server}/{project}/-/merge_requests/new?merge_request%5Bsource_branch%5D={}", encode(source_branch), server = server())
 }
 
 pub fn new_token_url() -> String {
-    format!("{SERVER}/-/user_settings/personal_access_tokens?name=OpenIDEA%20GitLab&scopes=api,read_user")
+    format!("{server}/-/user_settings/personal_access_tokens?name=OpenIDEA%20GitLab&scopes=api,read_user", server = server())
 }
 
 fn html_title(body: &str) -> Option<&str> {
@@ -416,7 +439,7 @@ fn parse<T: DeserializeOwned>(value: Value) -> Result<T, Error> {
 }
 
 fn rest(method: &str, path: &str, body: Option<Value>) -> Result<Value, Error> {
-    send(method, format!("{SERVER}/api/v4{path}"), body)
+    send(method, format!("{server}/api/v4{path}", server = server()), body)
 }
 
 const MAX_PAGES: usize = 10;
@@ -605,6 +628,29 @@ impl Project<'_> {
     }
 
     /// The cumulative changes, every page.
+    /// A file's text at `sha`; empty when the file does not exist there (added or deleted by the change).
+    pub fn raw_file(&self, path: &str, sha: &str) -> Result<String, Error> {
+        const MAX_BYTES: usize = 2 * 1024 * 1024;
+        let url = format!("{}/api/v4{}", server(), self.path(&format!("/repository/files/{}/raw?ref={}", encode(path), encode(safe::hex_sha(sha)?))));
+        let request = HttpRequest {
+            method: "GET".into(),
+            url,
+            headers: vec![("Authorization".into(), authorization())],
+            body: None,
+            timeout_ms: Some(callback_timeout_ms(20_000)?),
+        };
+        let response = host::fetch(&request)?;
+        require_callback_read_budget()?;
+
+        match response.status {
+            200..=299 if response.body.len() > MAX_BYTES => Err("The file is too large for the diff viewer. Open it on GitLab.".into()),
+            200..=299 => Ok(response.text()),
+            404 => Ok(String::new()),
+            401 => Err("GitLab rejected the access token. Check it in Settings › Plugins › GitLab.".into()),
+            status => Err(Error::Failed(format!("GitLab returned {status} for the file."))),
+        }
+    }
+
     pub fn diffs(&self, iid: u64) -> Result<Vec<FileDiff>, Error> {
         paged(&self.mr(iid, "/diffs"), 100)
     }
@@ -629,7 +675,7 @@ impl Project<'_> {
         let timeout_ms=DEADLINE.get().map(|deadline|deadline.saturating_sub(now_secs()).saturating_mul(1000).min(20_000) as u32).unwrap_or(20_000);
         if timeout_ms==0 {return Err("Job trace request budget exhausted; retry explicitly.".into());}
         let timeout_ms=callback_timeout_ms(timeout_ms)?;
-        let response=host::fetch(&HttpRequest{method:"GET".into(),url:format!("{SERVER}/api/v4{}",self.path(&format!("/jobs/{job_id}/trace"))),headers:vec![("Authorization".into(),authorization())],body:None,timeout_ms:Some(timeout_ms)}).map_err(|e|match e {Error::Denied(_)=>Error::Denied("Job trace request denied.".into()),_=>Error::Failed("Job trace request failed. Retry explicitly.".into())})?;
+        let response=host::fetch(&HttpRequest{method:"GET".into(),url:format!("{}/api/v4{}",server(),self.path(&format!("/jobs/{job_id}/trace"))),headers:vec![("Authorization".into(),authorization())],body:None,timeout_ms:Some(timeout_ms)}).map_err(|e|match e {Error::Denied(_)=>Error::Denied("Job trace request denied.".into()),_=>Error::Failed("Job trace request failed. Retry explicitly.".into())})?;
         require_read_budget()?;
         if response.status!=200 {return Err(Error::Failed(format!("Job trace unavailable (HTTP {}). Retry explicitly or open on GitLab.",response.status)));}
         if response.body.len()>1<<20 {return Err("Job trace exceeds the1MiB plugin acceptance limit; host transfer cap is8MiB.".into());}
@@ -799,7 +845,7 @@ impl Project<'_> {
         if iid == 0 || reviewer == 0 {return Err("Invalid review request identity.".into());}
         let body = json!({"query":"mutation($projectPath: ID!, $iid: String!, $userId: UserID!) { mergeRequestReviewerRereview(input: {projectPath: $projectPath, iid: $iid, userId: $userId}) { errors } }",
             "variables":{"projectPath":self.0,"iid":iid.to_string(),"userId":format!("gid://gitlab/User/{reviewer}")}});
-        let response=send("POST",format!("{SERVER}/api/graphql"),Some(body))?;
+        let response=send("POST",format!("{}/api/graphql",server()),Some(body))?;
         if response["errors"].as_array().is_some_and(|errors|!errors.is_empty()) {return Err("GitLab rejected the re-review request.".into());}
         let errors=response["data"]["mergeRequestReviewerRereview"]["errors"].as_array().ok_or("GitLab did not acknowledge the re-review request.")?;
         if !errors.is_empty() {return Err("GitLab could not re-request review. Refresh reviewers or open the merge request on GitLab.".into());}
@@ -813,7 +859,7 @@ impl Project<'_> {
                 mergeRequestSetDraft(input: {projectPath: $projectPath, iid: $iid, draft: $draft}) { errors } }",
             "variables": { "projectPath": self.0, "iid": iid.to_string(), "draft": draft },
         });
-        let response = send("POST", format!("{SERVER}/api/graphql"), Some(body))?;
+        let response = send("POST", format!("{}/api/graphql", server()), Some(body))?;
 
         let errors = response["errors"]
             .as_array()
@@ -857,19 +903,19 @@ mod tests {
         let h=openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com","secrets"]);h.set_secret(TOKEN,"offline-fixture");
         h.on_fetch(|r| {if CALLBACK_DEADLINE.get().is_some(){assert!(r.timeout_ms.is_some_and(|ms|ms>0&&ms<=10_000));}else{assert_eq!(r.timeout_ms,Some(20_000));}Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"{}".to_vec()})});
         {
-            let _scope=CallbackReadBudget::start();assert!(send("GET",format!("{SERVER}/offline"),None).is_ok());
-            let count=h.requests().len();assert!(send("POST",format!("{SERVER}/offline"),None).is_err());assert_eq!(h.requests().len(),count);
+            let _scope=CallbackReadBudget::start();assert!(send("GET","https://gitlab.com/offline".to_owned(),None).is_ok());
+            let count=h.requests().len();assert!(send("POST","https://gitlab.com/offline".to_owned(),None).is_err());assert_eq!(h.requests().len(),count);
             let short=std::time::Instant::now()+std::time::Duration::from_secs(1);CALLBACK_DEADLINE.set(Some(short));
             {let _nested=CallbackReadBudget::start();assert_eq!(CALLBACK_DEADLINE.get(),Some(short));assert!(callback_timeout_ms(20_000).unwrap()<=1000);}
             assert_eq!(CALLBACK_DEADLINE.get(),Some(short));
         }
-        assert!(CALLBACK_DEADLINE.get().is_none());assert!(send("GET",format!("{SERVER}/offline"),None).is_ok());
+        assert!(CALLBACK_DEADLINE.get().is_none());assert!(send("GET","https://gitlab.com/offline".to_owned(),None).is_ok());
     }
     #[test]
     fn callback_expiry_refuses_late_response_and_further_reads_without_fetching() {
         let h=openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com","secrets"]);h.set_secret(TOKEN,"offline-fixture");let _scope=CallbackReadBudget::start();
         h.on_fetch(|_| {expire_callback_read_budget();Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"{}".to_vec()})});
-        assert!(send("GET",format!("{SERVER}/offline"),None).is_err());let count=h.requests().len();assert!(send("GET",format!("{SERVER}/offline"),None).is_err());assert_eq!(h.requests().len(),count);
+        assert!(send("GET","https://gitlab.com/offline".to_owned(),None).is_err());let count=h.requests().len();assert!(send("GET","https://gitlab.com/offline".to_owned(),None).is_err());assert_eq!(h.requests().len(),count);
     }
     #[test]
     fn trace_request_timeout_never_exceeds_remaining_shared_read_budget() {
@@ -910,6 +956,7 @@ mod tests {
 
     #[test]
     fn project_paths_from_remotes() {
+        let _host = openidea_plugin::mock::MockHost::install();
         assert_eq!(project_path("https://gitlab.com/group/sub/name.git").as_deref(), Some("group/sub/name"));
         assert_eq!(project_path("https://user:pw@gitlab.com/group/name").as_deref(), Some("group/name"));
         assert_eq!(project_path("git@gitlab.com:group/name.git").as_deref(), Some("group/name"));
@@ -919,7 +966,31 @@ mod tests {
     }
 
     #[test]
+    fn a_configured_https_server_replaces_gitlab_com() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.set_setting("server", "\"https://git.corp.test:8443/\"");
+        assert_eq!(server(), "https://git.corp.test:8443");
+        assert_eq!(server_host(), "git.corp.test");
+        assert_eq!(project_path("git@git.corp.test:group/name.git").as_deref(), Some("group/name"));
+        assert_eq!(project_path("https://gitlab.com/group/name.git"), None);
+        assert_eq!(blob_url("g/p", "abc", "a.rs", None), "https://git.corp.test:8443/g/p/-/blob/abc/a.rs");
+        assert!(crate::safe::clone_url("https://git.corp.test:8443/g/p.git").is_ok());
+        assert!(crate::safe::clone_url("git@git.corp.test:g/p.git").is_ok());
+        assert!(crate::safe::clone_url("https://gitlab.com/g/p.git").is_err());
+    }
+
+    #[test]
+    fn an_invalid_or_plain_http_server_falls_back_to_gitlab_com() {
+        let host = openidea_plugin::mock::MockHost::install();
+        for value in ["", "not a url", "http://git.corp.test", "https://user:pw@git.corp.test", "https://git.corp.test/?x=1"] {
+            host.set_setting("server", &format!("{value:?}"));
+            assert_eq!(server(), "https://gitlab.com", "{value:?}");
+        }
+    }
+
+    #[test]
     fn blob_urls() {
+        let _host = openidea_plugin::mock::MockHost::install();
         let base = "https://gitlab.com/g/p/-/blob/abc/src/a%20b.rs";
         assert_eq!(blob_url("g/p", "abc", "src/a b.rs", None), base);
         assert_eq!(blob_url("g/p", "abc", "src/a b.rs", Some((2, 2))), format!("{base}#L3"));

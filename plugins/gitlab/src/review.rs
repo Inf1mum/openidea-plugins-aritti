@@ -144,11 +144,11 @@ fn thread_html(d: &Discussion, drafts: &[&DraftNote]) -> String {
     };
 
     for n in &d.notes {
-        html.push_str(&format!("<div class=\"note\"><b>{}</b> {}</div>", escape(&n.author.username), crate::markdown::fragment(&n.body,"https://gitlab.com/")));
+        html.push_str(&format!("<div class=\"note\"><b>{}</b> {}</div>", escape(&n.author.username), crate::markdown::fragment(&n.body,&crate::api::server_prefix())));
     }
 
     for draft in drafts {
-        html.push_str(&format!("<div class=\"note draft\"><b>Pending</b> {}</div>", crate::markdown::fragment(&draft.note,"https://gitlab.com/")));
+        html.push_str(&format!("<div class=\"note draft\"><b>Pending</b> {}</div>", crate::markdown::fragment(&draft.note,&crate::api::server_prefix())));
     }
 
     let id = escape(&d.id);
@@ -224,7 +224,7 @@ pub fn render_html(page: &Page) -> String {
 
         html.push_str(&format!(
             "<div class=\"file{}\" id=\"f{index}\" data-old-path=\"{}\" data-new-path=\"{}\">\
-             <div class=\"header\" tabindex=\"0\">{}<a href=\"#\" class=\"open\" data-line=\"1\">{}</a>{status} <span class=\"stat\">+{added} −{removed}</span></div><table>",
+             <div class=\"header\" tabindex=\"0\">{}<a href=\"#\" class=\"open\" data-line=\"1\">{}</a>{status} <a href=\"#\" class=\"side-by-side\">Side by side</a> <span class=\"stat\">+{added} −{removed}</span></div><table>",
             if is_viewed { " collapsed" } else { "" },
             escape(&file.old_path),
             escape(&file.new_path),
@@ -393,6 +393,10 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     const file = fileOf(t);
     send({ type: 'open', path: file.dataset.newPath, line: +t.dataset.line });
+  } else if (t.classList.contains('side-by-side')) {
+    e.preventDefault();
+    const file = fileOf(t);
+    send({ type: 'diff', path: file.dataset.newPath });
   } else if (t.classList.contains('viewed')) {
     const file = fileOf(t);
     file.classList.toggle('collapsed', t.checked);
@@ -661,6 +665,47 @@ impl GitLab {
             .status(&format!("Commit {} {} · read-only", commit.short_id, first_line(&commit.title))))
     }
 
+    /// One file of the listed diff in the IDE's side-by-side viewer, from its two versions on GitLab.
+    fn open_native_diff(&self, project: &str, path: &str) -> Result<(), Error> {
+        let details = self.details.as_ref().ok_or("Select a merge request first.")?;
+        let (base, head, files) = match self.active_commit() {
+            Some(commit) => (
+                commit.parent_ids.first().cloned().unwrap_or_default(),
+                commit.id.clone(),
+                self.commit_diff.as_ref().filter(|(sha, _)| sha == &commit.id).map(|(_, files)| files),
+            ),
+            None => {
+                let refs = details.mr.diff_refs.as_ref().ok_or("The current merge request has no diff identity.")?;
+                let files = self.diffs.as_ref().filter(|(owner, _)| *owner == details.mr.iid).map(|(_, files)| files);
+                (refs.base_sha.clone(), refs.head_sha.clone(), files)
+            }
+        };
+        let file = files
+            .and_then(|files| files.iter().find(|file| file.new_path == path))
+            .ok_or("This file is not a row in the current cached diff; refresh Changes.")?;
+
+        let _task = host::begin_task("Loading diff", false);
+        let remote = api::Project(project);
+        let left = match file.new_file || base.is_empty() {
+            true => String::new(),
+            false => remote.raw_file(&file.old_path, &base)?,
+        };
+        let right = match file.deleted_file {
+            true => String::new(),
+            false => remote.raw_file(&file.new_path, &head)?,
+        };
+        let short = |sha: &str| sha.chars().take(8).collect::<String>();
+        let diff = openidea_plugin::ContentDiff {
+            left,
+            right,
+            left_label: Some(format!("{} @ {}", file.old_path, short(&base))),
+            right_label: Some(format!("{} @ {}", file.new_path, short(&head))),
+            title: Some(format!("{} (!{})", file.new_path, details.mr.iid)),
+        };
+
+        host::open_diff(&diff, Some(&file.new_path))
+    }
+
     pub(crate) fn handle_changes_message(&mut self, message: &str, ctx: &openidea_plugin::Invocation) -> Result<(), Error> {
         if message.len() > 2 * 1024 * 1024 { return Err(Error::Stale); }
         let message: Value = serde_json::from_str(message).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -684,7 +729,7 @@ impl GitLab {
         let text = |key: &str| message[key].as_str().unwrap_or("").to_owned();
         let line = |key: &str| message[key].as_u64().and_then(|n| u32::try_from(n).ok());
 
-        if matches!(message["type"].as_str(), Some("open" | "viewed")) {
+        if matches!(message["type"].as_str(), Some("open" | "viewed" | "diff")) {
             let path = text("path");
             safe::repo_file_path(&path)?;
             if path.len() > 4096 || path.chars().any(char::is_control) {
@@ -709,6 +754,7 @@ impl GitLab {
                 }
                 return host::open_location(&path, line("line").unwrap_or(1).saturating_sub(1), 0);
             }
+            "diff" => return self.open_native_diff(&project, &text("path")),
             "viewed" => {
                 let head = details.mr.diff_refs.as_ref().map(|r| r.head_sha.clone()).unwrap_or_default();
                 let sha = (message["viewed"].as_bool() == Some(true)).then(|| {

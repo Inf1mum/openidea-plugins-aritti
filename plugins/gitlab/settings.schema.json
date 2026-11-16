@@ -1,5 +1,10 @@
 {
   "properties": {
+    "server": {
+      "type": "string",
+      "title": "GitLab server (HTTPS URL; leave empty for https://gitlab.com). A self-hosted server is approved on first use.",
+      "default": ""
+    },
     "editorReview": {
       "type": "boolean",
       "title": "Show the current branch's unresolved merge request threads in the editor",

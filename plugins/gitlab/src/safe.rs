@@ -5,8 +5,6 @@ use openidea_plugin::Error;
 
 pub const EMOJIS: [&str; 8] = ["thumbsup", "thumbsdown", "heart", "tada", "laughing", "confused", "rocket", "eyes"];
 
-const GITLAB: &str = "https://gitlab.com/";
-
 fn refused(what: &str, s: &str) -> Error {
     let shown: String = s.chars().take(40).collect();
 
@@ -47,7 +45,7 @@ pub fn emoji(s: &str) -> Result<&'static str, Error> {
 }
 
 pub fn gitlab_url(s: &str) -> Result<&str, Error> {
-    accept("URL", s, s.starts_with(GITLAB) && !s.chars().any(|c| c.is_whitespace() || c.is_control()))
+    accept("URL", s, s.starts_with(&crate::api::server_prefix()) && !s.chars().any(|c| c.is_whitespace() || c.is_control()))
 }
 
 pub fn repo_file_path(s: &str) -> Result<&str, Error> {
@@ -56,9 +54,10 @@ pub fn repo_file_path(s: &str) -> Result<&str, Error> {
     accept("file path", s, valid)
 }
 
-/// A gitlab.com clone URL (HTTPS or SSH) that is safe as a terminal argument, shell-joined or not.
+/// A clone URL on the configured server (HTTPS or SSH) that is safe as a terminal argument, shell-joined or not.
 pub fn clone_url(s: &str) -> Result<&str, Error> {
-    let path = s.strip_prefix(GITLAB).or_else(|| s.strip_prefix("git@gitlab.com:")).unwrap_or("");
+    let ssh_prefix = format!("git@{}:", crate::api::server_host());
+    let path = s.strip_prefix(&crate::api::server_prefix()).or_else(|| s.strip_prefix(&ssh_prefix)).unwrap_or("");
 
     accept("clone URL", s, charset(path, 1000, b"_./-") && repo_file_path(path).is_ok())
 }
@@ -115,6 +114,7 @@ mod tests {
 
     #[test]
     fn gitlab_url_refuses_other_hosts_and_whitespace() {
+        let _host = openidea_plugin::mock::MockHost::install();
         refused(gitlab_url, &["https://gitlab.com.evil.test/x", "http://gitlab.com/x", "https://gitlab.com/x y", "https://gitlab.com/x\n"]);
 
         assert_eq!(gitlab_url("https://gitlab.com/g/p/-/merge_requests/7").unwrap(), "https://gitlab.com/g/p/-/merge_requests/7");
@@ -129,6 +129,7 @@ mod tests {
 
     #[test]
     fn clone_url_refuses_other_hosts_and_shell_metacharacters() {
+        let _host = openidea_plugin::mock::MockHost::install();
         refused(clone_url, &["https://evil.test/me/tool.git", "https://gitlab.com/me/tool.git;rm -rf ~", "git@gitlab.com:../x.git", "git@gitlab.com:$(x).git"]);
 
         assert!(clone_url("https://gitlab.com/me/tool.git").is_ok());

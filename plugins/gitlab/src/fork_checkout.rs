@@ -33,7 +33,7 @@ impl GitLab {
         let proof = identity(&before)?;
         clean(ctx, &repo.status.root)?;
         let branch = format!("review/mr-{iid}-{}", &proof.3[..12]);
-        let repository = format!("https://gitlab.com/{}", repo.path);
+        let repository = format!("{}/{}", crate::api::server(), repo.path);
         if !host::confirm("Check out merge request source with glab", &format!(
             "Working repository: {}\nTarget: {repository}\nMerge request: !{iid}\nSource project ID: {}{}\nSource branch: {}\nReviewed head: {}\nLocal branch: {branch}\n\nRun official glab1.130.0 mr checkout with its independently configured credentials and Git transports. It fetches the MR source (including forks), may add/update remote tracking and local branch configuration, and switches the current working tree. No --force is used. Existing branch conflicts are delegated to glab/Git. This is a source-branch checkout, not a head-pinned snapshot: a server change after review can be fetched. Inspect terminal output and the resulting commit before review. Stop the native terminal to cancel; cancellation may leave fetched refs/configuration. CLI host overrides/hooks/configuration remain effective.",
             repo.status.root, proof.0, if proof.0 != proof.1 { " (fork)" } else { "" }, proof.2, proof.3))? { return Ok(None); }

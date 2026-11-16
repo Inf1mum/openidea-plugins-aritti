@@ -225,7 +225,7 @@ impl GitLab {
         if probe.status != Some(0) || probe.stdout.len() > 4096 || !probe.stdout.lines().any(|line| line.strip_prefix("glab ").map(|version| version.strip_prefix("version ").unwrap_or(version)).and_then(|version| version.split_whitespace().next()).is_some_and(|version| version.starts_with("1.") && version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())))) {
             return Err("Install and approve GitLab CLI glab 1.x, authenticate it separately, then retry.".into());
         }
-        let repository = format!("https://gitlab.com/{}", repo.path);
+        let repository = format!("{}/{}", api::server(), repo.path);
         if !host::confirm("Follow GitLab job log", &format!("Repository: {repository}\nMerge request: !{iid}\nPipeline: #{}\nJob: #{} ({})\n\nThe approved glab CLI follows this job using its own credentials and configuration. The native log tab owns output, restart and cancellation. This does not assert the pipeline runs the current MR head.", pipeline.id, job.id, job.name))? { return Ok(()); }
         let current = gitlab_project(ctx)?;
         if selection_scope(&current) != selection_scope(&repo) || self.checked_selection(&current, ctx)? != iid

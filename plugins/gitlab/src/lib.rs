@@ -56,7 +56,7 @@ const AS_DRAFT_KEY: &str = "as-draft";
 const EVENTS_KEY: &str = "show-events";
 
 const DETACHED: &str = "HEAD is detached. Check out a branch first.";
-const NO_TOKEN: &str = "Enter a gitlab.com personal access token (scopes api, read_user) under Settings › Plugins › GitLab.";
+const NO_TOKEN: &str = "Enter a GitLab personal access token (scopes api, read_user) under Settings › Plugins › GitLab.";
 
 /// The original's quick filters, in its order; "assigned" is its default.
 const FILTERS: [(&str, &str); 5] =
@@ -199,7 +199,7 @@ fn gitlab_project(ctx: &Invocation) -> Result<Repo, Error> {
         .into_iter()
         .filter_map(|(name, url)| api::project_path(&url).map(|path| (name, path)))
         .min_by_key(|(name, _)| name != "origin")
-        .ok_or("The repository has no gitlab.com remote.")?;
+        .ok_or("The repository has no remote on the configured GitLab server.")?;
 
     Ok(Repo { status, path, remote })
 }
@@ -915,10 +915,10 @@ impl GitLab {
     fn open_markdown_link(&self,ctx:&Invocation,url:&str)->Result<(),Error>{
         let repo=gitlab_project(ctx)?;let iid=self.checked_selection(&repo,ctx)?;
         let details=self.details.as_ref().filter(|details|details.mr.iid==iid).ok_or(Error::Stale)?;
-        let base=format!("https://gitlab.com/{}/-/merge_requests/{iid}",repo.path);
+        let base=format!("{}/{}/-/merge_requests/{iid}",api::server(),repo.path);
         let mut links=markdown::links(details.mr.description.as_deref().unwrap_or_default(),&base);
-        for note in self.threads.get(&iid).into_iter().flatten().flat_map(|thread|&thread.notes){links.extend(markdown::links(&note.body,"https://gitlab.com/"));links.extend(markdown::links(&note.body,&base));}
-        for draft in &details.drafts{links.extend(markdown::links(&draft.note,"https://gitlab.com/"));}
+        for note in self.threads.get(&iid).into_iter().flatten().flat_map(|thread|&thread.notes){links.extend(markdown::links(&note.body,&api::server_prefix()));links.extend(markdown::links(&note.body,&base));}
+        for draft in &details.drafts{links.extend(markdown::links(&draft.note,&api::server_prefix()));}
         if !links.iter().any(|known|known==url){return Err("Markdown link no longer belongs to the selected merge request snapshot.".into());}
         host::open_url(url)
     }
@@ -926,7 +926,7 @@ impl GitLab {
     fn render_markdown_description(&mut self,ctx:&Invocation)->Result<View,Error>{
         let repo=gitlab_project(ctx)?;let iid=self.checked_selection(&repo,ctx)?;self.ensure_details(&repo.path,iid)?;
         let details=self.details.as_ref().ok_or("Refresh merge request details first.")?;
-        let base=format!("https://gitlab.com/{}/-/merge_requests/{iid}",repo.path);
+        let base=format!("{}/{}/-/merge_requests/{iid}",api::server(),repo.path);
         let mut text=details.mr.description.clone().unwrap_or_default();
         if let Some(thread)=self.thread(iid){for note in &thread.notes{text.push_str(&format!("\n\n---\n\n### @{}\n\n{}",note.author.username,note.body));}}
         Ok(View::new(Body::Html(markdown::document(&text,&base))).button(Button::new("refresh","Refresh Description").icon("refresh")).status("Cached GitLab Markdown; images are shown as text and links open only on explicit activation."))
@@ -1507,6 +1507,7 @@ impl Plugin for GitLab {
                 return self.show_branch_merge_request();
             },
             "open-merge-request-in-worktree" => return self.open_worktree(ctx),
+            "open-pending-folder" => return repo::open_pending_folder(),
             "open-existing-merge-request-worktree" => return self.open_existing_worktree(ctx),
             "update-merge-request-branch" => return self.update_merge_request_branch(ctx),
             "create-merge-request" => return self.create_merge_request(ctx),
@@ -1723,7 +1724,7 @@ impl GitLab {
         let added = run(&plan.fetch).and_then(|_| run(&plan.add));
 
         match added {
-            Ok(_) => host::notify(NotificationLevel::Info, "Worktree added", &format!("!{} is checked out in {}", mr.iid, plan.path)),
+            Ok(_) => repo::offer_open("Worktree added", &format!("!{} is checked out in {}", mr.iid, plan.path), "Open Worktree", &plan.path),
             Err(Error::Denied(_)) => host::notify(
                 NotificationLevel::Warning,
                 "Worktree not added",

@@ -1,9 +1,9 @@
 //! Clone (a list of the user's projects) and Share Project, both running the
 //! approved `git` (`process:git`).
 
-use openidea_plugin::host;
+use openidea_plugin::host::{self, storage};
 use openidea_plugin::views::{Body, Button, ListItem, View, ViewEvent};
-use openidea_plugin::{Error, Invocation, NotificationLevel};
+use openidea_plugin::{Error, Invocation, NotificationAction, NotificationLevel};
 
 use crate::api::{self, ProjectInfo};
 use crate::branch::git_ok;
@@ -37,6 +37,29 @@ fn clone_directory(ctx: &Invocation) -> Option<String> {
 /// A GitLab project name from a folder name (`[a-zA-Z0-9_.-]+`, as the original validates).
 pub fn project_name(folder: &str) -> String {
     folder.chars().map(|c| if c.is_ascii_alphanumeric() || "_.-".contains(c) { c } else { '-' }).collect()
+}
+
+const PENDING_OPEN_KEY: &str = "pending-open";
+
+/// Offers to open `path` once it exists. The folder is kept in storage, so the command never takes a path from a caller.
+pub fn offer_open(title: &str, body: &str, label: &str, path: &str) {
+    if storage::set(PENDING_OPEN_KEY, path).is_err() {
+        host::notify(NotificationLevel::Info, title, body);
+        return;
+    }
+
+    let actions = [NotificationAction::new(label, "open-pending-folder")];
+    if host::notify_with_actions(NotificationLevel::Info, title, body, &actions).is_err() {
+        host::notify(NotificationLevel::Info, title, body);
+    }
+}
+
+/// The command behind the notification buttons: opens the offered folder in a new window.
+pub fn open_pending_folder() -> Result<Option<String>, Error> {
+    let path = storage::get(PENDING_OPEN_KEY)?.filter(|p| !p.is_empty()).ok_or("There is no cloned or worktree folder to open.")?;
+    host::open_project(&path, true)?;
+
+    Ok(Some(format!("Requested opening {path} in a new window.")))
 }
 
 impl GitLab {
@@ -79,13 +102,21 @@ impl GitLab {
         };
 
         let project = self.projects.iter().flatten().find(|p| p.path_with_namespace == path).ok_or("The project is no longer in the list. Refresh it.")?;
-        let directory = clone_directory(ctx).ok_or("Set the clone directory under Settings › Plugins › GitLab.")?;
+        let directory = match clone_directory(ctx) {
+            Some(directory) => directory,
+            None => host::pick_directory("Clone into", None)?.ok_or("Choose a directory to clone into.")?.trim_end_matches(['/', '\\']).to_owned(),
+        };
         let target = format!("{directory}/{}", safe::remote_name(&project.path)?);
         let url = safe::clone_url(clone_url(project))?;
 
         // A terminal, not a one-off process: clones outlast the 60 s call limit and may ask for credentials.
         host::open_terminal(&format!("Clone {}", project.name), "git", &["clone".into(), "--".into(), url.into(), target.clone()])?;
-        host::notify(NotificationLevel::Info, "Cloning from GitLab", &format!("{} → {target}\nWhen the clone finishes, open it with File › Open.", project.path_with_namespace));
+        offer_open(
+            "Cloning from GitLab",
+            &format!("{} → {target}\nWhen the clone finishes, open it.", project.path_with_namespace),
+            "Open Clone",
+            &target,
+        );
 
         Ok(())
     }
@@ -193,7 +224,7 @@ pub fn share_with(ctx: &Invocation, request: &ShareRequest, confirmed: Option<&[
         None => Vec::new(),
     };
     if remotes.iter().any(|(_, url)| api::project_path(url).is_some()) {
-        return Err("The repository already has a gitlab.com remote.".into());
+        return Err("The repository already has a remote on the configured GitLab server.".into());
     }
 
     let remote = ["origin", "gitlab"]
@@ -267,5 +298,17 @@ mod tests {
     fn project_names_from_folders() {
         assert_eq!(project_name("my app (v2)"), "my-app--v2-");
         assert_eq!(project_name("lib_x.rs"), "lib_x.rs");
+    }
+
+    #[test]
+    fn the_offered_folder_opens_in_a_new_window() {
+        let host = openidea_plugin::mock::MockHost::install();
+        assert!(open_pending_folder().is_err());
+
+        offer_open("Cloning", "body", "Open Clone", "/work/tool");
+        assert_eq!(host.notifications_with_actions().len(), 1);
+        open_pending_folder().unwrap();
+
+        assert_eq!(host.opened_projects(), [("/work/tool".to_owned(), true)]);
     }
 }

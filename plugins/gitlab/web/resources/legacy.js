@@ -71,6 +71,10 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     const file = fileOf(t);
     send({ type: 'open', path: file.dataset.newPath, line: +t.dataset.line });
+  } else if (t.classList.contains('side-by-side')) {
+    e.preventDefault();
+    const file = fileOf(t);
+    send({ type: 'diff', path: file.dataset.newPath });
   } else if (t.classList.contains('viewed')) {
     const file = fileOf(t);
     file.classList.toggle('collapsed', t.checked);
