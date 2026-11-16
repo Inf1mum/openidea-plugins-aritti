@@ -9,7 +9,7 @@
   "plugins/ideolog": "0.3.0",
   "plugins/ignore": "0.3.0",
   "plugins/kube-explorer": "0.3.0",
-  "plugins/laravel": "0.3.0",
+  "plugins/laravel": "0.3.1",
   "plugins/liquibase": "0.3.0",
   "plugins/openapi": "0.3.0",
   "plugins/properties": "0.3.0",

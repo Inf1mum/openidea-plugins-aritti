@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/arnaud-ritti/openidea-plugins/compare/laravel-v0.3.0...laravel-v0.3.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **laravel:** document why the optional fs.read:~ grant is requested ([2cf4e56](https://github.com/arnaud-ritti/openidea-plugins/commit/2cf4e56d481afb0a16dd94c4ea3d88845c6d48fd))
+
 ## [0.3.0](https://github.com/arnaud-ritti/openidea-plugins/compare/laravel-v0.2.0...laravel-v0.3.0) (2026-11-16)
 
 
