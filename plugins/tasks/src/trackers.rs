@@ -1,7 +1,4 @@
-//! Issue trackers, after the `TaskRepository` implementations of
-//! intellij-community (GithubRepository, GitlabRepository, ForgejoRepository,
-//! YouTrackRepository, JiraRestApiCloud3, TrelloRepository). Each is used
-//! once the user has entered its token.
+//! Issue trackers. Each is used once the user has entered its token.
 
 use std::collections::BTreeMap;
 
@@ -137,7 +134,7 @@ pub fn can_post_time(task: &Task) -> bool {
     matches!(task.tracker.as_deref(), Some("youtrack" | "jira"))
 }
 
-/// TaskRepository.setTaskState with the tracker's resolved state.
+/// Sets the task state with the tracker's resolved state.
 pub fn close_issue(task: &Task) -> Result<(), Error> {
     if matches!(task.tracker.as_deref(),Some("redmine"|"mantis"|"generic")) {return crate::self_hosted::close(task);}
     if task.tracker.as_deref()==Some("fogbugz") { return crate::fogbugz::close(task); }

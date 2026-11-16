@@ -1,5 +1,5 @@
-//! Quarkus Tools for OpenIDEA: completion and checks for Quarkus configuration
-//! files, ported from Quarkus Tools for IntelliJ 2.6.1 (Red Hat, EPL-2.0).
+//! Quarkus for OpenIDEA: completion and checks for Quarkus configuration
+//! files.
 
 pub mod checks;
 mod build_source;

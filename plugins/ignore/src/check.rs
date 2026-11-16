@@ -136,9 +136,8 @@ struct Entry<'a> {
 }
 
 /// Literal entries another entry already matches, with no entry of the other
-/// kind (ignore / unignore) between them. The original plugin compares the
-/// files each entry matches on disk; plugins can't list ignored files, so
-/// this compares the patterns.
+/// kind (ignore / unignore) between them. The files each entry would match
+/// on disk cannot be listed, so this compares the patterns.
 // ponytail: O(n²) over entries; fine for hand-written ignore files.
 fn covered_entries(entries: &[Entry]) -> Vec<Problem> {
     let rules: Vec<Option<Rule>> = entries.iter().map(|e| Rule::parse(e.text)).collect();
@@ -280,8 +279,7 @@ fn regex_error(pattern: &str) -> Option<String> {
 }
 
 /// Wildcards become regexp operators and character classes are copied, so a
-/// malformed class (unclosed, reversed range) fails to parse like in the
-/// original plugin.
+/// malformed class (unclosed, reversed range) fails to parse.
 fn glob_to_regex(glob: &str) -> String {
     let mut out = String::new();
     let mut chars = glob.chars().peekable();

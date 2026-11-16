@@ -1,6 +1,6 @@
 use openidea_plugin::syntax::{Highlight, Token};
 
-/// The original plugin's token classes: headers (`###`), sections (`##`),
+/// Token classes: headers (`###`), sections (`##`),
 /// comments, `!`, `/`, wildcards, `[…]` classes and escapes; entry text
 /// itself stays plain. Only the plugin's `dotignore` files get here, none of
 /// which has Mercurial's `syntax:` lines.

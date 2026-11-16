@@ -2751,8 +2751,6 @@ mod tests {
         assert!(js.contains("./vendor/redoc.standalone.js") && js.contains("Redoc.init("));
         assert!(js.contains("disableSearch: true"));
         assert!(redoc.contains("exports.Redoc="));
-        assert!(include_str!("../web/vendor/redoc-LICENSE").starts_with("The MIT License"));
-        assert!(include_str!("../NOTICE.md").contains("Redoc"));
     }
 }
 

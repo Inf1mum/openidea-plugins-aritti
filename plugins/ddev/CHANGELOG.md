@@ -2,9 +2,9 @@
 
 ## 0.1.0
 
-Initial OpenIDEA source port of DDEV Integration 1.2.10.
+Initial OpenIDEA release of DDEV integration.
 
-- Services tree, inspect/configuration/help/database/log tabs, official DDEV icons.
+- Services tree, inspect/configuration/help/database/log tabs, DDEV icons.
 - Lifecycle commands, container shells, browser links and PHP/Node/Composer tools.
 - Automatic status refresh, state-aware actions and a native status/action picker.
 - Daily automatic update checks with preferences and optional grants.
@@ -68,16 +68,16 @@ Initial OpenIDEA source port of DDEV Integration 1.2.10.
 - Withdraw stale execution targets after external preference edits/runtime
   failures and register again on recovery; omit unavailable Database actions.
 - Record the remaining generic-target Composer/cwd and pre-launch validation
-  differences with source evidence and upstream issues #2407/#2408.
+  differences.
 
-- Complete three source/integration/editor passes: match original Stop/Restart
+- Complete three source/integration/editor passes: restore Stop/Restart
   recovery when describe is unavailable; preserve managed source identity after
   project moves; tie Configure follow-up to the exact host operation id.
 - Reject overlapping Configure requests with different arguments and ignore
   stale completion events; support Windows/UNC case-insensitive schema paths
   without widening Unix scope.
 - Reset Configure follow-up expiry for a new host operation while preserving the
-  original deadline when refocusing the same operation, including after reclaim.
+  previous deadline when refocusing the same operation, including after reclaim.
 - Suppress repeated runtime recovery alerts throughout one outage even when the
   error reason changes; retain idle-reclaim and older storage-marker compatibility.
 - Add an opt-in disposable-container runner for actual PHP/Node/Composer/SQL,

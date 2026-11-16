@@ -80,7 +80,7 @@
     send({op:"render"});
   }
 
-  // Native host names and the packaged JetBrains registry are distinct.
+  // Native host names and the packaged icon registry are distinct.
   // Only known aliases are translated; an unknown icon keeps its text label.
   const iconAliases = Object.freeze({
     plus:"add", minus:"remove", check:"checkmark", refresh:"update", edit:"pencil",

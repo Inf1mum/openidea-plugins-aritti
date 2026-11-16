@@ -2,9 +2,8 @@
 //! ids, translation keys, classes, assets, entries and roles, each with where
 //! it is defined, and the controllers' render calls.
 //!
-//! Port of the plugin's file indexes (routing, templating, dic, translation,
-//! assets, security), reduced to what can be read from the files without
-//! PHP/YAML/Twig PSI.
+//! File indexes (routing, templating, dic, translation, assets, security),
+//! built from what can be read from the files without PHP/YAML/Twig PSI.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::cell::Cell;

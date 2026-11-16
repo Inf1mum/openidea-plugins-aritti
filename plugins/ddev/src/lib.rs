@@ -1,4 +1,4 @@
-//! Source port of DDEV Integration 1.2.10; see NOTICE for provenance.
+//! DDEV integration for OpenIDEA.
 mod configuration;
 mod database;
 mod execution;

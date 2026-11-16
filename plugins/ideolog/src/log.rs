@@ -1,8 +1,6 @@
-//! Log parsing and highlighting rules, ported from Ideolog: the default
-//! patterns of `DefaultSettingsStoreItems`, format detection of
-//! `IdeologDocumentContext`, the lexer of `LogFileLexer`, the highlighting of
-//! `LogHighlightingIterator` and the `<LogParsingPattern>` /
-//! `<LogHighlightingPattern>` elements of Ideolog's settings export.
+//! Log parsing and highlighting rules: default patterns, format detection,
+//! the lexer, the highlighting and the `<LogParsingPattern>` /
+//! `<LogHighlightingPattern>` settings elements.
 
 use fancy_regex::Regex;
 use openidea_plugin::syntax::Highlight;
@@ -289,8 +287,8 @@ impl Config {
         Ok(best.map(|(format, _)| format))
     }
 
-    /// Highlight kinds of an event's ranges (relative to the event), port of
-    /// `LogHighlightingIterator.reparsePieces`. Ranges don't overlap.
+    /// Highlight kinds of an event's ranges (relative to the event).
+    /// Ranges don't overlap.
     pub fn highlight(&self, format: Option<&Format>, parsed: &Parsed) -> Vec<(Range<usize>, Highlight)> {
         let values = parsed.values();
         let line_kind = self.line_kind(format, &values);
@@ -333,8 +331,8 @@ impl Config {
         out
     }
 
-    /// Port of the `HIGHLIGHT_LINE` loop: a rule tied to a column stops at
-    /// its first match (or a missing column), the others let later rules win.
+    /// A rule tied to a column stops at its first match (or a missing
+    /// column), the others let later rules win.
     fn line_kind(&self, format: Option<&Format>, values: &[&str]) -> Option<Highlight> {
         let mut kind = None;
         for rule in self.rules.iter().filter(|r| r.action == Action::Line) {
@@ -570,7 +568,7 @@ pub fn floor_char_boundary(text: &str, mut at: usize) -> usize {
     at
 }
 
-/// `LogFileLexer.lexRegex` / `lexPlainLog`: an event's columns and the
+/// An event's columns and the
 /// separators between them, in offsets relative to the event.
 fn tokenize(format: Option<&Format>, event: &str) -> Vec<LogToken> {
     let whole = || vec![LogToken { range: 0..event.len(), separator: false }];

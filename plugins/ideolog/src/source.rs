@@ -1,7 +1,5 @@
 //! Jump to source: the file and line of a stack frame, or else the source
-//! line that most likely logged the event (port of Ideolog's
-//! `LogJumpToSourceIntention`, which ranks files with the IDE's trigram index;
-//! here every source file is scanned).
+//! line that most likely logged the event (every source file is scanned).
 
 use fancy_regex::Regex;
 use openidea_plugin::{Error, Project, host};

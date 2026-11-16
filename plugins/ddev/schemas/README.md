@@ -1,8 +1,7 @@
 # Bundled DDEV schemas
 
 Unmodified project and global configuration schemas from DDEV **v1.25.5**,
-bundled for offline assistance. Apache-2.0; see [LICENSE-DDEV](LICENSE-DDEV).
-These schemas are separate from the IntelliJ plugin source (BSD-3-Clause).
+bundled for offline assistance.
 
 | File | Pinned upstream source | SHA-256 |
 |---|---|---|

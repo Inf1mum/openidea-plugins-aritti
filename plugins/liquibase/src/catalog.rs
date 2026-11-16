@@ -1,5 +1,5 @@
 //! Change types and attribute names of Liquibase changelogs, from the
-//! Liquibase 4.29 XSD (Apache-2.0, see NOTICE). Attributes are listed for
+//! Liquibase 4.29 XSD. Attributes are listed for
 //! common change types; expanded core attributes checked against the public
 //! dbchangelog-latest.xsd on 2026-11-10. Names describe syntax, not edition availability.
 

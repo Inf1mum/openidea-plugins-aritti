@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerates data/quarkus-properties.tsv from the configuration model that
-Quarkus extensions ship in their jars (Apache-2.0) and from the MicroProfile
-metadata of Quarkus Tools for IntelliJ (EPL-2.0).
+Quarkus extensions ship in their jars and from the bundled MicroProfile
+static metadata.
 
     python3 -I scripts/gen-metadata.py 3.40.1 data/quarkus-properties.tsv [extra-artifact-id…]
 
@@ -209,8 +209,7 @@ def main(version, out, extra):
     lines += ["\t".join(["@!named"] + sorted(named)), "\t".join(["@!required"] + sorted(required))]
     lines += ["\t".join(["@" + name] + [v.replace("\t", " ") for v in hints[name]]) for name in sorted(hints)]
     with open(out, "w", encoding="utf-8") as f:
-        f.write(f"# Quarkus {version} configuration metadata (Apache-2.0) and MicroProfile metadata from "
-                "Quarkus Tools for IntelliJ 2.6.1 (EPL-2.0), see NOTICE\n")
+        f.write(f"# Quarkus {version} configuration metadata\n")
         f.write("\n".join(lines) + "\n")
     print(f"{len(props)} properties, {len(hints)} hints")
 

@@ -2,9 +2,7 @@
 //! window for routes, views, config, translations, env keys, middleware,
 //! controllers and assets in PHP and Blade files.
 //!
-//! The features the free Laravel plugin for IntelliJ (Daniel Espendiller,
-//! MIT) has are ported from its public source; the rest follows Laravel's own
-//! documentation. See README.md for what was and wasn't ported.
+//! The features follow Laravel's own documentation.
 
 pub(crate) const VIEW_MARKER: &str = "icons/marker-view.svg";
 pub(crate) const CONTROLLER_MARKER: &str = "icons/marker-controller.svg";

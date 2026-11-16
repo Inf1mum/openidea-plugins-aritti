@@ -1,4 +1,4 @@
-//! The original plugin's inspections, with their quick fixes.
+//! Inspections over `.env` declarations, with their quick fixes.
 
 use crate::parse::{Kind, Property, Token};
 use std::collections::HashMap;

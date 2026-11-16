@@ -1,14 +1,9 @@
 # .env files
 
-Port of the ".env files" plugin (`ru.adelf.idea.dotenv` 263.7307.209,
-[JetBrains/idea-php-dotenv-plugin](https://github.com/JetBrains/idea-php-dotenv-plugin)
-revision `a1e60501`, MIT) by Adel Fayzrakhmanov and JetBrains. The Docker,
-PHP, PHPUnit, Go, Ruby and Rust support comes from revision `c1484553`, before
-it was removed upstream.
-
-`.env` files get highlighting and the original's 11 inspections. Environment
+`.env` files get highlighting and 11 inspections, with Docker, PHP, PHPUnit, Go, Ruby and Rust support. Environment
 variables get completion and go to declaration in `${…}` and in code, with the
 keys of `.env` files, Dockerfiles and docker-compose files as declarations.
+MIT; see `LICENSE`.
 
 ## Files
 
@@ -21,7 +16,8 @@ plugin supplies the highlighting: keys, values, comments, `export`, the `=` /
 
 Problems are returned by the registered current-document diagnostics provider.
 The host versions these results against the editor text; code actions remain a
-separate request. Cross-file facts still follow the index lifecycle described below.
+separate request. Cross-file facts follow the index lifecycle described under
+Limits.
 
 | Check | Severity | Quick fix |
 |---|---|---|
@@ -37,6 +33,8 @@ separate request. Cross-file facts still follow the index lifecycle described be
 | `${KEY}` that no `.env` file, Dockerfile or compose file declares | warning | none |
 | Empty `${}` | warning | none |
 
+Unknown cache completeness suppresses absence warnings.
+
 ## Completion
 
 - In code, inside a recognised call (below): the project's declared keys.
@@ -50,7 +48,7 @@ then `...` if the value spans more lines). The value shown comes from a plain
 `.env`, a Dockerfile or a compose file before `.env.example`, `.env.local` and
 the other variants.
 
-## Navigation and usages
+## Navigation, usages and updates
 
 - Go to Declaration on a key in code or in `${KEY}`: its declarations in plain
   `.env` files, Dockerfiles and compose files. If none of these declares it,
@@ -59,9 +57,21 @@ the other variants.
   code and in `${KEY}` of `.env` files.
 - After you edit a literal key without saving, an explicit lazy FileAction may offer
   **Update this file's literal ${OLD} references to ${NEW} (source only)**.
-  It previews and confirms only current-file interpolation token replacements.
-  This replaces the old unversioned, project-wide guessed rename quick fix.
-  Cached same-line/value evidence is a suggestion, not proof of semantic ownership.
+  It previews and confirms only current-file interpolation token replacements
+  through atomic host edits: it requires cached prior declaration evidence,
+  the same value/key count/source line, one current NEW declaration, no
+  remaining OLD declaration, and literal ASCII names of at most 128 bytes. It
+  uses no provider file discovery and writes no other env, Compose, Docker or
+  language file; values never enter the confirmation, which lists only exact
+  target/key-token ranges and replacement names. The action is single-use and
+  revalidates the exact path/language/version/text, innermost currently open
+  project root, cached suggestion and current unsaved text before and after
+  the exact confirmation; cancellation returns no edit. Bounds: 12 KiB text,
+  256 declarations, 8,192 cached declarations, 128 token replacements and
+  eight pending actions; the shared 16 KiB exact-preview bound rejects
+  oversized confirmations. CRLF and other source text are preserved. This is
+  not runtime-aware Rename or proof that the interpolation uses resolve to the
+  edited declaration.
 
 ## Where keys are found
 
@@ -73,11 +83,12 @@ Declarations:
   OTHER="x y"` and `ENV KEY value`, continued with `\`.
 - Compose files (`docker-compose.yml`, `docker-compose.yaml`, `compose.yml`,
   `compose.yaml`): `environment:` as a list (`- KEY=value`), a mapping
-  (`KEY: value`) or a flow collection (`[A=1, B]`, `{A: 1, B: ~}`, including multi-line collections);
-  and the keys of the files named by `env_file:` (a scalar, a list or the
-  `- path: x` long form, paths relative to the compose file), read when the
-  compose file is indexed. Flow lists of env_file paths may span multiple lines
-  and contain quoted commas/comments. A missing file is ignored.
+  (`KEY: value`) or a flow collection (`[A=1, B]`, `{A: 1, B: ~}`, including
+  multi-line collections); and the keys of the files named by `env_file:` (a
+  scalar, a list or the `- path: x` long form, paths relative to the compose
+  file), read when the compose file is indexed. Flow lists of env_file paths
+  may span multiple lines and contain quoted commas/comments. A missing file
+  is ignored.
 
 Usages in code are matched on the text right before the key, compared
 lowercased. The key follows a `"`, `'` or `` ` `` (blanks before the quote
@@ -102,21 +113,98 @@ Groovy, JavaScript, TypeScript (and JSX/TSX), Vue, Svelte, Go, Ruby, Rust,
 C# and XML. The usages index reads files with those languages' extensions
 plus `phpunit.xml*`.
 
+Other plugins can register additional env declaration files or env readers
+through the `aritti.dotenv.sources` extension point (exact file names, role
+`declares` or `reads`); changes apply without a restart.
+
+## Hover
+
+Hover on a declared `.env` key, `${VARIABLE}` reference or an
+already-supported code reference shows its known declaration paths and
+one-based line/column, classified as env, Dockerfile or Compose sources.
+Multiple declarations are explicit candidates: hover does not infer runtime
+precedence. Current `.env` buffer declarations replace that file's cached
+entries, including unsaved edits.
+
+`showValues` controls values in both completion and hover. When false, hover
+includes only keys/source metadata and a hidden-values note; this hides
+output, it does not remove values from the existing index or hide values
+already visible in source files.
+
+Hover never warms the index, probes env files, runs a process or accesses the
+network. It only looks up the current project identity, reads an already-built
+cache, and parses the current `.env` text. Cold code-reference requests return
+no hover until activation/events have populated the cache. Cross-file values
+can lag edits/deletions until the existing open/save event indexing runs.
+Cache incompleteness and bounded results are labelled; runtime environment
+values and interpolation are not evaluated.
+
+Limits: current documents up to 256 KiB, code lines up to 2,000 bytes, keys up
+to 256 bytes, the first 8,192 cached declarations and up to 32 matching
+sources; displayed keys/values are capped at 256 characters and source paths
+at 1,024. The complete response is capped at 16 KiB of UTF-8, including
+Markdown fences and provenance notes; whole entries are omitted with a
+bounded-results label, rather than clipped inside a value/path. Markdown values
+are code spans with control characters escaped.
+
+## Semantic tokens
+
+A SemanticTokens export covers variable declarations and `${KEY}` references
+recognized by the established dotenv lexer, with declaration modifiers only
+on actual parsed keys. It uses supplied unsaved text only, no
+project/index/type lookup. Single-quoted/comment text is not interpreted as a
+reference; no runtime ownership or resolved-variable claim is made. Tokens use
+real `Variable` semantics, not invented types to colour strings/comments; the
+existing lexical fallback remains for the full syntax.
+
+Work is capped at 256 KiB / 4,096 tokens, with sorted nonempty single-line
+UTF-16 ranges computed in one forward pass, including long
+interpolation-heavy lines. Other languages and oversized documents return no
+tokens.
+
+## Compose env_file graph discovery
+
+`env_file` source discovery expands local YAML anchors, aliases and nested
+merge graphs, including scalar/list/long-form paths. Explicit mapping entries
+retain YAML merge precedence. Missing long-form `required: false` files do not
+make discovery incomplete unless another source requires the same path. Paths
+remain confined to the project; interpolated, unresolved or unsupported
+inputs keep discovery incomplete. This discovers source candidates and does
+not infer active Compose services or effective runtime variable precedence.
+
+Compose environment flow collections support multiple lines, comments and
+quoted commas/closing delimiters while preserving physical source ranges.
+Nested collections are rejected. Local scalar mapping/list anchors are
+resolved when used by `environment: *env` or `<<: *common` (including merge
+sequences). Explicit environment keys override merged keys; the first anchor
+wins duplicate merge keys. Declaration locations point to the physical
+anchored key. Forward, cyclic, nested and alias-dependent environment
+declarations are not expanded by the physical-range model. Anchor expansion is
+capped at 256 KiB, 4,096 lines and 128 names.
+
+The pure YAML parser has explicit limits: 256 KiB source, depth 32, 20,000
+nodes, 100,000 events, 128 anchors/aliases, 1 MiB total scalar/retained
+anchor bytes, 20,000 replay events and 128 expansions per anchor. Cycles,
+undefined aliases, duplicate mapping keys, unsupported tags and budget
+exhaustion refuse complete discovery. Filesystem includes and property
+interpolation are not enabled in the parser. Keys in Dockerfiles and compose
+files are declarations only: `$KEY` there isn't a usage, and Go to Declaration
+doesn't work from those files.
+
 ## Settings
 
-Settings › Plugins › .env files groups the existing options under **Completion**
-and **Value visibility**, with descriptions of their scope. Existing keys/defaults
-and project overrides are preserved:
+Settings › Plugins › .env files groups the options under **Completion** and
+**Value visibility**, with descriptions of their scope:
 
 | Key | Default | Effect |
 |---|---|---|
 | `completion` | `true` | Complete environment variables in code (`.env` files always complete) |
-| `showValues` | `true` | Show each key's value in completion |
+| `showValues` | `true` | Show each key's value in completion and hover |
 
 ## Limits
 
-- Text-based: the original plugin walks each language's syntax tree; this port
-  matches the text before the key. A call is recognised anywhere its text
+- Text-based: this implementation matches the text before the key rather than
+  walking each language's syntax tree. A call is recognised anywhere its text
   appears, comments and strings included, and any name ending in `env(`
   counts. A key held in a variable (`process.env[name]`) isn't seen.
 - The project index is built by a walk (at most 50,000 paths, about 3 s per
@@ -129,131 +217,16 @@ and project overrides are preserved:
   marker (`package.json`, `composer.json`, `go.mod`, `Cargo.toml`,
   `Dockerfile`, …). Any other env file is known only once it has been opened
   or saved.
-- Compose environment flow collections support multiple lines, comments and quoted
-  commas/closing delimiters while preserving physical source ranges. Nested
-  collections are rejected. Local scalar mapping/list anchors are resolved when
-  used by `environment: *env` or `<<: *common` (including merge sequences).
-  Explicit environment keys override merged keys; the first anchor wins duplicate
-  merge keys. Declaration locations point to the physical anchored key. Forward,
-  cyclic, nested and alias-dependent environment declarations are not expanded by
-  the physical-range model. env_file paths use a separate bounded YAML graph
-  parser and support aliases and nested service merges. These candidates do not establish runtime ownership or complete
-  discovery. Anchor expansion is capped at 256 KiB, 4,096 lines and 128 names. Keys in Dockerfiles and compose files are
-  declarations only: `$KEY` there isn't a usage, and Go to Declaration doesn't
-  work from those files.
-- Semantic Rename/host Find Usages indexing remains withheld. Lexical matches across
-  env variants, Compose services, Docker build/run stages and code do not establish
-  one complete runtime owner set. Navigation still returns source candidates.
+- Semantic Rename/host Find Usages indexing is not implemented: lexical
+  matches across env variants, Compose services, Docker build/run stages and
+  code do not establish one complete runtime owner set. Navigation returns
+  source candidates.
 - Lines longer than 2,000 bytes (minified code) aren't searched for usages.
 
-`src/lib.rs` uses the API 1.3 registration macro for syntax, providers,
-diagnostics, hover and semantic tokens.
-
-The original plugin is MIT, copyright 2017 Adel Fayzrakhmanov (see `LICENSE`).
+## Development
 
 ```sh
 cargo test
 openidea-plugin build
 openidea-plugin link
 ```
-
-
-### Cached declaration hover
-
-Hover on a declared `.env` key, `${VARIABLE}` reference or an already-supported
-code reference shows its known declaration paths and one-based line/column,
-classified as env, Dockerfile or Compose sources. Multiple declarations are
-explicit candidates: hover does not infer runtime precedence. Current `.env`
-buffer declarations replace that file's cached entries, including unsaved edits.
-`showValues` controls values in both completion and hover (existing default: true).
-When false, hover includes only keys/source metadata and a hidden-values note.
-This setting hides output; it does not remove values from the existing index or
-hide values already visible in source files.
-
-Hover never warms the index, probes env files, runs a process or accesses the
-network. It only looks up the current project identity, reads an already-built
-cache, and parses the current `.env` text. Cold code-reference requests return no
-hover until activation/events have populated the cache. Cross-file values can
-lag edits/deletions until the existing open/save event indexing runs. Cache
-incompleteness and bounded results are labelled; runtime environment values and
-interpolation are not evaluated.
-
-Limits: current documents up to 256 KiB, code lines up to 2,000 bytes, keys up to 256 bytes, the first
-8,192 cached declarations and up to 32 matching sources; displayed keys/values
-are capped at 256 characters and source paths at 1,024. The complete response is
-capped at 16 KiB of UTF-8, including Markdown fences and provenance notes; whole
-entries are omitted with a bounded-results label, rather than clipped inside a
-value/path. Markdown values are code
-spans with control characters escaped. Native settings use explicit groups and
-output-visibility descriptions; no index lifecycle or new scalar option is introduced. Original 263.7307.209 settings evidence exposes store/complete-values
-and hidden-value controls; this bounded source hover reuses our existing
-`showValues` output policy rather than claiming full original documentation or
-runtime-resolution parity. Desktop hover has not been verified for this change.
-
-## P04.2 ownership audit and atomic current-file source update
-
-Original9525 `DotEnvKeySymbolRenameUsageSearcher` checks a DotEnvKeySymbol target,
-keeps its symbol pointer and constructs case-sensitive SearchService word queries
-for code/string symbol usages. That contract is not reproduced by treating all
-project-wide equal strings as rename tokens. The previous after-edit eager rewrite
-has therefore been removed; no automatic DocumentIndexer/host Rename graph is enabled.
-There is no matching new-action screenshot or native desktop acceptance receipt.
-
-The supported replacement is deliberately explicit: update only current-file nested
-`${OLD}` lexer tokens after a suggested key edit, through API1.3 atomic FileActions.
-It requires cached prior declaration evidence, the same value/key count/source line,
-one current NEW declaration, no remaining OLD declaration, and literal ASCII names
-of at most128 bytes. It uses no provider file discovery and writes no other env,
-Compose, Docker or language file. Values never enter the confirmation; it lists
-only exact target/key-token ranges and replacement names. It is not runtime-aware
-Rename or proof that these interpolation uses resolve to the edited declaration.
-
-The action is single-use and revalidates exact invoking path/language/version/text,
-innermost currently open project root, cached suggestion and current unsaved text
-before and after exact confirmation. Cancellation returns no edit. No shell or
-direct writes occur. Bounds:12KiB text,256 declarations,8192 cached declarations,
-128 token replacements and eight pending actions; the shared16KiB exact-preview
-bound rejects oversized confirmations. CRLF and other source text are preserved.
-[The index-anchor/scope audit](ANCHOR_AUDIT.md) enumerates actual internal cache
-versus exported APIs and the missing proof for each source family.
-Import/loader/Compose-service/stage/language ownership, complete cross-file usages
-and safe semantic Rename remain P04.2 gaps.
-
-### Built-in dotenv variable tokens (P04.1)
-
-The existing versioned DiagnosticsProvider remains the single diagnostic owner;
-current-source checks and known cached declarations do not trigger provider
-discovery, network or duplicate manual publication. Unknown cache completeness
-continues to suppress absence warnings.
-
-A separate SDK1.3 SemanticTokens export now covers variable declarations and
-`${KEY}` references recognized by the established dotenv lexer, with declaration
-modifiers only on actual parsed keys. It uses supplied unsaved text only, no
-project/index/type lookup. Single-quoted/comment text is not interpreted as a
-reference; no runtime ownership or resolved-variable claim is made. Tokens use
-real `Variable` semantics (mapped by the pinned renderer), not invented types to
-colour strings/comments. Existing lexical fallback remains for the full syntax.
-
-Work is capped at256KiB/4096tokens, with sorted nonempty single-line UTF16 ranges
-computed in one forward pass, including long interpolation-heavy lines. Other
-languages and oversized documents return no tokens. Native built-in-language
-colour/theme acceptance is pending; complete original lexical colours are not
-asserted by passing source/package tests.
-
-## Compose env_file graph discovery
-
-`env_file` source discovery now expands local YAML anchors, aliases and nested
-merge graphs, including scalar/list/long-form paths. Explicit mapping entries
-retain YAML merge precedence. Missing long-form `required: false` files do not
-make discovery incomplete unless another source requires the same path. Paths
-remain confined to the project; interpolated, unresolved or unsupported inputs
-keep discovery incomplete. This discovers source candidates and does not infer
-active Compose services or effective runtime variable precedence.
-
-The pure YAML parser has explicit limits:256KiB source, depth32,20,000 nodes,
-100,000 events,128 anchors/aliases,1MiB total scalar/retained anchor bytes,
-20,000 replay events and128 expansions per anchor. Cycles, undefined aliases,
-duplicate mapping keys, unsupported tags and budget exhaustion refuse complete
-discovery. Tests exercise actual parser alias bombs, deep graphs, node/input
-limits and expanded scalar-byte accounting before JSON-tree construction.
-Filesystem includes/property interpolation are not enabled in the parser.

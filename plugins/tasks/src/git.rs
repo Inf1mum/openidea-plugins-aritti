@@ -105,7 +105,7 @@ fn stash_message(task_id: &str) -> String {
     format!("openidea task {task_id}")
 }
 
-/// TaskManagerImpl.suggestBranchName with `format` (default `{id}`): the first
+/// Suggests a branch name with `format` (default `{id}`): the first
 /// two words of the summary when that leaves nothing, as for local tasks;
 /// then what git refuses in a branch name is replaced.
 pub fn branch_name(task: &Task, format: &str) -> String {

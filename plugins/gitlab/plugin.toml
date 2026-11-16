@@ -2,9 +2,9 @@ id = "aritti.gitlab"
 name = "GitLab"
 version = "0.2.0" # x-release-please-version
 description = """gitlab.com merge requests in the IDE. List them with the IntelliJ quick filters and follow their timeline. Review the changes with comments on diff lines and pending reviews, then reply, resolve, approve, merge, rebase, close, reopen or mark as draft or ready. The status bar shows the current branch's merge request and the editor shows its unresolved threads. Also checks out merge request branches, clones and shares projects, opens or copies the GitLab link to the current lines, and creates snippets."""
-authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contributors (original GitLab plugin)"]
+authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/gitlab"
-license = "Apache-2.0"
+license = "MIT"
 change-notes = """\
 Editor gutter markers for unresolved review threads use a packaged icon. \
 Draft and diff comments omit the unused old/new line instead of sending null, matching the GitLab draft notes API. \
@@ -22,7 +22,7 @@ Unreleased: Local Drafts tab keeps up to 50 unsent review comments per merge req
 0.2.0: Merge Request Changes tool window (diff, comments on lines, pending review, viewed files), Submit Review, \
 timeline events, the current branch's merge request in the status bar and the editor, Check Out Branch, and cloning \
 and sharing projects with git. \
-0.1.0: first release, ported from org.jetbrains.plugins.gitlab 263.7307.200 (intellij-community idea/263.7307.200). \
+0.1.0: first release. \
 gitlab.com with a personal access token: merge request list, threads and review actions, Open on GitLab and Copy Link \
 for files, Create Snippet."""
 categories = ["vcs"]

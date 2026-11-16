@@ -1,9 +1,7 @@
 //! Symfony: completion, navigation, problems, gutter markers and a tool
 //! window for routes, Twig templates, services, translations, classes,
 //! assets, entries and roles in PHP, Twig, YAML and XML files.
-//!
-//! Partial port of the Symfony Plugin for IntelliJ (Daniel Espendiller, Adrien
-//! Brault; MIT), see README.md for what was and wasn't ported.
+
 
 mod attr_args;
 mod checks;

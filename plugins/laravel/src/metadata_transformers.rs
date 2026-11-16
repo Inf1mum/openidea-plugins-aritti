@@ -1,5 +1,5 @@
-//! Ordered ide.json completion transformer grammar from Laravel Idea 13.4.1's
-//! CompletionTransformerFactory and string delimiter helper. No host calls.
+//! Ordered ide.json completion transformer grammar with a string delimiter
+//! helper. No host calls.
 use serde_json::Value;
 #[derive(Clone, Debug, Default)]
 pub(super) struct Pipeline(Vec<Step>);

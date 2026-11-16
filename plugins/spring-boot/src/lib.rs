@@ -2047,7 +2047,7 @@ public class MailProperties {
 }
 
 #[cfg(test)]
-mod anchor_audit;
+mod anchor_contracts;
 
 #[cfg(test)]
 mod settings_contract;

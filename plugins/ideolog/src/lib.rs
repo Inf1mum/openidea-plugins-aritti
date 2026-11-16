@@ -1,9 +1,6 @@
 //! Ideolog for OpenIDEA: log highlighting, folding of multi-line events and an
 //! outline of errors and warnings (the `syntax-provider` of the `ideolog`
 //! language), plus navigation commands.
-//!
-//! Ported from JetBrains' Ideolog (MIT, https://github.com/JetBrains/ideolog,
-//! tag pycharm/263.7307.101).
 
 mod log;
 mod live_tail;

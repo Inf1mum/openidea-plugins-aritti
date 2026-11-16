@@ -1,4 +1,4 @@
-//! The task list of a project, after TaskManagerImpl and LocalTaskImpl.
+//! The task list of a project.
 
 use std::collections::BTreeMap;
 
@@ -93,7 +93,7 @@ impl Task {
     }
 }
 
-/// What the Open Task and Close Task forms last asked for (TaskManagerImpl.Config).
+/// What the Open Task and Close Task forms last asked for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Choices {

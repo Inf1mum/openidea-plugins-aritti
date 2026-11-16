@@ -1,5 +1,5 @@
-//! The `.properties` grammar of the original `Properties.flex` lexer, Java's
-//! escaping rules, and resource-bundle file names.
+//! The `.properties` grammar with Java's escaping rules and
+//! resource-bundle file names.
 
 use openidea_plugin::Range;
 use openidea_plugin::text::position;

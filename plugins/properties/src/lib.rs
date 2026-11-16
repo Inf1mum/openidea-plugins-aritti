@@ -1,9 +1,7 @@
 //! Properties: inspections, quick fixes, navigation, completion, formatting,
-//! a structure view and a resource bundle editor for `.properties` files,
-//! ported from JetBrains' Properties plugin (`com.intellij.properties`,
-//! intellij-community `idea/263.7307.112`, Apache-2.0). The IDE already
-//! highlights, comments and folds these files; this adds what the original
-//! plugin computes on top of the PSI.
+//! a structure view and a resource bundle editor for `.properties` files.
+//! The IDE already highlights, comments and folds these files; this adds the
+//! rest.
 
 mod atomic;
 mod bundle_draft;

@@ -1,100 +1,74 @@
 # DDEV Integration
 
-DDEV Setup uses the shared custom UI kit for its toolbar, project preferences,
-read-only setup help and environment diagnostics. Its existing commands, explicit
-Save/Reset behavior and project ownership checks are preserved. DDEV's Services
-tree and resource details remain native.
-
-
-An OpenIDEA source port of [DDEV Integration for IntelliJ](https://github.com/ddev/ddev-intellij-plugin),
-version **1.2.10+261**, source tag **1.2.10**, revision
-`7291f3ea58cf937ae8c6ac7973ed24876915e308`. Original authors: Nico Löber and
-the DDEV contributors. BSD-3-Clause; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-Official DDEV logo assets and bundled schemas use Apache-2.0; see
-[icons/LICENSE-DDEV](icons/LICENSE-DDEV) and [schema provenance](schemas/README.md).
+DDEV project controls, service links and environment diagnostics for OpenIDEA,
+built on native Services views and action groups.
+MIT; see [LICENSE](LICENSE).
 
 Requires **OpenIDEA v0.1.40 or newer (API 1.4)**. Runtime features require DDEV
 on PATH and a working container runtime. Open the folder containing
-`.ddev/config.yaml` as the IDE project, as the original plugin does.
+`.ddev/config.yaml` as the IDE project, as DDEV expects.
 
 ## Services
 
 Open **Services > DDEV**. The project node shows its status; children are the
 services reported by `ddev describe --json-output`, plus Mailpit/Mailhog links.
 
-- **Start / Restart / Stop**, **Open Shell** and **Open in Browser** reflect project state; unavailable
-  actions are disabled. Actions are checked again when dispatched.
-- **More Actions…** and the **DDEV status-bar item** open a context-aware project menu
-  for Restart, Share, Delete, Power Off, container tools and setup.
-- **Shell** uses the selected container (`ddev ssh --service …`); the project
-  node and the status menu use `web`. Browser prefers HTTPS; double-click opens
-  the node's URL. A service without a URL reports that it has none.
-- **Overview** summarizes the project/service. **Inspect** shows DDEV JSON with credential fields redacted; **Configuration** shows the project
-  YAML and the toolbar opens it in an editor; **Help** explains setup and recovery.
-- The compact toolbar uses registered native IDE icons for all actions, with
-  descriptive accessible labels. Project-free, unconfigured and unavailable
-  states stay visible as read-only Services status rows. Selecting those rows
-  or opening their Overview does not retry DDEV commands; **Refresh Status** is
-  the explicit retry action. Recovery controls keep their state/permission checks.
-- **Logs** uses the host's native streaming pane with
-  `ddev logs <project-name> --follow --tail=200 --service …`. Timestamps adds `--time`. The project
-  node uses `web`; synthetic Mailpit/Mailhog links have no separate shell/log.
-  Standalone log tabs have project/service-specific identities and project names
-  in their titles; reopening the same stream focuses its existing tab. The explicit
-  project argument keeps a restarted stream targeted after a project switch.
+- **Start / Restart / Stop**, **Open Shell** and **Open in Browser** reflect project state; unavailable actions are disabled. Actions are checked again when dispatched.
+- **More Actions…** and the **DDEV status-bar item** open a context-aware project menu for Restart, Share, Delete, Power Off, container tools and setup.
+- **Shell** uses the selected container (`ddev ssh --service …`); the project node and the status menu use `web`. Browser prefers HTTPS; double-click opens the node's URL. A service without a URL reports that it has none.
+- **Overview** summarizes the project/service. **Inspect** shows DDEV JSON with credential fields redacted; **Configuration** shows the project YAML and the toolbar opens it in an editor; **Help** explains setup and recovery.
+- The compact toolbar uses registered native IDE icons for all actions, with descriptive accessible labels. Project-free, unconfigured and unavailable states stay visible as read-only Services status rows; selecting them does not retry DDEV commands — **Refresh Status** is the explicit retry action. Recovery controls keep their state/permission checks.
+- **Logs** uses the host's native streaming pane with `ddev logs <project-name> --follow --tail=200 --service …`; Timestamps adds `--time`. The project node uses `web`; synthetic Mailpit/Mailhog links have no separate shell/log. Standalone log tabs have project/service-specific identities and project names in their titles; reopening the same stream focuses its existing tab. The explicit project argument keeps a restarted stream targeted after a project switch.
 - **Database** shows the published local connection details when DDEV reports them.
 
 Configuration and Help remain available when Docker is stopped, DDEV is missing,
 or `process:ddev` is denied. Runtime errors appear as an unavailable state rather
-than hiding the project. This uses native Services views and detail panes, with
-no custom web UI. **DDEV: Guided Setup** opens a native form with a setup checklist,
-environment check, project preferences, installation guide and plugin issue link.
-Preferences are saved only when you press Save Preferences; unrelated settings
-are preserved, including valid inline TOML tables. **Reset Changes** reloads the
-current project's saved values without writing or clearing other projects' drafts.
-Save applies enabled database maintenance immediately when runtime access is
-available, including with periodic watching disabled. The setup form remains useful without a DDEV execution grant.
+than hiding the project. **DDEV: Guided Setup** opens a native form with a setup
+checklist, environment check, project preferences, installation guide and plugin
+issue link. Preferences are saved only when you press Save Preferences; unrelated
+settings are preserved, including valid inline TOML tables. **Reset Changes**
+reloads the current project's saved values without writing or clearing other
+projects' drafts. Save applies enabled database maintenance immediately when
+runtime access is available, including with periodic watching disabled. The setup
+form remains useful without a DDEV execution grant.
 
-The UI comparison uses the BSD-licensed original source at the revision above:
-`META-INF/plugin.xml` Run actions, `ServicesActionGroup`,
-`ServiceActionManagerImpl` and the status-bar/settings classes. The original
-Services action group supplies dynamic browser-link actions, rather than the
-OpenIDEA Services tree used here. This is a native adaptation of its lifecycle,
-service links and setup workflow, not an assertion of identical tool-window layout.
+### Status watching
 
 Every open configured project is initialized at startup. Status refreshes on a
-one-minute schedule when enabled, on base/override/Compose
-configuration and project preference changes, and when changing projects. File
-events are restricted to the project root; nested/other-project configuration
-files do not trigger DDEV reads. Removing the parent `.ddev` directory also
-invalidates controls. **Refresh** remains available manually. Snapshot and
-failure caching avoid repeated DDEV processes on node selection. Selections stay separate per project during the live session. The optional
-storage grant preserves them across idle reclaim. Cached state is republished
-on editor focus and action lookup without forcing another CLI read. Explicit runtime commands revalidate current CLI state even when
-watching is disabled. Removing the configuration invalidates cached controls.
-Each invoking window receives its own status text. Long commands use keyed native
-terminals with `DDEV_NONINTERACTIVE=true`; finishing or closing one refreshes
-status even with periodic watching disabled. Failed exits show a warning; terminal output retention follows the host. Repeating the same live operation focuses
-its existing terminal; different projects/arguments use distinct keys.
-Configure opens the YAML only after a successful terminal exit, including when
-its content is unchanged. File changes alone do not imply command success.
-Completion survives idle instance reclaim; the pending Configure follow-up uses
-optional storage across reclaim and expires after 30 minutes. Follow-ups match
-the launched terminal operation, including when an earlier completion is delayed.
-Different Configure arguments wait for the active operation to finish; repeating
-the same active operation focuses its terminal. A new host operation gets a fresh
-30-minute follow-up deadline; focusing the existing operation does not extend it.
+one-minute schedule when enabled, on base/override/Compose configuration and
+project preference changes, and when changing projects. File events are restricted
+to the project root; nested/other-project configuration files do not trigger DDEV
+reads, and removing the parent `.ddev` directory invalidates controls.
+**Refresh** remains available manually. Snapshot and failure caching avoid
+repeated DDEV processes on node selection. Selections stay separate per project
+during the live session; the optional `storage` grant preserves them across idle
+reclaim. Cached state is republished on editor focus and action lookup without
+forcing another CLI read, and explicit runtime commands revalidate current CLI
+state even when watching is disabled.
+
+Long commands use keyed native terminals with `DDEV_NONINTERACTIVE=true`;
+finishing or closing one refreshes status even with periodic watching disabled.
+Failed exits show a warning; terminal output retention follows the host.
+Repeating the same live operation focuses its existing terminal; different
+projects/arguments use distinct keys. Configure opens the YAML only after a
+successful terminal exit, including when its content is unchanged; file changes
+alone do not imply command success. The pending Configure follow-up survives idle
+instance reclaim via optional storage, expires after 30 minutes, and matches the
+launched terminal operation. Different Configure arguments wait for the active
+operation to finish; repeating the same active operation focuses its terminal.
+Focusing the existing operation does not extend its deadline.
 
 ## Commands
 
 All commands appear under **DDEV** in Find Action. Installation, release and issue
-links, and revealing Services, also work without an open project. Common commands appear in Tools
-and Services context menus. The status menu and command conditions reflect project/CLI/database state.
-Delete and Power Off remain available during startup and recoverable description
-failures. Like the original, Stop and Restart can recover when description is
-unavailable but DDEV is installed and the project is configured; container tools require running state. Valid Compose service identifiers,
-including leading punctuation, are supported with bound `--service=<name>` values. Toolbar targets restore the
-current project's selection before dispatch.
+links, and revealing Services, also work without an open project. Common commands
+appear in Tools and Services context menus. The status menu and command conditions
+reflect project/CLI/database state. Delete and Power Off remain available during
+startup and recoverable description failures. Stop and Restart can recover when
+description is unavailable but DDEV is installed and the project is configured;
+container tools require running state. Valid Compose service identifiers,
+including leading punctuation, are supported with bound `--service=<name>` values.
+Toolbar targets restore the current project's selection before dispatch.
 
 | Command | Behavior |
 |---|---|
@@ -119,17 +93,17 @@ current project's selection before dispatch.
 | Refresh Status | Reloads status and maintains the data source when enabled |
 | Check for Updates | Compares `ddev --version` with GitHub's latest stable release; no installation |
 
-Arguments are passed separately, without building a shell command string.
-The tool-argument prompt accepts quoted arguments and cancellation. PHP/Node
+Arguments are passed separately, without building a shell command string. The
+tool-argument prompt accepts quoted arguments and cancellation. PHP/Node
 explicitly request raw execution, preserving literal dollar signs, backticks and
-empty arguments instead of asking DDEV to reconstruct a container shell command. PHP/Node/Composer
-commands require a running project. The separate DDEV execution target integrates with the IDE's Run/Debug and interpreter settings; see below.
+empty arguments instead of asking DDEV to reconstruct a container shell command.
+PHP/Node/Composer commands require a running project.
 
 Configure Project chooses PHP from the plugin's explicit **PHP version** setting,
 then `[languages.php].languageLevel` in `.openidea/settings.toml`, then an exact
 `config.platform.php` version in `composer.json`. Composer patch versions are
-reduced to major.minor; version constraints are not guessed. Otherwise DDEV chooses.
-The plugin cannot read an effective global IDE language level.
+reduced to major.minor; version constraints are not guessed. Otherwise DDEV
+chooses. The plugin cannot read an effective global IDE language level.
 
 ## DDEV configuration assistance
 
@@ -141,18 +115,16 @@ report YAML syntax, duplicate keys, unknown properties and invalid schema values
 Numeric version strings are inserted with quotes; existing colons are preserved.
 Completion also works immediately after a colon, adding the required space.
 
-Windows drive and UNC paths match configuration filenames without ASCII case
-sensitivity; Unix paths remain case-sensitive. This is checked in native logic
-and actual-Wasm providers, not a live Windows desktop test.
-
 Assistance is scoped to `.ddev/config.yaml`, `config.*.yaml`,
 `global_config.yaml` and `global_config.*.yaml`. No DDEV process/network grant is
-needed. Schemas are pinned, so future fields may trigger version-labelled warnings.
-Files are checked individually (not merged with overrides); single-document YAML
-up to 256 KiB is supported, with bounded depth/alias expansion. Completion recovers
-the edited token and basic unclosed flow collections; unrelated syntax errors can
-prevent suggestions. General YAML highlighting/formatting remains the host's.
-See [schema provenance](schemas/README.md) and the [source audit](SOURCE-AUDIT.md).
+needed. Schemas are pinned, so future fields may trigger version-labelled
+warnings. Files are checked individually (not merged with overrides);
+single-document YAML up to 256 KiB is supported, with bounded depth/alias
+expansion. Completion recovers the edited token and basic unclosed flow
+collections; unrelated syntax errors can prevent suggestions. General YAML
+highlighting/formatting remains the host's. Windows drive and UNC paths match
+configuration filenames without ASCII case sensitivity; Unix paths remain
+case-sensitive. See [schema provenance](schemas/README.md).
 
 ## Database setup
 
@@ -163,26 +135,24 @@ never included in connection settings or project files. MySQL, MariaDB and
 PostgreSQL use the published port on `127.0.0.1` (the project server for remote
 projects). The explicit command requests normal Database connection/introspection;
 automatic setup also requests it at the first interactive refresh/focus of the
-session. Windowless startup maintains the source without attempting a window-only
-connection request. `project.write` is not required for native Database setup.
+session. `project.write` is not required for native Database setup.
 
-Without `database.sources`, the previous non-secret connection-file workflow
-remains available with `project.write`: it preserves unrelated entries/comments,
-rejects duplicate IDs and requires manual password entry/connection. After native
-setup succeeds, a uniquely identified, explicitly marked legacy entry is removed
-when project writes are permitted. Unrelated or ambiguous entries remain intact.
-Copy Database Password is an optional explicit convenience. Existing uniquely identified managed sources are
-reused after a project move, including the marked legacy file entry. Ambiguous
-managed identities are left unchanged. Native setup repopulates the credential
-through the secure API for the moved project; no password is migrated through
-project files.
+Without `database.sources`, the non-secret connection-file workflow remains
+available with `project.write`: it preserves unrelated entries/comments, rejects
+duplicate IDs and requires manual password entry/connection. After native setup
+succeeds, a uniquely identified, explicitly marked legacy entry is removed when
+project writes are permitted; unrelated or ambiguous entries remain intact.
+Existing uniquely identified managed sources are reused after a project move,
+including the marked legacy file entry; ambiguous managed identities are left
+unchanged, and native setup repopulates the credential through the secure API for
+the moved project (no password is migrated through project files).
 
 Automatic native maintenance compares the desired connection and credential in
-memory, checks that the owned source still exists, and skips identical upserts
-and credential writes. The host disconnects on every upsert, so this keeps a
+memory, checks that the owned source still exists, and skips identical upserts and
+credential writes. The host disconnects on every upsert, so this keeps a
 manual/live connection intact during normal status polling. Changed ports or
-credentials clear the connection marker and allow a later interactive reconnect;
-a removed source is recreated. A partial setup failure clears the cache so a
+credentials clear the connection marker and allow a later interactive reconnect; a
+removed source is recreated. A partial setup failure clears the cache so a
 subsequent refresh retries. The comparison is never logged or persisted. Explicit
 setup can force reapplication of user-edited owned settings.
 
@@ -196,50 +166,43 @@ and PHPUnit/Node tests can then use it through the host's usual execution flow.
 
 The target uses approved `ddev exec --raw --dir=<mapped-cwd> -- <tool> <args>`.
 Arguments stay separate; project paths and working directories map under
-`/var/www/html`, configurable as **Project path inside the web container**.
-This generic target invokes the container's Composer binary; the explicit
-Composer command retains `ddev composer`. The generic target does not apply
-DDEV's `composer_root`, pre/post-composer hooks or Composer-specific environment/
-sync behavior. Shared target cwd arguments prevent a correct `ddev composer`
-override while preserving PHP/Node cwd mapping ([#2407](https://github.com/l0ng-ai/openidea/issues/2407)).
-Unlike the guarded explicit tools, a built-in run through the static target has
-no plugin pre-launch state check; DDEV may start a stopped project
-([#2408](https://github.com/l0ng-ai/openidea/issues/2408)). Environment forwarding into the
-container follows DDEV's own conventions. Choosing a custom executable in
-Settings > Plugins > DDEV Integration > `process:ddev` applies to commands,
-terminals, logs and targets; the host approves and pins it globally/per project.
+`/var/www/html`, configurable as **Project path inside the web container**. This
+generic target invokes the container's Composer binary; the explicit Composer
+command retains `ddev composer`. The generic target does not apply DDEV's
+`composer_root`, pre/post-composer hooks or Composer-specific environment/sync
+behavior. Unlike the guarded explicit tools, a built-in run through the static
+target has no plugin pre-launch state check; DDEV may start a stopped project.
+Environment forwarding into the container follows DDEV's own conventions. Choosing
+a custom executable in Settings > Plugins > DDEV Integration > `process:ddev`
+applies to commands, terminals, logs and targets; the host approves and pins it
+globally/per project.
 
-**Offer DDEV for project runs** controls registration. Invalid/changed mapping preferences, disabled registration, removal of
-`.ddev/config.yaml` or a failed runtime refresh withdraw the target. Successful
-recovery registers it again. Unchanged registrations are cached to
-avoid restarting target language servers on every status read. The host can also
-run a configured language server in the target when it is installed in the
-container; this remains a separate explicit host selection. PHP connect-back
-Xdebug mapping and supported debugger placement use the host's target machinery;
-Xdebug must be enabled/configured in DDEV. Live checks now cover PHP/Node target
-execution and Xdebug DBGp connect-back/source URI; full IDE debugger and language
-server sessions remain unverified.
+**Offer DDEV for project runs** controls registration. Invalid/changed mapping
+preferences, disabled registration, removal of `.ddev/config.yaml` or a failed
+runtime refresh withdraw the target; successful recovery registers it again.
+Unchanged registrations are cached to avoid restarting target language servers on
+every status read. The host can also run a configured language server in the
+target when it is installed in the container; this remains a separate explicit host
+selection. PHP connect-back Xdebug mapping and supported debugger placement use
+the host's target machinery; Xdebug must be enabled/configured in DDEV.
 
 ## Settings and permissions
 
 Settings > Plugins > DDEV Integration provides:
 
 - Automatic status refresh (default on; every minute).
-- Automatic update checks (default on; at most once per day, including failed
-  attempts, with network and storage granted). Current versions stay quiet;
-  newer versions notify with release-note, installation-guide and disable-check
-  actions. The explicit command always reports its result.
+- Automatic update checks (default on; at most once per day, including failed attempts, with network and storage granted). Current versions stay quiet; newer versions notify with release-note, installation-guide and disable-check actions. The explicit command always reports its result.
 - Automatic native data source maintenance (default on; `database.sources`).
 - Offer a project execution target (default on) and its container path.
 - Explicit PHP version for project configuration (empty by default).
 
 A successful first project detection offers a one-time setup/Services tour when
 storage is granted. Runtime failures offer Retry, Setup and Installation Guide
-actions; failures stay quiet per project even when the error wording changes.
-A successful status read, including background recovery, allows the next failure
-to notify again. Project-specific notification actions
-reject clicks from another project's window. Windowless notifications can still
-appear in every window; their bodies identify the originating project.
+actions; failures stay quiet per project even when the error wording changes, and a
+successful status read, including background recovery, allows the next failure to
+notify again. Project-specific notification actions reject clicks from another
+project's window; windowless notifications can still appear in every window, with
+bodies identifying the originating project.
 
 | Capability | Use |
 |---|---|
@@ -255,36 +218,26 @@ appear in every window; their bodies identify the originating project.
 Denied optional grants leave independent features usable. DDEV itself uses its
 normal configuration, hooks, network and credentials.
 
-## Source audit and remaining differences
+## Feature coverage
 
-The [source-by-source audit](SOURCE-AUDIT.md) includes all six plugin descriptors and the original action, state,
-execution, interpreter, database, Composer, terminal and version-check code.
-
-| Original source | Port status |
+| Feature area | Support |
 |---|---|
-| `DdevRunnerImpl` lifecycle commands, `ddev ssh`, HTTPS-first service links | Implemented through native terminals and Services |
-| `StateWatcherImpl` and action `isActive` checks | Automatic refresh, context keys and runtime guards implemented; **60 seconds rather than 10**, due to the host's minimum schedule |
-| `DdevStatusBarWidgetImpl`, version settings | Native status/action picker and automatic/explicit checks implemented |
-| `PhpVersionArgumentProvider` | Explicit/project-local/composer PHP hints implemented; global IDE PHP level unavailable |
-| PHP/Node runs, Composer, path mappings | API 1.4 project target integrated with host selection; raw argv and path mapping verified. Host-local version probes/global PHP level and JetBrains SDK metadata remain different |
+| Lifecycle commands, `ddev ssh`, HTTPS-first service links | Implemented through native terminals and Services |
+| Status watching and action `isActive` checks | Automatic refresh, context keys and runtime guards; **60 seconds rather than 10**, due to the host's minimum schedule |
+| Status bar and version settings | Native status/action picker and automatic/explicit checks |
+| PHP version hints | Explicit/project-local/composer PHP hints; global IDE PHP level unavailable |
+| PHP/Node runs, Composer, path mappings | API 1.4 project target integrated with host selection; raw argv and path mapping verified. Host-local version probes/global PHP level and IDE SDK metadata remain different |
 | Automatic data source creation and credentials/introspection | API 1.4 owned native source, secure credential and connection request; file fallback when native grant is denied |
 | Post-command refresh/open configuration | API 1.4 terminal-exit callbacks, including reclaim and unchanged configuration |
-| Custom DDEV executable, terminal environment and WSL patching | Host-owned per-project/global executable chooser and native command environment; original local UNC patch not reproduced |
-| Got-It tutorial and actionable recovery notifications | Native guided setup, one-time tour, environment checks and recovery/update actions implemented; the original overlay presentation is not reproduced |
-| Error reporting | Opens this port's issue form on explicit request; no automatic Sentry reporting |
-| Inherited YAML schema assistance (original Features wiki) | Complete bundled DDEV project/global schema completion, nested values, hover and validation implemented |
+| Custom DDEV executable, terminal environment and WSL patching | Host-owned per-project/global executable chooser and native command environment; a local UNC patch is not reproduced |
+| Tutorial and actionable recovery notifications | Native guided setup, one-time tour, environment checks and recovery/update actions; an overlay presentation is not reproduced |
+| Error reporting | Opens this plugin's issue form on explicit request; no automatic Sentry reporting |
+| YAML schema assistance | Complete bundled DDEV project/global schema completion, nested values, hover and validation |
 
-The original also reads only project-root `.ddev/config.yaml`; nested discovery
-is not a confirmed parity gap. Services log/inspect tabs are additional port features.
+This plugin reads only project-root `.ddev/config.yaml`; nested discovery is an
+addition. Services log/inspect tabs are additional plugin features.
 
-The six original API requests for run targets, Database, terminal completion,
-terminal environment, executable choice and window status are implemented in the
-API 1.4 host and adopted here. Project-targeted background notifications
-[#2157](https://github.com/l0ng-ai/openidea/issues/2157) are implemented upstream
-in **API 1.5**, outside this port's 1.4 target. Its origin guards remain.
-See the [source audit](SOURCE-AUDIT.md) for remaining platform and verification differences.
-
-## Development and verification
+## Development
 
 ```sh
 cargo test
@@ -293,29 +246,3 @@ openidea-plugin build
 openidea-plugin check
 openidea-plugin link
 ```
-
-Use the **v0.1.40 or newer** plugin CLI. The SDK and workflow-host dependencies
-are pinned to tag v0.1.40 (`37c2a6048eea89d4f6db645622612358b643862b`).
-107 native tests (plus one opt-in live test) cover the original fixtures, configuration assistance, commands,
-preferences, project isolation and API 1.4 integration regressions. Strict Clippy,
-release Wasm build and package checks pass. The [Wasm probes](tests/wasm-smoke/README.md)
-exercise editing providers with 50 ms deadlines and all 27 commands, native
-Database callback/credential separation, keyed terminal completion, window
-status, configuration removal and actual host target argv/path construction.
-The [manifest-condition harness](tests/WHEN-SMOKE.md) checks 105 conditions with
-the host evaluator. Native Services/Setup were visually checked in OpenIDEA
-0.1.40 against a disposable stopped project, including the actual DDEV root icon.
-A real native Configure command also updated the disposable project and opened
-its YAML after terminal completion. The [optional live smoke runner](tests/LIVE-SMOKE.md)
-now verifies real PHP/Node execution and mapped paths/argv, explicit Composer
-root/hooks, MariaDB SQL and Xdebug DBGp connect-back/source URI. Native Database
-connection/credential UI, full IDE debugging and remote/Windows behavior remain
-unverified.
-
-Setup custom-panel validation: 110 DDEV tests (one live test remains ignored),
-51 shared UI-kit tests, and Chromium/WebKit light/dark dock checks passed. The
-seven setup actions fit one toolbar row at320px and768px with accessible names
-and tooltips. Bridge tests cover read-only fields, unchanged settings until Save,
-Reset, unrelated TOML preservation, foreign-project refusal and no-project help.
-The release component passes API1.4 validation; browser fixtures are not fresh
-live-app acceptance. Reload the plugin to replace the native Setup renderer.

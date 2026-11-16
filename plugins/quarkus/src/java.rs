@@ -1,4 +1,4 @@
-//! Naming rules ported from MicroProfileConfigPropertyProvider and QuarkusConfigMappingProvider (Quarkus Tools for IntelliJ 2.6.1, Red Hat, EPL-2.0).
+//! Naming rules for MicroProfile Config property and Quarkus config-mapping keys.
 
 use openidea_plugin::providers::{CompletionItem, CompletionKind};
 use spring_text::java::{self, Annotation, JavaFile, TypeRef};

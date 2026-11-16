@@ -1,6 +1,6 @@
 //! Environment variable keys in code: `getenv("KEY")`, `os.environ["KEY"]`,
-//! `process.env.KEY`, `"${KEY}"` in a `.env` file. The original plugin walks
-//! each language's PSI; without one this matches the text before the key.
+//! `process.env.KEY`, `"${KEY}"` in a `.env` file. The text before the key
+//! is matched directly.
 
 use std::ops::Range;
 

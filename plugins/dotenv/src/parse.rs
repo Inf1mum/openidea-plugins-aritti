@@ -1,5 +1,4 @@
-//! `.env` lexer and property model, after the original plugin's JFlex lexer
-//! (`DotEnvLexer.flex`) and grammar (`DovEnvGrammar.bnf`). Offsets are UTF-8
+//! `.env` lexer and property model. Offsets are UTF-8
 //! bytes; every delimiter is ASCII, so token bounds are char boundaries.
 
 use std::ops::Range;

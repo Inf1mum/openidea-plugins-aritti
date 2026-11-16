@@ -80,7 +80,7 @@
     send({op:"render"});
   }
 
-  // Native host names and the packaged JetBrains registry are distinct.
+  // Native host names and the packaged icon registry are distinct.
   // Only known aliases are translated; an unknown icon keeps its text label.
   const iconAliases = Object.freeze({
     plus:"add", minus:"remove", check:"checkmark", refresh:"update", edit:"pencil",
@@ -542,18 +542,18 @@
     // and local theme defaults override the managed kit controls/theme.
     for(const style of parsed.querySelectorAll("style")) {style.textContent=`@layer ui-legacy {${style.textContent.replace(/:root|\bhtml\b|\bbody\b/g,":host")}}`;}
     shadow.append(...Array.from(parsed.head.children),...Array.from(parsed.body.childNodes));$("content").replaceChildren(host);$("details").close();
-    if(shadow.querySelector("[data-command-workspace], [data-generator-workspace]"))host.classList.add("command-workspace-host");
+    if(shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-database-workspace]"))host.classList.add("command-workspace-host");
     // Syntax overlays have a matching pre/textarea geometry and must stay raw.
     shadow.querySelector("#src")?.setAttribute("data-ui-raw", "");
     window.uiKitControls?.enhance(shadow);
     const targetView=state.activeView,generation=state.generation;
     const bridge={project:state.project,postMessage:value=>{if(state.generation === generation) event({kind:"message",value},targetView);},onMessage:callback=>state.listeners.push(message=>{if(state.generation === generation) callback(message);}),saveFile:options=>window.openidea.saveFile(options),openFile:options=>window.openidea.openFile(options)};
-    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-managed-processes]")) {
+    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-managed-processes], [data-database-workspace]")) {
       const runtimeBridge={...bridge,postMessage:value=>{
         if(state.generation !== generation || !window.openidea) return;
         openidea.postMessage(JSON.stringify({op:"opaque-message",message:value,channel:"ui-kit",frameId,clientLocale:window.uiKitI18n?.locale,sequence:0,targetView,project:state.project}));
       }};
-      const adapter=shadow.querySelector("[data-generator-workspace]") ? window.uiKitGeneratorWorkspace : shadow.querySelector("[data-managed-processes]") ? window.uiKitManagedProcesses : shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace : window.uiKitRuntimeControls;
+      const adapter=shadow.querySelector("[data-generator-workspace]") ? window.uiKitGeneratorWorkspace : shadow.querySelector("[data-database-workspace]") ? window.uiKitDatabaseWorkspace : shadow.querySelector("[data-managed-processes]") ? window.uiKitManagedProcesses : shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace : window.uiKitRuntimeControls;
       state.cleanup=adapter?.mount(shadow,runtimeBridge) || null;
     }
     else if(shadow.querySelector("svg .n[data-id]")) shadow.querySelectorAll(".n[data-id]").forEach(node=>{const open=()=>bridge.postMessage(node.dataset.id);node.addEventListener("click",open);node.addEventListener("keydown",e=>{if(e.key === "Enter" || e.key === " "){e.preventDefault();open();}});});

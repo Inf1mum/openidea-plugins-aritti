@@ -1,6 +1,6 @@
 # OpenIDEA plugins
 
-Plugins for [OpenIDEA](https://github.com/l0ng-ai/openidea), each a sandboxed WebAssembly component (`wasm32-wasip2`) with a `plugin.toml` manifest. All target SDK v0.1.46 / plugin API 1.9. Some are original, some are ports of JetBrains Marketplace plugins. All ids use the `aritti.` prefix (`aritti.<directory name>`).
+Plugins for [OpenIDEA](https://github.com/l0ng-ai/openidea), each a sandboxed WebAssembly component (`wasm32-wasip2`) with a `plugin.toml` manifest. All target SDK v0.1.46 / plugin API 1.9. All ids use the `aritti.` prefix (`aritti.<directory name>`).
 
 ## Plugins
 
@@ -31,7 +31,7 @@ plugins/<name>/
   plugin.toml     manifest
   Cargo.toml      own [workspace]; no root Cargo workspace
   src/lib.rs
-  LICENSE [NOTICE]
+  LICENSE
 crates/           shared Rust code (spring-text, ui-kit)
 ```
 
@@ -65,4 +65,4 @@ and published to the community registry [`l0ng-ai/openidea-plugins`](https://git
 
 ## Licence
 
-MIT for original code (see [LICENSE](LICENSE)). Ports keep the original plugin's licence in their own `LICENSE`/`NOTICE`, which takes precedence for that directory.
+MIT for all plugins (each directory's [LICENSE](LICENSE)).

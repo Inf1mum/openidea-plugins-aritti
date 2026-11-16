@@ -733,7 +733,7 @@ mod tests {
         let bundled = doc("quarkus.http.port=4321");
         let bundled_hover = plugin.hover(&bundled, openidea_plugin::Position::new(0,3)).unwrap().markdown;
         assert!(bundled_hover.contains("Metadata origin: bundled fallback snapshot") && bundled_hover.contains("Quarkus 3.40.1"));
-        assert!(bundled_hover.contains("Quarkus Tools for IntelliJ 2.6.1") && bundled_hover.contains("not an inferred project dependency version"));
+        assert!(bundled_hover.contains("Quarkus 3.40.1 configuration metadata") && bundled_hover.contains("not an inferred project dependency version"));
         assert!(!bundled_hover.contains("4321"));
         let local_source = "package org.example;\nimport org.eclipse.microprofile.config.inject.ConfigProperty;\nclass Config { @ConfigProperty(name=\"custom.extension.enabled\",defaultValue=\"false\") boolean enabled; }";
         h.add_file("src/main/java/org/example/Config.java", local_source);

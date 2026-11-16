@@ -1,8 +1,6 @@
-# JetBrains icons
+# Icon set
 
-[![official JetBrains project](http://jb.gg/badges/official-flat-square.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
-
-A set of icons used in JetBrains' web applications.
+A pinned set of icons used by the UI kit.
 
 ## Installation
 

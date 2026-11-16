@@ -49,6 +49,5 @@ credential store/native connection UI, IDE breakpoints and adapter integration
 remain outside this test. SQL goes through DDEV's database client, not OpenIDEA's
 Database source connection. The Xdebug test validates transport/protocol/source
 URI, not the IDE's full debugger workflow. Windows/remote behavior is untested.
-Generic-target Composer semantics and pre-launch validation still have the
-[recorded limitations](../SOURCE-AUDIT.md); the passing Composer check exercises
-the port's explicit `ddev composer` command.
+Generic-target Composer semantics and pre-launch validation still have recorded
+limitations; the passing Composer check exercises the explicit `ddev composer` command.

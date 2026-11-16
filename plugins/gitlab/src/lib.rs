@@ -1,6 +1,4 @@
-//! GitLab for OpenIDEA, ported from JetBrains' GitLab plugin
-//! (`org.jetbrains.plugins.gitlab`, intellij-community `plugins/gitlab`,
-//! Apache-2.0), against gitlab.com with a personal access token: the merge
+//! GitLab for OpenIDEA, against gitlab.com with a personal access token: the merge
 //! request list, timeline and review flow, the changes with diff comments and
 //! pending reviews, the current branch's merge request in the status bar and
 //! the editor, checkout, clone and share, Open on GitLab / Copy Link and

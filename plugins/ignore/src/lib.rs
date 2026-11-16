@@ -254,8 +254,7 @@ fn setting(key: &str, default: bool) -> bool {
     preferences::boolean(key, default)
 }
 
-/// The status bar says when the focused file is ignored (the original plugin's
-/// editor banner).
+/// The status bar says when the focused file is ignored.
 fn show_ignored_status(path: Option<&str>) {
     let verdict = path.filter(|_| setting("ignoredEditing", true)).and_then(|path| {
         let (project, root, relative) = project_of(path)?;

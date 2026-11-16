@@ -1,4 +1,4 @@
-# Quarkus 3.40.1 configuration metadata (Apache-2.0) and MicroProfile metadata from Quarkus Tools for IntelliJ 2.6.1 (EPL-2.0), see NOTICE
+# Quarkus 3.40.1 configuration metadata
 config_ordinal	Integer			`config_ordinal` can be set within any built-in `ConfigSource` implementation
 mp.context.ManagedExecutor.cleared	String			Defines the set of thread context types to clear from the thread where the action or task executes
 mp.context.ManagedExecutor.maxAsync	int			Establishes an upper bound on the number of async completion stage actions and async executor tasks that can…

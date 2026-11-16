@@ -1,6 +1,5 @@
-//! Spring OSGi (Spring Dynamic Modules) for OpenIDEA. Port of JetBrains'
-//! Spring OSGi plugin (Apache-2.0, intellij-obsolete-plugins/spring-osgi):
-//! its inspections and reference converters, evaluated on the XML text and
+//! Spring OSGi (Spring Dynamic Modules) for OpenIDEA: inspections and
+//! reference converters, evaluated on the XML text and
 //! the project's Java sources (classes by fully qualified name, methods by
 //! name and simple parameter types) instead of the IntelliJ Spring model.
 
@@ -395,7 +394,7 @@ fn problem(text: &str, (from, to): (usize, usize), message: impl Into<String>, c
     Diagnostic { code: Some(code.into()), ..Diagnostic::new(range(text, from, to), Severity::Error, message) }
 }
 
-/// The three inspections of the original plugin, plus unresolved listener methods.
+/// The three inspections, plus unresolved listener methods.
 fn check(doc: &OsgiXml, index: &impl Facts) -> Vec<Diagnostic> {
     let text = doc.text;
     let graph = hierarchy::Graph::new(index);

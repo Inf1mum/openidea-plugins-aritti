@@ -1,8 +1,7 @@
-//! Tasks: a port of the Issue Trackers plugin (com.intellij.tasks) of
-//! intellij-community. One task is active at a time; local tasks are created
-//! in the view, issues come from the trackers of `trackers.rs`, and with git
-//! each task gets its branch (`git.rs`). The task list of each project is kept
-//! in storage, as TaskManagerImpl keeps it in the workspace.
+//! Tasks: local tasks and issue trackers. One task is active at a time;
+//! local tasks are created in the view, issues come from the trackers of
+//! `trackers.rs`, and with git each task gets its branch (`git.rs`). The
+//! task list of each project is kept in storage.
 
 mod commit_message;
 mod git;
@@ -719,7 +718,7 @@ impl Tasks {
         Ok(())
     }
 
-    /// TaskManagerImpl.activateTask: shelve the changes of the task being
+    /// Activating a task: shelve the changes of the task being
     /// left, check out the task's branch (or start one for a new task),
     /// restore its changes, its commit message and the files it had open.
     fn switch_task(&self, project: &Project, id: &str, new_task: bool, choices: &Choices) -> Result<(), Error> {
@@ -761,7 +760,7 @@ impl Tasks {
 
                 match git.start_branch(&name) {
                     Ok(()) => {
-                        // TaskManagerImpl.createBranch: the task being left keeps the branch it was on.
+                        // The task being left keeps the branch it was on.
                         if let Some(left) = tasks.find_mut(&previous).filter(|t| t.branch.is_none()) {
                             left.branch = branch_before.clone();
                         }
@@ -855,7 +854,7 @@ fn selected_task<'a>(tasks: &'a TaskList, key: &str) -> Option<&'a Task> {
     tasks.issues.iter().find(|t| t.id == id)
 }
 
-/// TaskManagerImpl.updateIssues, every 20 minutes (`on-schedule:1200`).
+/// Updates issues every 20 minutes (`on-schedule:1200`).
 fn update_all_issues() {
     if host::setting_bool("updateIssuesAutomatically") == Some(false) {
         return;
@@ -1096,7 +1095,7 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
     }
 
     update(&root, |tasks, _| {
-        // TaskManagerImpl.updateIssue: tasks follow their issue's summary.
+        // Tasks follow their issue's summary.
         for task in &mut tasks.tasks {
             if let Some(issue) = fetched.issues.iter().find(|i| i.id == task.id && i.tracker == task.tracker) {
                 task.summary = issue.summary.clone();

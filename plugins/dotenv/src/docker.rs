@@ -1,6 +1,5 @@
 //! Variables declared for containers: `ENV` in Dockerfiles and `environment:`
-//! in docker-compose files, after the original plugin's Docker module
-//! (`DockerfilePsiElementsVisitor`, `DockerComposeYamlPsiElementsVisitor`).
+//! in docker-compose files.
 
 use std::ops::Range;
 

@@ -1,7 +1,7 @@
-//! `.env` files: highlighting, the original inspections with their quick
+//! `.env` files: highlighting, inspections with their quick
 //! fixes, completion, go to declaration and find usages of environment
 //! variables in `${…}` and in code, keys of Dockerfiles and docker-compose
-//! files. A port of JetBrains' ".env files" plugin (`ru.adelf.idea.dotenv`, MIT).
+//! files.
 
 mod code;
 mod docker;

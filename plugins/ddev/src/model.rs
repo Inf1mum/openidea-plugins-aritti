@@ -1,4 +1,4 @@
-//! DDEV's JSON log envelopes and the fields used by the original plugin.
+//! DDEV's JSON log envelopes and the fields this plugin uses.
 use openidea_plugin::Error;
 use serde_json::Value;
 

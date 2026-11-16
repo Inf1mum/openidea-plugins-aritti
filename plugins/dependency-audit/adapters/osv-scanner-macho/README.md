@@ -1,7 +1,7 @@
 # Experimental native Rust call analysis on macOS
 
 This source-built profile is **`osv-scanner-macho2.7.1-openidea-macho.1`**.
-It is a separately modified Apache-2.0 OSV-Scanner2.7.1 adapter, qualified on
+It is a separately modified OSV-Scanner2.7.1 adapter, qualified on
 Darwin arm64 with Go1.27.4 and rustc1.99.1. The unchanged official2.7.1 Rust
 profile cannot parse this platform's MachO binaries. Other platforms/toolchains
 remain unqualified; Go analysis uses the separate unchanged official profile.

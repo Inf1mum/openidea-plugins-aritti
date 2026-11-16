@@ -1,4 +1,4 @@
-# Spring Boot 3.5.16 and Spring Cloud 2025.0.3 configuration metadata (Apache-2.0), see NOTICE
+# Spring Boot 3.5.16 and Spring Cloud 2025.0.3 configuration metadata
 debug	Boolean	false		Enable debug logs
 encrypt.fail-on-error	Boolean	true		Flag to say that a process should fail if there is an encryption or decryption error
 encrypt.key	String			A symmetric key

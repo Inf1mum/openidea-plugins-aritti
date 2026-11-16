@@ -53,7 +53,7 @@ def assets(name):
     data['hub.html'] = data['hub.html'].replace('<script src="./native-icons.js">', '<script src="./plugin-icons.js"></script><script src="./native-icons.js">')
     functions = []
     if name == 'laravel':
-        for script_name in ('generators', 'managed-processes'):
+        for script_name in ('generators', 'managed-processes', 'database-workspace'):
             driver = package/'web'/f'{script_name}.js'
             if driver.exists():
                 data[f'{script_name}.js'] = driver.read_text()

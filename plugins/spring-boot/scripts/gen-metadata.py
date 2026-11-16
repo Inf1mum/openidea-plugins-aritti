@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Regenerates data/boot-properties.tsv from the configuration metadata that
-Spring Boot ships in its jars (Apache-2.0).
+Spring Boot ships in its jars.
 
     python3 -I scripts/gen-metadata.py 3.5.16 data/boot-properties.tsv 2025.0.3
 
 The jars are read in memory from Maven Central; nothing is extracted. The third
-argument is the Spring Cloud release train (Apache-2.0): the artifact versions
+argument is the Spring Cloud release train: the artifact versions
 come from its spring-cloud-dependencies BOM, and artifacts without published
 metadata are reported on stderr and skipped. Boot's keys win over Cloud's.
 
@@ -146,7 +146,7 @@ def main(version, out, train=None):
         lines.append("\t".join(["@" + name] + [v.replace("\t", " ") for v in hints[name]]))
     with open(out, "w", encoding="utf-8") as f:
         cloud = f" and Spring Cloud {train}" if train else ""
-        f.write(f"# Spring Boot {version}{cloud} configuration metadata (Apache-2.0), see NOTICE\n")
+        f.write(f"# Spring Boot {version}{cloud} configuration metadata\n")
         f.write("\n".join(lines) + "\n")
 
 
