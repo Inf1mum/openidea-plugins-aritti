@@ -310,19 +310,31 @@ fn xml_references(text: &str) -> Vec<Anchor> {
     out
 }
 
+/// Byte span of the first non-blank line, trimmed: the host rejects zero-width anchors, so an empty file gets none.
+fn first_line(text: &str) -> Option<(usize, usize)> {
+    let line = text.split_inclusive('\n').scan(0, |at, l| { let s = *at; *at += l.len(); Some((s, l)) })
+        .find(|(_, l)| !l.trim().is_empty())?;
+    let lead = line.1.len() - line.1.trim_start().len();
+    Some((line.0 + lead, line.0 + lead + line.1.trim().len()))
+}
+
 /// `(definitions, references, aliases)` of the keys that link profiles, resource files, packages and placeholders.
 fn link_keys(path: &str, text: &str) -> (Vec<Anchor>, Vec<Anchor>, Vec<Alias>) {
     let (mut definitions, mut references, mut aliases) = (Vec::new(), Vec::new(), Vec::new());
     let extension = path.rsplit('.').next().unwrap_or_default();
     if RESOURCE_EXTENSIONS.contains(&extension) {
         let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-        definitions.push(Anchor { key: resource_key(name), range: range(text, 0, 0) });
+        if let Some((from, to)) = first_line(text) {
+            definitions.push(Anchor { key: resource_key(name), range: range(text, from, to) });
+        }
     }
     if config::is_config_file(path) {
         let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
         let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
         if let Some((_, profile)) = stem.split_once('-') {
-            definitions.push(Anchor { key: profile_key(profile), range: range(text, 0, 0) });
+            if let Some((from, to)) = first_line(text) {
+                definitions.push(Anchor { key: profile_key(profile), range: range(text, from, to) });
+            }
         }
         definitions
             .extend(config::keys(path, text).into_iter().map(|k| Anchor { key: placeholder_key(&k.key), range: range(text, k.at, k.end) }));
@@ -532,8 +544,8 @@ mod tests {
     fn config_files_define_profiles_resources_and_placeholders() {
         let yaml = "app:\n  name: x\nserver:\n  max-port: 1\n";
         let edges = index("/p/src/main/resources/application-dev.yml", yaml);
-        assert!(has(&edges.definitions, "resource#application-dev.yml", "", yaml));
-        assert!(has(&edges.definitions, "profile#dev", "", yaml));
+        assert!(has(&edges.definitions, "resource#application-dev.yml", "app:", yaml));
+        assert!(has(&edges.definitions, "profile#dev", "app:", yaml));
         assert!(has(&edges.definitions, "placeholder#app.name", "name", yaml));
         assert!(has(&edges.definitions, "placeholder#server.maxport", "max-port", yaml));
         let other = index("/p/src/main/resources/messages.properties", "a=b\n");
@@ -580,5 +592,35 @@ mod tests {
         let publisher = index("P.kt", "class P {\n    fun place() {\n        events.publishEvent(OrderPlaced(this))\n    }\n}\n");
         assert!(keys(&publisher.markers).contains(&"event:OrderPlaced#listener"));
         assert!(keys(&publisher.definitions).contains(&"publish:OrderPlaced#call"));
+    }
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::*;
+
+    fn nonempty(r: &openidea_plugin::Range) -> bool {
+        (r.start.line, r.start.character) < (r.end.line, r.end.character)
+    }
+
+    #[test]
+    fn link_definitions_have_nonempty_anchors() {
+        for (path, text) in [
+            ("src/main/resources/application.yml", "spring:\n  application:\n    name: demo\n"),
+            ("src/main/resources/application-dev.yml", "\n\n  caf\u{e9}\u{1F600}: 1\n"),
+            ("src/main/resources/data.sql", "select 1;"),
+        ] {
+            let (definitions, ..) = link_keys(path, text);
+            assert!(!definitions.is_empty(), "{path}");
+            assert!(definitions.iter().all(|d| nonempty(&d.range)), "{path}");
+        }
+    }
+
+    #[test]
+    fn empty_resource_files_get_no_synthetic_definition() {
+        for text in ["", "\n  \n"] {
+            let (definitions, ..) = link_keys("src/main/resources/application-dev.yml", text);
+            assert!(definitions.iter().all(|d| nonempty(&d.range)));
+        }
     }
 }
