@@ -107,7 +107,7 @@ Not documented (verify in the openidea repo before relying on it): `when` expres
 ## 5. Build and report
 
 1. `openidea-plugin new <your-prefix>-<name>` (or `--template theme|icon-theme|language` for data-only).
-2. Fill `plugin.toml` from the table; request only the capabilities the ported parts use. Add the package and panel icons following [writing-openidea-plugins](../writing-openidea-plugins/SKILL.md#plugin-and-panel-icons) and the repository's `ICONS.md` conventions.
+2. Fill `plugin.toml` from the table; request only the capabilities the ported parts use. Add the package and panel icons following [writing-openidea-plugins](../writing-openidea-plugins/SKILL.md#plugin-and-panel-icons).
 3. Implement in Rust (from source, decompiled source, or the clean-room behaviour spec); unit-test it with `MockHost`.
 4. `openidea-plugin build` (runs `check`) until clean.
 5. Report to the user: porting path, source plugin + version (+ source revision) + licence, what was ported, what was dropped and why, capabilities requested.

@@ -282,8 +282,7 @@ terminal environment, executable choice and window status are implemented in the
 API 1.4 host and adopted here. Project-targeted background notifications
 [#2157](https://github.com/l0ng-ai/openidea/issues/2157) are implemented upstream
 in **API 1.5**, outside this port's 1.4 target. Its origin guards remain.
-See [LIMITATIONS.md](../../LIMITATIONS.md#ddev-integration-arittiddev) and the
-[source audit](SOURCE-AUDIT.md) for remaining platform and verification differences.
+See the [source audit](SOURCE-AUDIT.md) for remaining platform and verification differences.
 
 ## Development and verification
 

@@ -80,8 +80,7 @@ behavior has not been expanded by this migration.
 Not ported: the remaining Java-side MicroProfile/Quarkus language server features
 (code lens, broader Java definition/diagnostics and JAX-RS symbols), native acceptance of the optional typed Qute broker,
 the in-IDE project wizard (use code.quarkus.io), debugger auto-attach to Dev Mode
-and the run dashboard, and keys from extensions outside the bundled set. See
-`LIMITATIONS.md`.
+and the run dashboard, and keys from extensions outside the bundled set.
 
 
 ### Qute empty-template creation (P15.3 partial)

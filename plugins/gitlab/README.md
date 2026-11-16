@@ -322,8 +322,6 @@ The GitLab icon on `.gitlab-ci.yml`, `.gitlab-ci.yaml`, `*.gitlab-ci.yml`,
   needs the commits in the local checkout, else the head commit is used.
 - Not ported: usage statistics, `.gitlab-ci.yml` schema validation, completion and inspections beyond the four listed under CI files; `include: local:` files are followed, remote, project, template and component includes are not. Applying a suggestion doesn't mark it as applied on GitLab.
 
-See the `aritti.gitlab` section of `LIMITATIONS.md` at the repository root
-for the missing APIs behind each limit.
 
 ## Credits
 

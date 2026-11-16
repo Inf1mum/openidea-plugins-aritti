@@ -140,8 +140,6 @@ but never fetched. Turn off the setting to contact OSV only when you run a scan.
 
 No new dependencies: the new formats are read by hand.
 
-See `LIMITATIONS.md` at the repository root for the API gaps behind these.
-
 ## Permissions
 
 | Permission | Used for |
