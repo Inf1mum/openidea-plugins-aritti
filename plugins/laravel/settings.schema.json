@@ -105,6 +105,11 @@
       "title": "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL",
       "default": true
     },
+    "enumValueInspection": {
+      "type": "boolean",
+      "title": "Report where() values that the column's enum cast does not have",
+      "default": true
+    },
     "upgradeInspection": {
       "type": "boolean",
       "title": "Show code that breaks on the next Laravel major version",

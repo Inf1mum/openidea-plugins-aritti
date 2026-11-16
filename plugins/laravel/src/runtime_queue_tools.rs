@@ -10,7 +10,14 @@ use serde_json::{Value, json};
 pub(super) fn probe_args(section: &str, options: &Value) -> Result<Vec<String>, Error> {
     if !matches!(
         section,
-        "queue-status" | "workers" | "logs" | "schema" | "database-sources" | "model-connections"
+        "queue-status"
+            | "workers"
+            | "logs"
+            | "schema"
+            | "database-sources"
+            | "model-connections"
+            | "database-compare"
+            | "database-rows"
     ) {
         return Err(Error::Stale);
     }

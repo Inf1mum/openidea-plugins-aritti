@@ -2,5 +2,7 @@
   "laravel-artisan",
   "laravel-generators",
   "laravel-processes",
-  "laravel-models"
+  "laravel-models",
+  "laravel-database",
+  "laravel-schema"
 ]

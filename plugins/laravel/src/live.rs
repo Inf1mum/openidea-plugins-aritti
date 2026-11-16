@@ -20,7 +20,7 @@ impl DiagnosticsProvider for Main {
         let check_routes = host::setting_bool("reportMissingRoutes").unwrap_or(false);
         let mut current=problems(index,language,&doc.text,check_routes);
         current.extend(route_inspections::current(index,doc));
-        if language=="php" {if let Some(project)=project_for(&doc.path){current.extend(eloquent_mass_problems(&project,index,doc));}}
+        if language=="php" {if let Some(project)=project_for(&doc.path){current.extend(eloquent_mass_problems(&project,index,doc));current.extend(enum_value_problems(&project,index,doc));}}
         if language=="blade" {if let Some(project)=project_for(&doc.path){current.extend(livewire_method_problems(&project,index,&doc.path,language,&doc.text));}}
         current.into_iter().take(200)
             .map(|mut diagnostic| {

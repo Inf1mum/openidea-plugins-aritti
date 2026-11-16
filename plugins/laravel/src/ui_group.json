@@ -12,9 +12,24 @@
       "icon": "web"
     },
     {
+      "id": "laravel-request",
+      "label": "Request",
+      "icon": "send"
+    },
+    {
       "id": "laravel-models",
       "label": "Models",
       "icon": "database"
+    },
+    {
+      "id": "laravel-database",
+      "label": "Database",
+      "icon": "table"
+    },
+    {
+      "id": "laravel-schema",
+      "label": "Schema",
+      "icon": "hierarchy"
     },
     {
       "id": "laravel-views",

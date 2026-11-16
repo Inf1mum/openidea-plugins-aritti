@@ -325,10 +325,7 @@ fn response(value: Value, id: u64) -> Result<Value, Error> {
 }
 fn local(project: &Project, runner: Runner, argv: &[String]) -> Result<Value, Error> {
     let executable = runner.argv(project, argv, false)?;
-    let child = host::start(
-        &host::Command::new(runner.name()).args(&executable),
-        Some(project),
-    )?;
+    let child = crate::artisan_runner::start_background(runner.name(), &executable, project)?;
     let result = stdio_discover(
         |text| child.write(text),
         || {

@@ -470,7 +470,7 @@ pub fn capture(ctx: &Invocation, index: &Index) -> Result<Snapshot, Error> {
             crate::ui_text::text("native.dockerRoute.d22791bd83","Refresh registered Laravel routes (executes project PHP)"),
             true,
         );
-        let child = host::start(&host::Command::new("php").args(ARGS), Some(project))?;
+        let child = crate::artisan_runner::start_background("php", &ARGS.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(), project)?;
         if let Err(error) = child.close_stdin() {
             let _ = child.kill();
             return Err(error);

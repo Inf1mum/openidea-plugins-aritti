@@ -321,7 +321,7 @@ fn execute(project: &Project, args: &[String]) -> Result<String, Error> {
         ),
         true,
     );
-    let child = host::start(&host::Command::new("php").args(args), Some(project))?;
+    let child = crate::artisan_runner::start_background("php", args, project)?;
     child.close_stdin()?;
     let result = collect(|timeout| child.wait(timeout), || task.is_cancelled());
     if result.is_err() {

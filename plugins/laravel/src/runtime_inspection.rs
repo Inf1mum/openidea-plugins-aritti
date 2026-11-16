@@ -270,10 +270,7 @@ fn execute(project: &Project, runner: Runner, args: &[String]) -> Result<String,
         crate::ui_text::text("runtime.boundary.07780710af", "Inspect Laravel runtime"),
         true,
     );
-    let child = host::start(
-        &host::Command::new(runner.name()).args(&args),
-        Some(project),
-    )?;
+    let child = crate::artisan_runner::start_background(runner.name(), &args, project)?;
     if let Err(error) = child.close_stdin() {
         let _ = child.kill();
         return Err(error);
@@ -288,6 +285,10 @@ fn execute(project: &Project, runner: Runner, args: &[String]) -> Result<String,
         let _ = child.kill();
     }
     result
+}
+/// One explicit, uncached probe run (database compare / rows); same runner verification as snapshots.
+pub(crate) fn probe(project: &Project, runner: Runner, mode: &str, options: &Value) -> Result<String, Error> {
+    execute(project, runner, &queue_tools::probe_args(mode, options)?)
 }
 impl State {
     pub fn capture(

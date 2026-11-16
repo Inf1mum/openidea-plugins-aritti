@@ -293,6 +293,20 @@ pub(crate) fn receiver_model(index:&Index,doc:&Document,call_open:usize,owns:&dy
     let receiver=super::receiver(&resolver)?;
     resolver.get(&receiver.model).map(|model|model.full.clone())
 }
+/// Full name of the owned backed enum the receiver model of the call at `call_open` casts `column` to.
+pub(crate) fn column_enum(index:&Index,doc:&Document,call_open:usize,owns:&dyn Fn(&str)->bool,column:&str)->Option<String>{
+    let source=Source::new(&doc.text)?;
+    let open=source.tokens.iter().position(|token|token.start==call_open&&token.value=="(")?;
+    let member=source.tokens.get(open.checked_sub(1)?)?;
+    let context=context(doc,text::position(&doc.text,member.end))?;
+    let mut overlay=super::model(&doc.text,&doc.path);
+    if let Some(model)=overlay.as_mut(){let _=traits::compose(model,&index.eloquent_models,&mut BTreeSet::new(),0);}
+    let resolver=Resolver{context:&context,index,overlay,object_overlay:objects::current(&doc.text,&doc.path),path:&doc.path,owns,owner_cache:RefCell::new(BTreeMap::new())};
+    let receiver=super::receiver(&resolver)?;
+    let model=resolver.get(&receiver.model)?.full.clone();
+    let cast=resolver.cast(&model,column)?;
+    Some(resolver.enumeration(cast.target.as_deref()?)?.full.clone())
+}
 /// Source-resolved column receiver for native string-reference consumers.
 /// Some(empty) means a proven model has no proven owned table/columns; callers
 /// must not replace that with a conventional table-name guess.

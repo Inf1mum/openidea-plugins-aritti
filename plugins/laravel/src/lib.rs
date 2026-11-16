@@ -41,6 +41,7 @@ mod controllers;
 mod console_editor;
 mod directives;
 mod eloquent_checks;
+mod enum_where_values;
 mod eloquent_members;
 mod feature_test;
 mod function_checks;
@@ -94,6 +95,8 @@ mod route_attributes;
 mod route_targets;
 mod route_inspections;
 mod managed_processes;
+mod database_workspace;
+mod schema_compare;
 mod package_facts;
 mod package_integrations;
 mod member_refactor;
@@ -102,6 +105,7 @@ mod php;
 mod refs;
 mod routes;
 mod route_runtime;
+mod route_request;
 mod route_search;
 mod view_rename;
 mod route_editor;
@@ -508,7 +512,18 @@ fn eloquent_problems(project: &Project, index: &Index, path: &str, language: &st
         .collect();
     let doc = Document { path: path.into(), language: language.into(), version: 0, text: text.into() };
     found.extend(eloquent_mass_problems(project, index, &doc));
+    found.extend(enum_value_problems(project, index, &doc));
     found
+}
+
+fn enum_value_problems(project: &Project, index: &Index, doc: &Document) -> Vec<Diagnostic> {
+    if !enabled("enumValueInspection") {
+        return Vec::new();
+    }
+    enum_where_values::findings(index, doc, &|path| owns_current_path(project, path))
+        .into_iter()
+        .map(|finding| problem(&doc.text, finding.start..finding.end, finding.code, finding.severity, finding.message))
+        .collect()
 }
 
 fn eloquent_mass_problems(project: &Project, index: &Index, doc: &Document) -> Vec<Diagnostic> {
@@ -704,6 +719,8 @@ pub struct Main {
     generator_workspace: generator_workspace::State,
     project_wizard: project_wizard::State,
     managed_processes: managed_processes::State,
+    database_workspace: database_workspace::State,
+    route_requests: route_request::State,
     model_tree_expanded: BTreeMap<String, BTreeMap<String, bool>>,
     runtime_inspection: runtime_inspection::State,
     index_ticks: u32,
@@ -1094,6 +1111,18 @@ impl Plugin for Main {
             "migrate" => self.artisan(ctx, "migrate"),
             "storage-link" => self.artisan(ctx, "storage:link"),
             "db-seed" => self.artisan(ctx, "db:seed"),
+            "route-send-request" => {
+                let Some(route) = arg.and_then(|key| self.route_at(key, ctx)) else {
+                    return Ok(None);
+                };
+                let project = ctx.project().ok_or(Error::Stale)?;
+                let root = project.root()?;
+                let template = route_request::body_template(&project, &route);
+                self.route_requests.select(&root, &route, template)?;
+                ui_kit::web::reveal_view(route_request::VIEW, include_str!("ui_config.json"))?;
+                refresh_laravel();
+                Ok(None)
+            }
             "route-copy-curl" | "route-create-http" => {
                 let Some(mut route) = arg.and_then(|key| self.route_at(key, ctx)) else {
                     return Ok(None);
@@ -1533,6 +1562,10 @@ impl Providers for Main {
             if !custom.is_empty() { return custom; }
             let headers=metadata::response_completion(index,doc,offset);if !headers.is_empty(){return headers;}
         }
+        if language == "php" && enabled("enumValueInspection") && let Some(project) = project_for(&doc.path) {
+            let items = enum_where_values::completion(index, doc, at, &|path| owns_current_path(&project, path));
+            if !items.is_empty() { return items; }
+        }
         if language == "php" {
             let root = project_for(&doc.path).and_then(|p| p.root().ok());
             let mut items = eloquent_members::completion_checked(index, doc, at, &|path| root.is_some() && project_for(path).and_then(|p|p.root().ok()) == root);
@@ -1724,6 +1757,19 @@ impl Providers for Main {
                 let replacement = finding.replacement?;
                 Some(CodeAction {
                     title: crate::ui_text::format("root.formatted.acc1548281", "Replace with {replacement}", &[("replacement", &replacement)]),
+                    kind: Some("quickfix".into()),
+                    preferred: true,
+                    edits: vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, finding.start, finding.end), text: replacement }])],
+                    data: None,
+                })
+            }));
+        }
+
+        if language == "php" && enabled("enumValueInspection") && let (Some(index), Some(project)) = (self.index_for(&doc.path), project_for(&doc.path)) {
+            found.extend(enum_where_values::findings(index, doc, &|path| owns_current_path(&project, path)).into_iter().filter(|f| f.start <= offset && offset <= f.end).filter_map(|finding| {
+                let replacement = finding.replacement?;
+                Some(CodeAction {
+                    title: format!("Change to '{replacement}'"),
                     kind: Some("quickfix".into()),
                     preferred: true,
                     edits: vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, finding.start, finding.end), text: replacement }])],
@@ -2163,6 +2209,34 @@ impl Main {
             Some(route)
         }).collect()
     }
+    fn handle_route_request(&mut self, ctx: &Invocation, event: ViewEvent) -> Result<(), Error> {
+        let project = ctx.project().ok_or(Error::Stale)?;
+        let root = project.root()?;
+        if !host::projects()?.iter().any(|open| open.root().ok().as_deref() == Some(&root)) {
+            return Err(Error::Stale);
+        }
+        match event {
+            ViewEvent::Field(key, value) => self.route_requests.set_field(&root, &key, &value)?,
+            ViewEvent::Button(id) if id == "request-reset-body" => {
+                self.route_requests.reset_body(&root)?;
+                refresh_laravel();
+            }
+            ViewEvent::Button(id) if id == "request-copy-curl" => {
+                let request = self.route_requests.request(&root)?;
+                host::copy_to_clipboard(&request.curl(DEFAULT_BASE_URL))?;
+                host::notify(NotificationLevel::Info, SOURCE, crate::ui_text::text("request.curlCopied", "Copied the request as cURL. Act as user is not part of a cURL request, and web routes still need their CSRF token against a real server."));
+            }
+            ViewEvent::Button(id) if id == "request-send" => {
+                let runner = self.artisan_workspace.runner(ctx)?;
+                let sent = self.route_requests.send(&root, |args| route_request::execute(&project, runner, args));
+                refresh_laravel();
+                sent?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn route_at(&self, key: &str, ctx: &Invocation) -> Option<Route> {
         let number: usize = key.strip_prefix("route:")?.parse().ok()?;
         self.active_routes(ctx).into_iter().nth(number)
@@ -2219,7 +2293,7 @@ impl Main {
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-runtime") && self.view_index(ctx).is_none() {
+        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-runtime"|"laravel-database"|"laravel-schema"|route_request::VIEW) && self.view_index(ctx).is_none() {
             if let Some(pending)=self.pending_index_view(ctx) { return Ok(pending); }
         }
         (|| -> Result<View, Error> {
@@ -2231,11 +2305,17 @@ impl Views for Main {
                     .button(Button::new("runtime-about", crate::ui_text::text("native.lib.08d13322f2", "Refresh App Info")).icon("refresh"))
                     .button(Button::new("runtime-runner", if runner == artisan_runner::Runner::Docker {"Docker"} else {crate::ui_text::text("command.localPhp", "Local PHP")}).icon("terminal")));
             }
+            if view == route_request::VIEW {
+                return Ok(self.route_requests.render(&ctx.project().ok_or(Error::Stale)?.root()?));
+            }
             if view == artisan_workspace::VIEW {
                 return Ok(View::new(Body::Html(artisan_workspace::html())));
             }
             if view == generator_workspace::VIEW {
                 return Ok(View::new(Body::Html(generator_workspace::html())));
+            }
+        if matches!(view, database_workspace::DATABASE_VIEW | database_workspace::SCHEMA_VIEW) {
+                return Ok(View::new(Body::Html(database_workspace::html(view))));
             }
         if view == managed_processes::VIEW {
                 return Ok(View::new(Body::Html(managed_processes::html())));
@@ -2398,6 +2478,17 @@ impl Views for Main {
             }
             return Ok(());
         }
+        if matches!(view, database_workspace::DATABASE_VIEW | database_workspace::SCHEMA_VIEW) {
+            if let ViewEvent::Message(message) = event {
+                let result = self.artisan_workspace.runner(ctx).and_then(|runner| {
+                    let index = ctx.project().and_then(|project| project.root().ok()).and_then(|root| self.indexes.get(&root));
+                    self.database_workspace.handle(ctx, &message, index, runner)
+                });
+                let reply = result.unwrap_or_else(|error| serde_json::json!({"error": error.to_string()}));
+                ui_kit::web::post_view_message(view, &reply.to_string(), &config)?;
+            }
+            return Ok(());
+        }
         if view == managed_processes::VIEW {
             if let ViewEvent::Message(message) = event {
                 let reply = match self.managed_processes.handle(ctx, &message) {
@@ -2457,6 +2548,9 @@ impl Views for Main {
             return Ok(());
         }
 
+        if view == route_request::VIEW {
+            return self.handle_route_request(ctx, event);
+        }
         if view == VIEW {
             match self.route_list().handle(&event) {
                 RouteEvent::Changed => {

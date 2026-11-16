@@ -105,7 +105,7 @@ fn normalized_uri(uri: &str) -> String {
 }
 
 /// Request fields and a valid-looking value each, from the `rules()` of the method's Form Request.
-fn form_request_fields(project: &openidea_plugin::Project, controller: &str, method: &str) -> Vec<(String, String)> {
+pub(crate) fn form_request_fields(project: &openidea_plugin::Project, controller: &str, method: &str) -> Vec<(String, String)> {
     let Some(class) = form_request_class(controller, method) else {
         return Vec::new();
     };
@@ -132,7 +132,7 @@ fn form_request_class(controller: &str, method: &str) -> Option<String> {
     })
 }
 
-fn rule_fields(source: &str) -> Vec<(String, String)> {
+pub(crate) fn rule_fields(source: &str) -> Vec<(String, String)> {
     let masked = crate::php::mask_comments(source);
     let Some(rules) = masked.find("function rules(") else {
         return Vec::new();
@@ -158,7 +158,7 @@ fn rule_fields(source: &str) -> Vec<(String, String)> {
                 let after = masked[end..close].trim_start();
                 if after.starts_with("=>") {
                     let key = masked[at + 1..end - 1].to_owned();
-                    let value_end = value_end(&masked, end + (masked[end..].len() - after.len()) + 2, close);
+                    let value_end = value_end(&masked, end + (masked[end..close].len() - after.len()) + 2, close);
                     let rule = &masked[end..value_end];
                     if !key.contains('*') && !key.contains('.') {
                         fields.push((key, sample_value(rule)));

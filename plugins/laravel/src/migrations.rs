@@ -5,6 +5,8 @@ use crate::php;
 use std::collections::BTreeMap;
 #[path = "schema_sources.rs"]
 mod schema_sources;
+#[path = "schema_keys.rs"]
+pub(crate) mod keys;
 
 pub fn apply_sql(columns: &mut BTreeMap<String, Names>, text: &str, path: &str) {
     for statement in schema_sources::statements(text) {
@@ -339,6 +341,11 @@ fn body_events(
                         to: to.into(),
                         offset,
                     });
+                }
+            }
+            "dropConstrainedForeignId" => {
+                if let Some((name, _)) = first {
+                    out.push(Event::DropColumn(table.into(), name.into()));
                 }
             }
             "dropColumn" => {
@@ -700,6 +707,17 @@ mod ordered_tests {
                 .map(|c| c.name.as_str())
                 .collect::<Vec<_>>(),
             ["id", "title"]
+        );
+    }
+    #[test]
+    fn drop_constrained_foreign_id_removes_the_column() {
+        let source = "<?php return new class { function up() { Schema::create('posts', function ($t) { $t->id(); $t->foreignId('user_id')->constrained(); }); Schema::table('posts', function ($t) { $t->dropConstrainedForeignId('user_id'); }); } };";
+        assert_eq!(
+            parse(source)
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id"]
         );
     }
     #[test]

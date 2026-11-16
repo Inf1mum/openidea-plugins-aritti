@@ -153,6 +153,92 @@ if ($mode === 'database-sources') {
     echo json_encode(['default' => (string) $app['config']->get('database.default', ''), 'connections' => $result], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
+if ($mode === 'database-compare' || $mode === 'database-rows') {
+    // Read-only: schema introspection, pending-migration listing and bounded SELECTs. No writes, no connection settings.
+    try {
+        $selected = $options['connection'] ?? null;
+        $declared = $app['config']->get('database.connections', []);
+        if ($selected !== null && (!is_string($selected) || !is_array($declared) || !array_key_exists($selected, $declared))) { throw new RuntimeException('Selected database connection is not configured.'); }
+        $connection = $app['db']->connection($selected);
+        $schema = $connection->getSchemaBuilder();
+        if (!method_exists($schema, 'getTables') || !method_exists($schema, 'getColumns') || !method_exists($schema, 'getIndexes')) { throw new RuntimeException('This framework schema builder does not expose table, column and index metadata.'); }
+        $listed = [];
+        foreach ($schema->getTables() as $found) {
+            $found = (array) $found;
+            $name = $found['name'] ?? null;
+            $namespace = $found['schema'] ?? null;
+            if (!is_string($name) || strlen($name) > 512 || preg_match('/[\x00-\x1f]/', $name)) { continue; }
+            $listed[$name] = is_string($namespace) && $namespace !== '' ? $namespace.'.'.$name : $name;
+        }
+        if ($mode === 'database-compare') {
+            $truncated = count($listed) > 256;
+            $tables = [];
+            foreach (array_slice($listed, 0, 256, true) as $name => $qualified) {
+                $columns = array_map(static fn ($column) => (string) ((array) $column)['name'], array_slice($schema->getColumns($qualified), 0, 512));
+                $indexes = [];
+                foreach (array_slice($schema->getIndexes($qualified), 0, 64) as $index) {
+                    $index = (array) $index;
+                    $indexes[] = ['columns' => array_map('strval', array_values((array) ($index['columns'] ?? []))), 'primary' => (bool) ($index['primary'] ?? false)];
+                }
+                $tables[] = ['name' => $name, 'columns' => $columns, 'indexes' => $indexes];
+            }
+            $migrator = $app->make('migrator');
+            if (is_string($selected)) { $migrator->setConnection($selected); }
+            $migrations = $migrator->getMigrationFiles(array_merge($migrator->paths(), [$app->databasePath('migrations')]));
+            $ran = $migrator->repositoryExists() ? $migrator->getRepository()->getRan() : [];
+            $pending = array_slice(array_values(array_diff(array_keys($migrations), $ran)), 0, 500);
+            echo json_encode(['connection' => $connection->getName(), 'driver' => $connection->getDriverName(), 'tables' => $tables, 'pending' => $pending, 'truncated' => $truncated], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+            exit;
+        }
+        $table = $options['table'] ?? null;
+        if (!is_string($table) || !array_key_exists($table, $listed)) { throw new RuntimeException('The table does not exist in this connection.'); }
+        $size = max(10, min(100, (int) ($options['size'] ?? 25)));
+        $page = max(0, min(100000, (int) ($options['page'] ?? 0)));
+        $qualified = $listed[$table];
+        $columns = array_slice(array_map(static fn ($column) => (string) ((array) $column)['name'], $schema->getColumns($qualified)), 0, 128);
+        $secret = '/^(pass|passwd|passwords?|passphrase|passcode|pwd|secrets?|tokens?|apikey|authorization|cookies?|credentials?|private|signature|otp|cvv|cvc|card|cardholder|creditcard|hash|salt)$/';
+        $personal = '/^(emails?|cpf|cnpj|rg|documents?|phones?|telefones?|celular|mobile|birth|birthday|birthdate|nascimento|address(es)?|endereco|cep|zip|zipcode|ssn|passport|ip|iban|dob)$/';
+        // Whole key words only: "token_count" is masked by "token", "tokenizer" and "category" are not.
+        $masked = static function (string $column) use ($secret, $personal): bool {
+            $spaced = preg_replace(['/([a-z0-9])([A-Z])/', '/([a-zA-Z])([0-9])/'], '$1 $2', $column);
+            $words = preg_split('/[^a-z0-9]+/', strtolower($spaced ?? $column), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            if ($words === []) { return false; }
+            if (end($words) === 'key') { return true; }
+            $candidates = $words;
+            for ($i = 1; $i < count($words); $i++) { $candidates[] = $words[$i - 1].$words[$i]; }
+            foreach ($candidates as $word) { if (preg_match($secret, $word) || preg_match($personal, $word)) { return true; } }
+            return false;
+        };
+        $query = $connection->table($qualified);
+        $total = (clone $query)->count();
+        foreach ($schema->getIndexes($qualified) as $index) {
+            $index = (array) $index;
+            if (!empty($index['primary'])) {
+                foreach ((array) ($index['columns'] ?? []) as $keyColumn) { if (in_array($keyColumn, $columns, true)) { $query->orderBy($keyColumn); } }
+                break;
+            }
+        }
+        $rows = [];
+        foreach ($query->offset($page * $size)->limit($size)->get() as $row) {
+            $row = (array) $row;
+            $cells = [];
+            foreach ($columns as $column) {
+                $value = $row[$column] ?? null;
+                if ($value !== null && $masked($column)) { $cells[] = '•••'; }
+                elseif (is_string($value) && !mb_check_encoding($value, 'UTF-8')) { $cells[] = '(binary, '.strlen($value).' bytes)'; }
+                elseif (is_string($value) && mb_strlen($value) > 200) { $cells[] = mb_substr($value, 0, 200).'…'; }
+                elseif ($value === null || is_scalar($value)) { $cells[] = $value; }
+                else { $cells[] = '(unsupported value)'; }
+            }
+            $rows[] = $cells;
+        }
+        echo json_encode(['table' => $table, 'columns' => $columns, 'rows' => $rows, 'total' => $total, 'page' => $page, 'size' => $size, 'masked' => array_values(array_filter($columns, $masked))], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+    } catch (Throwable $error) {
+        // Driver errors can include DSNs or SQL values: report the type, never the message.
+        echo json_encode(['error' => $error instanceof RuntimeException ? $error->getMessage() : 'Database inspection failed ('.get_class($error).').']);
+    }
+    exit;
+}
 if ($mode === 'queue-status') {
     $connections = $app['config']->get('queue.connections', []);
     if (!is_array($connections) || count($connections) > 32) {
