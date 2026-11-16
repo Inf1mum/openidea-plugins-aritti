@@ -2,8 +2,8 @@
   "title": "Laravel",
   "views": {
     "laravel": "Routes",
-    "laravel-request": "Request",
     "laravel-about": "About",
+    "laravel-request": "Request",
     "laravel-models": "Models",
     "laravel-database": "Database",
     "laravel-schema": "Schema",
@@ -185,11 +185,6 @@
     "laravel-database",
     "laravel-schema"
   ],
-  "context_buttons": {
-    "laravel": [],
-    "laravel-components": [],
-    "laravel-runtime": []
-  },
   "toolbar_groups": {
     "laravel-models": [
       {
@@ -216,5 +211,10 @@
         ]
       }
     ]
+  },
+  "context_buttons": {
+    "laravel": [],
+    "laravel-components": [],
+    "laravel-runtime": []
   }
 }

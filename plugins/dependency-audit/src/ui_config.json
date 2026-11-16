@@ -54,13 +54,6 @@
   ],
   "project_independent": false,
   "project_bound_buttons": [],
-  "context_buttons": {
-    "vulnerabilities": [],
-    "npm-dependency-graph": [],
-    "build-resolution": [],
-    "call-analysis": [],
-    "sbt-resolution": []
-  },
   "group": {
     "primary": "vulnerabilities",
     "tabs": [
@@ -86,7 +79,7 @@
       }
     ]
   },
-  "opaque_views": [
-    "build-resolution"
-  ]
+  "context_buttons": {
+    "vulnerabilities": []
+  }
 }

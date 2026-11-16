@@ -164,5 +164,11 @@
   "Laravel: Hide Cloud Variables": "Laravel：隐藏 Cloud 变量值",
   "Laravel: Import Cloud Database Connection…": "Laravel：导入 Cloud 数据库连接…",
   "Read Cloud applications, environments, variables, deployment logs and database connection metadata.": "读取 Cloud 应用、环境、变量、部署日志和数据库连接元数据。",
-  "Laravel: Open Cloud Environment Domain": "Laravel：打开 Cloud 环境域名"
+  "Laravel: Open Cloud Environment Domain": "Laravel：打开 Cloud 环境域名",
+  "Laravel: Search Names…": "Laravel:搜索名称…",
+  "Laravel: Send Request (Executes Project PHP)": "Laravel:发送请求(执行项目 PHP)",
+  "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL": "报告未经过滤传给 create()、update() 或 fill() 的请求数据,以及原生 SQL 中的变量",
+  "Report translation keys that some locales have and others lack": "报告部分语言有而其他语言缺少的翻译键",
+  "Report where() values that the column's enum cast does not have": "报告列的 enum 转换中不存在的 where() 值",
+  "Show code that breaks on the next Laravel major version": "显示在下一个 Laravel 主版本中会失效的代码"
 }

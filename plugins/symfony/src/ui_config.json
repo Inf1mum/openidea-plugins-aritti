@@ -1,8 +1,8 @@
 {
   "title": "Symfony",
   "views": {
-    "symfony-about": "About",
     "symfony": "Routes",
+    "symfony-about": "About",
     "symfony-entities": "Entities",
     "symfony-templates": "Templates",
     "symfony-services": "Services",

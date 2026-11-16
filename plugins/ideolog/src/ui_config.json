@@ -38,11 +38,6 @@
       "move-down",
       "remove"
     ],
-    "log-snapshot": [],
-    "jvm-observations": [],
-    "live-tail": []
-  },
-  "opaque_views": [
-    "live-tail"
-  ]
+    "log-snapshot": []
+  }
 }

@@ -164,5 +164,11 @@
   "Laravel: Hide Cloud Variables": "Laravel: Cloud 변수 값 숨기기",
   "Laravel: Import Cloud Database Connection…": "Laravel: Cloud 데이터베이스 연결 가져오기…",
   "Read Cloud applications, environments, variables, deployment logs and database connection metadata.": "Cloud 애플리케이션, 환경, 변수, 배포 로그 및 데이터베이스 연결 메타데이터를 읽습니다.",
-  "Laravel: Open Cloud Environment Domain": "Laravel: Cloud 환경 도메인 열기"
+  "Laravel: Open Cloud Environment Domain": "Laravel: Cloud 환경 도메인 열기",
+  "Laravel: Search Names…": "Laravel: 이름 검색…",
+  "Laravel: Send Request (Executes Project PHP)": "Laravel: 요청 보내기 (프로젝트 PHP 실행)",
+  "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL": "create(), update(), fill()에 필터링 없이 전달되는 요청 데이터와 원시 SQL의 변수를 보고합니다",
+  "Report translation keys that some locales have and others lack": "일부 로케일에만 있고 다른 로케일에는 없는 번역 키를 보고합니다",
+  "Report where() values that the column's enum cast does not have": "컬럼의 enum 캐스트에 없는 where() 값을 보고합니다",
+  "Show code that breaks on the next Laravel major version": "다음 Laravel 메이저 버전에서 깨지는 코드를 표시합니다"
 }

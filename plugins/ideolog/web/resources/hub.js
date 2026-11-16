@@ -129,6 +129,23 @@
     if(toolbar && overflow) b.dataset.uiToolbarOverflow="";
     b.addEventListener("click", () => {if(targetView !== state.activeView)return;flushForm();event({ kind: "button", key: button.key },targetView);}); return b;
   }
+  function groupMenu(group, buttons) {
+    const targetView=state.activeView,members=(group.items || []).map(key=>buttons.find(b=>b.key === key)).filter(Boolean);
+    const id=`toolbar-menu-${group.id}`,title=tr(`toolbar.${group.id}`,group.label);
+    const trigger=element("button");trigger.type="button";trigger.setAttribute("popovertarget",id);trigger.setAttribute("aria-haspopup","menu");trigger.title=title;
+    trigger.append(element("span",title,"action-label"));
+    const icon=viewIcon(group.icon);if(icon)trigger.prepend(icon);
+    const chevron=viewIcon("chevron-down");if(chevron)trigger.append(chevron);
+    const menu=element("div");menu.id=id;menu.dataset.uiMenu="";menu.setAttribute("popover","manual");menu.setAttribute("aria-label",title);
+    for(const b of members) {
+      const item=element("button");item.type="button";item.setAttribute("role","menuitem");
+      const label=tr(`action.${b.key}`,b.label),content=element("span",null,"ui-menu-label"),glyph=viewIcon(b.icon) || element("span",null,"view-icon");
+      glyph.setAttribute("aria-hidden","true");content.append(glyph,document.createTextNode(label));item.append(content);item.title=label;
+      item.addEventListener("click",()=>{if(targetView !== state.activeView)return;flushForm();event({ kind: "button", key: b.key },targetView);});
+      menu.append(item);
+    }
+    return [trigger,menu];
+  }
   function header() {
     const model = state.model; document.title = model.title;
     document.querySelector("main").setAttribute("aria-label", model.title);
@@ -163,10 +180,21 @@
     // Only producer-declared actions belong in the toolbar. Invalidation keeps
     // local content current without adding a generic Refresh action.
     const inlineButtons=new Set(model.body.kind === "form" ? model.body.fields.flatMap(field=>model.fieldActions?.[field.key]?.button || []) : []);
-    const toolbarButtons=model.toolbar.filter(b => b.enabled && !b.key.startsWith("section:") && !inlineButtons.has(b.key)).map(b=>actionButton(b,true));
+    const visibleButtons=model.toolbar.filter(b => b.enabled && !b.key.startsWith("section:") && !inlineButtons.has(b.key));
+    const groupOf=new Map();
+    for(const group of Array.isArray(model.toolbarGroups) ? model.toolbarGroups : [])for(const key of group.items || [])if(!groupOf.has(key))groupOf.set(key,group);
+    const emittedGroups=new Set(),toolbarButtons=[];
+    for(const b of visibleButtons) {
+      const group=groupOf.get(b.key);
+      if(!group){toolbarButtons.push(actionButton(b,true));continue;}
+      if(emittedGroups.has(group.id))continue;
+      emittedGroups.add(group.id);
+      toolbarButtons.push(...groupMenu(group,visibleButtons));
+    }
     const toolbarOrder=button=>button.hasAttribute("data-ui-toolbar-overflow") ? 2 : Number(button.classList.contains("ui-toolbar-end"));
     toolbarButtons.sort((a,b)=>toolbarOrder(a)-toolbarOrder(b));
     $("toolbar").replaceChildren(...toolbarButtons);
+    if(emittedGroups.size)window.uiKitWidgets?.enhance($("toolbar"));
     $("search").value = queryState().query;
     $("search").placeholder = typeof model.body.searchPlaceholder === "string" ? tr(`search.${state.activeView}`,model.body.searchPlaceholder) : tr("shared.searchPlaceholder","Search…");
   }
@@ -330,9 +358,16 @@
         });
       }
     } else if(q.sort) visible.sort(compare);
+    const groupBy=body.kind === "resources" && Number.isInteger(body.groupBy) ? body.groupBy : null;
+    if(groupBy !== null) {
+      const groupOf=row=>String(row.cells[groupBy] || "");
+      const order=[...new Set(visible.map(groupOf))].sort((a,b)=>a.localeCompare(b));
+      visible.sort((a,b)=>order.indexOf(groupOf(a))-order.indexOf(groupOf(b)));
+    }
     const pages = body.kind === "tree" ? 1 : Math.max(1,Math.ceil(visible.length / 100)); q.page = Math.min(q.page,pages-1);
     const table = element("table",null,body.kind === "resources" ? "resources" : ""); const head = element("thead"); const headings = element("tr");
-    columns.forEach((label,column) => { const th = element("th"); const b = element("button", columnLabel(label));
+    const displayed=Array.isArray(body.displayColumns) ? new Set(body.displayColumns) : null;
+    columns.forEach((label,column) => { if(displayed && !displayed.has(column)) return; const th = element("th"); const b = element("button", columnLabel(label));
       const style=body.columnStyles?.[column];if(["code","text","muted","locale"].includes(style))th.classList.add(`resource-${style}`);
       if(q.sort?.column === column) {
         b.append(viewIcon(q.sort.descending ? "arrow-12px-down" : "arrow-12px-up"));
@@ -346,14 +381,31 @@
     }
     head.append(headings); table.append(head); const tbody = element("tbody"); let rowIndex=0;
     if(body.kind === "tree") {table.classList.add("resource-tree");if(columns.length === 1)table.classList.add("resource-tree--plain");}
-    const shownRows=body.kind === "tree" ? visible : visible.slice(q.page*100,(q.page+1)*100);
+    const pageRows=body.kind === "tree" ? visible : visible.slice(q.page*100,(q.page+1)*100);
+    const collapsed=q.collapsed || (q.collapsed=new Set()), groupCounts=new Map();
+    if(groupBy !== null) for(const row of visible) groupCounts.set(String(row.cells[groupBy] || ""),(groupCounts.get(String(row.cells[groupBy] || ""))||0)+1);
+    const shownRows=groupBy === null ? pageRows : pageRows.filter(row=>!collapsed.has(String(row.cells[groupBy] || "")));
     const tabStop=shownRows.find(row=>row.key === q.selected)?.key || shownRows[0]?.key;
     const selectVisible=(row,focus=false,scroll=false)=>{
       if(!current())return;
       select(row,body);
       for(const node of tbody.querySelectorAll('tr')) {const active=node.dataset.resourceKey === row.key;node.setAttribute("aria-selected",String(active));node.tabIndex=active ? 0:-1;if(active && focus){node.focus({preventScroll:true});if(scroll)node.scrollIntoView({block:"nearest",inline:"nearest"});}}
     };
-    for (const row of shownRows) {
+    let lastGroup=null;
+    for (const row of pageRows) {
+      if(groupBy !== null) {
+        const group=String(row.cells[groupBy] || "");
+        if(group !== lastGroup) {
+          lastGroup=group;
+          const open=!collapsed.has(group), header=element("tr",null,"resource-group"), th=element("th");
+          th.colSpan=displayed ? displayed.size : columns.length;th.setAttribute("scope","rowgroup");
+          const toggle=element("button",null,"resource-group-toggle");toggle.type="button";toggle.setAttribute("aria-expanded",String(open));
+          toggle.append(viewIcon(open ? "chevron-12px-down" : "chevron-12px-right"),element("span",group || "—","resource-group-label"),element("span",String(groupCounts.get(group)),"resource-group-count"));
+          toggle.addEventListener("click",()=>{if(open)collapsed.add(group);else collapsed.delete(group);renderBody();});
+          th.append(toggle);header.append(th);tbody.append(header);
+        }
+        if(collapsed.has(group)) continue;
+      }
       const tr = element("tr"); tr.tabIndex = row.key === tabStop ? 0:-1; tr.setAttribute("aria-selected",String(row.key === q.selected));
       const menuId = `resource-menu-${rowIndex++}`;
       tr.dataset.resourceKey = row.key; tr.dataset.uiContext = menuId; tr.setAttribute("aria-haspopup","menu");
@@ -369,15 +421,16 @@
       };
       tr.addEventListener("contextmenu",contextSelect);
       tr.addEventListener("keydown",e=>{if(e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) contextSelect(e);});
-      row.cells.forEach((cell,i) => { const td = element("td", cell); if (body.kind === "resources") { const badge = cellBadge(columns[i],cell); if (badge) td.replaceChildren(badge); else td.className = "mono"; }
+      row.cells.forEach((cell,i) => { if(displayed && !displayed.has(i)) return; const td = element("td", cell); if (body.kind === "resources") { const badge = groupBy === null ? cellBadge(columns[i],cell) : null; if (badge) td.replaceChildren(badge); else td.className = "mono"; }
         else if (["tree","list"].includes(body.kind) && i === 1 && row.method) { const badges = methodBadges(row.method); if (badges) td.replaceChildren(badges, document.createTextNode(cell ? ` ${cell}` : "")); else td.textContent = `${row.method} ${cell}`; }
-        const style=body.columnStyles?.[i];
+        const style=groupBy !== null && i > 0 ? "muted" : body.columnStyles?.[i];
+        if(groupBy !== null && i === 0) td.classList.add("resource-grouped");
         if(["code","text","muted","locale"].includes(style)){td.classList.remove("mono");td.classList.add(`resource-${style}`);td.title=String(cell);const value=element("span",null,"resource-cell-value");value.append(...td.childNodes);td.append(value);}
         if(i === 0 && body.kind === "resources" && body.showRowIcons === true){
           const line=element("span",null,"resource-identity"),label=element("span",cell,"resource-cell-label"),icon=viewIcon(row.icon);
           if(icon)line.append(icon);line.append(label);td.replaceChildren(line);
         }
-        if(["Kind","Type","Method","Severity","Ecosystem"].includes(columns[i]) && /^[\p{L}\p{N}_-]{1,24}$/u.test(String(cell))) td.classList.add("category");
+        if(groupBy === null && ["Kind","Type","Method","Severity","Ecosystem"].includes(columns[i]) && /^[\p{L}\p{N}_-]{1,24}$/u.test(String(cell))) td.classList.add("category");
         if (i === 0 && body.kind === "list") {
           const icon = viewIcon(row.icon); if (icon) td.prepend(icon);
         }
@@ -432,7 +485,7 @@
       const nodes=[...tbody.querySelectorAll('tr')],next=nodes.find(node=>node.dataset.resourceKey === focusedKey) || nodes.find(node=>node.dataset.resourceKey === q.selected) || nodes.find(node=>node.tabIndex === 0);
       next?.focus({preventScroll:true});
     }
-    $("status").textContent = tr("shared.resourceCount","{visible} of {total} resources",{visible:visible.length,total:rows.length})+(body.totalRows>rows.length?" "+tr("shared.availableCount","({count} available)",{count:body.totalRows}):"")+(state.model.status?` · ${state.model.status}`:"");
+    $("status").textContent = tr("shared.resourceCount","{visible} of {total} resources",body.kind === "tree" ? {visible:visible.filter(row=>!row.parent).length,total:rows.filter(row=>!row.parent).length} : {visible:visible.length,total:rows.length})+(body.totalRows>rows.length?" "+tr("shared.availableCount","({count} available)",{count:body.totalRows}):"")+(state.model.status?` · ${state.model.status}`:"");
   }
   function inlineActionState(model) {
     const keys=Object.values(model?.fieldActions || {}).map(action=>action.button);
@@ -514,18 +567,18 @@
     // and local theme defaults override the managed kit controls/theme.
     for(const style of parsed.querySelectorAll("style")) {style.textContent=`@layer ui-legacy {${style.textContent.replace(/:root|\bhtml\b|\bbody\b/g,":host")}}`;}
     shadow.append(...Array.from(parsed.head.children),...Array.from(parsed.body.childNodes));$("content").replaceChildren(host);$("details").close();
-    if(shadow.querySelector("[data-command-workspace], [data-generator-workspace]"))host.classList.add("command-workspace-host");
+    if(shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-database-workspace]"))host.classList.add("command-workspace-host");
     // Syntax overlays have a matching pre/textarea geometry and must stay raw.
     shadow.querySelector("#src")?.setAttribute("data-ui-raw", "");
     window.uiKitControls?.enhance(shadow);
     const targetView=state.activeView,generation=state.generation;
     const bridge={project:state.project,postMessage:value=>{if(state.generation === generation) event({kind:"message",value},targetView);},onMessage:callback=>state.listeners.push(message=>{if(state.generation === generation) callback(message);}),saveFile:options=>window.openidea.saveFile(options),openFile:options=>window.openidea.openFile(options)};
-    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-managed-processes]")) {
+    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-managed-processes], [data-database-workspace]")) {
       const runtimeBridge={...bridge,postMessage:value=>{
         if(state.generation !== generation || !window.openidea) return;
         openidea.postMessage(JSON.stringify({op:"opaque-message",message:value,channel:"ui-kit",frameId,clientLocale:window.uiKitI18n?.locale,sequence:0,targetView,project:state.project}));
       }};
-      const adapter=shadow.querySelector("[data-generator-workspace]") ? window.uiKitGeneratorWorkspace : shadow.querySelector("[data-managed-processes]") ? window.uiKitManagedProcesses : shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace : window.uiKitRuntimeControls;
+      const adapter=shadow.querySelector("[data-generator-workspace]") ? window.uiKitGeneratorWorkspace : shadow.querySelector("[data-database-workspace]") ? window.uiKitDatabaseWorkspace : shadow.querySelector("[data-managed-processes]") ? window.uiKitManagedProcesses : shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace : window.uiKitRuntimeControls;
       state.cleanup=adapter?.mount(shadow,runtimeBridge) || null;
     }
     else if(shadow.querySelector("svg .n[data-id]")) shadow.querySelectorAll(".n[data-id]").forEach(node=>{const open=()=>bridge.postMessage(node.dataset.id);node.addEventListener("click",open);node.addEventListener("keydown",e=>{if(e.key === "Enter" || e.key === " "){e.preventDefault();open();}});});

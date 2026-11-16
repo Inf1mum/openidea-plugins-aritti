@@ -358,9 +358,16 @@
         });
       }
     } else if(q.sort) visible.sort(compare);
+    const groupBy=body.kind === "resources" && Number.isInteger(body.groupBy) ? body.groupBy : null;
+    if(groupBy !== null) {
+      const groupOf=row=>String(row.cells[groupBy] || "");
+      const order=[...new Set(visible.map(groupOf))].sort((a,b)=>a.localeCompare(b));
+      visible.sort((a,b)=>order.indexOf(groupOf(a))-order.indexOf(groupOf(b)));
+    }
     const pages = body.kind === "tree" ? 1 : Math.max(1,Math.ceil(visible.length / 100)); q.page = Math.min(q.page,pages-1);
     const table = element("table",null,body.kind === "resources" ? "resources" : ""); const head = element("thead"); const headings = element("tr");
-    columns.forEach((label,column) => { const th = element("th"); const b = element("button", columnLabel(label));
+    const displayed=Array.isArray(body.displayColumns) ? new Set(body.displayColumns) : null;
+    columns.forEach((label,column) => { if(displayed && !displayed.has(column)) return; const th = element("th"); const b = element("button", columnLabel(label));
       const style=body.columnStyles?.[column];if(["code","text","muted","locale"].includes(style))th.classList.add(`resource-${style}`);
       if(q.sort?.column === column) {
         b.append(viewIcon(q.sort.descending ? "arrow-12px-down" : "arrow-12px-up"));
@@ -374,14 +381,31 @@
     }
     head.append(headings); table.append(head); const tbody = element("tbody"); let rowIndex=0;
     if(body.kind === "tree") {table.classList.add("resource-tree");if(columns.length === 1)table.classList.add("resource-tree--plain");}
-    const shownRows=body.kind === "tree" ? visible : visible.slice(q.page*100,(q.page+1)*100);
+    const pageRows=body.kind === "tree" ? visible : visible.slice(q.page*100,(q.page+1)*100);
+    const collapsed=q.collapsed || (q.collapsed=new Set()), groupCounts=new Map();
+    if(groupBy !== null) for(const row of visible) groupCounts.set(String(row.cells[groupBy] || ""),(groupCounts.get(String(row.cells[groupBy] || ""))||0)+1);
+    const shownRows=groupBy === null ? pageRows : pageRows.filter(row=>!collapsed.has(String(row.cells[groupBy] || "")));
     const tabStop=shownRows.find(row=>row.key === q.selected)?.key || shownRows[0]?.key;
     const selectVisible=(row,focus=false,scroll=false)=>{
       if(!current())return;
       select(row,body);
       for(const node of tbody.querySelectorAll('tr')) {const active=node.dataset.resourceKey === row.key;node.setAttribute("aria-selected",String(active));node.tabIndex=active ? 0:-1;if(active && focus){node.focus({preventScroll:true});if(scroll)node.scrollIntoView({block:"nearest",inline:"nearest"});}}
     };
-    for (const row of shownRows) {
+    let lastGroup=null;
+    for (const row of pageRows) {
+      if(groupBy !== null) {
+        const group=String(row.cells[groupBy] || "");
+        if(group !== lastGroup) {
+          lastGroup=group;
+          const open=!collapsed.has(group), header=element("tr",null,"resource-group"), th=element("th");
+          th.colSpan=displayed ? displayed.size : columns.length;th.setAttribute("scope","rowgroup");
+          const toggle=element("button",null,"resource-group-toggle");toggle.type="button";toggle.setAttribute("aria-expanded",String(open));
+          toggle.append(viewIcon(open ? "chevron-12px-down" : "chevron-12px-right"),element("span",group || "—","resource-group-label"),element("span",String(groupCounts.get(group)),"resource-group-count"));
+          toggle.addEventListener("click",()=>{if(open)collapsed.add(group);else collapsed.delete(group);renderBody();});
+          th.append(toggle);header.append(th);tbody.append(header);
+        }
+        if(collapsed.has(group)) continue;
+      }
       const tr = element("tr"); tr.tabIndex = row.key === tabStop ? 0:-1; tr.setAttribute("aria-selected",String(row.key === q.selected));
       const menuId = `resource-menu-${rowIndex++}`;
       tr.dataset.resourceKey = row.key; tr.dataset.uiContext = menuId; tr.setAttribute("aria-haspopup","menu");
@@ -397,15 +421,16 @@
       };
       tr.addEventListener("contextmenu",contextSelect);
       tr.addEventListener("keydown",e=>{if(e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) contextSelect(e);});
-      row.cells.forEach((cell,i) => { const td = element("td", cell); if (body.kind === "resources") { const badge = cellBadge(columns[i],cell); if (badge) td.replaceChildren(badge); else td.className = "mono"; }
+      row.cells.forEach((cell,i) => { if(displayed && !displayed.has(i)) return; const td = element("td", cell); if (body.kind === "resources") { const badge = groupBy === null ? cellBadge(columns[i],cell) : null; if (badge) td.replaceChildren(badge); else td.className = "mono"; }
         else if (["tree","list"].includes(body.kind) && i === 1 && row.method) { const badges = methodBadges(row.method); if (badges) td.replaceChildren(badges, document.createTextNode(cell ? ` ${cell}` : "")); else td.textContent = `${row.method} ${cell}`; }
-        const style=body.columnStyles?.[i];
+        const style=groupBy !== null && i > 0 ? "muted" : body.columnStyles?.[i];
+        if(groupBy !== null && i === 0) td.classList.add("resource-grouped");
         if(["code","text","muted","locale"].includes(style)){td.classList.remove("mono");td.classList.add(`resource-${style}`);td.title=String(cell);const value=element("span",null,"resource-cell-value");value.append(...td.childNodes);td.append(value);}
         if(i === 0 && body.kind === "resources" && body.showRowIcons === true){
           const line=element("span",null,"resource-identity"),label=element("span",cell,"resource-cell-label"),icon=viewIcon(row.icon);
           if(icon)line.append(icon);line.append(label);td.replaceChildren(line);
         }
-        if(["Kind","Type","Method","Severity","Ecosystem"].includes(columns[i]) && /^[\p{L}\p{N}_-]{1,24}$/u.test(String(cell))) td.classList.add("category");
+        if(groupBy === null && ["Kind","Type","Method","Severity","Ecosystem"].includes(columns[i]) && /^[\p{L}\p{N}_-]{1,24}$/u.test(String(cell))) td.classList.add("category");
         if (i === 0 && body.kind === "list") {
           const icon = viewIcon(row.icon); if (icon) td.prepend(icon);
         }

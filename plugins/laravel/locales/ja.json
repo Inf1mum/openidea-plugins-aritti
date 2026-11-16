@@ -164,5 +164,11 @@
   "Laravel: Hide Cloud Variables": "Laravel: Cloud 変数の値を隠す",
   "Laravel: Import Cloud Database Connection…": "Laravel: Cloud データベース接続をインポート…",
   "Read Cloud applications, environments, variables, deployment logs and database connection metadata.": "Cloud のアプリケーション、環境、変数、デプロイログ、データベース接続メタデータを読み取ります。",
-  "Laravel: Open Cloud Environment Domain": "Laravel: Cloud 環境のドメインを開く"
+  "Laravel: Open Cloud Environment Domain": "Laravel: Cloud 環境のドメインを開く",
+  "Laravel: Search Names…": "Laravel: 名前を検索…",
+  "Laravel: Send Request (Executes Project PHP)": "Laravel: リクエストを送信 (プロジェクトの PHP を実行)",
+  "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL": "create()、update()、fill() にフィルターなしで渡されるリクエストデータと、生の SQL 内の変数を報告します",
+  "Report translation keys that some locales have and others lack": "一部のロケールにあり、他のロケールにない翻訳キーを報告します",
+  "Report where() values that the column's enum cast does not have": "列の enum キャストに存在しない where() の値を報告します",
+  "Show code that breaks on the next Laravel major version": "次の Laravel メジャーバージョンで動作しなくなるコードを表示します"
 }
