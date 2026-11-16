@@ -52,13 +52,3 @@ through view ticks, view/config completion, go to definition, missing-view diagn
 and the "create missing view" quick fix applied as a native workspace edit and removed
 by native grouped Undo. The web hub is not rendered headlessly (the host returns a
 fallback message), so tabs and their interactions still need the desktop.
-
-## JPA Assist released-host runner (headless)
-
-`jpa_assist` installs the freshly built `plugins/jpa-assist` into a private host and drives scripted prompts, previews, native edits and Undo against a disposable fixture copy (needs plugin API 1.5):
-
-```sh
-(cd plugins/jpa-assist && openidea-plugin build)
-cargo build --manifest-path scripts/runtime-smoke/Cargo.toml --bins
-target/debug/jpa_assist "$PWD" /tmp/jpa-assist-out plugins/jpa-assist/parity/fixtures/boot-jpa-java-jakarta
-```

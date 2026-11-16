@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Wrong-namespace variant: jakarta schema while every entity imports javax.persistence.
-     Swap in as src/main/resources/META-INF/persistence.xml to see jpa-persistence-namespace. -->
-<persistence xmlns="https://jakarta.ee/xml/ns/persistence" version="3.0">
-    <persistence-unit name="libraryPu">
-        <class>com.example.library.domain.Author</class>
-        <exclude-unlisted-classes>true</exclude-unlisted-classes>
-    </persistence-unit>
-</persistence>

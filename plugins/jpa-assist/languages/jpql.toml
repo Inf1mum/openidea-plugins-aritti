@@ -1,4 +1,0 @@
-id = "jpql"
-name = "Jakarta Persistence Query Language"
-extensions = []
-indent = { tab-size = 4, insert-spaces = true }

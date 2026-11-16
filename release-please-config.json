@@ -61,12 +61,6 @@
         "plugin.toml"
       ]
     },
-    "plugins/jpa-assist": {
-      "component": "jpa-assist",
-      "extra-files": [
-        "plugin.toml"
-      ]
-    },
     "plugins/kube-explorer": {
       "component": "kube-explorer",
       "extra-files": [

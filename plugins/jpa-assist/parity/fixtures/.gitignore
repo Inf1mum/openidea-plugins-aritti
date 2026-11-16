@@ -1,7 +1,0 @@
-target/
-build/
-.gradle/
-node_modules/
-*.jar
-*.class
-out/
