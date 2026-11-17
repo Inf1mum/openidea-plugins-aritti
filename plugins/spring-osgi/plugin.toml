@@ -5,7 +5,7 @@ description = "Spring Dynamic Modules (Spring OSGi) support for Spring XML files
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Setting to turn the checks off, and XML checks work without extra permissions, also in files with a DOCTYPE or character entities, and are faster on large files; unresolved references are reported as plainer hints, completion lists matching implementations first, and Kotlin projects no longer get false 'No bean named' hints; diagnostics keep working after you open or save a file, re-read only that file, and survive one oversized or unparseable Java file; generating a bean asks you to save an unsaved file first and works on Windows drives, with one name per command and clearer permission messages. \
+Next release: Setting to turn the checks off, and XML checks work without extra permissions, also in files with a DOCTYPE or character entities, and are faster on large files; unresolved references are reported as plainer hints, completion lists matching implementations first, and Kotlin projects no longer get false 'No bean named' hints; diagnostics keep working after you open or save a file, re-read only that file, and survive one oversized or unparseable Java file; generating a bean asks you to save an unsaved file first and works on Windows drives, with one name per command and clearer permission messages, shown only for Spring OSGi files. \
 0.3.0: more XML checks and code generation with a preview. \
 0.2.0: plugin icon and service checks. \
 0.1.0: OSGi service and listener inspections with navigation and completion."""

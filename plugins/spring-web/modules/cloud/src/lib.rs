@@ -982,7 +982,7 @@ impl CloudTools {
         let mut gateway_files: Vec<_> = index.iter().filter(|(_, f)| !f.gateway_routes.is_empty()).collect();
         gateway_files.sort_by_key(|(path, _)| *path);
         if files.is_empty() && gateway_files.is_empty() {
-            let text = spring_text::index::empty_message("No Feign clients or supported Java Gateway routes found", scanning, note.as_deref());
+            let text = spring_text::index::empty_message("No Feign clients or Gateway routes found. Add an @FeignClient interface or a RouteLocator bean", scanning, note.as_deref());
             return View::message(&text).button(refresh);
         }
         let mut items = Vec::new();

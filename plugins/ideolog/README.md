@@ -25,7 +25,7 @@ A log viewer. It detects the log format, colours each event by level, folds mult
 - Each event is coloured by level (error, warning, info), stack trace included. The time column gets its own colour.
 - Multi-line events such as stack traces fold.
 - The structure view lists errors and warnings.
-- The status bar names the format (`Log: IntelliJ IDEA` or `Log: plain text`). Click it to open the patterns view.
+- The status bar names the format (`Log: IntelliJ IDEA` or `Log: plain text`). Click it to open the **Formats and Highlighting** tab.
 - On a large log, the status bar adds how much is coloured: `(first 1200 lines highlighted)` or `(too large to highlight)`. Over 512 KiB, its tooltip says folding, outline and stack-frame links are off.
 
 ### Spot pauses
@@ -44,7 +44,7 @@ An exception is an event whose text names an exception, or a Python traceback.
 
 The **Log Levels** panel sits beside each log editor (needs `editor.read`). It shows:
 
-- The detected format, and a **Formats & Highlighting** link to the patterns view.
+- The detected format, and a **Formats and Highlighting** link to that tab.
 - How many **Errors**, **Warnings**, **Exceptions**, **Info**, **Debug**, **Trace** and **All entries** the log has. A level the format can't write has no row: syslog finds only errors and warnings in the message, and Python `logging` has no trace level.
 - Up and down buttons on each row to go to the previous or next one. They move the caret of the focused log, so click in the log first.
 - **Show level** and **Filter in snapshot**: capture the focused log into the **Log Snapshot** table showing only that level. The editor can't fold or hide entries for a plugin, so the filter lives in the table.
@@ -67,7 +67,7 @@ Some colours don't show in the built-in **Log** editor yet. For full theme colou
 
 ### Add your own log formats
 
-Run **Ideolog: Custom Formats and Highlighting** to open the patterns view. It has **Log Formats** and **Highlighting** sections.
+Run **Ideolog: Formats and Highlighting** to open the **Formats and Highlighting** tab. It has **Log Formats** and **Highlighting** sections.
 
 1. Click **Add Format** for a new format, or **Add Highlighting** for a colour rule.
 2. Fill in the form. For formats: name, event regex, event-start regex, timestamp format (empty means automatic) and 0-based timestamp/level/category columns (`-1` means none).
@@ -99,7 +99,7 @@ Open logs pick up a change when you edit or reopen them.
 ### Follow a growing log (Java)
 
 1. Open a saved UTF-8 log from your project.
-2. Run **Ideolog: Open Live Log Tail** and click **Start**. Review and approve the Java session.
+2. Run **Ideolog: Open Live Log Tail** and click **Start**. Confirm **Follow app.log?**; the status line then reads *Following app.log (stops in 5 min)*.
 3. New complete lines appear in the panel. Type in the filter to keep matching lines, or check **Hide matches** to hide them.
 4. **Follow** keeps the newest line in view. **Stop** ends the session.
 
@@ -132,14 +132,14 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ideolog**; bind keys
 | **Ideolog: Go to Next Entry** | Moves to the next event. | none |
 | **Ideolog: Go to Previous Entry** | Moves to the previous event. | none |
 | **Ideolog: Extend Log Selection** | Grows the selection: field, line, event, document. | none |
-| **Ideolog: Custom Formats and Highlighting** | Opens the patterns view. | none |
+| **Ideolog: Formats and Highlighting** | Opens the **Formats and Highlighting** tab. | none |
 | **Ideolog: Highlight Selection** | Adds the selected text as a highlighting rule. Also in the editor context menu of log files. | none |
 | **Ideolog: Remove Custom Highlightings** | Asks for confirmation, then deletes all highlighting rules. Custom log formats are kept. | none |
-| **Ideolog: Capture Active Log Snapshot** | Captures the focused log into the **Log Snapshot** tab. | none |
+| **Ideolog: Capture Active Log Snapshot** | Captures the focused log into the **Log Snapshot** tab. Enabled in log editors. | none |
 | **Ideolog: Open Captured Log Snapshot** | Reopens the last snapshot. | none |
-| **Ideolog: Mark Current Log Source** | Paints errors, warnings and gaps in the built-in **Log** editor. | none |
+| **Ideolog: Mark Current Log Source** | Paints errors, warnings and gaps in the built-in **Log** editor. Enabled only there. | none |
 | **Ideolog: Clear Log Source Marks** | Removes those marks. | none |
-| **Ideolog: Capture JVM Regex and Date Observations** | Runs a custom format with Java and shows the result. | none |
+| **Ideolog: Capture JVM Regex and Date Observations** | Runs a custom format with Java and shows the result. Enabled in log editors. | none |
 | **Ideolog: Open Live Log Tail** | Opens the live tail panel for the focused log. | none |
 | **Ideolog: Stop Live Log Tail** | Stops a running live tail. | none |
 
@@ -152,7 +152,7 @@ Settings › Plugins › Ideolog.
 | Custom log formats and highlighting | `customPatterns` | empty | Pasted Ideolog `<LogParsingPattern>` and `<LogHighlightingPattern>` XML. |
 | Mark time gaps (seconds) | `timeGapSeconds` | `0` (off) | Colours the time of an event after a pause this long. |
 
-Patterns made in the patterns view are kept in plugin storage, not in this setting. They work without an open project.
+Patterns made in the Formats and Highlighting tab are kept in plugin storage, not in this setting. They work without an open project.
 
 ## Permissions
 
@@ -163,7 +163,7 @@ Every permission is optional. Colouring works with none. Allow them in Settings 
 | `editor.read` | Reading the log and caret for navigation, snapshots, marks, **Highlight Selection** and the **Log Levels** panel. | Those commands fail and the panel doesn't show. |
 | `project.read` | Opening source files, finding the source for **Jump to Source**, snapshots and marks. | Navigation and snapshots fail. |
 | `events` | Following the focused editor for the status bar item and refreshing marks and caches. | The status bar item doesn't update. |
-| `storage` | Saving patterns from the patterns view. | You can't save patterns there; the Settings text still works. |
+| `storage` | Saving patterns from the Formats and Highlighting tab. | You can't save patterns there; the Settings text still works. |
 | `process:java` | **Ideolog: Capture JVM Regex and Date Observations** and **Ideolog: Open Live Log Tail**. | Those two fail; everything else works. |
 
 ## Troubleshooting
@@ -179,7 +179,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Not a log file." | Focus a file of type **Log** or **Log (Ideolog)**. |
 | "Select some text on one line to highlight." | **Highlight Selection** works on one line only. |
 | "Pattern not added: …" | Fix the reason shown, then try again. |
-| A change in the patterns view won't save | Allow `storage`. If another window changed the patterns, reopen the view and edit again. |
+| A change in the Formats and Highlighting tab won't save | Allow `storage`. If another window changed the patterns, reopen the view and edit again. |
 | "Focus a Log editor, then Capture Active Log Snapshot." | Click into the log editor first. |
 | "This log is … KiB; snapshots are limited to 256 KiB and 8192 lines. Use the log editor for larger files." | Read the log in the editor, or capture a smaller excerpt. |
 | "Click in this log first: the panel moves the caret of the focused editor." | Click in the log, then use the **Log Levels** buttons again. |
@@ -187,11 +187,12 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Ideolog commands are missing from Search Everywhere | Navigation and **Highlight Selection** show only while a log editor has focus. |
 | The status bar says `(too large to highlight)` or `(first … lines highlighted)` | Colouring stops at the first very long line or after 512 KiB. The **Go to** commands and **Log Levels** buttons still search the whole log. |
 | "Snapshot source changed; capture again before following a row." | Run **Ideolog: Capture Active Log Snapshot** again. |
-| "Add or import a custom Ideolog LogParsingPattern first. …" | JVM capture needs a custom format. Add one in the patterns view or Settings. |
+| "Add or import a custom Ideolog LogParsingPattern first. …" | JVM capture needs a custom format. Add one in the Formats and Highlighting tab or Settings. |
 | "JVM observations support a nonempty log up to 64KiB/512 lines, each at most 4096 bytes." | Use a smaller log or an excerpt. |
-| "Live tail requires an owned project log without unsaved edits." | Save the log and make sure it is inside the open project. |
-| "Tail stopped because the source has unsaved edits." | Save or revert the log, then click **Start** again. |
-| "Stop the active tail before starting another source." | Click **Stop**, or run **Ideolog: Stop Live Log Tail**. |
+| "Live tail follows saved log files of this project…" | Save the log and make sure it is inside the open project. |
+| "Live tail stopped: the log has unsaved edits…" | Save or revert the log, then click **Start** again. |
+| "Stop the current live tail before starting another." | Click **Stop**, or run **Ideolog: Stop Live Log Tail**. |
+| "Live tail needs the process:java permission…" | Allow `process:java` in Settings › Plugins › Ideolog. Capture JVM Regex and Date Observations shows the same message. |
 | A timestamp format is rejected | Use the supported numeric fields listed in Technical details. Quote literal letters. |
 
 ## Limitations
@@ -239,7 +240,7 @@ Zones are ignored. Supported ISO `Z`, `±HH:MM` and `±HHMM` offsets are normali
 - Configuration is warmed outside the semantic request during activation, log focus/open and explicit pattern/capture work. Cold requests return no tokens, and external settings changes apply after that out-of-provider refresh.
 - Providers do no project discovery, file reads, pattern-storage reads or network requests. The custom `ideolog` language keeps its own lexical highlighting, folding and outline path (512 KiB limit).
 
-### Patterns view
+### Formats and Highlighting tab
 
 - Format UUIDs stay internal identities. Duplicate display names are disambiguated. Controls revalidate the rendered storage/layout before mutation.
 - Highlighting rules have a line/field/captured-match action, an optional column/format restriction (named format selector with Any log format; unknown imported restrictions stay labelled unavailable) and named colour choices.
@@ -248,7 +249,7 @@ Zones are ignored. Supported ISO `Z`, `±HH:MM` and `±HHMM` offsets are normali
 - A changed storage snapshot blocks Save so another window's intervening edit is preserved. The SDK has no storage compare-and-swap, so this can't make concurrent writes atomic across instances. Draft fields carry a fresh edit-session identity; controls kept by another window after Cancel/reopen are rejected.
 - Bounds: regex/attribute values 4096 bytes, format names 128 bytes, samples 8192 bytes with 4096-byte lines, saved storage 128 entries / 128 KiB. Samples use a bounded backtracking precheck; regex compilation and the parser aren't preemptible.
 - Legacy pasted XML in `customPatterns` stays supported alongside the form.
-- **Highlight Selection** doesn't import the text into the draft sample. Successful changes refresh only the patterns view, and only when persistent pattern text actually changes. Cancelled, failed or no-op commands emit no false change. Notifications contain no definition or sample payload.
+- **Highlight Selection** doesn't import the text into the draft sample. Successful changes refresh only the Formats and Highlighting tab, and only when persistent pattern text actually changes. Cancelled, failed or no-op commands emit no false change. Notifications contain no definition or sample payload.
 
 ### Timestamp formats
 

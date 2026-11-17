@@ -558,7 +558,7 @@ mod tests {
         host.add_file("artisan", "<?php");
         assert!(matches!(
             capture(&host.invocation(), &Index::default()),
-            Err(Error::Denied(_))
+            Err(Error::Invalid(message)) if message.contains("process:php permission")
         ));
         assert!(parse(&sample().replace("GET|HEAD", "SHELL"), &Index::default()).is_err());
     }

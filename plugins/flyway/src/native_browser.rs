@@ -20,7 +20,32 @@ impl Flyway {
         (path == selection.path && line == selection.line).then_some((path,line))
     }
 
+    /// Migration rows as real columns with Type/State facets for the packaged view; `None` for any other body.
+    pub(crate) fn migration_table(&self, body: &Body) -> Option<Body> {
+        let Body::Tree(items) = body else { return None };
+        let prefix = if items.first()?.key.starts_with("l:") { "l:" } else { "m:" };
+        if !items.iter().all(|item| item.parent.is_none() && item.key.starts_with(prefix)) {
+            return None;
+        }
+        let (columns, facets) = match prefix {
+            "l:" => (vec!["Version", "Description", "Type", "Problems"], vec![2]),
+            _ => (vec!["Version", "Description", "Type", "State", "Installed"], vec![2, 3]),
+        };
+        let rows: Vec<_> = items.iter().map(|item| {
+            let cells = self.row_cells.get(&item.key).cloned().unwrap_or_else(|| {
+                let mut cells = vec![String::new(); columns.len()];
+                cells[1] = item.label.clone();
+                if prefix == "m:" { cells[3] = item.detail.clone().unwrap_or_default(); }
+                cells
+            });
+            serde_json::json!({"key": item.key, "cells": cells, "icon": item.icon})
+        }).collect();
+        let data = serde_json::json!({"columns": columns, "facets": facets, "showRowIcons": true, "items": rows});
+        Some(Body::Other { kind: "resources".into(), data: data.to_string() })
+    }
+
     pub(crate) fn native_browser_view(&self, project: &Project, mut view: View) -> View {
+        let web = ui_kit::web::is_rendering();
         let query = owner(project).ok().and_then(|root| self.browser_filter.as_ref().filter(|(saved, _)| *saved == root).map(|(_, query)| query.as_str())).unwrap_or("");
         if let Body::Tree(items) = &mut view.body {
             let total = items.len();
@@ -38,7 +63,7 @@ impl Flyway {
             }
         }
         if let Body::Tree(items) = &mut view.body {
-            if query.is_empty() && !items.is_empty() && items.iter().all(|item| item.parent.is_none() && (item.key.starts_with("m:") || item.key.starts_with("l:"))) {
+            if query.is_empty() && !web && !items.is_empty() && items.iter().all(|item| item.parent.is_none() && (item.key.starts_with("m:") || item.key.starts_with("l:"))) {
                 let rows = std::mem::take(items);
                 // A detail "Problems · <message>" groups under "Problems".
                 let group_of = |row: &TreeItem| row.detail.as_deref().unwrap_or("Unknown").split(" · ").next().unwrap_or("Unknown").to_owned();
@@ -60,6 +85,9 @@ impl Flyway {
         if let Some((path,line)) = &selected {
             let label = path.rsplit('/').next().unwrap_or(path);
             view.status = Some(format!("{} · Selected: {}:{}", view.status.as_deref().unwrap_or_default(), label, line + 1));
+        }
+        if let Some(table) = self.migration_table(&view.body).filter(|_| web) {
+            view.body = table;
         }
         view.button(Button::new("browser-new", "New…").icon("plus"))
             .button(Button::new("browser-open", "Open").icon("file").enabled(selected.is_some()))
@@ -112,7 +140,7 @@ impl Flyway {
             ("copy-next-version", "Copy next migration version"),
             ("validate", "Validate…"),
             ("info", "Run Info…"),
-            ("status", "Command status"),
+            ("status", "Refresh command output"),
             ("review-comparison", "Review local comparison…"),
             ("migrate", "Migrate database…"),
             ("repair", "Repair schema history…"),
@@ -201,5 +229,21 @@ mod selection_tests {
         plugin.handle("migrations",ViewEvent::Collapse("state:Applied".into()),&host.invocation()).unwrap();
         let Body::Tree(items)=plugin.native_browser_view(&project,tree()).body else {panic!("tree")};
         assert!(!items[0].expanded);
+    }
+    #[test]
+    fn migration_rows_become_columns_with_type_and_state_facets() {
+        let mut plugin=Flyway::default();
+        plugin.row_cells.insert("m:0".into(),vec!["1".into(),"init".into(),"Versioned".into(),"Applied".into(),"2026-11-10".into()]);
+        let tree=Body::Tree(vec![TreeItem::new("m:0","V1 init").detail("Applied").icon("success"),TreeItem::new("m:1","V2 next").detail("Pending")]);
+        let Some(Body::Other{kind,data})=plugin.migration_table(&tree) else {panic!("resources")};
+        assert_eq!(kind,"resources");
+        let data:serde_json::Value=serde_json::from_str(&data).unwrap();
+        assert_eq!(data["columns"],serde_json::json!(["Version","Description","Type","State","Installed"]));
+        assert_eq!(data["facets"],serde_json::json!([2,3]));
+        assert_eq!(data["items"][0]["cells"],serde_json::json!(["1","init","Versioned","Applied","2026-11-10"]));
+        assert_eq!(data["items"][1]["cells"],serde_json::json!(["","V2 next","","Pending",""]));
+        assert_eq!(data["items"][0]["key"],"m:0");
+        let grouped=Body::Tree(vec![TreeItem::new("state:Applied","Applied"),TreeItem::new("m:0","V1").parent("state:Applied")]);
+        assert!(plugin.migration_table(&grouped).is_none());
     }
 }

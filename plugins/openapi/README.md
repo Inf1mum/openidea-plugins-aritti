@@ -101,7 +101,7 @@ Swagger UI 5.34.1 opens beside the text for `openapi.*`, `swagger.*`, `*.openapi
 ### Write HTTP requests
 
 - **OpenAPI: Write Requests for the HTTP Client** writes one request per operation to `<name>.http` beside the spec and opens it. It asks before replacing a file. The base URL comes from `servers[0].url` (OpenAPI 3) or `schemes`, `host` and `basePath` (Swagger 2), default `http://localhost`. Path parameters become `{{name}}` variables.
-- **OpenAPI: Copy as cURL** and **OpenAPI: Create HTTP Request File** do the same for one endpoint. They ask for the base URL, suggesting the spec's server the same way.
+- **OpenAPI: Copy as cURL** and **OpenAPI: Create HTTP Request File** do the same for one endpoint: the selected row in **OpenAPI Endpoints**, or one you pick from the project when run from Search Everywhere. They ask for the base URL, suggesting the spec's server the same way.
 
 ### Try a local request
 
@@ -115,7 +115,7 @@ It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `
 - **OpenAPI: Copy Reference to the Key at the Caret** copies `$ref: '#/components/schemas/Pet'` (or the JSON form) for the key under the caret.
 - **OpenAPI: Find Component Occurrences in This Document** lists the declaration and local references of a component. The Referenced by gutter icon (the OpenAPI Initiative logo) on a used component declaration opens the same local references.
 - **OpenAPI: Find Component Usages in Project** does the same across local and relative-file `$ref`s.
-- On a component key or `$ref`, ⌥⏎ › **Rename component in visible project sources…** renames it everywhere after you review the edit.
+- On a component key or `$ref`, ⌥⏎ › **Rename component across the project…** renames it everywhere after you review the edit.
 
 ### Compare specs
 
@@ -134,9 +134,9 @@ It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `
 
 1. Pick a generator from the installed list and an output folder.
 2. Review the plan. Generation runs in a staging folder (`.openidea/codegen-stage-*`) in a terminal.
-3. When it finishes, press ⌥⏎ in the spec › **Apply staged generated API directory…** to move it into place. One Undo reverses the move.
+3. When it finishes, a notification says so. Press ⌥⏎ in the spec › **Apply generated code…** to move it into place. One Undo reverses the move.
 
-**OpenAPI: Generate With Options or Templates…** adds generator options, a custom template folder, a template engine and an optional JSON config file. **OpenAPI: Clear Finished Code Generation** stops tracking a finished stage and leaves its files.
+**OpenAPI: Generate With Options or Templates…** adds generator options, a custom template folder, a template engine and an optional JSON config file. **OpenAPI: Stop Tracking Generated Code** forgets a finished generation you don't want to apply, so you can start another; its staging files stay.
 
 Input must be Swagger 2.0 or OpenAPI 3.0.
 
@@ -148,13 +148,13 @@ OpenAPI files get an OpenAPI file icon.
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **OpenAPI**; bind keys in Settings › Keymap. None has a default shortcut.
+Find them in Search Everywhere › Actions (⇧⇧) under **OpenAPI**; bind keys in Settings › Keymap. None has a default shortcut. Commands that work on the open spec are enabled only while an OpenAPI spec is focused.
 
 | Command | What it does |
 |---|---|
 | **OpenAPI: Write Requests for the HTTP Client** | Writes a `.http` file with one request per operation. |
-| **OpenAPI: Copy as cURL** | Copies a curl command for the selected endpoint. |
-| **OpenAPI: Create HTTP Request File** | Writes a `.http` file for the selected endpoint. |
+| **OpenAPI: Copy as cURL** | Copies a curl command for the selected endpoint, or one you pick. |
+| **OpenAPI: Create HTTP Request File** | Writes a `.http` file for the selected endpoint, or one you pick. |
 | **OpenAPI: Try Local GET/HEAD Request…** | Prepares a local GET/HEAD request to review and send once. |
 | **OpenAPI: Write Self-Contained Spec** | Writes a bundled copy with external `$ref`s inlined into `components`. |
 | **OpenAPI: Copy Reference to the Key at the Caret** | Copies a `$ref` to the key under the caret. |
@@ -167,7 +167,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **OpenAPI**; bind keys
 | **OpenAPI: Draft Spec from Source Mappings…** | Writes `openapi-draft.yaml` from your controllers. |
 | **OpenAPI: Generate Client, Server or Documentation…** | Runs `swagger-codegen` into a staging folder. |
 | **OpenAPI: Generate With Options or Templates…** | Same, with generator options and custom templates. |
-| **OpenAPI: Clear Finished Code Generation** | Stops tracking a finished stage. Files stay. |
+| **OpenAPI: Stop Tracking Generated Code** | Forgets a finished generation so you can start another. Files stay. |
 
 ## Settings
 
@@ -190,7 +190,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Op
 | `storage` | Remembers the endpoints list's Flat/Tree mode and tag filter, and the preview's Swagger UI or Redoc choice. | The list and the preview reset each session. |
 | `net:127.0.0.1` | Sending a **Try Local GET/HEAD Request…**. | The request isn't sent. |
 | `net:ask` | Try requests to a single `https://` server; the IDE asks per host. | Only `127.0.0.1` servers work. |
-| `process:swagger-codegen` | Code generation. | Generation commands fail. |
+| `process:swagger-codegen` | Code generation. | Generation commands say which permission to allow. |
 
 ## Troubleshooting
 
@@ -208,7 +208,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "No other OpenAPI file in this project to compare with." | Add the other spec to the project. |
 | "Request denied by the host: it needs the net:127.0.0.1 permission (net:ask for other hosts)…" | Allow `net:127.0.0.1` (or `net:ask` for https), then prepare the request again. |
 | "Only literal 127.0.0.1 with an explicit port, or an https host when net:ask is granted, is supported." | Make `servers` a single literal URL such as `http://127.0.0.1:8080`. |
-| "A staged generation is pending…" | Apply it with ⌥⏎ › **Apply staged generated API directory…**, or run **OpenAPI: Clear Finished Code Generation**. |
+| "Generated code is waiting to be applied…" | Apply it with ⌥⏎ › **Apply generated code…** in the spec, or run **OpenAPI: Stop Tracking Generated Code**. |
 | "No exportable Spring, JAX-RS or Micronaut mappings found…" | The draft found no controllers it can read. |
 
 ## Limitations

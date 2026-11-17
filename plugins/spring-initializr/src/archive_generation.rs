@@ -51,7 +51,7 @@ impl Launcher {
         let result=match self.missing_archive_capability() {Some(capability)=>Err(Error::Denied(capability.into())),None=>self.generate_reviewed_archive(ctx)};
         let Err(Error::Denied(capability))=result else {return result};
         if let Some(problem)=self.problem() {return Err(Error::Invalid(problem));}
-        Self::warn(&format!("Generate and Open needs the {capability} capability; downloading {}.zip in the browser instead.",self.get("artifactId")));
+        Self::warn(&format!("{} Downloading {}.zip in the browser instead.",ui_kit::denied::message("Generate and Open",&capability,"Spring Initializr Launcher"),self.get("artifactId")));
         host::open_url(&self.starter_url())?;
         Ok(None)
     }
@@ -225,7 +225,7 @@ mod tests {
         host.answer_next_prompt(Some(&["/outside"]));
         assert_eq!(launcher.generate_archive(&host.invocation()).unwrap(),None);
         assert!(host.opened_urls()[0].starts_with("https://start.spring.io/starter.zip?"));
-        assert!(host.notifications().iter().any(|n|n.body.contains("process:python3")));
+        assert!(host.notifications().iter().any(|n|n.body.contains("needs the process:python3 permission. Allow it in Settings › Plugins › Spring Initializr Launcher. Downloading")));
         assert!(host.opened_projects().is_empty());
     }
     #[test]

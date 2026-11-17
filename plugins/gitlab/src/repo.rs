@@ -47,11 +47,16 @@ pub fn offer_open(title: &str, body: &str, label: &str, path: &str) {
         host::notify(NotificationLevel::Info, title, body);
         return;
     }
+    let _ = host::set_context("pendingFolder", true);
 
     let actions = [NotificationAction::new(label, "open-pending-folder")];
     if host::notify_with_actions(NotificationLevel::Info, title, body, &actions).is_err() {
         host::notify(NotificationLevel::Info, title, body);
     }
+}
+
+pub fn has_pending_folder() -> bool {
+    storage::get(PENDING_OPEN_KEY).ok().flatten().is_some_and(|p| !p.is_empty())
 }
 
 /// The command behind the notification buttons: opens the offered folder in a new window.

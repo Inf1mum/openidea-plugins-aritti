@@ -261,12 +261,10 @@ impl DotEnv {
     }
 
     /// Shows the real value of the key under the caret, which hover and completion mask.
+    /// A dismissable list, not a notification: notifications stay in the history, which would unmask the value.
     fn show_value(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let editor = ctx.editor().ok_or("No file is open.")?;
-        let denied = |e: Error| match e {
-            Error::Denied(_) => Error::Invalid("Allow editor.read for .env files in Settings › Plugins".into()),
-            other => other,
-        };
+        let denied = |e: Error| ui_kit::denied::map(e, "Show Value at Caret", "editor.read", ".env files");
         let doc = editor.document().map_err(denied)?;
         let at = editor.selections().map_err(denied)?.first().map(|r| r.start).ok_or("No caret.")?;
         let doc = Document { path: editor.path(), language: editor.language(), version: doc.version, text: doc.text };
@@ -275,17 +273,24 @@ impl DotEnv {
             None => key_at(&doc, at).map(|k| doc.text[k].to_owned()).ok_or("Put the caret on an environment variable name.")?,
         };
         let unsaved = (doc.language == "dotenv").then_some(doc.text.as_str());
-        let mut lines: Vec<String> = self
-            .known(&doc.path, unsaved)
-            .into_iter()
-            .filter(|d| d.key == key)
-            .map(|d| format!("{}:{} = {}", index::file_name(&d.location.path), d.location.range.start.line + 1, d.value))
-            .collect();
-        lines.dedup();
-        if lines.is_empty() {
+        let mut found: Vec<Declaration> = self.known(&doc.path, unsaved).into_iter().filter(|d| d.key == key).collect();
+        found.dedup_by(|a, b| a.location == b.location && a.value == b.value);
+        if found.is_empty() {
             return Err(Error::NotFound(format!("No declaration of {key} found.")));
         }
-        host::notify(openidea_plugin::NotificationLevel::Info, &key, &lines.join("\n"));
+        let items: Vec<openidea_plugin::PickItem> = found
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let at = format!("{}:{}", index::file_name(&d.location.path), d.location.range.start.line + 1);
+                openidea_plugin::PickItem::new(&i.to_string(), &d.value).description(&at)
+            })
+            .collect();
+        let chosen = host::pick(&format!("{key}: pick one to open its declaration"), &items)?;
+        if let Some(d) = chosen.and_then(|i| i.parse::<usize>().ok()).and_then(|i| found.get(i)) {
+            let start = d.location.range.start;
+            host::open_location(&d.location.path, start.line, start.character)?;
+        }
         Ok(())
     }
 }
@@ -768,10 +773,20 @@ mod tests {
         host.add_file(".env", "DB_PASSWORD=hunter2\n");
         host.open_editor("/p/app.py", "python", "os.environ['DB_PASSWORD']", &[(0, 15, 0, 15)]);
         let mut plugin = DotEnv::default();
+        host.answer_next_prompt(Some(&["0"]));
         plugin.run_command("show-value", &host.invocation(), None).unwrap();
-        let notes = host.notifications();
-        assert_eq!(notes.len(), 1);
-        assert!(notes[0].title.contains("DB_PASSWORD") && notes[0].body.contains("hunter2"));
+        assert!(host.notifications().is_empty());
+        assert_eq!(host.opened_locations(), vec![("/p/.env".to_owned(), 0, 0)]);
+    }
+
+    #[test]
+    fn show_value_without_editor_read_names_the_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read", "events"]);
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "DB_PASSWORD=hunter2\n");
+        host.open_editor("/p/app.py", "python", "os.environ['DB_PASSWORD']", &[(0, 15, 0, 15)]);
+        let err = DotEnv::default().run_command("show-value", &host.invocation(), None).unwrap_err();
+        assert!(matches!(err, Error::Invalid(m) if m.contains("editor.read permission") && m.contains(".env files")));
     }
 
     #[test]

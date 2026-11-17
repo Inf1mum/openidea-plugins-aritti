@@ -343,7 +343,7 @@ impl Index {
                 }
                 index.templates.insert(
                     name,
-                    Entry { detail: Some("Plugin path hint · runtime loader unverified".into()), path, at: Position::new(0, 0) },
+                    Entry { detail: Some("Plugin path hint · may differ at runtime".into()), path, at: Position::new(0, 0) },
                 );
             }
         }

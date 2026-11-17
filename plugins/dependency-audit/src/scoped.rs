@@ -48,12 +48,12 @@ fn read(root: &str) -> Result<(Option<String>, Vec<Ignore>), Error> {
         return Ok((None, Vec::new()));
     };
     if value.len() > MAX_BYTES {
-        return Err(Error::Invalid("Scoped ignores exceed the storage bound; no suppression applied.".into()));
+        return Err(Error::Invalid("The ignored-findings list is too large to read (over 256 KiB); nothing is hidden.".into()));
     }
     let rows: Vec<Ignore> =
-        serde_json::from_str(value).map_err(|_| Error::Invalid("Scoped ignores are unreadable; no suppression applied.".into()))?;
+        serde_json::from_str(value).map_err(|_| Error::Invalid("The ignored-findings list is unreadable; nothing is hidden.".into()))?;
     if rows.len() > MAX_ENTRIES || rows.iter().any(|r| !valid(r)) {
-        return Err(Error::Invalid("Scoped ignores are invalid; no suppression applied.".into()));
+        return Err(Error::Invalid("The ignored-findings list is invalid; nothing is hidden.".into()));
     }
     Ok((raw, rows))
 }
@@ -135,7 +135,7 @@ fn selected(root: &str, report: &Report, key: &str) -> Result<Ignore, Error> {
 }
 fn summary(root: &str, r: &Ignore) -> String {
     format!(
-        "Project: {root}\nPackage: {} / {}\nVersion: {} (exact)\nAdvisory: {}\nKnown aliases: {}\nReason: {}\nRecorded: Unix {}\n\nScope is based on the retained scan snapshot, not a new dependency resolution. This is plugin-owned storage, separate from global ignoredAdvisories and native inspection profiles. It does not mark the package safe. No expiry is configured.",
+        "Project: {root}\nPackage: {} / {}\nVersion: {} (exact)\nAdvisory: {}\nKnown aliases: {}\nReason: {}\nRecorded: Unix {}\n\nThis applies only to this project and this exact version. It does not mark the package safe and does not expire.",
         r.ecosystem,
         r.name,
         r.version,
@@ -214,23 +214,25 @@ impl DependencyAudit {
         let (before, mut ignores) = read(&root)?;
         if id == "export-ignores" {
             if ignores.is_empty() {
-                return Ok(Some("No project-scoped ignores to export.".into()));
+                return Ok(Some("No ignored findings to export.".into()));
             }
             let path = format!("{root}/{PROFILE_FILE}");
             if project.exists(&path)? {
                 return Err(Error::Invalid(format!("{PROFILE_FILE} already exists; rename or delete it first. Nothing was overwritten.")));
             }
             let text = encode_profile(&ignores)?;
-            let review = format!("Write {} scoped ignore(s) (with reasons) to {path}.\nReview the file before committing it; it is not applied anywhere else.", ignores.len());
-            if !ui_kit::prompts::confirm_exact("Export scoped ignores?", &review)? {
+            let review = format!("Write {} ignored finding(s) (with reasons) to {path}.\nReview the file before committing it; it is not applied anywhere else.", ignores.len());
+            if !ui_kit::prompts::confirm_exact("Export ignored findings?", &review)? {
                 return Ok(None);
             }
             owner(ctx, &root)?;
             if project.exists(&path)? {
                 return Err(Error::Stale);
             }
-            project.write_file(&path, &text)?;
-            return Ok(Some(format!("Exported {} scoped ignore(s) to {PROFILE_FILE}.", ignores.len())));
+            project
+                .write_file(&path, &text)
+                .map_err(|e| ui_kit::denied::map(e, "Exporting ignored findings", "project.write", "Dependency Audit"))?;
+            return Ok(Some(format!("Exported {} ignored finding(s) to {PROFILE_FILE}.", ignores.len())));
         }
         if id == "import-ignores" {
             let path = format!("{root}/{PROFILE_FILE}");
@@ -247,17 +249,17 @@ impl DependencyAudit {
                 .map(|r| format!("{} {} {} / {} - {}", r.ecosystem, r.name, r.version, r.id, r.reason))
                 .collect::<Vec<_>>()
                 .join("\n");
-            if !ui_kit::prompts::confirm_exact("Import scoped ignores?", &format!("Add {added} new ignore(s) from {path}; existing entries are kept:\n{list}"))? {
+            if !ui_kit::prompts::confirm_exact("Import ignored findings?", &format!("Add {added} new ignore(s) from {path}; existing entries are kept:\n{list}"))? {
                 return Ok(None);
             }
             owner(ctx, &root)?;
             save(&root, &before, &merged)?;
             self.invalidate_report();
-            return Ok(Some(format!("Imported {added} scoped ignore(s).")));
+            return Ok(Some(format!("Imported {added} ignored finding(s).")));
         }
         if id == "review-ignores" {
             if ignores.is_empty() {
-                return Ok(Some("No project-scoped ignores are stored. Global ignoredAdvisories is a separate setting.".into()));
+                return Ok(Some("No ignored findings in this project. The Ignored advisories setting is separate.".into()));
             }
             let items: Vec<_> = ignores
                 .iter()
@@ -268,16 +270,16 @@ impl DependencyAudit {
                     description: Some(format!("{} · Unix {}", r.reason, r.at)),
                 })
                 .collect();
-            let Some(index) = host::pick("Review scoped ignores — select one to restore", &items)? else { return Ok(None) };
+            let Some(index) = host::pick("Ignored findings — select one to restore", &items)? else { return Ok(None) };
             let index = index.parse::<usize>().ok().filter(|i| *i < ignores.len()).ok_or(Error::Stale)?;
-            if !ui_kit::prompts::confirm_exact("Restore this scoped finding?", &summary(&root, &ignores[index]))? {
+            if !ui_kit::prompts::confirm_exact("Restore this ignored finding?", &summary(&root, &ignores[index]))? {
                 return Ok(None);
             }
             owner(ctx, &root)?;
             ignores.remove(index);
             save(&root, &before, &ignores)?;
             self.invalidate_report();
-            return Ok(Some("Scoped ignore restored. Retained report/cache evidence is visible again without a rescan; global ignoredAdvisories can still hide it.".into()));
+            return Ok(Some("Finding restored. It shows again in the last scan results; the Ignored advisories setting can still hide it.".into()));
         }
         let report_before = host::storage::get(&rows_key(&project)?)?;
         let report = stored_report(&project)?.ok_or(Error::Stale)?;
@@ -302,7 +304,7 @@ impl DependencyAudit {
         ignores.push(record);
         save(&root, &before, &ignores)?;
         self.invalidate_report();
-        Ok(Some("Exact finding ignored in this project. Evidence is retained; use Review scoped ignores to restore it. Global settings were not changed.".into()))
+        Ok(Some("Finding ignored in this project. Restore it with Dependency Audit: Review Ignored Findings…".into()))
     }
 }
 
@@ -338,7 +340,7 @@ mod tests {
         }
         assert!(!matches(&load("/another"), "PyPI", "example-pkg", "1.0.0", "GHSA-EXAMPLE", &[]));
         let body = summary("/project", &records[0]);
-        for text in ["/project", "PyPI", "example-pkg", "1.0.0", "GHSA-EXAMPLE", "CVE-2026-1234", "Tracked risk acceptance", "No expiry"] {
+        for text in ["/project", "PyPI", "example-pkg", "1.0.0", "GHSA-EXAMPLE", "CVE-2026-1234", "Tracked risk acceptance", "does not expire"] {
             assert!(body.contains(text), "{body}");
         }
         assert!(host.requests().is_empty());

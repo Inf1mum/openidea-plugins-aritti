@@ -425,15 +425,15 @@ impl Plugin for Main {
                     database::connect(&project)?;
                     self.connected_databases.insert(project.root()?);
                 }
-                host::notify(
-                    NotificationLevel::Info,
-                    "DDEV database",
-                    if native {
-                        "Data source configured with a secure credential. Database connection and introspection requested."
-                    } else {
-                        "Database permission unavailable: connection file maintained without credentials. Grant database.sources for secure setup and automatic connection, or enter the password in Database."
-                    },
-                );
+                let message = if native {
+                    "Data source configured with a secure credential. Database connection and introspection requested.".into()
+                } else {
+                    format!(
+                        "Connection saved without the password; enter it in Database. {}",
+                        ui_kit::denied::message("Saving the password and connecting automatically", "database.sources", "DDEV Integration")
+                    )
+                };
+                host::notify(NotificationLevel::Info, "DDEV database", &message);
             }
             "copy-db-password" => {
                 let db = database::connection(self.description(&project)?)?;
@@ -510,13 +510,13 @@ impl Plugin for Main {
                         Err(_) => self.cli_is_available(&project),
                     };
                     if !allowed {
-                        return Err(format!("DDEV: {id} requires a running project, or an installed CLI with configuration when status is unavailable.").into());
+                        return Err(format!("DDEV: {} needs a running project. Start it first, or Refresh Status if it was started outside the IDE.", command_name(id)).into());
                     }
                 }
                 if matches!(id, "share" | "shell")
                     && !runtime::allowed(self.description(&project)?, id)
                 {
-                    return Err(format!("DDEV: {id} is unavailable while the project is {}. Refresh status after external changes.", self.description(&project)?.status).into());
+                    return Err(format!("DDEV: {} can't run while the project is {}. Start it first, or Refresh Status if it was started outside the IDE.", command_name(id), self.description(&project)?.status).into());
                 }
                 let confirmation = match id {
                     "delete" => {
@@ -526,6 +526,13 @@ impl Plugin for Main {
                     "poweroff" => Some((
                         "Power off DDEV",
                         "Stop all DDEV projects and the shared router on this machine?".into(),
+                    )),
+                    "share" => Some((
+                        "Share DDEV project",
+                        format!(
+                            "Share {} on a public URL? Anyone with the link can reach the site until you stop sharing.",
+                            self.description(&project).map_or_else(|_| "this project".to_owned(), |d| d.name.clone())
+                        ),
                     )),
                     "config" => Some((
                         "Configure DDEV project",
@@ -596,6 +603,17 @@ fn run_json(project: &Project, command: &str) -> Result<String, Error> {
         .into());
     }
     Ok(output.stdout)
+}
+
+/// The command title after "DDEV: ", for errors that name the command.
+fn command_name(id: &str) -> &str {
+    match id {
+        "restart" => "Restart Project",
+        "stop" => "Stop Project",
+        "share" => "Share Project",
+        "shell" => "Open Shell",
+        other => other,
+    }
 }
 
 fn delete_question(name: Option<&str>, root: &str) -> String {

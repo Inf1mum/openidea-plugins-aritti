@@ -9,6 +9,7 @@ A monorepo of original plugins for [OpenIDEA](https://github.com/l0ng-ai/openide
 Project skills (in `.claude/skills/`) hold the platform knowledge. Load them instead of guessing APIs:
 - `writing-openidea-plugins`: manifest, capabilities, Rust SDK, host API, limits, packaging. `reference.md` is the full upstream doc.
 - `publishing-openidea-plugins`: release flow and pull request to the community registry `l0ng-ai/openidea-plugins`.
+- `openidea-plugin-ux`: interaction and copy rules (commands and `when`, confirms, permission messages, wording, empty states, settings, keymaps) and the usability review checklist.
 
 ## Layout
 
@@ -43,7 +44,7 @@ Release: `openidea-plugin pack plugins/<name> --key <path outside repo> --publis
 
 ## Rules
 
-- Plugin UI/UX: follow `.claude/skills/writing-openidea-plugins/ui-ux.md` when improving any plugin's UI. Laravel OpenIDEA is a reference for general interaction patterns across all our plugins: grouped navigation where useful, searchable/filterable tables with domain-specific columns, and contextual action forms/output. Adapt to each plugin's workflows; there is no Laravel-first requirement. Choose native or packaged web views to suit the workflow, reuse existing plugin logic and build shared components incrementally.
+- Plugin UI/UX: follow `.claude/skills/writing-openidea-plugins/ui-ux.md` for layout and panels, and the `openidea-plugin-ux` skill for anything a user sees or reads, when changing or reviewing any plugin. Laravel OpenIDEA is a reference for general interaction patterns across all our plugins: grouped navigation where useful, searchable/filterable tables with domain-specific columns, and contextual action forms/output. Adapt to each plugin's workflows; there is no Laravel-first requirement. Choose native or packaged web views to suit the workflow, reuse existing plugin logic and build shared components incrementally.
 
 - Plugin READMEs are user documentation: follow `.github/plugin-readme-template.md` (requirements, quick start, commands, settings, permissions, troubleshooting; limits and internals go under Technical details). Update the README in the same change as a user-visible feature.
 

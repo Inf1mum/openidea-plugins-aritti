@@ -38,7 +38,7 @@ pub fn run(
     } else {
         if choices.is_empty() {
             return Err(Error::Invalid(
-                "No admitted subscription or explicit SchemaMapping source is selected.".into(),
+                "No GraphQL subscription handler found in this file. Use a @SubscriptionMapping method, or a @SchemaMapping method on the Subscription type.".into(),
             ));
         }
         if choices.len() == 1 {

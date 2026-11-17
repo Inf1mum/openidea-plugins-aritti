@@ -37,10 +37,7 @@ impl Scope {
 
     pub(super) fn capture(context: Option<&str>, namespace: Option<&str>) -> Result<Self, Error> { Self::capture_in(context, namespace, None) }
     pub(super) fn capture_for_project(context: Option<&str>, namespace: Option<&str>, project: &Project) -> Result<Self, Error> {
-        Self::capture_in(context, namespace, Some(project)).map_err(|error| match error {
-            Error::Denied(_) | Error::Cancelled => error,
-            _ => Error::Failed("Selected Kubernetes scope could not be inspected; raw tool errors withheld.".into()),
-        })
+        Self::capture_in(context, namespace, Some(project)).map_err(|error| crate::tool_error("Reading the Kubernetes context", context, error))
     }
     fn capture_in(context: Option<&str>, namespace: Option<&str>, project: Option<&Project>) -> Result<Self, Error> {
         let config = config::kubeconfig();
@@ -466,10 +463,7 @@ impl KubeExplorer {
         let args = draft.scope.args(&["get", &draft.kind, name, "-o", jsonpath, REQUEST_TIMEOUT]);
         if let Some(root) = &draft.owner_root {
             let project = host::projects()?.into_iter().find(|p|p.root().ok().as_deref()==Some(root)).ok_or(Error::Stale)?;
-            Scope::read_in(&args,Some(&project)).map_err(|error|match error {
-                Error::Denied(_) | Error::Cancelled => error,
-                _ => Error::Failed("Forwarding resource metadata could not be inspected; raw tool errors withheld.".into()),
-            })
+            Scope::read_in(&args,Some(&project)).map_err(|error|crate::tool_error("Reading the ports to forward",Some(&draft.scope.context),error))
         } else { Scope::read(&args) }
     }
 

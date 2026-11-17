@@ -182,7 +182,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile, extended: &dyn Fn(&str) -> boo
         for command in &legacy {
             let a = command.annotation("ShellMethod").unwrap();
             if t.annotations.is_empty() && t.supers().next().is_none() && t.kind == "class" && !t.modifiers.iter().any(|m| m == "abstract") && !extended(&f.qualified(ti)) {
-                out.push(problem(range(text,command.at,command.at+command.name.len()),Severity::Warning,"missing-shell-component","Legacy command's unannotated enclosing class has no ShellComponent declaration. Registration through external/meta configuration is not inferred.".into()));
+                out.push(problem(range(text,command.at,command.at+command.name.len()),Severity::Warning,"missing-shell-component","This class has no @ShellComponent, so Spring Shell may not register its @ShellMethod commands. Ignore this if the class is registered another way.".into()));
             }
             let missing = a.arg("value").is_none()
                 || literals(a, "value").is_some_and(|s| s.len() == 1 && s[0].value.is_empty());
@@ -227,7 +227,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile, extended: &dyn Fn(&str) -> boo
                                 literal_range(text, values[0]),
                                 Severity::Warning,
                                 "availability-method-reference",
-                                "No local zero-argument indicator method has this literal name."
+                                "This class has no method with this name and no parameters."
                                     .into(),
                             ));
                         }
@@ -280,7 +280,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile, extended: &dyn Fn(&str) -> boo
                     })
                     .count();
                 if candidates > 1 {
-                    out.push(problem(range(text,command.at,command.at+command.name.len()),Severity::Error,"availability-ambiguous","Multiple literal named availability selectors apply to this command; no local higher-priority indicator is declared.".into()));
+                    out.push(problem(range(text,command.at,command.at+command.name.len()),Severity::Error,"availability-ambiguous","Several @ShellMethodAvailability methods name this command. Keep only one.".into()));
                 }
             }
         }
@@ -362,7 +362,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile, extended: &dyn Fn(&str) -> boo
                                 range(text, a.name_at, a.name_at + a.name.len()),
                                 Severity::Warning,
                                 "option-arity-range",
-                                "Literal arityMax is below arityMin; supported annotation registration normalizes the maximum upward."
+                                "arityMax is lower than arityMin. Spring Shell raises arityMax to arityMin."
                                     .into(),
                             ));
                         }

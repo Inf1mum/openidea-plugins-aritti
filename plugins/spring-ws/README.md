@@ -79,15 +79,15 @@ A `DefaultWsdl11Definition` bean shows `Published as /<bean name>.wsdl` in the g
 2. Press ⌥⏎ and choose **Create Spring-WS Endpoint for Element…**.
 3. Pick an existing Spring-WS endpoint package under `src/main/java`.
 4. Enter the class name (default `PayloadEndpoint`) and the method name (default `handlePayload`).
-5. Review the QName, target path and full Java source, then confirm.
+5. Review the element, the new file path and the full Java source, then confirm.
 
 The plugin creates one new Java file and opens it. It never overwrites a file. Cancel at any prompt and nothing changes.
 
 The class has a `public void` handler that takes an `org.w3c.dom.Element` and contains a TODO. It is a one-way scaffold: it sends no response.
 
-### Find where a QName is used
+### Find where an element is used
 
-Put the caret on a `@PayloadRoot` local name or an XSD/WSDL element name. Run **Spring WS: Find Observed QName Occurrences** and pick a result to open it. This is read-only and separate from Find Usages and Rename.
+Put the caret on a `@PayloadRoot` local name or an XSD/WSDL element name. Run **Spring WS: Find Element Usages** and pick a result to open it. This is read-only and separate from Find Usages and Rename.
 
 ## Commands
 
@@ -95,9 +95,20 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring WS**; bind ke
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Spring WS: Find Observed QName Occurrences** | Lists places in the project that use the QName under the caret, and opens the one you pick. | None |
-| **Spring WS: Refresh Source Models** | Rescans the project's XML, package and schema files now. Run it again if it reports the scan is incomplete. | None |
+| **Spring WS: Find Element Usages** | Lists places in the project that use the element under the caret, and opens the one you pick. | None |
+| **Spring WS: Refresh Schemas and Endpoints** | Rescans the project's XML, package and schema files now. Run it again if it reports the scan is incomplete. | None |
 | **Create Spring-WS Endpoint for Element…** (⌥⏎ in an `.xsd`) | Creates a new Java endpoint class for the element under the caret. | ⌥⏎ |
+
+## Settings
+
+Settings › Plugins › Spring Web Services Tools. Each check is on by default.
+
+| Setting | Key | Default | What it changes |
+|---|---|---|---|
+| Warn about @PayloadRoot elements missing from the schemas | `checkUnknownElements` | on | The **Unknown element** warning on a `localPart`. |
+| Report schema files missing from the resources | `checkMissingResources` | on | The Info on a schema path that isn't in `src/main/resources` or `src/test/resources`. |
+| Report Request elements without a matching Response | `checkRequestResponsePairs` | on | The Info on an `XxxRequest` element with no `XxxResponse`. |
+| Check DefaultWsdl11Definition beans and WSDL references | `checkWsdlDefinitions` | on | Warnings for a missing `portTypeName` or schema, the missing `locationUri` Info, and unresolved WSDL references. |
 
 ## Permissions
 
@@ -105,8 +116,8 @@ The plugin always reads project files (`project.read`). Optional permissions are
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `events` | Cross-file missing-element warnings, keeping resource paths up to date, and reading `package-info.java` and project classes in the background. | Navigation and completion still work. Run **Spring WS: Refresh Source Models** to update. |
-| `editor.read` | Reading the caret position for **Spring WS: Find Observed QName Occurrences**. | That command can't find the name under the caret. |
+| `events` | Cross-file missing-element warnings, keeping resource paths up to date, and reading `package-info.java` and project classes in the background. | Navigation and completion still work. Run **Spring WS: Refresh Schemas and Endpoints** to update. |
+| `editor.read` | Reading the caret position for **Spring WS: Find Element Usages**. | That command can't find the name under the caret. |
 
 The plugin uses no network, runs no processes and writes no files directly.
 
@@ -117,9 +128,9 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | No gutter arrow on a `@PayloadRoot` method | Import the Spring-WS annotations explicitly (or use the fully qualified name). Wildcard or aliased imports are not followed. Check the namespace is a literal or a same-file constant. |
-| An element exists but **Unknown element** still shows | Check the schema's `targetNamespace` matches exactly. A schema that uses includes, imports or redefine suppresses the warning instead. Run **Spring WS: Refresh Source Models**. |
+| An element exists but **Unknown element** still shows | Check the schema's `targetNamespace` matches exactly. A schema that uses includes, imports or redefine suppresses the warning instead. Run **Spring WS: Refresh Schemas and Endpoints**. |
 | No warnings at all for a large file | Files over 256 KiB, and schema files over 128 KiB, get no missing-element warnings. |
-| *Refresh incomplete. Run Spring WS: Refresh Source Models again…* | Run **Spring WS: Refresh Source Models** again to continue. Very large projects may stay partial. |
+| *Refresh incomplete. Run Spring WS: Refresh Schemas and Endpoints again…* | Run **Spring WS: Refresh Schemas and Endpoints** again to continue. Very large projects may stay partial. |
 | *Open an endpoint or schema and place the caret on its QName local name.* | Move the caret onto the `localPart` value or the element `name`, then run the command again. |
 | *Put the caret on an element name written out in the file, then try again.* | The namespace isn't known. Use a literal namespace or a same-file constant. |
 | *No Spring-WS endpoint package found under src/main/java. Create one @Endpoint class there first.* | Create at least one `@Endpoint` class in a package under `src/main/java` first. The scaffold only adds to existing endpoint packages. |
@@ -162,7 +173,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **QName occurrences.** Results are bounded, namespace-matched observations in the current project. The selected source is rechecked before it opens.
 
-**Refresh Source Models.** Warms or continues the bounded XML type, package and schema inventories. Incomplete or capped results stay partial; editor completion does not start a scan.
+**Refresh Schemas and Endpoints.** Warms or continues the bounded XML type, package and schema inventories. Incomplete or capped results stay partial; editor completion does not start a scan.
 
 **Bounds.** XML validation caps at 128 KiB, 4,095 events and 64 nesting levels. Local names are 128-byte ASCII NCNames; namespace URIs are at most 1 KiB. Source files for scalar resource parsing are capped at 32 KiB / 512 elements. The resource-path inventory keeps eight roots, 4,096 paths, 2 MiB per extension family, 8 MiB total, 4,096-byte canonical paths and a two-minute discovery TTL. Completion considers at most 64 ordered relative-name groups per request. Previews use the shared 16 KiB guard.
 

@@ -102,8 +102,8 @@ All of these show a preview first and never overwrite a file. Undo reverts them.
 - **Create missing literal Blade view**: on `view('admin.users')`, `@include`, `@includeIf` or `@extends`, creates the view under `resources/views` and opens it.
 - **Extract reviewed HTML/simple-variable Blade view…**: turns a selected HTML element into a new view and an `@include`. Selected `{{ $name }}` reads become `['name' => $name]`.
 - **Create reviewed mapped FormRequest …**: on a missing `NameRequest` parameter type, creates the class where Composer's PSR-4 mapping puts it. `authorize()` returns `false` and `rules()` is empty.
-- **Promote literal validation to reviewed FormRequest…**: moves a controller's `$request->validate([...])` rules into a new Form Request and replaces the call with `validated()`. `authorize()` returns `true`.
-- **Laravel: Create Missing View, Component or Controller** (editor context menu): creates the view, component, controller or class named under the caret. That includes a Job, Mail, Event, Notification, Listener, Policy, Request or Resource named by `new X` or `X::class`.
+- **Move validation rules to a Form Request…**: moves a controller's `$request->validate([...])` rules into a new Form Request and replaces the call with `validated()`. `authorize()` returns `true`.
+- **Laravel: Create Missing View, Component or Controller** (editor context menu): creates the view, component, controller or class named under the caret. For a view it asks once, naming the file, then writes it (needs `project.write`). That includes a Job, Mail, Event, Notification, Listener, Policy, Request or Resource named by `new X` or `X::class`.
 
 ### Rename and find matches
 
@@ -126,7 +126,7 @@ Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Tabs 
 | Views | View / File / Folder / Namespace table with filters and sortable columns. |
 | Components | Blade class, anonymous and alias components, and Livewire classes, with a type filter. |
 | Middleware, Config, Env, Translations | Searchable lists. Config shows Key, Value and File. Translations shows Key, Locale and Value with a locale filter. |
-| Generators | Plan models with fields, relations and indexes, then generate them and their factories, seeders and more. |
+| Generators | Plan models with fields, relations and indexes, then generate them and their factories, seeders and more. **Finish** shows every file and writes them once you confirm (needs `project.write`). |
 | Artisan | Search commands, fill in arguments and options, run, and read the output. |
 | Runtime | Capture Application, Events, Schedule, Failed Jobs, Queue Status, Workers and Logs on demand. |
 | Processes | Start the development server, queue worker and schedule worker in a terminal tab. Stop or restart them from the tab. |
@@ -164,17 +164,17 @@ No server is needed: the route runs through the app's HTTP kernel.
 
 - **Compare with database** boots the app. It lists pending migrations, tables only in the migrations or only in the database, and missing columns and indexes.
 - **Rows** shows a table read-only and paged. Secret and personal data columns are masked.
-- Runtime captures run only when you click. **Laravel: Retry Selected Failed Job** retries one failed job after review. **Laravel: Inspect Queue…** accepts a connection or queue.
+- Runtime captures run only when you click. **Laravel: Retry Failed Job…** retries one failed job after you confirm. **Laravel: Inspect Queue…** accepts a connection or queue.
 - **Laravel: Add Application Database Connection…** registers the app's database in the IDE. Connect, enter credentials or remove it with **Laravel: Database Connections…**.
 
 ### Run Artisan in Docker
 
 1. Run **Laravel: Choose Docker Target…** and pick a running container (Compose, Sail and DDEV are detected). The project must be bind-mounted into it.
 2. Allow `process:docker`.
-3. Run **Laravel: Refresh Docker Artisan Metadata**.
+3. Run **Laravel: Refresh Docker Artisan Commands**.
 4. In the Artisan tab, switch the PHP runner from Local PHP to Docker.
 
-You can also set the socket, container ID and working directory by hand in Settings. **Laravel: Use Configured Docker Target** goes back to those settings.
+You can also set the socket, container ID and working directory by hand in Settings. **Laravel: Clear Chosen Docker Target** goes back to those settings.
 
 ### Run configurations
 
@@ -186,7 +186,7 @@ Seven tools are declared to OpenIDEA's built-in MCP server, prefixed `aritti_lar
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys in Settings › Keymap. No command has a default shortcut. Commands show only in projects with an `artisan` file, except **Show Laravel Tool Window**, **New Laravel Project…**, **Recover Project Installation…**, **Open Route Declaration** and **Route Request Actions…**.
+Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; change keys in Settings › Keymap. Default shortcuts: **Search Routes…** ⌥⇧Q, **Search Names…** ⌥⇧E (Alt+Shift on Windows and Linux); a shortcut your keymap already uses is skipped. Commands show only in projects with an `artisan` file, except **Show Laravel Tool Window**, **New Laravel Project…** and **Recover Project Installation…**.
 
 **Project and search**
 
@@ -211,7 +211,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | **Laravel: Run Artisan Command…** | Opens the Artisan tab. |
 | **Laravel: Run Artisan in Terminal…** | Picks a command and runs it in a terminal. |
 | **Laravel: Refresh Artisan Command Metadata** | Reads the app's command list after review. Runs the project's PHP. Also in the Tools menu. |
-| **Laravel: Run Command From Class…** | Opens the Artisan form for a console command class (from its Run marker). |
+| **Laravel: Run Command From Class…** | Opens the Artisan form for a console command class (from its Run marker, or the class open in the editor). Otherwise opens the Artisan tab. |
 | **Laravel: Clear All Caches** | Runs `optimize:clear`. |
 | **Laravel: Clear Application Cache** | Runs `cache:clear`. |
 | **Laravel: Clear Config Cache** | Runs `config:clear`. |
@@ -227,9 +227,9 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | Command | What it does |
 |---|---|
 | **Laravel: Choose Docker Target…** | Picks a running container for Artisan. |
-| **Laravel: Use Configured Docker Target** | Clears the choice and uses the Settings values. |
-| **Laravel: Refresh Docker Artisan Metadata** | Reads the command list inside the container after review. Runs PHP in the container. |
-| **Laravel: Browse Cached Docker Artisan Metadata** | Shows the cached container command list. Read-only; never runs Docker. |
+| **Laravel: Clear Chosen Docker Target** | Clears the chosen container and uses the Settings values. |
+| **Laravel: Refresh Docker Artisan Commands** | Reads the command list inside the container after you confirm. Runs PHP in the container. |
+| **Laravel: Show Docker Artisan Commands** | Shows the saved container command list. Never runs Docker. |
 
 **Generators and models**
 
@@ -239,16 +239,16 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | **Laravel: New Eloquent Model…** | Creates a model and its related classes. |
 | **Laravel: Generate for Model…** | Creates a policy, observer, factory, resource or controller for a model. Also in the Project view context menu. |
 | **Laravel: Create Missing View, Component or Controller** | Creates what the name under the caret refers to. Also in the editor context menu. |
-| **Laravel: New Model from Captured Database Table…** | Drafts a model from a captured database table. |
+| **Laravel: New Model from Database Table…** | Drafts a model from a table read by **Refresh Database Metadata**. |
 | **Laravel: Create Model Fields…** | Adds fields to an existing model, with a migration. |
-| **Laravel: Open Model Source** | Opens a model from the Models tab. |
-| **Laravel: Remove IDE Helper PHPDoc from Models** | Removes `@property`/`@method`/`@mixin` lines from indexed models. Also in the Project view context menu. |
+| **Laravel: Open Model Source** | Opens a model. From the palette it asks which one. |
+| **Laravel: Remove IDE Helper PHPDoc from Models** | Removes `@property`/`@method`/`@mixin` lines from every model after one confirmation that lists the files. Needs `project.write`. Also in the Project view context menu. |
 | **Laravel: Configure Model Helper Parameters…** | Saves helper storage, count and date preferences for the project. |
-| **Laravel: Regenerate Model Helpers…** | Regenerates helper PHPDoc for the models you pick. |
+| **Laravel: Regenerate Model Helpers…** | Regenerates helper PHPDoc for the models you pick, shows each file, then writes them. Needs `project.write`. |
 | **Laravel: Configure Helper Source and Automation…** | Sets advanced helper options and commands to run after generation. |
-| **Laravel: Helper Automation Status** | Shows the state of post-generation commands. |
-| **Laravel: Poll Helper Post-Generation Commands** | Checks and runs pending post-generation commands. |
-| **Laravel: Stop Helper Post-Generation Commands** | Stops pending post-generation commands. |
+| **Laravel: Show Model Helper Command Status** | Shows the commands that run after helper generation and their results. |
+| **Laravel: Run Pending Model Helper Commands** | Runs the commands still waiting after helper generation. |
+| **Laravel: Stop Model Helper Commands** | Stops the commands still waiting after helper generation. |
 
 **Routes and requests**
 
@@ -271,11 +271,11 @@ Run from Search Everywhere, **Copy as cURL**, **Create HTTP Request File** and *
 | **Laravel: Database Connections…** | Lists registered connections to connect or remove. |
 | **Laravel: Connect Database…** | Enters credentials for a registered connection. |
 | **Laravel: Remove Database Connection…** | Removes a connection and its saved credentials. |
-| **Laravel: Refresh Model Connection Bindings…** | Captures the connection and table of up to 32 models. |
-| **Laravel: Retry Selected Failed Job** | Retries one failed job after review. |
+| **Laravel: Read Model Database Connections…** | Reads the database connection and table of up to 32 models. Runs the project's PHP. |
+| **Laravel: Retry Failed Job…** | Retries one failed job after you confirm. From the palette it asks which one. |
 | **Laravel: Inspect Queue…** | Captures queue status for a connection or queue. |
-| **Laravel: Open Error Stack Frame…** | Opens the file of a stack frame from a captured log entry. |
-| **Laravel: Connect Application MCP Server…** | Connects to your app's own MCP server on `localhost` or `127.0.0.1`. |
+| **Laravel: Open Error Stack Frame…** | Opens the file of a stack frame from a log entry read in the Runtime tab. From the palette it asks which entry. |
+| **Laravel: Connect Application MCP Server…** | Connects to your app's own MCP server on `localhost` or `127.0.0.1` and reports how many tools, resources and prompts it has. |
 
 ## Settings
 
@@ -290,14 +290,14 @@ Settings › Plugins › *Laravel*.
 | Report <x-…> Blade components that have no file or class | `reportUnknownComponents` | on |
 | Report <livewire:…> components that have no class or view | `reportUnknownLivewire` | on |
 | Report @livewire('…') components that have no class or view | `reportUnknownLivewireDirectives` | on |
-| Report wire:click and wire:submit methods that the component class of a livewire/ view does not have | `reportUnknownLivewireMethods` | on |
+| Report unknown wire:click and wire:submit methods | `reportUnknownLivewireMethods` | on |
 | Report Route::resource() controllers that lack resource methods | `reportMissingResourceMethods` | on |
 | Report controllers and controller methods named in routes/ that the project does not have | `reportUnknownRouteControllers` | on |
 | Report Inertia pages that have no file under resources/js/Pages | `reportUnknownInertiaPages` | on |
 | Report Model::factory() calls of models without a factory | `reportUnknownFactories` | on |
 | Check Eloquent models and queries | `checkEloquent` | on |
 | Mass assignment inspection exceptions by model class | `massAssignmentExceptions` | `{}` |
-| Report env() calls outside the config directory (they return null once the configuration is cached) | `checkFunctions` | on |
+| Report env() calls outside the config directory | `checkFunctions` | on |
 | Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL | `checkSecurity` | on |
 | Report where() values that the column's enum cast does not have | `enumValueInspection` | on |
 | Show code that breaks on the next Laravel major version | `upgradeInspection` | on |
@@ -329,7 +329,7 @@ Settings › Plugins › *Laravel*.
 | Setting | Key | Default |
 |---|---|---|
 | Docker: socket address used to run Artisan in a container (unix:// path) | `artisanDockerSocket` | `unix:///var/run/docker.sock` |
-| Docker: container ID that runs Artisan (leave empty and use Choose Docker Target to pick one per project) | `artisanDockerContainer` | empty |
+| Docker: container ID that runs Artisan (leave empty to pick one per project with **Choose Docker Target…**) | `artisanDockerContainer` | empty |
 | Docker: project folder inside the container (absolute path, mounted from this project) | `artisanDockerWorkdir` | empty |
 
 ## Permissions
@@ -342,7 +342,7 @@ Optional permissions are off until you allow them in Settings › Plugins › *L
 | `process:php-win` | On Windows, background PHP runs through `php-win` with no console window. | Background PHP uses `php`. |
 | `process:docker` | Choosing a container and running Artisan in it. | Artisan runs with local PHP only. |
 | `process:composer`, `process:laravel` | **Laravel: New Laravel Project…** with Composer or the Laravel installer. | You can't create a project from the IDE. |
-| `project.write` | Writing factory and resource bodies from migration columns; **Create HTTP Request File**. | Artisan makes empty stubs. The HTTP request is copied to the clipboard instead. |
+| `project.write` | Writing generated files (Generators tab, factory and resource bodies from migration columns), **Remove IDE Helper PHPDoc from Models**, **Regenerate Model Helpers…**, creating a missing view from **Create Missing View, Component or Controller**, and **Create HTTP Request File**. | Those commands say the permission is needed and write nothing; editor quick fixes still work. Artisan makes empty stubs. The HTTP request is copied to the clipboard instead. |
 | `editor.read` | **Laravel: Create Missing View, Component or Controller** reads the name under the caret. | That command can't see the name. |
 | `clipboard` | **Copy as curl**, Copy Output, and the fallback of **Create HTTP Request File**. | Nothing is copied. |
 | `storage` | Caching Artisan command metadata and saving helper preferences. | Artisan metadata and helper preferences can't be cached. |
@@ -360,7 +360,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Nothing completes and the tool window is empty | The project must have an `artisan` file or require `laravel/framework`. Run **Laravel: Reindex Project**. |
 | Laravel commands are missing from Search Everywhere | Most commands show only when the project has an `artisan` file at its root. Open the folder that holds it. |
 | "This project is not a Laravel application." / "Open a Laravel project first." | Open the folder that holds `artisan` or the `composer.json` requiring `laravel/framework`. |
-| "Running PHP needs the process:php permission. Allow it in Settings › Plugins › Laravel, and make sure php is on your PATH." (or "Running artisan needs the process:<program> permission…") | Allow `process:php` in Settings › Plugins › *Laravel*. Check that `php` is on the `PATH` the IDE sees. |
+| "Running PHP needs the process:php permission. Allow it in Settings › Plugins › Laravel." (sometimes with "…and make sure php is on your PATH", or "Running artisan needs the process:<program> permission…") | Allow `process:php` in Settings › Plugins › *Laravel*. Check that `php` is on the `PATH` the IDE sees. |
 | The Artisan tab shows no commands | Run **Laravel: Refresh Artisan Command Metadata**. Run it again after `composer.json` or `composer.lock` changes. |
 | "Refresh Artisan command metadata to configure …" | Same as above, then run the command again. |
 | "Laravel route index is incomplete; reindex before searching." | Run **Laravel: Reindex Project**. Very large projects may hit the 5,000-file scan cap. |
@@ -369,14 +369,16 @@ See also the [repository guide](../../README.md#troubleshooting).
 | A new file under `resources/js` or `resources/css` doesn't complete in `@vite` | Save a watched file or reindex. |
 | "Project writes denied; HTTP request copied to clipboard." | Allow `project.write` to write `.http` files. |
 | "No registered Laravel database sources. Add a Database Connection from Models first." | Run **Laravel: Add Application Database Connection…** first. |
-| "Select a captured Errors row first." | Capture Logs in the Runtime tab and pick an entry before **Open Error Stack Frame…**. |
-| A model or console command does nothing from Search Everywhere | **Open Model Source** and **Run Command From Class…** act on a row, gutter marker or code lens. Use them from there. Route commands ask which route instead. |
+| "No errors have been read yet. Click Logs in the Runtime tab and pick a log first." | Do that, then run **Open Error Stack Frame…** again. |
+| "Laravel is still indexing. Try again in a moment." | Wait for the indexing progress to finish, then run the command again. |
+| **Run Command From Class…** opens the Artisan tab | From Search Everywhere it uses the console command class open in the editor; with none open it shows the Artisan tab. |
 | "No routes found. Open a Laravel project and let indexing finish, then try again." | A route command ran from the palette before the index had routes. Wait for indexing or run **Laravel: Reindex Project**. |
 | Docker Artisan refuses the container | The container must be running and have exactly one bind mount of this project root. Volume-only, remote and Mutagen-style mounts are refused. |
 | Component checks are silent | They are off when `composer.json` lists a package that ships un-namespaced components (`*/blade-*`, `laravel/jetstream`, `filament/*`, `livewire/flux`). |
 
 ## Limitations
 
+- Checks compare against the last saved and indexed definitions. Save or reindex after changing a view, config, translation or route file; unsaved changes in another file and names registered at run time aren't seen.
 - Works from a text index, not a full PHP type model. Container types, full Eloquent/facade semantics, imports and alias resolution, runtime registrations, effective runtime configuration and locale are not resolved.
 - No framework-wide Rename or Find Usages. `Post`, `PostFactory` and `posts` are not treated as one symbol.
 - Form Request promotion and view creation handle literal, simple cases only. Custom or namespaced view roots aren't supported there. Module resolution is incomplete.
@@ -432,7 +434,7 @@ Cache ownership follows the document's current innermost open project: a nested 
 - **Create missing literal Blade view.** From a plain first argument of `view(...)` / `\view(...)` or non-overridden `@include`, `@includeIf`, `@extends`. Previews one new file under `resources/views` and applies one non-overwriting Create that opens it. Names are at most 128 ASCII bytes in up to 16 dot-separated alphanumeric/underscore/hyphen segments. Namespaces, escapes, interpolation, concatenation, heredocs, custom `viewPaths` and non-conventional `config/view.php` are refused, as are targets owned by a separately opened nested project. Sources are limited to 128 KiB, view configuration to 64 KiB; runs no PHP.
 - **Extract reviewed HTML/simple-variable Blade view…** A complete selected HTML element up to 4 KiB in a bounded plain HTML/simple-echo Blade document becomes one non-overwriting Create plus one source Edit, applied atomically, preserving child bytes/CRLF and UTF-16 selection. PHP, directives, comments, components, script/style, computed expressions and custom include directives stay quiet.
 - **Create reviewed mapped FormRequest …** An absolute `\Prefix\Http\Requests\NameRequest` parameter type (or a short type with one exact unaliased `use`) creates the missing PHP file through one exact production Composer PSR-4 mapping. Namespace prefixes and source roots up to 8 segments / 256 bytes; `App\` → `app/` and explicit roots like `domain/` supported; overlapping, fallback, dev, case-variant and opaque mappings refused; a source-root scan past 4,096 results refuses the operation, including case-equivalent targets. No controller imports or source change, no PHP.
-- **Promote literal validation to reviewed FormRequest…** Works on an explicit `\Illuminate\Http\Request` parameter of a plain controller method whose body is exactly `$request->validate([...])` (or `$validated = $request->validate([...]); return $validated;`). After review it creates the request class, transfers the literal rule array, and replaces the call with `validated()`. No PHP runs.
+- **Move validation rules to a Form Request…** Works on an explicit `\Illuminate\Http\Request` parameter of a plain controller method whose body is exactly `$request->validate([...])` (or `$validated = $request->validate([...]); return $validated;`). After review it creates the request class, transfers the literal rule array, and replaces the call with `validated()`. No PHP runs.
 - **Rename.** Typed rename actions exist for proven route, config, translation and explicit Blade-alias literals; filename-based view/anonymous-component rename uses one reviewed move-and-reference transaction.
 - **Find Source Matches…** scans conventional sources (routes, resources/views, config, lang, src and the current document; 2,048 paths, 8 MiB total, 512 matches, 128 KiB per source) and opens results; it adds no Rename anchors.
 - **Find Unused Views** counts `view()`, `@include`, `@extends`, `Route::view`, mail and `markdown()` calls; a literal prefix (`'reports.' . $type`) counts as used.
@@ -449,7 +451,7 @@ Generator commands ask for names and options in dialogs, then run `php artisan` 
 
 The Generators workspace adds model field/relation/index planning with a graphical existing-model editor (reviewed casts and mass-assignment edits), module-local factory/seeder generation, configurable generation classes/postfixes and per-kind destinations. Project custom presets and module mappings use `.openidea/laravel-generators.json` and `.openidea/laravel-templates/`; project/user preset CRUD and private user storage are available. Primary keys include numeric, UUID/ULID and custom strategies with timezone-aware timestamps. **New Laravel Project…** uses installed CLI help to gate options and launches an explicitly reviewed native terminal; failed installations are kept for inspection and never cleaned up automatically.
 
-The Models workspace lists source and captured-schema model inventories with reviewed helper PHP, model-from-captured-table drafts, handwritten-PHPDoc-preserving model documentation and new-field/migration actions. Cast/accessor/inherited members and proven factory/resource/migration/policy/observer/seeder associations feed the grouped tree. Helper storage/count/date preferences persist per project; **Configure Model Helper Parameters…** saves them after review; **Regenerate Reviewed Model Helpers…** supports reviewed multi-model selection, helper files or preserving/overwriting PHPDoc, proven cast/relation/scope signatures and optional counts. Helper post-generation jobs start only once their outputs exist unchanged; reading their state never starts project PHP.
+The Models workspace lists source and captured-schema model inventories with reviewed helper PHP, model-from-captured-table drafts, handwritten-PHPDoc-preserving model documentation and new-field/migration actions. Cast/accessor/inherited members and proven factory/resource/migration/policy/observer/seeder associations feed the grouped tree. Helper storage/count/date preferences persist per project; **Configure Model Helper Parameters…** saves them after review; **Regenerate Model Helpers…** supports multi-model selection, helper files or preserving/overwriting PHPDoc, proven cast/relation/scope signatures and optional counts. Helper post-generation jobs start only once their outputs exist unchanged; reading their state never starts project PHP.
 
 File templates: Laravel Controller, Resource Controller, Job, Event, Listener, Mailable, Middleware, Form Request, Policy, Observer, Enum, Seeder, Factory, Migration (anonymous class), Pest Feature and Unit Test, Action, Cast, Global Scope, Notification, Validation Rule, Trait, JSON Resource, Service Provider, View Composer, Exception, Livewire Component, Broadcast Channel, Console Command, Http Exception, PHPUnit Feature and Unit Test, Resource Collection, plain Class, Eloquent Model, Dusk Test, Nova Resource, Livewire Form, Fractal Transformer, Livewire Volt Component, Inertia Vue / React / Svelte Page and Blade View, Layout, Anonymous Component and View Extending a Layout. They are written from Laravel's documentation and default stubs. The host gives a template only the file name and caret position.
 
@@ -470,7 +472,7 @@ File templates: Laravel Controller, Resource Controller, Job, Event, Listener, M
 
 **Refresh Artisan Command Metadata** shows a complete review before anything runs: the verified project/working directory, the literal `php` runner (host PATH) and the exact argv `["artisan","list","--format=json","--no-interaction","--no-ansi"]`. Dismissing the review runs nothing. It needs `process:php`, `project.read` and optional `storage`. Discovery uses a kept process with closed stdin, at most 256 waits within a four-second budget, and rejects output beyond 4 MiB. The accepted snapshot (1–512 commands with unique bounded names and argument/option definitions, up to 128 each; order and bounded defaults preserved; aliases not used to build forms) is cached in schema v2 under a 5 MiB envelope / 4 MiB metadata bound. It is keyed to the project root, logical `php` runner, argv and fingerprints of `artisan`, `composer.json` and `composer.lock`. Failed, cancelled, stale or malformed refreshes keep the previous snapshot; changed fingerprints make the snapshot unavailable to the picker. Browsing, rendering, providers and typing never execute PHP.
 
-**Docker.** **Refresh Docker Artisan Metadata** reviews the exact project/CLI directory, endpoint, target, workdir, inspect and exec argv before any Docker process starts. Every invocation passes `--host unix:///...` explicitly (no ambient Docker context or `DOCKER_HOST`). Settings take a local `unix:///absolute/socket`, a full 64-hex running container ID and an absolute workdir. Before exec, fresh inspection must match the full ID, running/unpaused/not-restarting state, image/start identity and exactly one bind mapping this project root to the container directory; overlapping or shadowing mounts are refused. CLI processes share a four-second / 16-wait budget and a 4 MiB combined-output bound. Accepted metadata is stored under its own bounded 5 MiB envelope with image/start/mount proof and the same `artisan`/Composer fingerprints; failed or stale candidates keep the previous snapshot. **Choose Docker Target…** discovers running local containers (Compose/Sail/DDEV candidates from curated labels) and accepts only verified project bind mappings. Cancelling a Docker run stops the client; container PHP may continue.
+**Docker.** **Refresh Docker Artisan Commands** reviews the exact project/CLI directory, endpoint, target, workdir, inspect and exec argv before any Docker process starts. Every invocation passes `--host unix:///...` explicitly (no ambient Docker context or `DOCKER_HOST`). Settings take a local `unix:///absolute/socket`, a full 64-hex running container ID and an absolute workdir. Before exec, fresh inspection must match the full ID, running/unpaused/not-restarting state, image/start identity and exactly one bind mapping this project root to the container directory; overlapping or shadowing mounts are refused. CLI processes share a four-second / 16-wait budget and a 4 MiB combined-output bound. Accepted metadata is stored under its own bounded 5 MiB envelope with image/start/mount proof and the same `artisan`/Composer fingerprints; failed or stale candidates keep the previous snapshot. **Choose Docker Target…** discovers running local containers (Compose/Sail/DDEV candidates from curated labels) and accepts only verified project bind mappings. Cancelling a Docker run stops the client; container PHP may continue.
 
 ### MCP tools
 

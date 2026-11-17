@@ -70,7 +70,7 @@
     {
       "view": "laravel-models",
       "id": "model-create-fields",
-      "label": "Create Fields…",
+      "label": "Create Model Fields…",
       "kind": "",
       "icon": "add"
     },

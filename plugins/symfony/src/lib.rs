@@ -1406,7 +1406,7 @@ impl Main {
     }
 
     fn summary_of(&self, root: &str, i: &Index) -> String {
-        if !i.settings_current() {return format!("{root}: source settings changed; Reindex to refresh cached facts.");}
+        if !i.settings_current() {return format!("{root}: source settings changed; Reindex to apply them.");}
         let partial = match (i.partial, i.template_directories.is_empty()) {
             (true, _) => " (index incomplete)",
             (false, false) => " (templates in gitignored folders may not be listed)",
@@ -1457,7 +1457,7 @@ impl Plugin for Main {
             "run-console-command" => self.run_console_command(ctx),
             "route-copy-curl" => {
                 if let Some(route) = self.selected_route_or_pick(ctx)? {
-                    routes::copy_as_curl(&concrete_method(&route), DEFAULT_BASE_URL)?;
+                    routes::copy_as_curl(&concrete_method(&route), DEFAULT_BASE_URL, "Symfony")?;
                 }
                 Ok(None)
             }
@@ -2361,7 +2361,7 @@ impl Views for Main {
             let stale_settings=ctx.project().and_then(|project|project.root().ok()).and_then(|root|self.indexes.get(&root)).is_some_and(|index|!index.settings_current());
             let Some(index) = self.view_index(ctx) else {
                 self.route_owner = None; self.route_selection = None; self.selected = None;
-                let message=if stale_settings {"Symfony source settings changed. Reindex to refresh cached facts."} else {"This project is not a Symfony application."};
+                let message=if stale_settings {"Symfony source settings changed. Reindex to apply them."} else {"This project is not a Symfony application."};
                 return Ok(View::message(message).button(reindex));
             };
 
@@ -2371,10 +2371,10 @@ impl Views for Main {
                 String::from("No compiled container: run Warm Up Cache to index bundle services and routes")
             };
             if index.template_paths_unknown {
-                status.push_str(" · Twig plugin hints are incomplete or runtime-unverified");
+                status.push_str(" · some Twig template paths may be missing");
             }
             if !index.ambiguous_templates.is_empty() {
-                status.push_str(" · ambiguous template hints suppressed");
+                status.push_str(" · templates with clashing names are skipped");
             }
             if index.partial {
                 status.push_str(" · Index incomplete (discovery, read or time limit)");
@@ -4289,14 +4289,14 @@ mod tests {
         plugin.handle_events(&[Event::FileSaved("/project/var/cache/dev/profiler".into())], &ctx);
         assert_eq!(&host.view_messages()[messages..], &[(VIEW.to_owned(), r#"{"channel":"ui-kit-refresh","targetView":"symfony-profiler"}"#.to_owned())]);
         let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
-        assert!(view.status.unwrap().contains("STALE filesystem change"));
+        assert!(view.status.unwrap().contains("profiler index changed"));
         let Body::Table(table) = view.body else { panic!("cached rows") };
         assert_eq!(table.rows[0][3], "/old", "event does not adopt changed record");
         assert_eq!(plugin.profiler_snapshot.row_key("abcdef"), key);
         assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(key), &ctx).is_err());
         plugin.run_command("show-profiler", &ctx, None).unwrap();
         let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
-        assert!(!view.status.unwrap().contains("STALE"));
+        assert!(!view.status.unwrap().contains("profiler index changed"));
         let Body::Table(table) = view.body else { panic!("refreshed rows") };
         assert_eq!(table.rows[0][3], "/new");
         for field in 0..3 {
@@ -4305,11 +4305,11 @@ mod tests {
             let list = match field { 0 => &mut files.created, 1 => &mut files.modified, _ => &mut files.removed };
             list.push(format!("/project/{}", profiler::INDEX_FILE));
             plugin.handle_events(&[Event::FilesChanged(files)], &ctx);
-            assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("STALE filesystem change"));
+            assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("profiler index changed"));
         }
         plugin.run_command("show-profiler", &ctx, None).unwrap();
         plugin.handle_events(&vec![Event::FileSaved("/unrelated".into()); 1025], &ctx);
-        assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("STALE filesystem change"));
+        assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("profiler index changed"));
         assert!(host.requests().is_empty() && host.process_runs().is_empty());
     }
 
@@ -4540,6 +4540,17 @@ mod tests {
 
         host.set_setting("yamlSyntaxChecks", "false");
         assert!(plugin.code_actions(&yaml, all).is_empty());
+    }
+
+    #[test]
+    fn every_command_is_scoped_and_twig_only_commands_need_a_twig_editor() {
+        let manifest = include_str!("../plugin.toml");
+        for block in manifest.split("[[contributes.commands]]").skip(1) {
+            let block = block.split("\n[").next().unwrap();
+            let when = block.lines().find_map(|l| l.strip_prefix("when = ")).unwrap_or_else(|| panic!("no when: {block}"));
+            let twig_only = block.contains("id = \"twig-extends\"") || block.contains("id = \"twig-form-fields\"");
+            assert_eq!(twig_only, when.contains("editorLangId == twig"), "{block}");
+        }
     }
 
     #[test]

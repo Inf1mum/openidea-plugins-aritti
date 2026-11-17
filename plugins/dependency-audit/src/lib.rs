@@ -92,6 +92,7 @@ pub struct DependencyAudit {
     targets: HashMap<String, Target>,
     display: Display,
     live: live::Live,
+    auto_resolve_reported: HashSet<String>,
 }
 
 enum Target {
@@ -520,7 +521,7 @@ fn scan_report(project: &Project, live: &mut live::Live, deadline: Instant) -> R
         ),
     };
     let scoped_count = scoped::load(&root).len();
-    if scoped_count > 0 { body.push_str(&format!(" ({scoped_count} project-scoped ignores configured; retained findings are filtered.)")); }
+    if scoped_count > 0 { body.push_str(&format!(" ({scoped_count} ignored findings in this project are hidden.)")); }
     if kept.is_err() {
         body.push_str(" (New results could not be stored; any previous report remains in the Dependency Audit window.)");
     }
@@ -835,13 +836,13 @@ impl Views for DependencyAudit {
             };
             let Some(root)=project.root().ok().filter(|root|!root.is_empty()) else {
                 self.clear_presentation();self.display_owner=None;
-                return Ok(View::message("Project identity/access is unavailable. No cached report is displayed."));
+                return Ok(View::message("Can't read this project's folder. Reopen the project, then run Dependency Audit: Scan Project."));
             };
             if self.display_owner.as_deref()!=Some(root.as_str()) { self.clear_presentation();self.display_owner=Some(root.clone()); }
             let failure = last_failure(&project);
             let report=match stored_report(&project) {
                 Ok(report)=>report,
-                Err(_)=> { self.clear_presentation(); return Ok(View::message("Saved report access or bounded source ownership proof is unavailable. No cached report is displayed; restore access or rescan explicitly.")); }
+                Err(_)=> { self.clear_presentation(); return Ok(View::message("Can't read the saved report. Run Dependency Audit: Scan Project.")); }
             };
             let Some(report) = report else {
                 self.clear_presentation();
@@ -849,24 +850,24 @@ impl Views for DependencyAudit {
                     Some(failure) => format!("The last scan failed: {}. Run Dependency Audit: Scan Project to retry.", failure.message),
                     None => "Run Dependency Audit: Scan Project to check this project's dependencies against OSV.dev.".into(),
                 };
-                return Ok(View::message(&message).button(scan_button("Scan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list")));
+                return Ok(View::message(&message).button(scan_button("Scan")).button(Button::new("review-ignores","Review Ignored Findings").icon("list")));
             };
             let status = report_status(&report, failure.as_ref());
             if report.rows.is_empty() {
                 self.clear_presentation();
                 let message = if report.files_scanned == Some(0) { no_dependency_files() } else { "The last successful scan found no known vulnerabilities (after configured ignores).".into() };
                 return Ok(View::message(&message)
-                    .button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list"))
+                    .button(scan_button("Rescan")).button(Button::new("review-ignores","Review Ignored Findings").icon("list"))
                     .status(&status));
             }
             if ui_kit::web::is_rendering() {
                 self.targets.clear();
-                return Ok(View::new(resource_body(&root, &report, failure.as_ref())).button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list")).status(&status));
+                return Ok(View::new(resource_body(&root, &report, failure.as_ref())).button(scan_button("Rescan")).button(Button::new("review-ignores","Review Ignored Findings").icon("list")).status(&status));
             }
             let (mut items, targets) = tree_of(&root, &report.rows, Some(&mut self.display));
             self.targets = targets;
             self.expansion.apply(&mut items);
-            Ok(View::new(Body::Tree(items)).button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list")).status(&status))
+            Ok(View::new(Body::Tree(items)).button(scan_button("Rescan")).button(Button::new("review-ignores","Review Ignored Findings").icon("list")).status(&status))
         })().map(ui_kit::actions::available)
     }
 
@@ -938,7 +939,24 @@ impl DependencyAudit {
     fn auto_resolve(&mut self, ctx: &Invocation, deadline: Instant) {
         let run_tool = host::setting_bool("autoResolveBuilds") == Some(true)
             && deadline.saturating_duration_since(Instant::now()) >= MIN_RESOLVE_TIME;
-        let _ = self.build_resolution.resolve(ctx, run_tool, false);
+        let Err(error) = self.build_resolution.resolve(ctx, run_tool, false) else { return };
+        // NotFound: no Maven or Gradle build in this project, so there was nothing to resolve.
+        if matches!(error, Error::Stale | Error::Cancelled | Error::NotFound(_)) {
+            return;
+        }
+        let root = ctx.project().and_then(|project| project.root().ok()).unwrap_or_default();
+        if !self.auto_resolve_reported.insert(root) {
+            return;
+        }
+        let reason = match error {
+            Error::Invalid(message) | Error::Failed(message) | Error::NotFound(message) => message,
+            other => other.to_string(),
+        };
+        host::notify(
+            NotificationLevel::Warning,
+            "Dependency Audit",
+            &format!("Automatic build resolution didn't run: {reason} Run Dependency Audit: Resolve Effective Build Dependencies… to retry."),
+        );
     }
     fn resolution_tick(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {
         let request: serde_json::Value = serde_json::from_str(raw).map_err(|_| Error::Stale)?;

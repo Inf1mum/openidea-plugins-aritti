@@ -298,7 +298,7 @@ fn graphql_source(
             == Some(arg)
     }) {
         return Err(Error::Failed(
-            "GraphQL handler source is no longer admitted.".into(),
+            "This GraphQL handler changed. Run the action again from the updated code.".into(),
         ));
     }
     let handler = graphql::handlers_in(&doc.text, spring_text::is_kotlin(&doc.path))

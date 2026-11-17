@@ -444,7 +444,7 @@ impl WebSocketTools {
         }
 
         if destinations.is_empty() {
-            let text = spring_text::index::empty_message("No STOMP destinations found", scanning, note.as_deref());
+            let text = spring_text::index::empty_message("No STOMP destinations found. Add @MessageMapping or @SubscribeMapping methods, or send with SimpMessagingTemplate", scanning, note.as_deref());
             return View::message(&text).button(refresh);
         }
 
@@ -1112,7 +1112,7 @@ client.onConnect = () => {
         host.add_file("src/main/java/com/acme/Plain.java", "class Plain {}");
         let mut tools = warmed();
         let view = tools.render(DESTINATIONS_VIEW, None, &host.invocation()).unwrap();
-        assert_eq!(message(&view), "No STOMP destinations found.");
+        assert_eq!(message(&view), "No STOMP destinations found. Add @MessageMapping or @SubscribeMapping methods, or send with SimpMessagingTemplate.");
     }
 
     #[test]

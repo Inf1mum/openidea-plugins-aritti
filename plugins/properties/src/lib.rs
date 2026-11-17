@@ -231,12 +231,12 @@ impl Properties {
         let key = prop.exact_key(&text);
         if value {
             let value = props::unescape_exact(&text[prop.value.clone()]).ok_or("This value has an invalid character and can't be copied.")?;
-            host::copy_to_clipboard(&value)?;
+            host::copy_to_clipboard(&value).map_err(|e| ui_kit::denied::map(e, "Copy Property Value", "clipboard", "Properties"))?;
             let label = key.as_deref().unwrap_or(&text[prop.key.clone()]);
             host::notify(NotificationLevel::Info, "Properties", &format!("Value of '{label}' copied to the clipboard."));
         } else {
             let key = key.ok_or("This key has an invalid character and can't be copied.")?;
-            host::copy_to_clipboard(&key)?;
+            host::copy_to_clipboard(&key).map_err(|e| ui_kit::denied::map(e, "Copy Property Key", "clipboard", "Properties"))?;
             host::notify(NotificationLevel::Info, "Properties", &format!("Key '{key}' copied to the clipboard."));
         }
         Ok(None)
@@ -1128,6 +1128,13 @@ mod tests {
 
         let bodies: Vec<String> = host.notifications().into_iter().map(|n| n.body).collect();
         assert_eq!(bodies, ["Key 'my key' copied to the clipboard.", "Value of 'my key' copied to the clipboard."]);
+    }
+    #[test]
+    fn denied_clipboard_says_how_to_allow_it() {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "editor.write", "events"]);
+        host.open_editor("/project/a.properties", "properties", "x=1\n", &[(0, 0, 0, 0)]);
+        let error = Properties::default().run_command("copy-value", &host.invocation(), None).unwrap_err();
+        assert!(matches!(error, Error::Invalid(ref m) if m == "Copy Property Value needs the clipboard permission. Allow it in Settings › Plugins › Properties."), "{error:?}");
     }
     #[test]
     fn clipboard_operations_do_not_silently_replace_utf16_units() {

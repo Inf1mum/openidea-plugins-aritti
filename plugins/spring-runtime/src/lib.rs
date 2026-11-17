@@ -722,6 +722,14 @@ impl Runtime {
             }
         }
     }
+    fn confirm_clear(&mut self,project:&Project)->Result<bool,Error> {
+        let scope=Scope::current(project)?;
+        let body=format!("This deletes the saved snapshot of {} for project {} and stops auto-refresh.\nClick Refresh to read the application again.",scope.url,scope.root);
+        if !host::confirm("Clear Spring Runtime snapshot?",&body)? {return Ok(false);}
+        self.clear(project)?;
+        Ok(true)
+    }
+
     fn clear(&mut self,project:&Project)->Result<(),Error> {
         let scope=Scope::current(project)?;persistence::clear(&scope)?;self.panes.clear();self.graph.clear();self.polling.clear();self.others.remove(&scope);self.lookup=None;self.scope=Some(scope);self.snapshot=None;self.loaded=true;self.error=None;self.poll_status=None;self.targets.clear();invalidate_snapshot_views();Ok(())
     }
@@ -874,6 +882,10 @@ impl Providers for Runtime {
     }
 }
 
+pub(crate) fn refresh_button() -> Button {
+    Button::new("refresh", "Refresh").icon("refresh")
+}
+
 const SETTINGS_PAGE: &str = "plugins.aritti-spring-runtime";
 
 fn open_settings() -> Result<(), Error> {
@@ -889,8 +901,8 @@ impl Views for Runtime {
             if _view == controls::VIEW {return self.render_controls(_ctx);}
             if _view == graph::VIEW {return self.render_graph(_ctx);}
             if _view == "runtime-snapshot" { return self.render_panes(_ctx); }
-            let refresh = Button::new("refresh", "Refresh").icon("refresh");
-            let Some(project)=_ctx.project() else {self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message("Open a project to load a scoped runtime snapshot. Scheduled refreshes without verified project ownership are skipped.").button(refresh));};
+            let refresh = refresh_button();
+            let Some(project)=_ctx.project() else {self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message("Open a project to see its runtime snapshot.").button(refresh));};
             let scope=match Scope::current(&project).and_then(|scope| {controls::verify(&project,&scope)?;Ok(scope)}) {Ok(scope)=>scope,Err(error)=>{self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message(&error.to_string()).button(refresh));}};
             self.load_scope(scope.clone());
             let Some(snap) = &self.snapshot else {
@@ -969,7 +981,7 @@ impl Views for Runtime {
                 crate::refresh_view(VIEW);
             },
             ViewEvent::Button(b) if b == "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(controls::VIEW)?;},
-            ViewEvent::Button(b) if b == "poll-start"=>{crate::reveal_view(controls::VIEW)?;},
+            ViewEvent::Button(b) if b == "poll-start"=>{self.request_poll_start(ctx)?;},
             ViewEvent::Button(b) if b == "poll-stop"=>{self.stop_polling(&ctx.project().ok_or(Error::Stale)?)?;},
             ViewEvent::Button(b) if b == "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(graph::VIEW)?;},
             ViewEvent::Button(b) if b == "graph-back" && view==graph::VIEW=>self.graph_back(),
@@ -978,7 +990,7 @@ impl Views for Runtime {
             ViewEvent::Button(b) if b == "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;crate::reveal_view("runtime-snapshot")?;},
             // A failure is shown in the view.
             ViewEvent::Button(b) if b == "refresh" => {let project=ctx.project().ok_or("Open a project first.")?;drop(self.refresh(&project));},
-            ViewEvent::Button(b) if b == "clear" => {let project=ctx.project().ok_or("Open a project first.")?;self.clear(&project)?;},
+            ViewEvent::Button(b) if b == "clear" => {let project=ctx.project().ok_or("Open a project first.")?;self.confirm_clear(&project)?;},
             ViewEvent::Button(b) if b == "open-settings" => open_settings()?,
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
@@ -1009,15 +1021,15 @@ impl Plugin for Runtime {
         match id {
             "configure-snapshot-database"=>self.configure_snapshot_database(ctx),
             "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(controls::VIEW)?;Ok(None)},
-            "poll-start"=>{crate::reveal_view(controls::VIEW)?;Ok(Some("Start polling explicitly in the visible Runtime controls view.".into()))},
+            "poll-start"=>self.request_poll_start(ctx).map(Some),
             "poll-stop"=>self.stop_polling(&ctx.project().ok_or(Error::Stale)?).map(Some),
             "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(graph::VIEW)?;Ok(None)},
             "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;crate::reveal_view("runtime-snapshot")?;Ok(None)},
             "read-jmx" => self.read_jmx(ctx).map(Some),
             "refresh" => self.refresh(&ctx.project().ok_or("Open a project first.")?).map(Some),
             "clear" => {
-                self.clear(&ctx.project().ok_or("Open a project first.")?)?;
-                Ok(Some("Spring Runtime snapshot cleared.".into()))
+                let cleared = self.confirm_clear(&ctx.project().ok_or("Open a project first.")?)?;
+                Ok(cleared.then(|| "Spring Runtime snapshot cleared.".into()))
             }
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
@@ -1223,6 +1235,7 @@ mod persistence_flow_tests {
         assert!(runtime.run_command("refresh", &host.invocation(), None).is_err());
         assert!(runtime.snapshot.is_some(), "last-good retained");
         assert_eq!(invalidations(&host), [VIEW, graph::VIEW, "runtime-snapshot", VIEW, graph::VIEW, "runtime-snapshot"]);
+        host.answer_next_prompt(Some(&[]));
         runtime.run_command("clear", &host.invocation(), None).unwrap();
         assert_eq!(invalidations(&host).len(), 9);
         for view in [VIEW, graph::VIEW, "runtime-snapshot"] {
@@ -1260,13 +1273,30 @@ mod persistence_flow_tests {
         assert_eq!(invalidations(&host).len(), 3);
     }
     #[test]
+    fn clear_asks_first_and_keeps_the_snapshot_when_cancelled() {
+        let (host, mut runtime, scope) = refreshed();
+        assert_eq!(runtime.run_command("clear", &host.invocation(), None).unwrap(), None);
+        assert!(host.storage().contains_key(&scope.key()));
+        assert!(runtime.snapshot.is_some());
+    }
+    #[test]
+    fn empty_graph_and_observations_offer_refresh() {
+        let host = MockHost::install().with_capabilities(CAPS);
+        let mut runtime = Runtime::default();
+        for view in [graph::VIEW, "runtime-snapshot"] {
+            let rendered = runtime.render(view, None, &host.invocation()).unwrap();
+            assert!(matches!(rendered.body, Body::Message(ref text) if text.contains("click Refresh")));
+            assert!(rendered.toolbar.iter().any(|b| b.id == "refresh"), "{view}");
+        }
+    }
+    #[test]
     fn external_stop_control_notifies_changed_status_without_http() {
         let (host, mut runtime, _) = refreshed();
         let requests = host.requests().len();
         runtime.run_command("poll-stop", &host.invocation(), None).unwrap();
         assert_eq!(invalidations(&host).len(), 6);
         let view = runtime.render(VIEW, None, &host.invocation()).unwrap();
-        assert!(view.status.unwrap().contains("No polling lease"));
+        assert!(view.status.unwrap().contains("Auto-refresh isn't running"));
         assert_eq!(host.requests().len(), requests);
     }
     #[test]
@@ -1346,9 +1376,9 @@ mod persistence_flow_tests {
             host.set_setting(key,&serde_json::to_string(value).unwrap());let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(_)));assert!(runtime.line_markers(&config_doc()).is_empty());
         }
         host.set_setting("actuatorUrl",&serde_json::to_string(DEFAULT_URL).unwrap());host.set_setting("actuatorAuth","\"none\"");runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(runtime.snapshot.is_some());
-        host.set_project_root(Some("/another"));let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(_)));runtime.run_command("clear",&host.invocation(),None).unwrap();assert!(host.storage().contains_key(&first.key()));
+        host.set_project_root(Some("/another"));let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(_)));host.answer_next_prompt(Some(&[]));runtime.run_command("clear",&host.invocation(),None).unwrap();assert!(host.storage().contains_key(&first.key()));
         host.set_project_root(Some("/project"));runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(runtime.snapshot.is_some());assert_eq!(host.requests().len(),requests);
-        runtime.run_command("clear",&host.invocation(),None).unwrap();assert!(!host.storage().contains_key(&first.key()));assert!(runtime.snapshot.is_none());
+        host.answer_next_prompt(Some(&[]));runtime.run_command("clear",&host.invocation(),None).unwrap();assert!(!host.storage().contains_key(&first.key()));assert!(runtime.snapshot.is_none());
     }
     #[test]
     fn opt_in_scheduled_refresh_requires_verified_project_and_legacy_global_data_is_not_adopted() {
@@ -1384,7 +1414,7 @@ mod failure_recovery_tests {
     fn corrupt_cache_is_not_replaced_silently_and_clear_remains_available_for_recovery() {
         let host=MockHost::install().with_capabilities(&["project.read","storage"]);let scope=Scope::current(&host.invocation().project().unwrap()).unwrap();host::storage::set(&scope.key(),"invalid json").unwrap();
         let mut runtime=Runtime::default();let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(ref text) if text.contains("unreadable")));assert!(view.toolbar.iter().any(|b|b.id=="clear"));
-        runtime.handle(VIEW,ViewEvent::Button("clear".into()),&host.invocation()).unwrap();assert!(!host.storage().contains_key(&scope.key()));assert!(host.requests().is_empty());
+        host.answer_next_prompt(Some(&[]));runtime.handle(VIEW,ViewEvent::Button("clear".into()),&host.invocation()).unwrap();assert!(!host.storage().contains_key(&scope.key()));assert!(host.requests().is_empty());
     }
     #[test]
     fn empty_view_offers_no_clear_when_nothing_is_stored() {

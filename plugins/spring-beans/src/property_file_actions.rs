@@ -157,7 +157,7 @@ pub(crate) fn command(ctx: &Invocation) -> Result<Option<String>, Error> {
     }
     match project.write_file(&change.target, &change.after) {
         Err(Error::Denied(_)) => {
-            host::notify(NotificationLevel::Warning, "Spring Beans", "Allow project.write for Spring Beans in Settings › Plugins to add the property.");
+            host::notify(NotificationLevel::Warning, "Spring Beans", &ui_kit::denied::message("Adding the property", "project.write", crate::PLUGIN_NAME));
             return Ok(None);
         }
         other => other?,
@@ -166,7 +166,7 @@ pub(crate) fn command(ctx: &Invocation) -> Result<Option<String>, Error> {
         Ok(_) => Ok(None),
         Err(error) => {
             let reason = match error {
-                Error::Denied(_) => "Allow editor.write for Spring Beans in Settings › Plugins to change the Java source.".to_owned(),
+                Error::Denied(_) => ui_kit::denied::message("Changing the Java source", "editor.write", crate::PLUGIN_NAME),
                 _ => "The Java source changed before the edit could be applied.".to_owned(),
             };
             host::notify(NotificationLevel::Warning, "Spring Beans", &format!("{reason} The property was added to {}.", change.target));
@@ -580,6 +580,6 @@ mod tests {
         answers(&h);
         nav.run_command("externalize-annotation-string", &h.invocation(), None).unwrap();
         assert_eq!(h.editor_text(), SOURCE, "nothing changes without project.write");
-        assert!(h.notifications().iter().any(|n| n.body.contains("Allow project.write for Spring Beans in Settings › Plugins")));
+        assert!(h.notifications().iter().any(|n| n.body == "Adding the property needs the project.write permission. Allow it in Settings › Plugins › Spring Beans Navigator."));
     }
 }

@@ -7,7 +7,8 @@
     },
     "artisanDockerContainer": {
       "type": "string",
-      "title": "Docker: container ID that runs Artisan (leave empty and use Choose Docker Target to pick one per project)",
+      "title": "Docker: container ID that runs Artisan",
+      "description": "Leave empty and use Laravel: Choose Docker Target\u2026 to pick one per project.",
       "default": ""
     },
     "artisanDockerWorkdir": {
@@ -62,7 +63,8 @@
     },
     "reportUnknownLivewireMethods": {
       "type": "boolean",
-      "title": "Report wire:click and wire:submit methods that the component class of a livewire/ view does not have",
+      "title": "Report unknown wire:click and wire:submit methods",
+      "description": "Methods that the component class of a livewire/ view does not have.",
       "default": true
     },
     "modelDirectories": {
@@ -98,7 +100,8 @@
     },
     "checkFunctions": {
       "type": "boolean",
-      "title": "Report env() calls outside the config directory (they return null once the configuration is cached)",
+      "title": "Report env() calls outside the config directory",
+      "description": "env() returns null once the configuration is cached.",
       "default": true
     },
     "checkSecurity": {

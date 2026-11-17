@@ -74,7 +74,7 @@ pub(crate) fn definition(doc:&Document,at:Position)->Option<Vec<Location>> {
     Some(match declarations.as_slice() { [declaration] if !selected.declaration=>vec![Location{path:doc.path.clone(),range:declaration.range}],_=>vec![] })
 }
 pub(crate) fn occurrences(ctx:&Invocation)->Result<Option<String>,Error> {
-    let root=ctx.project().ok_or(Error::Stale)?.root()?;let editor=ctx.editor().ok_or("Open Java channel configuration and grant optional editor.read.")?;
+    let root=ctx.project().ok_or("Open a project first.")?.root()?;let editor=ctx.editor().ok_or_else(||format!("Open a Java or XML file with channels first. {}",ui_kit::denied::message("Find Channel Usages in This File","editor.read","Spring Structure Tools")))?;
     let source=editor.document()?;let doc=Document{path:editor.path(),language:editor.language(),text:source.text,version:source.version};
     if spring_text::index::owning_root(&doc.path).is_none()||host::project_of(&doc.path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
     let selections=editor.selections()?;let [selection]=selections.as_slice() else{return Err(Error::Invalid("Use a single caret.".into()));};

@@ -183,7 +183,7 @@ impl Editors {
             None,
         )?;
         if out.status != Some(0) {
-            return Err(invalid("Resource read failed; raw tool output withheld."));
+            return Err(invalid(&crate::failure_reason("Reading the resource", context, &out.stderr)));
         }
         let identity = target(&out.stdout)?;
         let scoped = scope.args(&[]);
@@ -326,9 +326,10 @@ impl Editors {
             Some(&doc.text),
         )?;
         if out.status != Some(0) {
-            return Err(invalid(
-                "Replacement failed or conflicted; editor text retained. Raw tool output withheld. Review again or reopen the resource.",
-            ));
+            return Err(invalid(&format!(
+                "{} Your editor text is kept.",
+                crate::failure_reason("Applying the YAML", Some(&lease.context), &out.stderr)
+            )));
         }
         self.leases.remove(&doc.path);
         host::notify(

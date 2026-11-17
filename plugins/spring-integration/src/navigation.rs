@@ -137,8 +137,8 @@ impl HoverProvider for crate::structure::Structure {
 }
 
 fn current_source(ctx: &Invocation) -> Result<(String, Document, Position), Error> {
-    let root = ctx.project().ok_or(Error::Stale)?.root()?;
-    let editor = ctx.editor().ok_or("Open an XML channel configuration and place the caret on a channel name.")?;
+    let root = ctx.project().ok_or("Open a project first.")?.root()?;
+    let editor = ctx.editor().ok_or_else(|| format!("Open a Java or XML file and place the caret on a channel name. {}", ui_kit::denied::message("Find Channel Usages in This File", "editor.read", "Spring Structure Tools")))?;
     let current = editor.document()?;
     let at = editor.selections()?.first().map(|selection| selection.start).ok_or(Error::Stale)?;
     let doc = Document { path: editor.path(), language: editor.language(), text: current.text, version: current.version };
@@ -155,7 +155,7 @@ fn unchanged_source(ctx: &Invocation, root: &str, doc: &Document) -> Result<(), 
 /// Physical current-file occurrences, never a global usages or Rename graph.
 pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
     let (root, doc, at) = current_source(ctx)?;
-    let tokens = tokens(&doc).ok_or("This current file is outside the bounded literal XML channel model.")?;
+    let tokens = tokens(&doc).ok_or("Channel usages work in Spring XML and Java files. This file isn't one, can't be parsed, or is too large.")?;
     let token = selected(&tokens, at).ok_or("Place the caret on a channel name.")?;
     if token.collides || tokens.iter().filter(|t| t.declaration && t.name == token.name).count() != 1 {
         return Err("Needs exactly one declaration in this file and no other bean with the same name.".into());

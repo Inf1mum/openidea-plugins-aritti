@@ -1231,7 +1231,7 @@ fn label_component(
         .sum();
     if graph_size > 4096 {
         return Err(
-            "Static label graph exceeds 4096 fields/conditions; no partial Rename is admitted."
+            "Too many labels and selectors to rename safely (over 4096). Nothing was renamed."
                 .into(),
         );
     }
@@ -1252,7 +1252,7 @@ fn label_component(
                 .count()
                 != 1
             {
-                return Err("A namespace-dependent selector lacks a unique explicit Namespace source; label Rename is withheld.".into());
+                return Err("A selector depends on a namespace that is not set in exactly one place, so Rename cannot check every match. Nothing was renamed.".into());
             }
         }
     }
@@ -1272,7 +1272,7 @@ fn label_component(
             .count()
             != 1
         {
-            return Err("Duplicate resource identities make this label family ambiguous; Rename is withheld.".into());
+            return Err("Two resources share the same kind, namespace and name, so Rename cannot tell them apart. Nothing was renamed.".into());
         }
     }
     let mut owners = vec![subject.owner.clone()];
@@ -1312,7 +1312,7 @@ fn label_component(
             return Ok((owners, selectors));
         }
     }
-    Err("Static label graph did not close within its bounded component limit.".into())
+    Err("Too many connected labels and selectors to rename safely. Nothing was renamed.".into())
 }
 fn association_matrix(
     all: &[(String, Facts)],
@@ -1325,7 +1325,7 @@ fn association_matrix(
                 for (owner_index, owner) in candidates(facts, selector.target).iter().enumerate() {
                     inspected += 1;
                     if inspected > 65536 {
-                        return Err("Static selector association proof exceeds 65536 candidate comparisons; Rename is withheld.".into());
+                        return Err("Too many selectors to compare (over 65536 checks). Nothing was renamed.".into());
                     }
                     if matches(selector, owner, facts, all) {
                         result.push((source, selector_index, file, owner_index));
@@ -1416,7 +1416,7 @@ fn resolve_label_action(
     let mut edits = Vec::new();
     let mut after = Vec::new();
     let mut review = format!(
-        "Label key {} → {}\n{} connected source owners; {} selector scopes. Every existing modeled selector match must remain identical after this edit.\n\nScope: all {} admitted project YAML/JSON files and open buffers. Closed ignored files, external/cluster resources, custom-controller fields, generated/Helm/Kustomize sources and opaque strings are excluded; ambiguous/unparseable/escaped admitted sources are refused. This edits literal source names only, not a live deployment.\n\n",
+        "Label key {} → {}\n{} resources use it; {} selectors match them. Every selector keeps matching the same resources after this edit.\n\nChanges the {} project YAML/JSON files and open buffers. Ignored files, cluster resources, custom-controller fields, Helm or Kustomize sources and opaque strings are not changed; ambiguous or unreadable files stop the rename. Only files change, not the cluster.\n\n",
         subject.key,
         new_key,
         owners.len(),
@@ -1497,7 +1497,7 @@ fn resolve_label_action(
         after.push((
             file.path.clone(),
             facts(&file.path, &rewritten).ok_or(
-                "Rewritten source cannot preserve the admitted graph; Rename is withheld.",
+                "The new name would change which resources a selector matches. Nothing was renamed.",
             )?,
         ));
         if !changes.is_empty() {
@@ -1620,7 +1620,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
         let found = project.find_files(glob, 129)?;
         if found.len() >= 129 {
             return Err(
-                "Project source inventory reached its file limit; no partial Rename is admitted."
+                "The project has too many YAML/JSON files to rename safely. Nothing was renamed."
                     .into(),
             );
         }
@@ -1640,7 +1640,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
     }
     if !files.contains(&doc.path) || files.len() > 128 {
         return Err(
-            "Rename requires an admitted inventory of at most 128 project YAML/JSON sources.".into(),
+            "Rename works in projects with at most 128 YAML/JSON files.".into(),
         );
     }
     let mut total = 0usize;
@@ -1659,7 +1659,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
             "Chart.yaml" | "kustomization.yaml" | "kustomization.yml" | "Kustomization"
         ) {
             return Err(
-                "Helm/Kustomize transformation sources are outside static Rename admission.".into(),
+                "Helm and Kustomize sources cannot be renamed safely. Nothing was renamed.".into(),
             );
         }
         let stat = project.stat(&path)?;
@@ -1676,7 +1676,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
             return Err("Rename inventory exceeds static byte limits.".into());
         }
         total += source.len();
-        let nodes=parse(&source).ok_or("An admitted YAML/JSON source is generated, ambiguous or unparseable; no partial Rename is prepared.")?;
+        let nodes=parse(&source).ok_or("A YAML/JSON file is generated, ambiguous or unreadable. Nothing was renamed.")?;
         if nodes.iter().any(|node| !exact_tree(node)) {
             return Err(
                 "Escaped/multiline source spellings are outside this exact static Rename scope."
@@ -1687,7 +1687,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
             let kind = string(node.get("kind")).unwrap_or_default();
             if kind == "List" {
                 return Err(
-                    "Kubernetes List wrappers are outside this static Rename scope.".into(),
+                    "Resources inside a Kubernetes List cannot be renamed.".into(),
                 );
             }
             let api = string(node.get("apiVersion")).unwrap_or_default();
@@ -1850,7 +1850,7 @@ impl Cache {
         }
         let mut edits = Vec::new();
         let mut review = format!(
-            "{} {}/{}: {} → {}\n\nScope: complete admitted inventory of {} project YAML/JSON files plus open YAML/JSON buffers. Closed ignored files, external/cluster resources, custom-controller fields and opaque strings are excluded. Generated/Helm/Kustomize, ambiguous, escaped or unparseable inventory is refused. This is a local source edit, not a cluster operation.\n\n",
+            "{} {}/{}: {} → {}\n\nChanges the {} project YAML/JSON files plus open YAML/JSON buffers. Ignored files, cluster resources, custom-controller fields and opaque strings are not changed; Helm, Kustomize, ambiguous or unreadable files stop the rename. Only files change, not the cluster.\n\n",
             subject.kind,
             subject.namespace,
             subject.name,

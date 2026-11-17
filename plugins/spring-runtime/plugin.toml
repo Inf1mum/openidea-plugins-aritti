@@ -5,7 +5,7 @@ description = "Reads the Actuator endpoints (beans, environment, conditions, hea
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: An Open Settings button in the empty view, the window appears only in Maven or Gradle projects, and Clear Snapshot is hidden when there is nothing to clear; new icon for runtime value markers, and markers for one project no longer reset another project's polling or view; Read JMX (localhost) shows memory, threads and health of a local JVM, and JMX Health and Info return real data; auto-configuration and properties rows open the matching source without re-scanning, Health lists component details, and secret-looking values are masked; recent requests and project beans are listed first, a timed-out endpoint keeps its previous data, and command names and permission messages are clearer. \
+Next release: An Open Settings button in the empty view, the window appears only in Maven or Gradle projects, and Clear Snapshot is hidden when there is nothing to clear and asks before deleting; new icon for runtime value markers, and markers for one project no longer reset another project's polling or view; Read JMX (localhost) shows memory, threads and health of a local JVM, and JMX Health and Info return real data; auto-configuration and properties rows open the matching source without re-scanning, Health lists component details, and secret-looking values are masked; recent requests and project beans are listed first, a timed-out endpoint keeps its previous data, Start Auto-Refresh starts right away, empty tabs offer Refresh, Observations row actions move to the right-click menu, and commands are named after their tabs with plainer messages. \
 0.3.0: runtime snapshot views and value hints. \
 0.2.0: plugin icon and Actuator support."""
 categories = ["frameworks"]
@@ -30,7 +30,7 @@ category = "Spring Runtime"
 
 [[contributes.commands]]
 id = "clear"
-title = "Spring Runtime: Clear"
+title = "Spring Runtime: Clear Snapshot"
 category = "Spring Runtime"
 
 [[contributes.providers]]
@@ -56,7 +56,7 @@ title = "Spring Runtime Insight"
 
 [[contributes.commands]]
 id = "snapshot-details"
-title = "Spring Runtime: Inspect Cached Snapshot"
+title = "Spring Runtime: Show Observations"
 category = "Spring Runtime"
 
 [[contributes.providers]]
@@ -65,12 +65,12 @@ languages = ["properties", "yaml", "java", "kotlin"]
 
 [[contributes.commands]]
 id = "runtime-graph"
-title = "Spring Runtime: Cached Bean Dependency Graph"
+title = "Spring Runtime: Show Bean Graph"
 category = "Spring Runtime"
 
 [[contributes.commands]]
 id = "runtime-controls"
-title = "Spring Runtime: Refresh and Poll Controls"
+title = "Spring Runtime: Show Refresh Controls"
 category = "Spring Runtime"
 
 [[contributes.commands]]

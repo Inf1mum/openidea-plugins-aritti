@@ -87,6 +87,7 @@ pub(crate) struct State {
     watching: bool,
     snapshots: BTreeMap<String, (Key, Arc<Shared>)>,
     applied: BTreeMap<String, (u64, u64)>,
+    events_notice: std::sync::atomic::AtomicBool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -95,13 +96,16 @@ impl Default for State {
             watching: false,
             snapshots: BTreeMap::new(),
             applied: BTreeMap::new(),
+            events_notice: Default::default(),
         }
     }
 }
 impl BootTools {
     pub(crate) fn activate_live(&mut self) {
         self.live.watching = host::subscribe_paths("files-changed", GLOBS).is_ok();
-        let _ = host::subscribe(EventKind::FileOpened);
+        if matches!(host::subscribe(EventKind::FileOpened), Err(Error::Denied(_))) {
+            ui_kit::denied::notify_once(&self.live.events_notice, "Checking the whole project (unknown keys, test constructors)", "events", "Spring Boot Tools");
+        }
         let _ = host::subscribe(EventKind::FileSaved);
         let deadline = Instant::now() + Duration::from_secs(3);
         for project in host::projects().unwrap_or_default() {
@@ -558,6 +562,16 @@ mod tests {
     }
     fn all() -> Range {
         Range::new(Position::new(0, 0), Position::new(u32::MAX, u32::MAX))
+    }
+    #[test]
+    fn missing_events_permission_is_explained_once() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut tools = BootTools::default();
+        tools.activate_live();
+        tools.activate_live();
+        let notes = host.notifications();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].body, "Checking the whole project (unknown keys, test constructors) needs the events permission. Allow it in Settings › Plugins › Spring Boot Tools.");
     }
     #[test]
     fn registered_metadata_hover_does_not_expand_foreign_qualified_field_by_simple_name() {

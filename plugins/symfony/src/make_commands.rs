@@ -113,7 +113,7 @@ impl Main {
             index.classes.get(&class).and_then(|entry| project.read_file(&entry.path).ok()).ok_or("The form type cannot be read.")?;
         let fields = form_fields(&source);
         if fields.is_empty() {
-            return Err("The form type adds no fields with a literal name.".into());
+            return Err("The form type has no fields with a fixed name. Add fields with string names first.".into());
         }
 
         let document = editor.document()?;

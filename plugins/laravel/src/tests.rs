@@ -2095,23 +2095,25 @@ fn run_artisan_uses_static_choices_without_implicit_discovery_and_splits_argumen
 }
 
 #[test]
-fn missing_view_command_guides_atomic_intention_without_artisan() {
-    let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read", "editor.write"]);
+fn missing_view_command_creates_the_view_after_confirming_without_artisan() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read", "editor.write"]);
+    host.add_dir("resources/views");
     let mut plugin = activated(&host);
     let text = "<?php\nreturn view('posts.create');\n";
+    host.add_file("app/Http/Controllers/A.php", text);
     host.open_editor("/project/app/Http/Controllers/A.php", "php", text, &[(1, 17, 1, 17)]);
+    host.answer_next_prompt(None);
+    plugin.run_command("create-missing", &host.invocation(), None).unwrap();
+    let project = host.invocation().project().unwrap();
+    assert!(!project.exists("resources/views/posts/create.blade.php").unwrap(), "declining the confirm writes nothing");
     host.answer_next_prompt(Some(&[]));
     plugin.run_command("create-missing", &host.invocation(), None).unwrap();
+    assert!(project.exists("resources/views/posts/create.blade.php").unwrap());
     assert!(host.terminals().is_empty());
-    assert!(host.notifications().iter().any(|n| n.body.contains("undoable file creation")));
 
     let existing = "<?php\nreturn view('welcome');\n";
     host.open_editor("/project/app/Http/Controllers/A.php", "php", existing, &[(1, 17, 1, 17)]);
     assert!(plugin.run_command("create-missing", &host.invocation(), None).is_err());
-
-    host.open_editor("/project/app/Http/Controllers/A.php", "php", text, &[(1, 17, 1, 17)]);
-    plugin.run_command("create-missing", &host.invocation(), None).unwrap();
-    assert!(host.terminals().is_empty());
 }
 
 #[test]
@@ -2425,18 +2427,19 @@ fn generate_for_a_selected_model_prepares_an_atomic_factory_creation() {
 }
 
 #[test]
-fn resource_body_prepares_editor_application_without_running_artisan() {
-    let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read"]);
+fn resource_body_is_written_after_confirming_without_running_artisan() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["resource"]));
     host.answer_next_prompt(Some(&["PostResource"]));
     host.answer_next_prompt(Some(&["all"]));
+    host.answer_next_prompt(Some(&[]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
     assert!(host.terminals().is_empty());
     assert!(host.process_runs().is_empty());
-    assert!(!host.invocation().project().unwrap().exists("app/Http/Resources/PostResource.php").unwrap());
-    assert_eq!(host.invocation().editor().unwrap().path(),"/project/app/Models/Post.php");
+    let written = host.invocation().project().unwrap().read_file("app/Http/Resources/PostResource.php").unwrap();
+    assert!(written.contains("'title' => $this->title,"), "{written}");
 
     let index = plugin.indexes.values().next().unwrap();
     let source = bulk::resource_source(index, "Post", "PostResource");
@@ -2579,7 +2582,7 @@ fn filter_by_controller() {
     plugin.handle(VIEW, ViewEvent::Button("routes:filter".into()), &ctx).unwrap();
     let view = plugin.render(VIEW, None, &ctx).unwrap();
     assert_eq!(route_rows(&view).len(), 1);
-    assert_eq!(view.status.as_deref(), Some("1 endpoints \u{b7} controller: Closure · Static source index · Refresh Routes (PHP) for registered routes"));
+    assert_eq!(view.status.as_deref(), Some("1 endpoints \u{b7} controller: Closure · Routes read from source files · Refresh Registered Routes to include package routes"));
 }
 
 #[test]
@@ -3224,7 +3227,7 @@ fn runtime_routes_drive_tabs_actions_navigation_and_expire_on_save() {
     let config:serde_json::Value=serde_json::from_str(&plugin.web_config(&ctx)).unwrap();assert_eq!(config["group"]["tabs"].as_array().unwrap().iter().find(|tab|tab["id"] == VIEW).unwrap()["count"],1);
     plugin.handle(VIEW,ViewEvent::Activate("route:0".into()),&ctx).unwrap();assert!(host.opened_locations().last().unwrap().0.ends_with("PostController.php"));
     plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&ctx);crate::tests::finish_indexing(&mut plugin);assert!(plugin.runtime_routes.is_empty());
-    assert!(plugin.render(VIEW,None,&ctx).unwrap().status.unwrap().contains("Static source index"));
+    assert!(plugin.render(VIEW,None,&ctx).unwrap().status.unwrap().contains("Routes read from source files"));
     assert!(host.process_runs().is_empty());
 }
 #[test]
@@ -3236,7 +3239,7 @@ fn runtime_route_failure_retains_previous_snapshot_and_static_dynamic_uris_are_n
     assert!(!plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"));
     assert!(plugin.run_command("routes-runtime-refresh",&ctx,None).is_err(),"source refresh is queued before PHP starts");
     crate::tests::finish_indexing(&mut plugin);
-    assert!(matches!(plugin.run_command("routes-runtime-refresh",&ctx,None),Err(Error::Denied(_))));
+    assert!(matches!(plugin.run_command("routes-runtime-refresh",&ctx,None),Err(Error::Invalid(message)) if message.contains("process:php permission")));
     assert!(plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"),"refresh must rebuild the source index before starting PHP");
     assert_eq!(plugin.active_routes(&ctx)[0].path,"/kept");
     assert!(routes::parse("<?php Route::get($uri, [$controller,'index']);Route::delete($uri.'/{id}',[$controller,'destroy']);").is_empty());
@@ -3601,8 +3604,82 @@ fn route_copy_curl_without_selection_explains() {
     host.answer_next_prompt(None);
     assert_eq!(plugin.run_command("route-copy-curl", &host.invocation(), None).unwrap(), None, "palette run asks for a route; dismissing copies nothing");
     assert!(host.clipboard().is_none());
-    let error = plugin.run_command("model-open-source", &host.invocation(), None).unwrap_err();
-    assert!(matches!(error, Error::Invalid(ref message) if message == "Select a model in the Laravel window first."), "{error:?}");
-    let error = plugin.run_command("console-command-open", &host.invocation(), None).unwrap_err();
-    assert!(matches!(error, Error::Invalid(ref message) if message == "Select a command in the Laravel window first."), "{error:?}");
+    host.answer_next_prompt(None);
+    assert_eq!(plugin.run_command("model-open-source", &host.invocation(), None).unwrap(), None, "palette run asks for a model");
+    assert_eq!(plugin.run_command("console-command-open", &host.invocation(), None).unwrap(), None, "palette run without a command class opens the Artisan tab");
+    assert_eq!(host.revealed_views(), ["laravel"]);
+}
+
+#[test]
+fn remove_phpdocs_command_rewrites_models_after_one_confirm() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
+    host.add_file("app/Models/Tag.php", "<?php\n/**\n * @property int $id\n */\nclass Tag extends Model {}\n");
+    let mut plugin = activated(&host);
+    let project = host.invocation().project().unwrap();
+    host.answer_next_prompt(None);
+    plugin.run_command("remove-phpdocs", &host.invocation(), None).unwrap();
+    assert!(project.read_file("app/Models/Tag.php").unwrap().contains("@property"), "declining writes nothing");
+    host.answer_next_prompt(Some(&[]));
+    plugin.run_command("remove-phpdocs", &host.invocation(), None).unwrap();
+    assert_eq!(project.read_file("app/Models/Tag.php").unwrap(), "<?php\nclass Tag extends Model {}\n");
+    assert!(host.notifications().iter().any(|n| n.body == "Removed IDE helper PHPDoc from 1 models."));
+}
+
+#[test]
+fn regenerate_model_helpers_command_writes_the_picked_models() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read", "storage"]);
+    host.add_file("artisan", "<?php");
+    host.add_file("composer.json", r#"{"require": {"laravel/framework": "^13.0"},"autoload":{"psr-4":{"App\\":"app/"}}}"#);
+    host.add_file("composer.lock", r#"{"packages":[{"name":"laravel/framework","version":"v13.40.0"}]}"#);
+    host.add_file("app/Models/Post.php", "<?php namespace App\\Models;use Illuminate\\Database\\Eloquent\\Model;/** Handwritten Post documentation. */class Post extends Model {}");
+    host.add_file("database/migrations/001.php", "<?php Schema::create('posts',function($t){$t->string('title');});");
+    let mut plugin = Main::default();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    crate::tests::finish_indexing(&mut plugin);
+    host.answer_next_prompt(Some(&["App\\Models\\Post"]));
+    host.answer_next_prompt(Some(&["preserve"]));
+    host.answer_next_prompt(Some(&[]));
+    host.answer_next_prompt(Some(&["yes"]));
+    host.answer_next_prompt(Some(&["yes"]));
+    plugin.run_command("regenerate-model-helpers", &host.invocation(), None).unwrap();
+    let source = host.invocation().project().unwrap().read_file("app/Models/Post.php").unwrap();
+    assert!(source.contains("@property string $title") && source.contains("Handwritten"), "{source}");
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn runtime_row_commands_from_the_palette_explain_what_to_read_first() {
+    let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php"]);
+    let mut plugin = activated(&host);
+    let error = plugin.run_command("runtime-retry-failed", &host.invocation(), None).unwrap_err();
+    assert!(matches!(error, Error::Invalid(ref message) if message.starts_with("No failed jobs")), "{error:?}");
+    let error = plugin.run_command("runtime-open-frame", &host.invocation(), None).unwrap_err();
+    assert!(matches!(error, Error::Invalid(ref message) if message.starts_with("No errors")), "{error:?}");
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn search_commands_say_indexing_is_not_finished() {
+    let host = MockHost::install();
+    laravel_project(&host);
+    let mut plugin = Main::default();
+    for id in ["search-names", "route-search"] {
+        let error = plugin.run_command(id, &host.invocation(), None).unwrap_err();
+        assert!(matches!(error, Error::Invalid(ref message) if message == "Laravel is still indexing. Try again in a moment."), "{id}: {error:?}");
+    }
+}
+
+#[test]
+fn generator_prepare_writes_the_files_after_one_confirm() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read", "storage"]);
+    let mut plugin = activated(&host);
+    host.add_dir("app");
+    let project = host.invocation().project().unwrap();
+    host.open_editor("/project/routes/web.php", "php", &project.read_file("routes/web.php").unwrap(), &[]);
+    host.answer_next_prompt(Some(&["yes"]));
+    let request = serde_json::json!({"op":"prepare","draft":{"name":"Invoice","table":"invoices","migrationStamp":"2026_11_10_120000","fields":[{"name":"title","kind":"string"}],"related":["migration"]}}).to_string();
+    plugin.handle(generator_workspace::VIEW, ViewEvent::Message(request), &host.invocation()).unwrap();
+    let reply = host.view_messages().last().unwrap().1.clone();
+    assert!(reply.contains("Created or updated"), "{reply}");
+    assert!(project.exists("app/Models/Invoice.php").unwrap());
 }

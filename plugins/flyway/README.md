@@ -17,7 +17,7 @@ The plugin never connects to a database on its own. It reads migration file name
 2. Open a project with Flyway migrations, for example in `src/main/resources/db/migration`.
 3. Open any migration `.sql` file. Bad names and duplicate versions are underlined.
 4. Run **Flyway: Check Migrations** to check every migration at once.
-5. To run Flyway, allow `process:flyway` (or `process:mvn`) in Settings › Plugins › Flyway Migrations, then run **Flyway: Info**.
+5. To run Flyway, allow `process:flyway` (or `process:mvn`) in Settings › Plugins › Flyway Migrations, then run **Flyway: Run Info…**.
 
 ## Features
 
@@ -78,16 +78,16 @@ The **New** menu offers **Flyway SQL Migration**, **Flyway Java Migration**, **F
 
 ### Run Flyway commands
 
-**Flyway: Info**, **Flyway: Validate**, **Flyway: Migrate**, **Flyway: Repair** and **Flyway: Clean (Drops All Objects)…** run Flyway on your project.
+**Flyway: Run Info…**, **Flyway: Validate**, **Flyway: Migrate**, **Flyway: Repair** and **Flyway: Clean (Drops All Objects)…** run Flyway on your project.
 
-- Before launch, each command asks for confirmation. It leads with the effect (for example, Migrate may change the schema and data) and the target database, then the project, runner and config files it will use.
-- The target database comes from the project's Flyway config files, without credentials or URL parameters. It shows **UNKNOWN** when command-line arguments set the URL, several URLs are configured, or the URL can't be shown safely. The CLI or environment can still override it.
+- Before launch, each command asks for confirmation. The title names the target (for example **Clean db.example/app: drop all objects?**), and the body gives the effect, the target database, the project and how the command runs.
+- The target database comes from the project's Flyway config files, without credentials or URL parameters: PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, DB2, Redshift, H2 and SQLite URLs are recognised. With several `[environments.*]`, the one chosen by `-environment=<name>` in **Extra arguments** (or `environment` in `[flyway]`, else `default`) is used. The target is unknown when command-line arguments set the URL, the chosen environment has no URL, or the URL can't be read; the confirmation says why. The CLI or environment can still override it.
 - **Run Flyway commands with** picks `flyway` (the CLI, goal `info`) or `mvn` (goal `flyway:info`).
 - **Extra arguments** are added after the goal, split on spaces, for example `-environment=dev`.
-- **Clean** warns that it drops objects and always asks for confirmation. Flyway's own `cleanDisabled` setting still applies.
+- **Clean** warns that it drops objects and always asks for confirmation. When the target is unknown, you also type `clean` to go ahead. Flyway's own `cleanDisabled` setting still applies.
 - By default (**terminal** mode), Info and Validate use the IDE's Run, and the other commands open a terminal.
 - In **managed** mode, the output appears in the **Command Output** tab instead. See [Managed mode](#managed-mode).
-- In managed mode, a successful Migrate, Repair or Clean shows a notification with a **Refresh Info** button.
+- In managed mode, a successful Migrate, Repair or Clean shows a notification with a **Run Info** button.
 - Running a program needs `process:flyway` or `process:mvn`. A notification asks you to allow it.
 
 The Run menu also offers **Flyway: info** and **Flyway: validate** for a `flyway.toml` or `flyway.conf` in the project root or in `conf/`. They follow **Run Flyway commands with**, run from the project root and support Stop and Rerun. They disappear when **Extra arguments** is set, so credentials are not saved in Run configurations. Migrate, Clean and Repair are never Run configurations: you review them each time.
@@ -96,10 +96,10 @@ The Run menu also offers **Flyway: info** and **Flyway: validate** for a `flyway
 
 The **Flyway** tool window (bottom) has three tabs: **Flyway**, **Command Output** and **Comparison**. Switching tabs never starts a command or a database connection.
 
-The **Flyway** tab lists migrations grouped by status.
+The **Flyway** tab lists the project's migrations.
 
-- Before Info has run, the tab lists the local migrations (version, description, kind and name or duplicate problems), grouped by kind with problems first. The status line says when table navigation indexed only part of the migrations.
-- **Refresh…** runs Flyway Info (after you review it) and fills the list. A finished Info appears without another press.
+- The list is a table. Before Info has run, it shows the local migrations with **Version**, **Description**, **Type** and **Problems** columns. After Info, it shows **Version**, **Description**, **Type**, **State** and **Installed**. Filter by **Type** and **State** beside the search box. The status line says when table navigation indexed only part of the migrations.
+- **Run Info…** runs Flyway Info (after you confirm it) and fills the list. A finished Info appears without another press.
 - Double-click a row, or press Enter, to open its file.
 - **Open** opens the selected migration. **New…** starts a new migration in the same folder.
 - **Filter…** searches the rows. **Clear** removes the filter. Filters belong to the current project.
@@ -136,7 +136,7 @@ When the project has a Flyway config file (`flyway.toml` or `flyway.conf`), the 
 - For a Delete, the target `CREATE` is the old object's definition, not a `DROP`.
 - Nothing is run, combined or written.
 
-**Review CLI recipe…** shows the exact Flyway commands to produce such a report. It supports only Flyway **13.12.1 Enterprise**. It is a review aid; it runs nothing.
+The toolbar has **Load Report…** and **Select Changes…**, plus **Start Comparison**, **Check Progress** and **Stop Comparison** while a comparison runs. **More…** holds **Show CLI Commands…**, **Prepare Comparison…** and **Clear**. **Show CLI Commands…** shows the exact Flyway commands to produce such a report. It supports only Flyway **13.12.1 Enterprise**. It is a review aid; it runs nothing.
 
 ### Generate SQL from Hibernate entities (optional)
 
@@ -158,12 +158,12 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Flyway**; bind keys 
 | **Flyway: Check Migrations** | Checks every migration's name and looks for duplicate versions. |
 | **Flyway: Copy Next Migration Version** | Copies the next version prefix (`V3__`) and names the target folder. |
 | **Flyway: New Migration…** | Opens the new-migration form in the tool window. |
-| **Flyway: Info** | Runs `flyway info`. |
+| **Flyway: Run Info…** | Runs `flyway info` after you confirm. |
 | **Flyway: Validate** | Runs `flyway validate`. |
 | **Flyway: Migrate** | Runs `flyway migrate`. |
 | **Flyway: Repair** | Runs `flyway repair`. |
 | **Flyway: Clean (Drops All Objects)…** | Runs `flyway clean` after confirmation. Drops all objects in the target schemas. |
-| **Flyway: Refresh Status** | Reads new output from a command running in managed mode. |
+| **Flyway: Refresh Command Output** | Reads new output from a command running in managed mode. |
 | **Flyway: Show Migrations** | Opens the **Flyway** tab of the tool window. |
 | **Flyway: Cancel Command** | Stops the command running in managed mode. |
 | **Flyway: Review Local Comparison Report…** | Opens a `diffText` JSON report for review. |
@@ -203,8 +203,8 @@ Creating and renaming files needs no permission.
 | "Running Flyway needs the process:flyway permission. Allow it in Settings › Plugins › Flyway Migrations." | Allow `process:flyway` or `process:mvn` in Settings › Plugins › Flyway Migrations. |
 | "Next migration: … Copying it needs the clipboard permission…" | Allow `clipboard`, or copy the name from the notification. |
 | "Flyway info did not return JSON" | Check **Extra arguments** and use Flyway 10 or newer. |
-| The **Flyway** tab says there is no Info result | Press **Refresh…**. The list only fills after an explicit Info run. |
-| The **Command Output** tab says there is no output | Run a Flyway command first. In managed mode, press **Refresh Status** to read new output. |
+| The **Flyway** tab says there is no Info result | Press **Run Info…**. The list only fills after an explicit Info run. |
+| The **Command Output** tab says there is no output | Run a Flyway command first. In managed mode, press **Refresh Output** to read new output. |
 | Managed output stopped updating | Managed commands can end after about five minutes idle, or when the IDE closes. Use terminal mode for long work. |
 | The Run menu has no **Flyway: info** | It needs a `flyway.toml` or `flyway.conf` in the root or `conf/`, and an empty **Extra arguments**. |
 | A rename made outside the IDE isn't reflected | Run **Flyway: Check Migrations**. |
@@ -239,14 +239,14 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 
 - Before launch, the review records the invoking project, approved runner, option-token keys and observed source paths. All argv and config values are hidden.
 - Sources reviewed: four conventional Flyway config files, project-local `flyway.user.toml` overlays, up to 16 explicit owned `-configFiles=` (CLI) or `-Dflyway.configFiles=` (Maven) paths, and up to 32 discovered Spring application configs (64 KiB each). They are rechecked after confirmation.
-- The target database is a hint read from `flyway.url` or `[environments.*] url` in the project's Flyway config files. Only a single plain PostgreSQL, MySQL or MariaDB JDBC URL is shown, as host and database; anything else is **UNKNOWN**. The CLI still resolves the effective configuration, environment and target.
+- The target database is a hint read from `flyway.url` or `[environments.*] url` in the project's Flyway config files. A JDBC URL with a `${…}` placeholder or an Oracle `(DESCRIPTION=…)` address is not resolved. The CLI still resolves the effective configuration, environment and target.
 - There is no unscoped "run twice" fallback for Clean.
 - Native Run configurations (API 1.4) cover Info and Validate only. They use the owning project root as working directory. Custom `arguments` withdraw them.
 
 ### Managed mode
 
 - Managed mode is finite, **instance-lifetime** ownership. Shutdown or about five minutes of idle time may end the child. Status is refreshed on demand, not streamed.
-- **Refresh Status** reads bounded stdout/stderr and completion. Rendering the view also polls the owned child, so finished output appears without another press.
+- **Refresh Output** reads up to 16 KiB per stream and completion. Rendering the view also polls the owned child, so finished output appears without another press.
 - **Cancel Command** kills only the stored child. Neither exit nor cancel implies a database rollback.
 - Status and cancel refuse another project's handle. A second start cannot silently replace a running child. A failed project-list query counts as an unavailable ownership check, not as proof of closure.
 - Unresolved or foreign-owned sources suppress managed output.
@@ -255,7 +255,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 
 ### Migrations list (Info)
 
-- **Refresh…** starts a managed JSON Info command (`-outputType=json`, or Maven `-Dflyway.outputType=json`) and opens **Command Output**.
+- **Run Info…** starts a managed JSON Info command (`-outputType=json`, or Maven `-Dflyway.outputType=json`) and opens **Command Output**.
 - A successful JSON result updates the owning project's rows, labelled cached with capture age and provenance. Failures and cancellation never produce a fake success.
 - Observed config, SQL and source-parent changes retire cached rows. Automatic render checks only project ownership and settings metadata: no CLI or HTTP.
 - Accepted Info needs one migrations-bearing JSON object with unique keys. Maven banners are scanned within bounds. Conflicting roots, duplicate keys and error objects are rejected.
@@ -279,9 +279,9 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 - The parser accepts the documented `differences[]` shape: unique ids, Add/Edit/Delete, literal definitions.
 - Bounds: 1 MiB / 500 changes, 64 KiB per SQL side, 32 ids / 64 KiB selection. Banners, logs, error payloads and malformed input are rejected. Nothing is truncated into a "complete" preview.
 - Rendering reads only the imported snapshot. The session is in memory and project-scoped. Report edits retire selections; stale reports clear visibly.
-- **Review CLI recipe…** records exact argv arrays after a bounded confirmation: snapshot a schema model, compare against `empty` or a local snapshot, request `diffText` with explicit change IDs. It uses the `flyway` program, an explicit project working directory, concrete distinct in-project paths and absent outputs. Version and edition are self-reported, not probed. An imported report is not proven to belong to a future artifact's IDs.
-- **Prepare comparison…** captures up to 64 owned schema-model files (1 MiB total), an optional target snapshot and fresh output paths, and reviews the stage argv. After you confirm, it detects the installed CLI with `flyway --version` (optional `process:flyway`) and shows the edition, version, project configuration and locations.
-- **Start comparison** appears only when a CLI was detected. The stages (one child, closed stdin, separate snapshot/diff/diffText, explicit Check/Continue, bounded output, refused publication on nonzero exit, stderr, oversized or stale output) read the schema model and snapshot files only.
+- **Show CLI Commands…** records exact argv arrays after a bounded confirmation: snapshot a schema model, compare against `empty` or a local snapshot, request `diffText` with explicit change IDs. It uses the `flyway` program, an explicit project working directory, concrete distinct in-project paths and absent outputs. Version and edition are self-reported, not probed. An imported report is not proven to belong to a future artifact's IDs.
+- **Prepare Comparison…** captures up to 64 owned schema-model files (1 MiB total), an optional target snapshot and fresh output paths, and reviews the stage argv. After you confirm, it detects the installed CLI with `flyway --version` (optional `process:flyway`) and shows the edition, version, project configuration and locations.
+- **Start Comparison** appears only when a CLI was detected. The stages (one child, closed stdin, separate snapshot/diff/diffText, explicit Check/Continue, bounded output, refused publication on nonzero exit, stderr, oversized or stale output) read the schema model and snapshot files only.
 
 ### Hibernate adapter
 

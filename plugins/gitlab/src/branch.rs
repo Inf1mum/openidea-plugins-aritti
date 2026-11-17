@@ -412,6 +412,7 @@ impl GitLab {
             None => host::remove_status_item(STATUS_ITEM),
         }
 
+        let _ = host::set_context("branchMergeRequest", mr.is_some());
         self.branch = Some(BranchReview { key, checked_at: now_secs(), root: status.root, mr, threads });
         self.republish();
 

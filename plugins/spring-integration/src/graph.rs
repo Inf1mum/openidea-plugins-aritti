@@ -334,17 +334,17 @@ impl Integration {
             Ok(root) if !root.is_empty() => root,
             _ => {
                 self.graph = External::default();
-                return Ok(View::message("Project identity is unavailable.").button(refresh));
+                return Ok(View::message("Open a project to see its message channels.").button(refresh));
             }
         };
-        if spring_text::scope::scope_path(&root).is_none() {self.graph=External::default();return Ok(View::message("Current project source ownership is unavailable.").button(refresh));}
+        if spring_text::scope::scope_path(&root).is_none() {self.graph=External::default();return Ok(View::message("This project's folder path can't be read. Open the project from a local folder.").button(refresh));}
         let index = self.indexes.get(&project, COMMAND_BUDGET);
         if index.scanning() {
             crate::refresh(&id(VIEW));
         }
         let (nodes, edges) = diagram_of(&index.view(crate::shared::refs_of));
         let status = format!(
-            "{} nodes · {} links{} · cached lexical Integration source graph",
+            "{} nodes · {} links{}",
             nodes.len(),
             edges.len(),
             if index.complete() {

@@ -555,17 +555,40 @@ fn selected_paths_need_an_open_ignore_file() {
 
 #[test]
 fn selected_paths_go_to_the_picked_root_ignore_file() {
-    let host = MockHost::install();
+    let host = new_file_host();
     host.open_editor("/project/.dockerignore", "ignore", "/dist\n", &[(0, 0, 0, 0)]);
-    host.add_file("/project/.gitignore", "");
+    host.add_file("/project/.gitignore", "/out");
     host.select_paths(&["/project/build"]);
     host.answer_next_prompt(Some(&["/project/.gitignore"]));
 
     IgnorePlugin::default().run_command("add-selected", &host.invocation(), None).unwrap();
 
+    assert_eq!(host.invocation().project().unwrap().read_file("/project/.gitignore").unwrap(), "/out\n/build\n");
     assert_eq!(host.opened_locations(), [("/project/.gitignore".to_owned(), 0, 0)]);
-    assert!(host.notifications()[0].body.starts_with("Opened /project/.gitignore"));
+    assert_eq!(host.notifications()[0].body, "Added 1 to .gitignore.");
     assert_eq!(host.editor_text(), "/dist\n");
+}
+
+#[test]
+fn adding_to_a_closed_ignore_file_without_project_write_explains_the_permission() {
+    let host = MockHost::install();
+    host.add_file("/project/.gitignore", "");
+    host.select_paths(&["/project/build"]);
+
+    let error = IgnorePlugin::default().run_command("add-selected", &host.invocation(), None).unwrap_err().to_string();
+
+    assert!(error.contains("project.write permission"), "{error}");
+    assert_eq!(host.invocation().project().unwrap().read_file("/project/.gitignore").unwrap(), "");
+}
+
+#[test]
+fn adding_without_a_selection_asks_for_one() {
+    let host = new_file_host();
+    host.add_file("/project/.gitignore", "");
+
+    let error = IgnorePlugin::default().run_command("add-selected", &host.invocation(), None).unwrap_err().to_string();
+
+    assert!(error.contains("Select files or folders"), "{error}");
 }
 
 #[test]
@@ -645,13 +668,14 @@ fn unignore_selected_adds_negated_entries() {
 
 #[test]
 fn the_editor_menu_adds_the_current_file_when_nothing_is_selected() {
-    let host = MockHost::install();
+    let host = new_file_host();
     host.open_editor("/project/src/a.rs", "rust", "", &[(0, 0, 0, 0)]);
     host.add_file("/project/.gitignore", "");
     host.answer_next_prompt(Some(&["/project/.gitignore"]));
 
     IgnorePlugin::default().run_command("add-selected", &host.invocation(), None).unwrap();
 
+    assert_eq!(host.invocation().project().unwrap().read_file("/project/.gitignore").unwrap(), "/src/a.rs\n");
     assert_eq!(host.opened_locations(), [("/project/.gitignore".to_owned(), 0, 0)]);
 }
 
@@ -685,6 +709,34 @@ fn new_ignore_file_without_editor_picks_type() {
 
     assert_eq!(host.invocation().project().unwrap().read_file(".npmignore").unwrap(), "");
     assert_eq!(host.opened_locations(), [("/project/.npmignore".to_owned(), 0, 0)]);
+}
+
+#[test]
+fn new_ignore_file_goes_in_the_selected_folder() {
+    let host = new_file_host();
+    host.add_file("web/src/a.rs", "");
+    host.open_editor("/project/web/src/a.rs", "rust", "", &[]);
+    host.add_dir("web");
+    host.select_paths(&["/project/web"]);
+    host.answer_next_prompt(Some(&[".npmignore"]));
+    host.answer_next_prompt(Some(&[]));
+
+    IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap();
+
+    assert_eq!(host.invocation().project().unwrap().read_file("web/.npmignore").unwrap(), "");
+}
+
+#[test]
+fn new_ignore_file_next_to_a_selected_file_goes_in_its_folder() {
+    let host = new_file_host();
+    host.add_file("web/package.json", "{}");
+    host.select_paths(&["/project/web/package.json"]);
+    host.answer_next_prompt(Some(&[".npmignore"]));
+    host.answer_next_prompt(Some(&[]));
+
+    IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap();
+
+    assert_eq!(host.invocation().project().unwrap().read_file("web/.npmignore").unwrap(), "");
 }
 
 #[test]

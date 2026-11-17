@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 pub(crate) const SET: &str = "partial-git-observation";
 pub(crate) const MAX_FILES: usize = 16;
 const BUDGET: Duration = Duration::from_secs(1);
-const TOOLTIP: &str = "Historical positive Git ignored-file observation (partial sample, may be stale). Not current/effective Git status; global excludes disabled. Refresh or clear explicitly.";
+const TOOLTIP: &str = "Ignored by Git in the last scan; may be stale and is not the current Git status. Run Ignore: Scan Git for Ignored Files… to refresh or Ignore: Clear Ignored-File Marks to remove.";
 #[derive(Default)]
 pub(crate) struct State {
     root: Option<String>,

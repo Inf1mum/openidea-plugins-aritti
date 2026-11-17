@@ -227,7 +227,7 @@ impl Core {
     }
     pub fn prepare(&mut self, plan: Plan, profile: Result<Profile, Error>) -> Result<(), Error> {
         if self.running() {
-            return Err("Cancel the owned comparison child first.".into());
+            return Err("Stop the running comparison first.".into());
         }
         let profile = profile.and_then(|profile| {
             if profile.edition.eq_ignore_ascii_case("Community") {
@@ -277,7 +277,7 @@ impl Core {
     // Called after `start` admitted the detected profile; tests drive it directly.
     fn launch_admitted(&mut self, project: &Project) -> Result<(), Error> {
         if self.running() {
-            return Err("A comparison child is already owned.".into());
+            return Err("A comparison is already running.".into());
         }
         if self.step >= 3 {
             return Err("Comparison already finished.".into());

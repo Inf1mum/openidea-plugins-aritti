@@ -18,7 +18,7 @@ Opening or saving a supported file can refresh results from OSV. Typing never se
 1. Install the plugin ([how](../../README.md#install-a-plugin)).
 2. Allow `net:api.osv.dev` in Settings › Plugins › Dependency Audit.
 3. Run **Dependency Audit: Scan Project** (also in the Tools menu). A notification shows the totals.
-4. Open the **Dependency Audit** tool window (bottom) to see each vulnerable dependency and its advisories.
+4. Open the **Dependency Audit** tool window (bottom). Its **Vulnerabilities** tab lists each vulnerable dependency and its advisories.
 5. Open a flagged manifest, put the caret on the underlined version and press ⌥⏎ › **Upgrade … to …**.
 
 ## Features
@@ -84,7 +84,7 @@ The same ⌥⏎ menu offers **Open OSV advisory** and **Ignore … for package v
 - Unknown severity or missing details are labelled as such, not treated as fixed or not fixed.
 - For PyPI and Maven findings, a note says whether the package is imported in your `.py`, `.java` or `.kt` sources. This is a hint only; it never hides a finding.
 
-**Open** on a Dependency row goes to its first declaration. On an Advisory row it opens the advisory on osv.dev. **Open advisory on OSV.dev** does the same for a selected row.
+**Open** on a Dependency row goes to its first declaration. On an Advisory row it opens the advisory on osv.dev. **Open Advisory on OSV.dev…** does the same for a selected row.
 
 If a scan fails, the last good report stays, with the failure shown. A project with no supported dependency files says so and lists the file names it looks for.
 
@@ -92,7 +92,7 @@ Scan times show as an age and a UTC date, for example `3d ago (2026-11-14 09:30 
 
 ### Upgrade from the report
 
-1. Select the dependency in the tool window and choose **Preview upgrade in open declaration**.
+1. Select the dependency in the tool window and choose **Preview Upgrade…**.
 2. If its declaration isn't the active editor, the plugin opens it. Choose the action again.
 3. A diff shows the file before and after the upgrade. Check the file, range and old and new version, then confirm.
 
@@ -102,7 +102,7 @@ This works for exact declarations in `pom.xml`, Gradle coordinates, version cata
 
 ### Ignore a finding
 
-Choose **Ignore this exact finding with reason** on a row (or **Ignore … for package version** with ⌥⏎).
+Choose **Ignore Finding with Reason…** on a row (or **Ignore … for package version** with ⌥⏎).
 
 1. If the dependency has several advisories, pick one.
 2. Enter a reason.
@@ -110,12 +110,12 @@ Choose **Ignore this exact finding with reason** on a row (or **Ignore … for p
 
 Only that finding in that project is hidden: in the report, the underlines, the quick fix and the commit check. Other versions, packages and projects are unaffected. Existing underlines may need an edit or reopen to disappear. If another advisory still applies, the package stays visible.
 
-**Dependency Audit: Review scoped ignores** (Tools menu, or **Review Scoped Ignores** in the tool window) lists your ignores. Select one to see its reason and date, and restore it. Restoring shows the finding again without a new scan.
+**Dependency Audit: Review Ignored Findings…** (Tools menu, or **Review Ignored Findings** in the tool window) lists your ignores. Select one to see its reason and date, and restore it. Restoring shows the finding again without a new scan.
 
 To share ignores with your team:
 
-- **Dependency Audit: Export scoped ignores to project file** writes `.openidea/dependency-audit-ignores.json`. It never overwrites an existing file.
-- **Dependency Audit: Import scoped ignores from project file** reads it back. It lists every entry for confirmation and keeps your existing ignores.
+- **Dependency Audit: Export Ignored Findings to Project File…** writes `.openidea/dependency-audit-ignores.json`. It never overwrites an existing file.
+- **Dependency Audit: Import Ignored Findings from Project File…** reads it back. It lists every entry for confirmation and keeps your existing ignores.
 
 For a global ignore, list the advisory in **Ignored advisories**.
 
@@ -145,7 +145,7 @@ After each scan, the plugin reads the Maven and Gradle versions the IDE already 
 
 The build runs your project's plugins and may contact your repositories. Nothing is installed, upgraded or edited. No wrapper or installer runs.
 
-With **Run Maven/Gradle when the IDE hasn't resolved dependencies** turned on (off by default), a scan also starts the build tool when the IDE has no resolved versions and `process:mvn` or `process:gradle` is allowed. It asks once per project before the first run. Reloading the Maven project in the IDE is faster and runs nothing.
+With **Run Maven/Gradle when the IDE hasn't resolved dependencies** turned on (off by default), a scan also starts the build tool when the IDE has no resolved versions and `process:mvn` or `process:gradle` is allowed. It asks once per project before the first run. If it can't run, a notification says why once per session. Reloading the Maven project in the IDE is faster and runs nothing.
 
 ### Resolve effective sbt versions
 
@@ -160,7 +160,7 @@ The build loads your Scala build and its plugins, may contact repositories and w
 
 ### Find out if vulnerable code is called (optional)
 
-**Dependency Audit: Analyze Vulnerable Calls (OSV-Scanner)…** runs **OSV-Scanner 2.7.1** on a Go or (experimental) Rust project, in the **Call Evidence** tab. Install the CLI and the language toolchain yourself, and allow `process:osv-scanner`.
+**Dependency Audit: Analyze Vulnerable Calls (OSV-Scanner)…** runs **OSV-Scanner 2.7.1** on a Go or (experimental) Rust project, in the **Vulnerable Calls** tab. Install the CLI and the language toolchain yourself, and allow `process:osv-scanner`.
 
 - The review explains that it runs code, downloads dependencies and queries external services, before anything runs.
 - Go uses govulncheck. Rust compiles dependencies and may run build scripts.
@@ -187,9 +187,9 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dependency Audit**; 
 | **Dependency Audit: Go to Declaration…** | Opens the file and line where the selected dependency is declared. | Tool window row |
 | **Dependency Audit: Open Advisory on OSV.dev…** | Opens the selected advisory on osv.dev. | Tool window row |
 | **Dependency Audit: Ignore Finding with Reason…** | Hides one finding in this project, with a reason. | Tool window row |
-| **Dependency Audit: Review scoped ignores** | Lists ignores and restores them. | Tools |
-| **Dependency Audit: Export scoped ignores to project file** | Writes ignores to `.openidea/dependency-audit-ignores.json`. | Tools |
-| **Dependency Audit: Import scoped ignores from project file** | Reads ignores from that file after confirmation. | Tools |
+| **Dependency Audit: Review Ignored Findings…** | Lists ignores and restores them. | Tools |
+| **Dependency Audit: Export Ignored Findings to Project File…** | Writes ignores to `.openidea/dependency-audit-ignores.json`. | Tools |
+| **Dependency Audit: Import Ignored Findings from Project File…** | Reads ignores from that file after confirmation. | Tools |
 | **Dependency Audit: Inspect npm Lockfile Graph** | Shows the dependency tree of the current `package-lock.json`. | — |
 | **Dependency Audit: Resolve Effective Build Dependencies…** | Resolves effective Maven or Gradle versions. | — |
 | **Dependency Audit: Analyze Vulnerable Calls (OSV-Scanner)…** | Runs OSV-Scanner call analysis for Go or Rust. | — |
@@ -208,6 +208,7 @@ Settings › Plugins › Dependency Audit.
 | Check on open and save | `autoCheck` | on | Asks OSV when a supported file opens or is saved. Off: nothing is sent until you run a scan. |
 | Ignored advisories | `ignoredAdvisories` | empty | Advisories to hide everywhere. One id per line (`GHSA-…`, `CVE-…`); `#` starts a comment. |
 | Run Maven/Gradle when the IDE hasn't resolved dependencies | `autoResolveBuilds` | off | After a scan, runs the project's build tool when the IDE has no resolved Maven/Gradle versions. Asks once per project before the first run. Needs `process:mvn` or `process:gradle`. |
+| Most packages in the npm graph | `npmGraphMaxPackages` | 2000 | Largest `package-lock.json` that **Inspect npm Lockfile Graph** opens (100 to 20,000). The file size limit is 1 KiB per package and the edge limit 4 per package. |
 
 Ignored advisory ids are case-insensitive and match the advisory's id or any alias. A `CVE-…` works for a `GHSA-…` advisory once its details are fetched. Listed ids are hidden from the underlines and the tool window.
 
@@ -219,7 +220,7 @@ Optional permissions are off until you allow them in Settings › Plugins › De
 |---|---|---|
 | `net:api.osv.dev` | Asking OSV.dev. Only package names and versions are sent. | No new results; cached results still show. |
 | `events` | Checking a manifest when it opens or is saved | Run **Dependency Audit: Scan Project** instead. |
-| `editor.read`, `editor.write` | **Preview upgrade in open declaration** | That action can't run. The ⌥⏎ quick fix still works. |
+| `editor.read`, `editor.write` | **Preview Upgrade…** | That action can't run. The ⌥⏎ quick fix still works. |
 | `vcs.read` | The **Review cached dependency scan** commit check | The check can't run; turn it off in Commit Options. |
 | `build.read` | Reading the Maven/Gradle versions the IDE already resolved | The build tool must run to get effective versions. |
 | `process:mvn`, `process:gradle` | Resolving effective Maven / Gradle versions | No build resolution. |
@@ -244,7 +245,8 @@ The resolver and call-analysis features run your build tools, which may contact 
 | "No known vulnerabilities…" but you expected some | Check the file is in the supported list, uses an exact version or has a lockfile, and isn't ignored. |
 | An underline stays after upgrading a range | Update the lockfile (`npm install` / `composer update`), then reopen the file. |
 | An ignored finding still shows in the editor | Edit or reopen the file. |
-| "No cached report is displayed; restore access or rescan explicitly." | Open the right project (not a nested one) or rescan. |
+| "Can't read the saved report. Run Dependency Audit: Scan Project." | Open the right project (not a nested one) and rescan. |
+| "Found Maven 3.8.1; needs Maven 3.9.16." (or Gradle, sbt, osv-scanner) | Install the exact version named, or point the IDE at it, then retry. |
 | "The new scan result could not be stored; previous report retained." | The report was too large to save. The old report is kept. |
 | "No pom.xml or build.gradle(.kts) in the project root." | Build resolution needs those files in the project root. |
 | "The active resolver belongs to another project" | Switch back to that project to poll or cancel. |
@@ -290,7 +292,7 @@ Edit actions only run on unambiguous current declarations.
 - Gradle coordinates need a supported configuration or platform invocation. Line and nested block comments, triple-string examples, computed literal prefixes and Groovy slashy/regex forms are skipped or withhold results. Custom configurations and advanced Gradle expressions are outside this subset; no build resolution or compatibility proof is inferred.
 - POM versions need a single project root, unique group/artifact/version children per dependency, and one root-owned literal property for property-based versions. Duplicate property names, profile-only properties, profile shadowing, non-self-closing elements without their own closing container, foreign or rebound namespaces and dependency-shaped plugin configuration payloads don't select an editable span. This is source-local ambiguity handling, not effective Maven model, profile or parent resolution.
 - Upgrade application carries the source project identity and rechecks current innermost ownership right before the versioned editor apply. Opening a nested project between preview and apply refuses unchanged. Resource upgrade and ignore commands recheck the retained report identity and current source ownership after confirmation, and the filtered selected row must match the reviewed row. Replaced reports, newly nested owners and changed evidence refuse unchanged.
-- **Preview upgrade in open declaration** reads the current buffer, checks the package, ecosystem, installed version and one unique editable span. Changes during the prompt abort rather than retry. It makes no network request, runs no package manager and writes no files directly. Unknown sources, duplicate declarations, shared version fields, ranged manifests, lockfile-only rows and missing, unsafe or non-forward fixed versions are refused. Editor read/write permissions are requested only for this action. The fixed version uses an approximate comparator.
+- **Preview Upgrade…** reads the current buffer, checks the package, ecosystem, installed version and one unique editable span. Changes during the prompt abort rather than retry. It makes no network request, runs no package manager and writes no files directly. Unknown sources, duplicate declarations, shared version fields, ranged manifests, lockfile-only rows and missing, unsafe or non-forward fixed versions are refused. Editor read/write permissions are requested only for this action. The fixed version uses an approximate comparator.
 
 ### Report and evidence
 
@@ -305,7 +307,7 @@ Edit actions only run on unambiguous current declarations.
 - Explicit, open and save checks and quick fixes read an npm/Composer sibling lock only when it has the same project owner. Missing or foreign lock evidence doesn't authorize a ranged declaration. Directory information is source-path evidence, not a resolved Maven/Gradle module graph.
 - Scan and sbt-resolution results notify only the owning project's window.
 
-### Scoped ignores
+### Ignored findings
 
 - Ignores also cover the advisory's known ID/alias identities. Changes apply on the next report or provider refresh; the SDK has no diagnostic-refresh request.
 - The raw scan snapshot is kept when suppressing and rescanning, so restoring reveals retained evidence without a network request or rescan. Restoring doesn't refresh evidence lost otherwise. A global ignored-advisory setting can still hide the finding. Removing a global ignore may need a scan if it prevented facts from being recorded.
@@ -325,7 +327,7 @@ A passed check doesn't certify selected hunks: the API supplies diffs, and the s
 
 ### npm lockfile graph
 
-Edges resolve through the nearest physical `node_modules` entries. This is lockfile evidence, not proof of active platform, peer or optional resolution or of an installed runtime graph. Input is bounded to 512 KiB, 2,000 packages and 8,000 edges. Source edits and project switches withhold stale navigation. No package manager or network request runs.
+Edges resolve through the nearest physical `node_modules` entries. This is lockfile evidence, not proof of active platform, peer or optional resolution or of an installed runtime graph. Input is bounded by the **Most packages in the npm graph** setting: 2,000 packages by default, with 1 KiB of lockfile and 4 edges per package. Source edits and project switches withhold stale navigation. No package manager or network request runs.
 
 ### Maven and Gradle resolution
 
