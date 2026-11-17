@@ -5,7 +5,7 @@ description = "Twig support for .twig files: highlighting of Twig and the HTML a
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: twig.paths and default_path resolve template names, including dev, prod and test overrides; templateNamespaces map @namespace/ names; variables from render() calls complete in expressions; block() jumps to its block; Preview Rename Macro Parameter; short setting titles and clearer permission messages. \
+Next release: twig.paths and default_path resolve template names, including dev, prod and test overrides; templateNamespaces map @namespace/ names; variables from render() calls complete in expressions; block() jumps to its block, Preview Rename Macro Parameter, short setting titles and clearer permission messages. \
 0.3.0: template and macro navigation. \
 0.2.0: plugin icon and tag completion."""
 categories = ["languages"]

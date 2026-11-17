@@ -6,7 +6,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/symfony"
 license = "MIT"
 change-notes = """\
-Next release: Window with Routes, Templates, Services, Translations, Config, Env, Entities, About and Processes tabs; read-only MCP tools; completion for Stimulus controllers, Vite entries and Twig components; type-based completion in Twig and PHP; New commands create the file; short setting titles and clearer permission messages. \
+Next release: Window with Routes, Templates, Services, Translations, Config, Env, Entities, About and Processes tabs; read-only MCP tools and completion for Stimulus controllers, Vite entries and Twig components, type-based completion in Twig and PHP; New commands create the file; short setting titles and clearer permission messages. \
 0.3.0: indexer, Twig and Doctrine support. \
 0.2.0: plugin icon and route navigation."""
 categories = ["frameworks"]

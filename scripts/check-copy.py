@@ -50,6 +50,9 @@ for toml in sorted(ROOT.glob("plugins/*/plugin.toml")):
         problems.append(f"{name}: change-notes is {len(notes)} chars (max {MAX_CHANGE_NOTES})")
     if "Unreleased:" in notes:
         problems.append(f"{name}: change-notes contains 'Unreleased:' (use 'Next release:')")
+    next_release = re.match(r"Next release: (.*?)(?:\. \d+\.\d+\.\d+:|\.?$)", notes, re.S)
+    if next_release and len(next_release.group(1).split("; ")) > 5:
+        problems.append(f"{name}: 'Next release' has more than 5 items")
     commands = manifest.get("contributes", {}).get("commands", [])
     prefixes: dict[str, list[str]] = {}
     for c in commands:

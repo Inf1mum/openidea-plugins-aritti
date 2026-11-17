@@ -6,7 +6,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/laravel"
 license = "MIT"
 change-notes = """\
-Next release: Database tab in the hub with models, columns, indexes and a Compare view; Send Request on routes shows the response; unknown enum values in where() get a quick fix; Windows PHP calls run without a console window; row commands say what to select; shorter setting titles and clearer permission messages. \
+Next release: Database tab in the hub with models, columns, indexes and a Compare view; Send Request on routes shows the response; unknown enum values in where() get a quick fix; Windows PHP calls run without a console window; row commands say what to select, setting titles are shorter and permission messages clearer. \
 0.3.0: broader Laravel navigation and the hub window. \
 0.2.0: plugin icon and window consolidation."""
 categories = ["frameworks"]
