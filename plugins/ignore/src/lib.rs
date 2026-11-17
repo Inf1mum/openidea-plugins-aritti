@@ -4,7 +4,7 @@ use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Doc
 use openidea_plugin::syntax::{SyntaxProvider, Token};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
+    Diagnostic, Error, Event, Invocation, Location, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
     TextEdit, host, text,
 };
 use std::collections::{HashSet,HashMap};
@@ -302,10 +302,10 @@ fn entry_target(doc: &Document, at: Position) -> Option<Location> {
 }
 
 /// Entries named from the files below the ignore file's folder. The host
-/// hides dot paths and ignored files from `find_files`, so those are never offered.
+/// skips `.git` and gitignored paths in `find_files`, so those are never offered.
 fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<CompletionItem> {
     let body = line.strip_prefix('!').unwrap_or(line);
-    if body.starts_with(|c: char| c.is_whitespace() || c == '#') || body.contains(['*', '?', '[', '\\']) {
+    if body.starts_with(|c: char| c.is_whitespace() || c == '#') || body.contains(['*', '?', '[', '{', '\\']) {
         return Vec::new();
     }
     let Some((project, root, relative)) = project_of(&doc.path) else {
@@ -320,11 +320,15 @@ fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<Completion
 
     let own_dir = relative.rsplit_once('/').map_or("", |(dir, _)| dir);
     let base = [own_dir, typed_dir].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("/");
-    let (glob, prefix) =
-        if base.is_empty() { ("**/*".to_owned(), format!("{root}/")) } else { (format!("{base}/**/*"), format!("{root}/{base}/")) };
-    let Ok(files) = project.find_files(&glob, 2000) else {
-        return Vec::new();
-    };
+    let (stem, prefix) =
+        if base.is_empty() { (String::new(), format!("{root}/")) } else { (format!("{base}/"), format!("{root}/{base}/")) };
+    let mut files = Vec::new();
+    for glob in [format!("{stem}{partial}*"), format!("{stem}{partial}*/**")] {
+        let Ok(found) = project.find_files(&glob, 500) else {
+            return Vec::new();
+        };
+        files.extend(found);
+    }
 
     let mut names: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
     for file in &files {
@@ -586,16 +590,12 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                     };
                     self.directories.admit(path, &text, ctx);
                     if !preferences::checks(path) {
-                        let _ = host::publish_diagnostics(path, &[]);
                         continue;
                     }
                     let items=diagnostics(&text,dialect);
                     if self.cached_checks.len()>=8 {self.cached_checks.clear();}
                     if text.len()<=64<<10&&text.lines().count()<=512 {
                         self.cached_checks.insert(path.clone(),(text.clone(),items.clone()));
-                    }
-                    if let Err(e) = host::publish_diagnostics(path, &items) {
-                        host::log(LogLevel::Warn, &format!("{path}: {e}"));
                     }
                 }
                 Event::EditorFocused(path) => show_ignored_status(path.as_deref()),

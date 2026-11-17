@@ -52,19 +52,72 @@ fn completes_syntax_values_in_hgignore_only() {
 }
 
 #[test]
-fn publishes_problems_of_opened_ignore_files() {
+fn ignore_problem_reported_once() {
     let host = MockHost::install();
-    host.add_file(".gitignore", "a\na\n*.log\n/debug.log\n");
-    host.add_file("src/a.rs", "a\na\n");
-    IgnorePlugin::default().handle_events(
-        &[Event::FileOpened("/project/.gitignore".into()), Event::FileSaved("/project/src/a.rs".into())],
-        &host.invocation(),
-    );
-    let diagnostics = host.diagnostics();
-    assert_eq!(diagnostics.len(), 1);
+    let text = "a\na\n*.log\n/debug.log\n";
+    host.add_file(".gitignore", text);
+    host.open_editor("/project/.gitignore", "ignore", text, &[]);
+    let mut plugin = IgnorePlugin::default();
+    plugin.handle_events(&[Event::FileOpened("/project/.gitignore".into())], &host.invocation());
+    host.refresh_diagnostics(&mut plugin);
+
+    assert!(host.diagnostics().is_empty());
     let severities: Vec<(u32, Severity)> =
-        diagnostics["/project/.gitignore"].iter().map(|d| (d.range.start.line, d.severity)).collect();
+        host.provider_diagnostics()["/project/.gitignore"].iter().map(|d| (d.range.start.line, d.severity)).collect();
     assert_eq!(severities, [(1, Severity::Error), (3, Severity::Warning)]);
+}
+
+#[test]
+fn hgignore_same_text_different_syntax_not_duplicate() {
+    let problems = check::check("syntax: glob\nfoo\nsyntax: regexp\nfoo\nfoo\n", HG);
+    let duplicates: Vec<usize> = problems.iter().filter(|p| p.code == "duplicate-entry").map(|p| p.start).collect();
+    assert_eq!(duplicates.len(), 1);
+    assert!(duplicates[0] > "syntax: glob\nfoo\nsyntax: regexp\nfoo\n".len() - 1);
+}
+
+#[test]
+fn completion_finds_late_top_level_dir() {
+    let host = MockHost::install();
+    host.set_project_root(Some("/project"));
+    host.add_file("/project/.gitignore", "");
+    for i in 0..2500 {
+        host.add_file(&format!("/project/a{i:04}/f.txt"), "");
+    }
+    host.add_file("/project/zdir/x.js", "");
+    host.add_file("/project/zfile.md", "");
+    let mut plugin = IgnorePlugin::default();
+
+    let labels: Vec<String> =
+        plugin.completion(&doc("/project/.gitignore", "z"), Position::new(0, 1), None).into_iter().map(|i| i.label).collect();
+
+    assert_eq!(labels, ["zdir/", "zfile.md"]);
+}
+
+#[test]
+fn providers_survive_every_offset() {
+    let seeds = ["{{ x }}{#}", "café", "<?php\nuse $😀", "é::class", "<!-- Paramètres --><a/>", "!café/\n日本*\n/😀/x", "syntax: re\né\\"];
+    let host = MockHost::install();
+    host.set_project_root(Some("/project"));
+    host.add_file("/project/café/a.txt", "");
+    for path in ["/project/.gitignore", "/project/.hgignore", "/project/.dockerignore"] {
+        for seed in seeds {
+            let document = doc(path, seed);
+            host.open_editor(path, "ignore", seed, &[]);
+            let mut plugin = IgnorePlugin::default();
+            let mut boundaries: Vec<usize> = seed.char_indices().map(|(i, _)| i).collect();
+            boundaries.push(seed.len());
+            for offset in boundaries {
+                let at = text::position(seed, offset);
+                plugin.completion(&document, at, None);
+                plugin.definition(&document, at);
+                plugin.code_actions(&document, Range::new(at, at));
+                plugin.file_actions(&document, Range::new(at, at));
+            }
+            plugin.line_markers(&document);
+            openidea_plugin::semantic_tokens::SemanticTokens::semantic_tokens(&mut plugin, &document);
+            openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &document);
+        }
+    }
 }
 
 #[test]

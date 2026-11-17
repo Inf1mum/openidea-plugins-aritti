@@ -5,7 +5,7 @@ description = "Support for ignore files (.gitignore, .dockerignore, .npmignore, 
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ignore"
 license = "MIT"
-change-notes = "Fixed the Ignored status for whitelist patterns such as `*` with `!*/`, so files under re-included folders stay ignored unless a rule matches them. Patterns with many wildcards no longer slow the editor down, and an unclosed [ now matches nothing, as in Git. Quick fixes are skipped for ignore files over 128 KiB."
+change-notes = "Fixed the Ignored status for whitelist patterns such as `*` with `!*/`, so files under re-included folders stay ignored unless a rule matches them. Patterns with many wildcards no longer slow the editor down, and an unclosed [ now matches nothing, as in Git. Quick fixes are skipped for ignore files over 128 KiB. Problems show once instead of twice. Path completion finds folders in large projects. In .hgignore the same pattern under glob and regexp is no longer a duplicate."
 categories = ["vcs", "linters"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
@@ -14,7 +14,7 @@ activation = ["on-view:templates", "on-event:file-opened", "on-event:file-saved"
 
 [capabilities]
 required = ["project.read", "editor.read", "editor.write", "events", "storage"]
-optional = ["clipboard", "process:git", "process:python3", "vcs.read"]
+optional = ["process:git", "process:python3", "vcs.read"]
 
 # Ignore files the IDE doesn't know yet; .gitignore, .dockerignore, .npmignore…
 # are the built-in `ignore` language.

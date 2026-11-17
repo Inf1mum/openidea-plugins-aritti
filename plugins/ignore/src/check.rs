@@ -1,7 +1,7 @@
 use crate::matcher::Rule;
 use std::collections::HashSet;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Syntax {
     Glob,
     Regexp,
@@ -87,7 +87,7 @@ pub fn check(text: &str, dialect: Dialect) -> Vec<Problem> {
 
         entries.push(Entry { start, end, line: whole_line.clone(), text: entry });
 
-        if !seen.insert(entry) {
+        if !seen.insert((syntax, entry)) {
             problems.push(Problem {
                 start,
                 end,
