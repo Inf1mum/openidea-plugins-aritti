@@ -177,8 +177,8 @@ pub(crate) fn occurrences(nav:&mut WsTools,ctx: &Invocation) -> Result<Option<St
         if Instant::now() >= deadline {
             break;
         }
-        let found = project.find_files(glob, FILES_PER_TYPE).unwrap_or_default();
-        capped |= found.len() >= FILES_PER_TYPE as usize;
+        let found = project.find_files(glob, FILES_PER_TYPE + 1).unwrap_or_default();
+        capped |= found.len() > FILES_PER_TYPE as usize;
         files.extend(found.into_iter().filter(|p| owned(p)));
     }
     if capped {
@@ -315,7 +315,7 @@ mod command_tests {
         let h = MockHost::install();
         let source = "import org.springframework.ws.server.endpoint.annotation.Endpoint; import org.springframework.ws.server.endpoint.annotation.PayloadRoot; @Endpoint class E { @PayloadRoot(namespace=\"urn:a\",localPart=\"Request\") void handle(){} }";
         h.add_file("/project/a.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:a'><xs:element name='Request'/></xs:schema>");
-        for n in 0..130 {
+        for n in 0..129 {
             h.add_file(&format!("/project/c{n}.xml"), "<a/>");
         }
         let at = position(source, source.find("Request").unwrap());
@@ -323,5 +323,20 @@ mod command_tests {
         h.answer_next_prompt(Some(&["0"]));
         WsTools::default().run_command("qname-occurrences", &h.invocation(), None).unwrap();
         assert!(h.notifications().iter().any(|n| n.body.contains("128")), "{:?}", h.notifications());
+    }
+
+    #[test]
+    fn occurrences_do_not_report_cap_at_exactly_128_files() {
+        let h = MockHost::install();
+        let source = "import org.springframework.ws.server.endpoint.annotation.Endpoint; import org.springframework.ws.server.endpoint.annotation.PayloadRoot; @Endpoint class E { @PayloadRoot(namespace=\"urn:a\",localPart=\"Request\") void handle(){} }";
+        h.add_file("/project/a.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:a'><xs:element name='Request'/></xs:schema>");
+        for n in 0..128 {
+            h.add_file(&format!("/project/c{n}.xml"), "<a/>");
+        }
+        let at = position(source, source.find("Request").unwrap());
+        h.open_editor("/project/E.java", "java", source, &[(at.line, at.character, at.line, at.character)]);
+        h.answer_next_prompt(Some(&["0"]));
+        WsTools::default().run_command("qname-occurrences", &h.invocation(), None).unwrap();
+        assert!(h.notifications().is_empty(), "{:?}", h.notifications());
     }
 }

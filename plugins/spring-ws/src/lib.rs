@@ -447,6 +447,7 @@ pub struct WsTools {
     xpath_packages: Indexes<xpath::PackageNamespaces>,
     resource_paths: resource_paths::Paths,
     watching: bool,
+    applies: std::collections::BTreeMap<String, (Instant, bool)>,
 }
 
 impl Default for WsTools {
@@ -458,6 +459,7 @@ impl Default for WsTools {
             xpath_packages: Indexes::new(&["**/package-info.java"],xpath::scan_package),
             resource_paths: resource_paths::Paths::default(),
             watching: false,
+            applies: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -537,10 +539,16 @@ impl WsTools {
 
 impl Providers for WsTools {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        if !self.spring_ws_document(&doc.path) {
+            return Vec::new();
+        }
         if matches!(doc.language.as_str(), "java" | "kotlin") { self.java_markers(doc) } else { self.xml_markers(doc) }
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+        if !self.spring_ws_document(&doc.path) {
+            return Vec::new();
+        }
         if let Some(locations)=namespace_values::definition(self,doc,at){return locations;}
         if let Some(locations)=xpath::definition(self,doc,at){return locations;}
         if doc.language == "xml" {
@@ -586,6 +594,9 @@ impl Providers for WsTools {
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if !self.spring_ws_document(&doc.path) {
+            return Vec::new();
+        }
         if let Some(items)=namespace_values::completion(self,doc,at){return items;}
         if let Some(items)=xpath::completion(self,doc,at){return items;}
         if doc.language == "xml" {
@@ -620,6 +631,9 @@ impl Providers for WsTools {
 
 impl DiagnosticsProvider for WsTools {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if !self.spring_ws_document(&doc.path) {
+            return Vec::new();
+        }
         if doc.language == "xml" {
             let mut problems=xml_contracts::diagnostics(doc);
             problems.extend(wsdl_qnames::diagnostics(doc));
@@ -698,7 +712,30 @@ impl DiagnosticsProvider for WsTools {
     }
 }
 
+const APPLIES_TTL: Duration = Duration::from_secs(60);
+
 impl WsTools {
+    fn spring_ws(&mut self, project: &openidea_plugin::Project) -> bool {
+        let Ok(root) = project.root() else {
+            return true;
+        };
+        if let Some((at, answer)) = self.applies.get(&root)
+            && at.elapsed() < APPLIES_TTL
+        {
+            return *answer;
+        }
+        let answer = spring_text::build::applies(project, "spring-ws");
+        self.applies.insert(root, (Instant::now(), answer));
+        answer
+    }
+
+    fn spring_ws_document(&mut self, path: &str) -> bool {
+        match project_of(path) {
+            Some(project) => self.spring_ws(&project),
+            None => true,
+        }
+    }
+
     fn observe_resource_paths(&mut self, events: &[Event], deadline: Instant) {
         let mut changed = Vec::new();
         for event in events {
@@ -720,6 +757,9 @@ impl WsTools {
                 continue;
             }
             let Some(project) = project_of(path) else { continue };
+            if !self.spring_ws(&project) {
+                continue;
+            }
             let budget = deadline.saturating_duration_since(Instant::now());
             if budget.is_zero() {
                 self.resource_paths.reset();
@@ -742,7 +782,7 @@ impl Plugin for WsTools {
             if budget.is_zero() {
                 break;
             }
-            if !spring_text::build::applies(&project, "spring-ws") {
+            if !self.spring_ws(&project) {
                 continue;
             }
             let step = |deadline: Instant| deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250));
@@ -825,7 +865,7 @@ public class CountryEndpoint {
 
     @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "http://acme.com/orders", localPart = "placeOrder")
     public void order(@RequestPayload Object request) {}
-
+}
 
 @Configuration
 class WsConfig {
@@ -1295,10 +1335,16 @@ class KtCountryEndpoint {
             host.add_file("pom.xml", pom);
             let mut ws = WsTools::default();
             ws.activate(&host.context("aritti.spring-ws")).unwrap();
-            ws.schemas.for_cached_document(JAVA_PATH, "").unwrap().walked()
+            ws.handle_events(&[Event::FileSaved("/project/pom.xml".into())], &host.invocation());
+            ws.line_markers(&java());
+            ws.diagnostics(&java());
+            let schemas = ws.schemas.for_cached_document(JAVA_PATH, "").unwrap().walked();
+            (schemas, ws.resource_paths.ready("/project"))
         };
-        assert!(!walked("<project><dependencies><dependency><artifactId>spring-web</artifactId></dependency></dependencies></project>"));
-        assert!(walked("<project><dependencies><dependency><artifactId>spring-ws-core</artifactId></dependency></dependencies></project>"));
+        let plain = "<project><dependencies><dependency><artifactId>spring-web</artifactId></dependency></dependencies></project>";
+        assert_eq!(walked(plain), (false, false));
+        let with_ws = "<project><dependencies><dependency><artifactId>spring-ws-core</artifactId></dependency></dependencies></project>";
+        assert_eq!(walked(with_ws), (true, true));
     }
 
     #[test]
