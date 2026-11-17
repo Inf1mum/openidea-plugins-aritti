@@ -82,7 +82,7 @@ The plugin registers a **DDEV: &lt;project&gt;** run target. The IDE asks whethe
 1. Accept the prompt, or choose the target in Settings › Run Targets, the PHP/Node interpreter settings, or a run configuration's **Run on** selector.
 2. Run PHP and Node scripts, Composer and npm scripts, and PHPUnit and Node tests as usual. They run inside the web container.
 
-- Project paths map under `/var/www/html` (change it with **Project root inside the DDEV web container**).
+- Project paths map under `/var/www/html` (change it with **Project path inside the web container**).
 - Composer runs as `ddev composer`.
 - For PHP debugging, enable and configure Xdebug in DDEV. The IDE handles path mapping.
 - Run and Test through the target are refused when the project isn't running.
@@ -152,12 +152,12 @@ Settings › Plugins › DDEV Integration. The **DDEV Setup** panel edits the sa
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
-| Refresh DDEV status automatically every minute | `watchDdev` | on | Periodic status refresh. |
-| Check for DDEV updates automatically (requires GitHub and storage permissions) | `checkForUpdates` | on | Daily update check. |
-| Maintain a DDEV Database source and secure credential (database.sources; project.write enables a non-secret file fallback) | `autoConfigureDataSource` | on | Automatic database connection. |
-| PHP version passed to Configure Project (for example 8.3; empty uses project PHP hints, then DDEV defaults) | `phpVersion` | empty | PHP version for **DDEV: Configure Project**. Format: major.minor. |
-| Offer a DDEV execution target for PHP, Node.js, Composer and project runs | `autoConfigureRunTarget` | on | The **DDEV: &lt;project&gt;** run target. |
-| Project root inside the DDEV web container | `containerRoot` | `/var/www/html` | Where project paths map in the container. Must be absolute. |
+| Refresh DDEV status every minute | `watchDdev` | on | Periodic status refresh. |
+| Check for DDEV updates automatically | `checkForUpdates` | on | Daily update check. |
+| Maintain a DDEV database connection | `autoConfigureDataSource` | on | Automatic database connection. |
+| PHP version for Configure Project (optional) | `phpVersion` | empty | PHP version for **DDEV: Configure Project**. Format: major.minor. |
+| Offer DDEV for PHP, Node.js, Composer and project runs | `autoConfigureRunTarget` | on | The **DDEV: &lt;project&gt;** run target. |
+| Project path inside the web container | `containerRoot` | `/var/www/html` | Where project paths map in the container. Must be absolute. |
 
 ## Permissions
 
@@ -191,7 +191,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *Database permission unavailable: connection file maintained without credentials…* | Allow `database.sources` for secure setup, or enter the password in Database. |
 | *Multiple data sources use the DDEV plugin id…* | Remove the duplicate entries in your connection file. Nothing was changed. |
 | *PHP version must be major.minor, for example 8.3.* | Fix the **PHP version** setting. |
-| *DDEV target withdrawn: invalid containerRoot preference…* | Set **Project root inside the DDEV web container** to an absolute path without `..`. |
+| *DDEV target withdrawn: invalid containerRoot preference…* | Set **Project path inside the web container** to an absolute path without `..`. |
 | *DDEV Configure is already in progress for this project…* | Wait for the Configure terminal to finish, or close it. |
 | *This DDEV action belongs to … Run it from that project's window.* | Click the notification in the window of the project it names. |
 | *Cannot run the DDEV environment check…* | Allow `process:ddev` and check DDEV is installed. |

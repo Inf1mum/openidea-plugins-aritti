@@ -165,7 +165,7 @@ pub(crate) fn occurrences(nav:&mut WsTools,ctx: &Invocation) -> Result<Option<St
         .iter()
         .chain(&edges.references)
         .find(|a| a.range.start <= caret && caret < a.range.end)
-        .ok_or("Select a proved literal QName local name; unknown bindings cannot be searched.")?;
+        .ok_or("Put the caret on an element name written out in the file, then try again.")?;
     let key = selected.key.clone();
     let selected_span=selected.range;
     let deadline = Instant::now() + Duration::from_secs(2);

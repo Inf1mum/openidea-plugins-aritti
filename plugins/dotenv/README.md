@@ -68,7 +68,7 @@ Hover also shows which Compose services load an env file through `env_file`, and
 
 ### Update `${…}` references after renaming a key
 
-After you edit a key in a `.env` file without saving, ⌥⏎ may offer **Update this file's literal ${OLD} references to ${NEW} (source only)…**. It shows each replacement and asks you to confirm. It changes only `${OLD}` tokens in the current file. Cancelling changes nothing.
+After you edit a key in a `.env` file without saving, ⌥⏎ may offer **Update ${OLD} → ${NEW} in this file…**. It shows each replacement and asks you to confirm. It changes only `${OLD}` tokens in the current file. Cancelling changes nothing.
 
 ### Where keys are found
 

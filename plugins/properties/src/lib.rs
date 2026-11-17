@@ -226,12 +226,12 @@ impl Properties {
 
         let key = prop.exact_key(&text);
         if value {
-            let value = props::unescape_exact(&text[prop.value.clone()]).ok_or("This property value cannot cross the clipboard UTF-8 API losslessly; its source is unchanged.")?;
+            let value = props::unescape_exact(&text[prop.value.clone()]).ok_or("This value has an invalid character and can't be copied.")?;
             host::copy_to_clipboard(&value)?;
             let label = key.as_deref().unwrap_or(&text[prop.key.clone()]);
             host::notify(NotificationLevel::Info, "Properties", &format!("Value of '{label}' copied to the clipboard."));
         } else {
-            let key = key.ok_or("This property key cannot cross the clipboard UTF-8 API losslessly; its source is unchanged.")?;
+            let key = key.ok_or("This key has an invalid character and can't be copied.")?;
             host::copy_to_clipboard(&key)?;
             host::notify(NotificationLevel::Info, "Properties", &format!("Key '{key}' copied to the clipboard."));
         }

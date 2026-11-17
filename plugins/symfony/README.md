@@ -133,7 +133,7 @@ New › offers PHP class templates: **Symfony Command** (plain, invokable, with 
 The **Symfony** tool window on the right has these tabs:
 
 - **About**: project, Symfony and key package versions, Composer requirements, whether the compiled cache was found, index counts and which `.env*` files exist (never their values). **Run bin/console about** opens it in a terminal.
-- **Routes**: every route with method, path and controller. Filter to one controller, switch between flat and tree, and use **Copy as cURL** or **Create HTTP Request File** on a row. Double-click opens the definition.
+- **Routes**: every route with method, path and controller. Filter to one controller, switch between flat and tree, and use **Copy as curl** or **Create HTTP Request File** on a row. Double-click opens the definition.
 - **Entities**: Doctrine entities from `#[ORM\Entity]` with table, repository, fields and relations.
 - **Templates**, **Services** and **Translations**: what the index holds. Double-click opens the definition.
 - **Config**: container parameter names and where they're defined. Values aren't read.
@@ -245,7 +245,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sy
 | `process:php` | **Symfony: Warm Up Cache**, **Symfony: Clear Cache**, **Symfony: Run Console Command…**, **Symfony: Make…**, Messenger/scheduler workers and **Inspect Profile**. | Those fail with "Allow the process:php capability in Settings › Plugins." **Make...** falls back to a built-in list. |
 | `process:symfony` | `symfony serve` and `symfony server:log` in the **Processes** tab. | Those entries fail. |
 | `project.write` | **Create HTTP Request File** and **Symfony: Create Twig Template…**. | The request is copied instead; the template command says which permission to allow. ⌥⏎ still creates templates. |
-| `clipboard` | **Copy as cURL**. | Nothing is copied. |
+| `clipboard` | **Copy as curl**. | Nothing is copied. |
 | `events` | Refreshing cross-file problems and the index when files are opened, saved or changed. | Cross-file problems don't refresh on open or save; use **Reindex**. Live checks on the open file still work. |
 | `editor.read`, `editor.write` | **Symfony: Extend Twig Template…**, inserting form rows and reading the caret for **Symfony: Create Twig Template…**. | Those commands fail. |
 | `storage` | Saving **Twig Namespace Paths**. | The tab shows an error and can't save. |
@@ -422,7 +422,7 @@ File-creating actions are lazy file actions with exact resulting-file confirmati
 
 ### Capabilities
 
-`project.read` is required. Optional, and each degrades gracefully when denied: `project.write` (Create HTTP Request File, Create Twig Template command), `process:php` (cache warmup/clear, console, make, workers and profiler inspection), `process:symfony` (Processes tab server and log), `events` (cross-file refresh on open/save; source-local syntax uses the live provider), `editor.read`/`editor.write` (Extend Twig Template), `clipboard` (Copy as cURL) and `storage` (path hints). Missing-template creation uses reviewed native file actions, with no process grant.
+`project.read` is required. Optional, and each degrades gracefully when denied: `project.write` (Create HTTP Request File, Create Twig Template command), `process:php` (cache warmup/clear, console, make, workers and profiler inspection), `process:symfony` (Processes tab server and log), `events` (cross-file refresh on open/save; source-local syntax uses the live provider), `editor.read`/`editor.write` (Extend Twig Template), `clipboard` (Copy as curl) and `storage` (path hints). Missing-template creation uses reviewed native file actions, with no process grant.
 
 </details>
 

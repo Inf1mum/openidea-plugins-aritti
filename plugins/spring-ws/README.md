@@ -76,7 +76,7 @@ A `DefaultWsdl11Definition` bean shows `Published as /<bean name>.wsdl` in the g
 ### Create an endpoint from a schema element
 
 1. In a standalone `.xsd`, put the caret on the `name` of a global element.
-2. Press ⌥⏎ and choose **Create explicit one-way DOM endpoint scaffold…**.
+2. Press ⌥⏎ and choose **Create Spring-WS Endpoint for Element…**.
 3. Pick an existing Spring-WS endpoint package under `src/main/java`.
 4. Enter the class name (default `PayloadEndpoint`) and the method name (default `handlePayload`).
 5. Review the QName, target path and full Java source, then confirm.
@@ -97,7 +97,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring WS**; bind ke
 |---|---|---|
 | **Spring WS: Find Observed QName Occurrences** | Lists places in the project that use the QName under the caret, and opens the one you pick. | None |
 | **Spring WS: Refresh Source Models** | Rescans the project's XML, package and schema files now. Run it again if it reports the scan is incomplete. | None |
-| **Create explicit one-way DOM endpoint scaffold…** (⌥⏎ in an `.xsd`) | Creates a new Java endpoint class for the element under the caret. | ⌥⏎ |
+| **Create Spring-WS Endpoint for Element…** (⌥⏎ in an `.xsd`) | Creates a new Java endpoint class for the element under the caret. | ⌥⏎ |
 
 ## Permissions
 
@@ -121,8 +121,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | No warnings at all for a large file | Files over 256 KiB, and schema files over 128 KiB, get no missing-element warnings. |
 | *Source model refresh is incomplete…* | Run **Spring WS: Refresh Source Models** again to continue. Very large projects may stay partial. |
 | *Open an endpoint or schema and place the caret on its QName local name.* | Move the caret onto the `localPart` value or the element `name`, then run the command again. |
-| *Select a proved literal QName local name; unknown bindings cannot be searched.* | The namespace isn't known. Use a literal namespace or a same-file constant. |
-| *No verified existing Java Spring-WS endpoint package under src/main/java…* | Create at least one `@Endpoint` class in a package under `src/main/java` first. The scaffold only adds to existing endpoint packages. |
+| *Put the caret on an element name written out in the file, then try again.* | The namespace isn't known. Use a literal namespace or a same-file constant. |
+| *No Spring-WS endpoint package found under src/main/java. Create one @Endpoint class there first.* | Create at least one `@Endpoint` class in a package under `src/main/java` first. The scaffold only adds to existing endpoint packages. |
 | *Target file/directory already exists; no overwrite.* | Pick another class name. |
 | A `classpath:` link does nothing | The file must exist once under `src/main/resources` or `src/test/resources`. Duplicates and other roots are ignored. Allow `events` so new files are picked up. |
 

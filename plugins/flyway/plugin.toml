@@ -122,12 +122,12 @@ schema = "settings.schema.json"
 
 [[contributes.commands]]
 id = "status"
-title = "Flyway: Refresh Managed Command Status"
+title = "Flyway: Refresh Status"
 category = "Flyway"
 
 [[contributes.commands]]
 id = "cancel"
-title = "Flyway: Cancel Owned Managed Command"
+title = "Flyway: Cancel Command"
 category = "Flyway"
 
 [[contributes.commands]]

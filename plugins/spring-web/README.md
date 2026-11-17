@@ -16,7 +16,7 @@ This plugin replaces five older plugins: `aritti.spring-websocket`, `aritti.spri
 1. Install the plugin ([how](../../README.md#install-a-plugin)). Uninstall the five older Spring plugins listed above if you have them.
 2. Open a Spring project.
 3. Open the **Spring Endpoints** tool window on the right side and pick the **HTTP** section.
-4. Click a route to open its handler. Right-click it for **Copy as cURL** or **Create HTTP Request File**.
+4. Click a route to open its handler. Right-click it for **Copy as curl** or **Create HTTP Request File**.
 5. In a controller, press ⌥⏎ on a method for generators and quick fixes.
 
 ## Features
@@ -36,7 +36,7 @@ Click a row to open its source. **Refresh** rescans. The window remembers the la
 
 ### Try an endpoint
 
-- **Copy as cURL** (right-click a route) copies a curl command.
+- **Copy as curl** (right-click a route) copies a curl command.
 - **Create HTTP Request File** asks for the base URL, then writes `http/<verb>-<path>.http` under the project root and opens it. An existing file is opened unchanged.
 - Above each mapping method, the **HTTP request: GET /path** code lens does the same from the source. Mappings without a fixed method ask you to pick one.
 - Above GraphQL query and mutation handlers, the **GraphQL request: …** lens writes a JSON POST request with sample arguments.
@@ -101,11 +101,11 @@ Sending requests stays with the IDE's built-in HTTP client.
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Spring Web**; bind keys in Settings › Keymap. No shortcuts are set by default.
+Find them in Search Everywhere › Actions (⇧⇧) under **Spring Endpoints**; bind keys in Settings › Keymap. No shortcuts are set by default.
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Copy Endpoint as curl** | Copies a curl command for a route. Run it from a route's right-click menu (**Copy as cURL**). | — |
+| **Copy as curl** | Copies a curl command for a route. Run it from a route's right-click menu (**Copy as curl**). | — |
 | **Create HTTP Request File for Endpoint** | Writes `http/<verb>-<path>.http` for a route and opens it. Run it from a route's right-click menu (**Create HTTP Request File**). | — |
 | **Copy Spring Endpoints as OpenAPI** | Copies an OpenAPI 3.0.3 document of all routes. Also in the Tools menu. | — |
 | **Create HTTP Request from Endpoint Source** | Writes a request file for a mapping method in the active editor. Asks which endpoint when there are several. | — |
@@ -145,7 +145,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | Permission | Used for | Without it |
 |---|---|---|
 | `project.write` | Writing `.http` request files and `.graphql` subscription drafts. | The request or document is copied to the clipboard instead (if `clipboard` is allowed). |
-| `clipboard` | **Copy as cURL**, **Copy Spring Endpoints as OpenAPI**, and the fallback above. | Copy as cURL shows "Copying the curl command needs the clipboard capability." The OpenAPI export fails. |
+| `clipboard` | **Copy as curl**, **Copy Spring Endpoints as OpenAPI**, and the fallback above. | Copy as curl shows "Copying the curl command needs the clipboard capability." The OpenAPI export fails. |
 | `editor.read` | The **from … Source/Handler/Client** commands and the request code lenses, which read the active editor. | Those commands can't find the source. |
 | `events` | Keeping the indexes fresh when files change, open or save. | Checks that report something *missing* (unresolved views, unmapped fields, Stream bindings) stay quiet. |
 | `storage` | Remembering the last section of the Spring Endpoints window. | The window opens on its default section. |

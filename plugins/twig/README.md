@@ -84,7 +84,7 @@ A stray `}}` is not reported: it is common in inline JavaScript and CSS. Strings
 ### Review occurrences and rename
 
 - Highlights and occurrence-count lenses show where a macro, block, import alias or loop variable is used.
-- Click a lens, or run **Twig: Review Static Source Occurrences**, to list them.
+- Click a lens, or run **Twig: Show Occurrences**, to list them.
 - ⌥⏎ › **Preview Rename Static Twig Symbol…** renames a loop variable, import alias, macro or block. You see every change before it is applied. Undo reverts it.
 - ⌥⏎ › **Preview Rename Macro Parameter…** renames one macro parameter.
 - A rename that would collide with or capture another name is refused.
@@ -110,7 +110,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Twig**; bind keys in
 | Command | What it does | Shortcut |
 |---|---|---|
 | **Twig: Toggle Comment** | Comments or uncomments the selection or current line with the configured delimiters. | none |
-| **Twig: Review Static Source Occurrences** | Lists the occurrences of the symbol at the caret, or of the lens you clicked. | none |
+| **Twig: Show Occurrences** | Lists the occurrences of the symbol at the caret, or of the lens you clicked. | none |
 
 Editor actions (⌥⏎): **Preview Rename Static Twig Symbol…**, **Preview Rename Macro Parameter…**.
 

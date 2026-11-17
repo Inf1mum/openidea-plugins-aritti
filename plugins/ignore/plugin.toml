@@ -251,7 +251,7 @@ iconDark = "icons/directory-pattern_dark.svg"
 
 [[contributes.commands]]
 id = "publish-git-sample-hints"
-title = "Ignore: Publish Cached Partial Git Sample Hints (API 1.4)"
+title = "Ignore: Publish Cached Partial Git Sample Hints"
 category = "Ignore"
 [[contributes.commands]]
 id = "clear-git-sample-hints"

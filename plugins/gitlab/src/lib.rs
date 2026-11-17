@@ -934,7 +934,7 @@ impl GitLab {
 
     fn render_details(&mut self, ctx: &Invocation) -> Result<View, Error> {
         let Some(iid) = Self::selected() else {
-            return Ok(View::message("Select a merge request in the Merge Requests tool window."));
+            return Ok(View::message("Select a merge request in the GitLab window."));
         };
 
         let repo = gitlab_project(ctx)?;
@@ -1821,7 +1821,7 @@ impl GitLab {
         }
 
         let Some(iid) = Self::selected() else {
-            return Ok(View::message("Select a merge request in the Merge Requests tool window."));
+            return Ok(View::message("Select a merge request in the GitLab window."));
         };
 
         if self.commits.as_ref().map(|(i, _)| *i) != Some(iid) {
@@ -1928,7 +1928,7 @@ impl GitLab {
         }
 
         let Some(iid) = Self::selected() else {
-            return Ok(View::message("Select a merge request in the Merge Requests tool window."));
+            return Ok(View::message("Select a merge request in the GitLab window."));
         };
 
         let repo = gitlab_project(ctx)?;

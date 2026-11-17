@@ -495,7 +495,7 @@ impl GitLab {
 
     pub(crate) fn render_files(&mut self, ctx: &openidea_plugin::Invocation) -> Result<View, Error> {
         let Some(iid) = Self::selected() else {
-            return Ok(View::message("Select a merge request in the Merge Requests tool window."));
+            return Ok(View::message("Select a merge request in the GitLab window."));
         };
 
         let project = gitlab_project(ctx)?.path;
@@ -592,7 +592,7 @@ impl GitLab {
 
     pub(crate) fn render_changes(&mut self, ctx: &openidea_plugin::Invocation) -> Result<View, Error> {
         let Some(iid) = Self::selected() else {
-            return Ok(View::message("Select a merge request in the Merge Requests tool window."));
+            return Ok(View::message("Select a merge request in the GitLab window."));
         };
 
         let project = gitlab_project(ctx)?.path;

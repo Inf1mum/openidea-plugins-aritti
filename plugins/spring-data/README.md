@@ -78,16 +78,16 @@ Put the caret on an entity class and press ⌥⏎. The plugin offers:
 
 | Action | What you get |
 |---|---|
-| **Generate CrudRepository for …** | A new `CrudRepository` interface for any supported entity (JPA, MongoDB or JDBC). |
-| **Generate JpaRepository for …** | A new `JpaRepository` interface (JPA entities only). |
-| **Generate JpaRepositoryWithSpecifications for …** | A `JpaRepository` that also extends `JpaSpecificationExecutor` (JPA entities only). |
-| **Generate JpaRepositoryWithFinder for …** | A repository with one finder on the properties you pick. |
-| **Generate JpaRepositoryWithPagedFinder for …** | The same finder returning `Page`, with a `Pageable` parameter. |
-| **Generate JpaRepositoryWithSortedFinder for …** | The same finder returning `List`, with a `Sort` parameter. |
-| **Generate JpaRepositoryWithEntityGraph for …** | A repository whose `findById` loads the associations you pick. |
+| **Generate CRUD repository for …** | A new `CrudRepository` interface for any supported entity (JPA, MongoDB or JDBC). |
+| **Generate JPA repository for …** | A new `JpaRepository` interface (JPA entities only). |
+| **Generate repository with specifications for …** | A `JpaRepository` that also extends `JpaSpecificationExecutor` (JPA entities only). |
+| **Generate repository with finder for …** | A repository with one finder on the properties you pick. |
+| **Generate repository with paged finder for …** | The same finder returning `Page`, with a `Pageable` parameter. |
+| **Generate repository with sorted finder for …** | The same finder returning `List`, with a `Sort` parameter. |
+| **Generate repository with entity graph for …** | A repository whose `findById` loads the associations you pick. |
 | **Add finder to existing JpaRepository for …** | Adds a `List` finder to an existing repository in the same package. |
-| **Generate IdentifierProjection for …** | A closed interface projection with just the ID property. |
-| **Generate InterfaceProjection for …** | A closed interface projection with the properties you pick. |
+| **Generate ID projection for …** | A closed interface projection with just the ID property. |
+| **Generate interface projection for …** | A closed interface projection with the properties you pick. |
 
 How it works:
 

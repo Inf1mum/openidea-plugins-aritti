@@ -797,7 +797,7 @@ impl Plugin for WsTools {
             if remaining.is_zero(){ready=false;}else{ready&=self.xpath_packages.get(&project,remaining).fresh();}
             let remaining=deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero(){ready=false;}else{ready&=self.schemas.get(&project,remaining).fresh();}
-            return Ok(Some(if ready{"XML and XPath source models refreshed."}else{"Source model refresh is incomplete. Run Refresh Source Models again to continue; unavailable or capped inventories remain partial."}.into()));
+            return Ok(Some(if ready{"XML and XPath source models refreshed."}else{"Refresh incomplete. Run Refresh Source Models again to continue."}.into()));
         }
         if id == "qname-occurrences" { return indexing::occurrences(self,ctx); }
         Err(Error::NotFound(format!("command {id}")))

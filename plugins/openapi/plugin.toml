@@ -34,7 +34,7 @@ languages = ["json", "yaml"]
 
 [[contributes.views]]
 id = "endpoints"
-title = "OpenAPI"
+title = "OpenAPI Endpoints"
 icon = "web"
 location = "right"
 web = "web/resources/hub.html"

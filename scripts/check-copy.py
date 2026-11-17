@@ -17,11 +17,12 @@ WORDS = r"at most|up to|exceeds|than|max|the|Java|Quarkus|provisioned|within|its
 UNITS = {"KiB", "MiB", "GiB", "TiB", "KB", "MB", "GB", "TB"}
 GLUED_WORD = re.compile(rf"\b(?:{WORDS})\d")
 GLUED_UNIT = re.compile(r"[A-Za-z]\d+(?:KiB|MiB|bytes|lines|minutes|seconds)\b")
+GLUED_SPACED_UNIT = re.compile(r"[a-z]{3,}\d{2,} (?:seconds|minutes|bytes|lines|KiB|MiB)\b")
 DIGITS_THEN_WORD = re.compile(r"(?<=\s)\d+([A-Za-z]{3,})")
 
 
 def glued(literal: str) -> bool:
-    if GLUED_WORD.search(literal) or GLUED_UNIT.search(literal):
+    if GLUED_WORD.search(literal) or GLUED_UNIT.search(literal) or GLUED_SPACED_UNIT.search(literal):
         return True
     if literal.count(" ") < 3:
         return False

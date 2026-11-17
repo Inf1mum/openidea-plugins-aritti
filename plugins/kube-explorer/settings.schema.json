@@ -12,7 +12,8 @@
     },
     "allowRevealSecrets": {
       "type": "boolean",
-      "title": "Allow Show Secret and YAML on a secret (off: secret data is never read; on: YAML of a secret is shown unstripped)",
+      "title": "Allow Show Secret and YAML on a secret",
+      "description": "Off: secret data is never read. On: the YAML of a secret is shown unstripped.",
       "default": false
     },
     "yamlInEditor": {

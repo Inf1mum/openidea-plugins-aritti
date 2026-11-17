@@ -60,9 +60,9 @@ If the list can't load, a status row says why (no project, Docker not allowed or
 
 ### Watch a CLI run with cancel
 
-**Dev Container: Start Container (Finite Managed CLI)…** and **Dev Container: Rebuild Container (Finite Managed CLI)…** work like Start and Rebuild, but run in the background instead of a terminal.
+**Dev Container: Start Container in Background…** and **Dev Container: Rebuild Container in Background…** work like Start and Rebuild, but run in the background instead of a terminal.
 
-- **Dev Container: Show Finite CLI Output** opens the **Dev Container CLI Operations** view in Services.
+- **Dev Container: Show Background Output** opens the **Dev Container CLI Operations** view in Services.
 - Use **Refresh Status** to fetch new output.
 - Use **Cancel CLI / Close Handle** to stop the run, or to release a finished one.
 - Only one run at a time per plugin. The view keeps the latest 64 KiB of output.
@@ -117,9 +117,9 @@ The Tools menu can register a Run Target, so a run configuration can run inside 
 4. In the **Dev Container Run Target Review** view, click **Register once** within 120 seconds.
 5. In your run configuration, select the target explicitly.
 
-**Dev Container: Prepare Experimental Mapped Project-root Tooling…** does the same for language servers that should run in the container. You need the server installed in the container and must select the target manually.
+**Dev Container: Run Language Servers in Container…** does the same for language servers that should run in the container. You need the server installed in the container and must select the target manually.
 
-Remove targets with **Dev Container: Remove Root-relative Run Target** or **Dev Container: Remove Experimental Mapped Project-root Tooling Target**. Run and Test through a target are refused when no dev container is running.
+Remove targets with **Dev Container: Remove Root-relative Run Target** or **Dev Container: Remove Language Server Container Target**. Run and Test through a target are refused when no dev container is running.
 
 ## Commands
 
@@ -135,13 +135,13 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dev Container**; bin
 | **Dev Container: Show Configuration** | Summarises the resolved configuration in a notification. | None |
 | **Dev Container: Clone Repository and Start…** | Clones a repository next to the project and starts its container. | None |
 | **Dev Container: Refresh Feature List** | Downloads the feature index from containers.dev. | None |
-| **Dev Container: Start Container (Finite Managed CLI)…** | Starts the container in the background, with cancel. | None |
-| **Dev Container: Rebuild Container (Finite Managed CLI)…** | Rebuilds in the background, with cancel. | None |
-| **Dev Container: Show Finite CLI Output** | Opens the **Dev Container CLI Operations** view. | None |
+| **Dev Container: Start Container in Background…** | Starts the container in the background, with cancel. | None |
+| **Dev Container: Rebuild Container in Background…** | Rebuilds in the background, with cancel. | None |
+| **Dev Container: Show Background Output** | Opens the **Dev Container CLI Operations** view. | None |
 | **Dev Container: Register Root-relative Run Target…** (*Tools*) | Prepares a Run Target in the running container. | None |
 | **Dev Container: Remove Root-relative Run Target** (*Tools*) | Removes that Run Target. | None |
-| **Dev Container: Prepare Experimental Mapped Project-root Tooling…** (*Tools*) | Prepares a tooling target for language servers in the container. | None |
-| **Dev Container: Remove Experimental Mapped Project-root Tooling Target** (*Tools*) | Removes that tooling target. | None |
+| **Dev Container: Run Language Servers in Container…** (*Tools*) | Prepares a tooling target for language servers in the container. | None |
+| **Dev Container: Remove Language Server Container Target** (*Tools*) | Removes that tooling target. | None |
 | **Create Dev Container configuration…** | ⌥⏎ in a JSON file: creates a new configuration. | ⌥⏎ |
 
 ## Settings
@@ -182,7 +182,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *This container is stopped. Refresh Services before opening a shell.* | Click **Refresh** in the view, then **Start** the container. |
 | *No running container for this project.* | Start the container first. |
 | *The dev container is not running. Start it with Dev Container: Start first.* | Run **Dev Container: Start Container**, then register the Run Target again. |
-| *An owned CLI handle is still active or draining output…* | Run **Dev Container: Show Finite CLI Output**, then **Refresh Status** or **Cancel CLI / Close Handle**. |
+| *An owned CLI handle is still active or draining output…* | Run **Dev Container: Show Background Output**, then **Refresh Status** or **Cancel CLI / Close Handle**. |
 | *Prepared target expired. Prepare it again…* | Click **Register once** within 120 seconds of preparing. |
 | Feature completion is empty | Allow `storage` and `net:containers.dev`, then run **Dev Container: Refresh Feature List**. |
 | *"…" is not a repository URL.* | Enter a URL without spaces, such as `https://github.com/org/repo.git`. |

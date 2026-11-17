@@ -490,7 +490,7 @@ impl ShellTools {
                 },
             );
             out.push(FileAction {
-                title: "Preview rename local Shell command key…".into(),
+                title: "Rename command key…".into(),
                 kind: Some("refactor.rename".into()),
                 data: Some(token),
                 ..Default::default()
@@ -526,7 +526,7 @@ impl ShellTools {
         if !fresh(trigger_doc) || !current(&project)? || project.read_file(&trigger_doc.path)? != trigger_doc.text {
             return Err(Error::Stale);
         }
-        let new=host::input("New local Shell command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max 64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
+        let new=host::input("New command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max 64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
         if !name(&new) || new == pending.command.name || pending.command.names.contains(&new) {
             return Err(Error::Invalid("Use a different non-colliding lowercase literal command key, at most 64 characters.".into()));
         }
@@ -547,7 +547,7 @@ impl ShellTools {
         let selectors = self.inherited_selectors(doc, &pending.command, &new, &project)?;
         let labels: Vec<_> = selectors.iter().map(|(path, _, r)| format!("{}:{}:{}", path, r.start.line + 1, r.start.character + 1)).collect();
         let preview = rename_preview(doc, &pending.command, &new, &edits, &after, &labels);
-        if !ui_kit::prompts::confirm_exact("Rename local Shell command key?", &preview)? {
+        if !ui_kit::prompts::confirm_exact("Rename command key?", &preview)? {
             return Err(Error::Cancelled);
         }
         if !fresh(trigger_doc) || !current(&project)? || project.read_file(&trigger_doc.path)? != trigger_doc.text {
@@ -566,7 +566,7 @@ impl ShellTools {
         }
         self.command_renames.pending.remove(token);
         Ok(FileAction {
-            title: "Rename local Shell command key".into(),
+            title: "Rename command key".into(),
             kind: Some("refactor.rename".into()),
             edits: files,
             ..Default::default()

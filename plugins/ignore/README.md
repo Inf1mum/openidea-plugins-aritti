@@ -89,7 +89,7 @@ These commands run `git ls-files` once, after showing exactly what will run.
 
 - **Ignore: Start Git Ignored-File Observations (Asks First)…** collects a sample of ignored paths.
 - **Ignore: Review Cached Partial Git Observations** shows the sample and how many paths each root `.gitignore` rule matched.
-- **Ignore: Publish Cached Partial Git Sample Hints (API 1.4)** puts an **I** badge on up to 16 sampled files.
+- **Ignore: Publish Cached Partial Git Sample Hints** puts an **I** badge on up to 16 sampled files.
 - **Ignore: Clear Partial Git Sample Hints** removes the badges.
 - **Ignore: Clear This Project’s Cached Git Observations** forgets the sample.
 
@@ -108,7 +108,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ignore**; bind keys 
 | **Ignore: Start Git Ignored-File Observations (Asks First)…** | Shows the Git command, then collects a sample of ignored paths. | none |
 | **Ignore: Review Cached Partial Git Observations** | Shows the cached sample and rule match counts. | none |
 | **Ignore: Clear This Project’s Cached Git Observations** | Forgets this project's cached sample. | none |
-| **Ignore: Publish Cached Partial Git Sample Hints (API 1.4)** | Badges up to 16 sampled files with **I**. | none |
+| **Ignore: Publish Cached Partial Git Sample Hints** | Badges up to 16 sampled files with **I**. | none |
 | **Ignore: Clear Partial Git Sample Hints** | Removes those badges. | none |
 | **Ignore: Find Unused Entries from Complete Directory Snapshot…** | Scans the `.gitignore` folder and marks entries that match nothing. | none |
 

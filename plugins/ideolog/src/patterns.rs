@@ -92,7 +92,7 @@ pub fn render(editor: &crate::pattern_editor::Editor) -> View {
     let formats=all.iter().filter(|s|s.starts_with("<LogParsingPattern")).count();
     let highlights=all.len()-formats;
     let status = match rows.len() {
-        0 => "No patterns yet. The customPatterns setting takes pasted Ideolog XML too.".to_owned(),
+        0 => "No patterns yet. Use Ideolog: Highlight Selection, or paste Ideolog XML into Custom log formats and highlighting in Settings.".to_owned(),
         1 => "1 pattern".to_owned(),
         n => format!("{n} patterns"),
     };

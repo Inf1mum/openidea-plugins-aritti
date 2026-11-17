@@ -738,7 +738,7 @@ impl Views for Liquibase {
             self.targets_root = None;
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
             let choose = || Button::new("choose-sources", "Sources…").icon("folder");
-            let clear = || Button::new("clear-sources", "All Sources").icon("folder");
+            let clear = || Button::new("clear-sources", "Browse All Changelogs").icon("folder");
             let Some(project) = ctx.project() else {
                 return Ok(View::message("Open a project to see its Liquibase changesets."));
             };

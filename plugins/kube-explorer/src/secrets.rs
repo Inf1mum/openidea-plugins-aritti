@@ -528,7 +528,7 @@ mod tests {
         let mut kube = KubeExplorer::default();
         kube.edit_secret("db").unwrap();
         assert!(kube.editing_secret.is_none() && runs.borrow().is_empty());
-        assert!(host.notifications()[0].body.contains("allowRevealSecrets"));
+        assert!(host.notifications()[0].body.contains("Allow Show Secret and YAML on a secret"));
 
         host.set_setting("allowRevealSecrets", "true");
         let mut kube = editing();

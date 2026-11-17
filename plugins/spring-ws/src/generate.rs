@@ -500,7 +500,7 @@ impl FileActions for WsTools {
         let key = format!("ws-dom-create:{next}:{}", doc.version);
         self.generation.pending.insert(key.clone(), Pending { root, doc: doc.clone(), qname });
         vec![FileAction {
-            title: "Create explicit one-way DOM endpoint scaffold…".into(),
+            title: "Create Spring-WS Endpoint for Element…".into(),
             kind: Some("refactor".into()),
             data: Some(key),
             ..Default::default()
@@ -511,7 +511,7 @@ impl FileActions for WsTools {
         let project = current(&pending, doc)?;
         let before = inventory(&project, &pending.root, &pending.qname, doc)?;
         if before.packages.is_empty() {
-            return Err("No verified existing Java Spring-WS endpoint package under src/main/java; this scaffold does not infer a new source root/classpath.".into());
+            return Err("No Spring-WS endpoint package found under src/main/java. Create one @Endpoint class there first.".into());
         }
         let choices: Vec<_> = before
             .packages

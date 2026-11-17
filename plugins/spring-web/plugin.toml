@@ -147,13 +147,13 @@ icon = "icons/route-other.svg"
 
 [[contributes.commands]]
 id = "copy-endpoint-curl"
-title = "Copy Endpoint as curl"
-category = "Spring Web"
+title = "Copy as curl"
+category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "create-endpoint-http"
 title = "Create HTTP Request File for Endpoint"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 
 
@@ -163,7 +163,7 @@ files = ["**/*.java", "**/*.kt", "pom.xml", "**/pom.xml", "**/build.gradle*"]
 [[contributes.commands]]
 id = "copy-endpoints-openapi"
 title = "Copy Spring Endpoints as OpenAPI"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.menus]]
 command = "copy-endpoints-openapi"
@@ -172,7 +172,7 @@ menu = "tools"
 [[contributes.commands]]
 id = "create-source-endpoint-http"
 title = "Create HTTP Request from Endpoint Source"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.providers]]
 kinds = ["code-lenses"]
@@ -185,27 +185,27 @@ languages = ["html", "java"]
 [[contributes.commands]]
 id = "create-source-graphql-http"
 title = "Create HTTP Request from GraphQL Handler"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "graphql.subscription-start"
 title = "Start Reviewed GraphQL Subscription"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "graphql.subscription-poll"
 title = "Read GraphQL Subscription Output"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "graphql.subscription-cancel"
 title = "Cancel GraphQL Subscription"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "create-source-feign-http"
 title = "Create HTTP Request from Feign Client"
-category = "Spring Web"
+category = "Spring Endpoints"
 
 [[contributes.menus]]
 command = "graphql.subscription-start"
@@ -222,4 +222,4 @@ menu = "tools"
 [[contributes.commands]]
 id = "create-source-graphql-subscription"
 title = "Prepare GraphQL Subscription from Handler"
-category = "Spring Web"
+category = "Spring Endpoints"

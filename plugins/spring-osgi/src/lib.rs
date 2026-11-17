@@ -442,7 +442,7 @@ fn check_refs(doc: &OsgiXml, index: &impl Facts, out: &mut Vec<Diagnostic>) {
         if name.is_empty() || name.contains('&') || beans::is_expression(name) || named(index, name).next().is_some() {
             continue;
         }
-        let message = format!("No cached source declaration named '{name}' is known; imported, computed or runtime beans remain unresolved.");
+        let message = format!("No bean named '{name}' in project sources (library beans aren't visible).");
         out.push(Diagnostic {
             code: Some("unresolved-osgi-ref".into()),
             ..Diagnostic::new(range(doc.text, a.value_at, a.value_end), Severity::Info, message)

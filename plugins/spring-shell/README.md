@@ -60,14 +60,14 @@ Hover a command method, its key or a legacy availability reference. You see the 
 
 - The editor highlights a command key, its availability selectors and its indicator name in the current class.
 - A code lens shows the local occurrence count. Click it to pick an occurrence.
-- **Spring Shell: Find Literal Command or Availability Occurrences** does the same from the caret.
+- **Spring Shell: Find Command Occurrences** does the same from the caret.
 
 ### Fix and rename with a preview
 
 Both actions are on ⌥⏎ and show the exact change before applying it. The change is one undoable edit.
 
 - **Preview add explicit ShellComponent annotation…** adds the fully qualified annotation to an unannotated legacy command class.
-- **Preview rename local Shell command key…** renames a command key and its availability selectors in the class. It also updates selectors in project subclasses. The method name stays the same.
+- **Rename command key…** renames a command key and its availability selectors in the class. It also updates selectors in project subclasses. The method name stays the same.
 
 A new key uses lowercase ASCII words separated by spaces. Each word starts with a letter and uses letters, digits or hyphens. The key is at most 64 characters.
 
@@ -77,7 +77,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Shell**; bind
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Spring Shell: Find Literal Command or Availability Occurrences** | Lists the occurrences of the command key or availability name at the caret in the current file, and jumps to the one you pick. | none |
+| **Spring Shell: Find Command Occurrences** | Lists the occurrences of the command key or availability name at the caret in the current file, and jumps to the one you pick. | none |
 
 ## Permissions
 

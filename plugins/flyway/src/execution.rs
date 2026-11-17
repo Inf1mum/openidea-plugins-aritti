@@ -557,7 +557,7 @@ impl Execution {
             ),
         ]))
         .button(Button::new("execution-status", "Refresh Status").icon("refresh").enabled(session.child.is_some()))
-        .button(Button::new("execution-cancel", "Cancel Owned Command").enabled(session.child.is_some()))
+        .button(Button::new("execution-cancel", "Cancel Command").enabled(session.child.is_some()))
         .status("Instance-lifetime finite command · output classification is conservative, not universal · cancellation is not rollback")
     }
     pub fn closed_roots(&mut self) {

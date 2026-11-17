@@ -11,35 +11,35 @@
     {
       "view": "vulnerabilities",
       "id": "preview-upgrade",
-      "label": "Dependency Audit: Preview upgrade in open declaration",
+      "label": "Preview upgrade in open declaration",
       "kind": "dep",
       "icon": "diff"
     },
     {
       "view": "vulnerabilities",
       "id": "open-declaration",
-      "label": "Dependency Audit: Go to Declaration",
+      "label": "Go to Declaration",
       "kind": "dep",
       "icon": "file"
     },
     {
       "view": "vulnerabilities",
       "id": "open-advisory",
-      "label": "Dependency Audit: Open advisory on OSV.dev",
+      "label": "Open advisory on OSV.dev",
       "kind": "dep",
       "icon": "external-link"
     },
     {
       "view": "vulnerabilities",
       "id": "ignore-finding",
-      "label": "Dependency Audit: Ignore this exact finding with reason",
+      "label": "Ignore this exact finding with reason",
       "kind": "dep",
       "icon": "hide"
     },
     {
       "view": "vulnerabilities",
       "id": "open-advisory",
-      "label": "Dependency Audit: Open advisory on OSV.dev",
+      "label": "Open advisory on OSV.dev",
       "kind": "advisory",
       "replaces_open": true,
       "icon": "external-link"
@@ -47,7 +47,7 @@
     {
       "view": "vulnerabilities",
       "id": "ignore-finding",
-      "label": "Dependency Audit: Ignore this exact finding with reason",
+      "label": "Ignore this exact finding with reason",
       "kind": "advisory",
       "icon": "hide"
     }

@@ -73,8 +73,8 @@ Some keys are never reported as unknown, so third-party and custom keys stay qui
 
 Put the caret on a key or `${key}` name in a `.properties` file, then:
 
-- **Spring Boot: Current-File Placeholder Occurrences…** lists the key and its placeholders in the current file, including unsaved text.
-- **Spring Boot: Project Property Source Occurrences…** lists them across the project's `application*.properties` and `bootstrap*.properties`, with the profile and file of each.
+- **Spring Boot: Find Property in File…** lists the key and its placeholders in the current file, including unsaved text.
+- **Spring Boot: Find Property in Project…** lists them across the project's `application*.properties` and `bootstrap*.properties`, with the profile and file of each.
 
 Pick a row to jump to it. Values and defaults are never shown.
 
@@ -108,7 +108,7 @@ Supported URLs: PostgreSQL, MySQL/MariaDB, ClickHouse HTTP, Oracle thin service,
 Use this when your project uses a Spring Boot or Spring Cloud version other than the bundled one, or a starter that ships its own metadata.
 
 1. Allow `fs.read:~/.m2/repository` (Maven) or `fs.read:~/.gradle/caches/modules-2/files-2.1` (Gradle).
-2. Run **Spring Boot: Read Metadata from Selected Maven Dependency JAR…**. The settings page has a button for it too.
+2. Run **Spring Boot: Read Metadata from Dependency JAR…**. The settings page has a button for it too.
 3. Pick a dependency declared in your root `pom.xml` or `build.gradle(.kts)`.
 4. Check the project, build file, coordinates and archive, then confirm.
 
@@ -127,9 +127,9 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Boot**; bind 
 | Command | What it does | Shortcut |
 |---|---|---|
 | **Spring Boot: Show Configuration Problems** | Checks every configuration and metadata file and lists the problems, errors first. Pick one to open it. | — |
-| **Spring Boot: Read Metadata from Selected Maven Dependency JAR…** | Loads configuration metadata from one Maven or Gradle dependency JAR you choose. | — |
-| **Spring Boot: Current-File Placeholder Occurrences…** | Lists the key under the caret and its `${…}` uses in the current file. | — |
-| **Spring Boot: Project Property Source Occurrences…** | Lists the key under the caret across the project's `.properties` configuration files. | — |
+| **Spring Boot: Read Metadata from Dependency JAR…** | Loads configuration metadata from one Maven or Gradle dependency JAR you choose. | — |
+| **Spring Boot: Find Property in File…** | Lists the key under the caret and its `${…}` uses in the current file. | — |
+| **Spring Boot: Find Property in Project…** | Lists the key under the caret across the project's `.properties` configuration files. | — |
 | **Spring Boot: Run with Profiles/Arguments…** | Asks for profiles and arguments, shows the Maven or Gradle command, then runs it in a terminal. | — |
 | **Spring Boot: Configure Database from Current Source…** | Creates a native Database source from the datasource values in the current file. | — |
 
@@ -166,7 +166,7 @@ Optional permissions are off until you allow them in Settings › Plugins › *S
 | `events` | Keeping the project view current as files change. | Checks that need the whole project (unknown keys, test constructors…) stay quiet. |
 | `fs.read:~/.m2/repository` | Reading a Maven dependency JAR and cached parent/BOM POMs. | The JAR metadata command can't read Maven dependencies. |
 | `fs.read:~/.gradle/caches/modules-2/files-2.1` | Reading a Gradle dependency JAR from the module cache. | Gradle dependencies are skipped silently. |
-| `editor.read` | **Current-File Placeholder Occurrences…** reads the open editor's text and caret. | That command can't run. |
+| `editor.read` | **Find Property in File…** reads the open editor's text and caret. | That command can't run. |
 | `database.sources` | **Configure Database from Current Source…** creates a Database source. | That command can't run. |
 | `process:mvn` | Running `mvn` from **Run with Profiles/Arguments…** and native Run. | Maven runs are refused. |
 | `process:gradle` | Running `gradle` from **Run with Profiles/Arguments…** and native Run. | Gradle runs are refused. |
@@ -179,7 +179,7 @@ General steps are in the [repository guide](../../README.md#using-the-plugins).
 |---|---|
 | No unknown-key or test-constructor warnings | These wait until the whole project has been read. Allow `events`. |
 | A third-party or custom key isn't flagged as unknown | Expected: unknown groups are never reported. Add the key to `additional-spring-configuration-metadata.json` to document it. |
-| Keys from a newer Boot version show as unknown | Run **Spring Boot: Read Metadata from Selected Maven Dependency JAR…** and pick the Boot or Cloud artifact. |
+| Keys from a newer Boot version show as unknown | Run **Spring Boot: Read Metadata from Dependency JAR…** and pick the Boot or Cloud artifact. |
 | "No problems found … metadata inventory is incomplete" | Results are partial. If `events` is off, allow it, then run the command again. |
 | JAR command: "Open the owning Maven project first." | Open the project whose root holds `pom.xml` or `build.gradle(.kts)`. |
 | JAR command: "No supported direct/version-property JAR dependencies…" | The root build file has no dependency the plugin can resolve. Use a literal version, a root property, or the Boot parent/BOM. |
@@ -187,7 +187,7 @@ General steps are in the [repository guide](../../README.md#using-the-plugins).
 | JAR command does nothing for a Gradle project | Allow `fs.read:~/.gradle/caches/modules-2/files-2.1`. |
 | "Project/POM changed. Select the dependency again." | The build file changed during the read. Run the command again. |
 | "Eight project snapshots are already retained; reload before importing another project." | Reload the plugin in Settings › Plugins, then run the command again. |
-| Run command: "no source-owned Spring Boot Maven/Gradle run found" | Apply the Spring Boot plugin directly in the root `pom.xml` (build plugins) or the root Gradle `plugins` block. |
+| Run command: "No Spring Boot run found. Apply the Spring Boot Maven or Gradle plugin." | Apply the Spring Boot plugin directly in the root `pom.xml` (build plugins) or the root Gradle `plugins` block. |
 | The run terminal doesn't start | Allow `process:mvn` or `process:gradle`, and check the tool is on the IDE's `PATH`. |
 | Database: "This source file has no explicit spring.datasource.url." | Open the file that declares the datasource, with plain literal values. |
 | Database: "URL parameters, embedded credentials and encoded/multiple targets need manual Database setup." | Create the source by hand in Database. |
@@ -268,9 +268,9 @@ Key hover labels the catalog that supplied the declaration: project-local curren
 
 **Show Configuration Problems** runs the same checks as the editor diagnostics, without the opt-in JDBC driver hint. Rows are filtered against the current invoking project owner, and current source identity is rechecked before opening.
 
-**Current-File Placeholder Occurrences…** lists the one unique exact property spelling and matching placeholder spellings in the current unsaved file (line and UTF-16 column). It reads only the invoking editor: no workspace scan, metadata lookup, network or write. Duplicate or escaped/relaxed spellings, dynamic/nested/escaped placeholder values, multi-document sections and unsupported file contexts stay quiet or refuse. Current text, version, path and project membership are rechecked before opening.
+**Find Property in File…** lists the one unique exact property spelling and matching placeholder spellings in the current unsaved file (line and UTF-16 column). It reads only the invoking editor: no workspace scan, metadata lookup, network or write. Duplicate or escaped/relaxed spellings, dynamic/nested/escaped placeholder values, multi-document sections and unsupported file contexts stay quiet or refuse. Current text, version, path and project membership are rechecked before opening.
 
-**Project Property Source Occurrences…** finds exact raw declaration and placeholder spellings in `application*.properties` and `bootstrap*.properties` files owned by the current project, keeping profile and file provenance. The current editor text is used for its file; other rows describe the saved file. Source identity is rechecked before navigation. Limits: 128 files, 1 MiB total source, 1,024 occurrences. Nested registered projects are excluded. Unreadable, oversized or unsupported inputs fail visibly. These are read-only exact physical-source occurrences, not effective usages.
+**Find Property in Project…** finds exact raw declaration and placeholder spellings in `application*.properties` and `bootstrap*.properties` files owned by the current project, keeping profile and file provenance. The current editor text is used for its file; other rows describe the saved file. Source identity is rechecked before navigation. Limits: 128 files, 1 MiB total source, 1,024 occurrences. Nested registered projects are excluded. Unreadable, oversized or unsupported inputs fail visibly. These are read-only exact physical-source occurrences, not effective usages.
 
 **Run with Profiles/Arguments…** validates profiles. Besides `application-<profile>` files it offers literal profiles named by `spring.profiles.include`, `spring.profiles.group` and `spring.config.activate.on-profile` (plain names or `a | b` only) or declared in imported files. Only allowlisted `--key=value` arguments are accepted. Maven uses `-Dspring-boot.run.profiles` / `-Dspring-boot.run.arguments`; Gradle uses `bootRun --args`. Nothing runs before confirmation.
 

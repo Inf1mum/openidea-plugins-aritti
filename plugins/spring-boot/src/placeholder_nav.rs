@@ -229,7 +229,7 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
         .1;
     unchanged(ctx, &root, &doc)?;
     host::open_location(&doc.path, target.start.line, target.start.character)?;
-    Ok(Some("Navigated within this current source file. Effective profiles/imports/runtime ownership and global usages/Rename remain unresolved.".into()))
+    Ok(None)
 }
 
 /// An explicitly requested physical-source graph. Profile/import/runtime
@@ -353,7 +353,7 @@ pub(crate) fn project_occurrences(ctx: &Invocation) -> Result<Option<String>, Er
         return Err(Error::Stale);
     }
     host::open_location(path, range.start.line, range.start.character)?;
-    Ok(Some("Navigated to an exact physical source occurrence. Active profiles, imported/remote/environment values and effective binding remain unresolved; no Rename anchors were published.".into()))
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -573,15 +573,12 @@ mod tests {
         h.answer_next_prompt(Some(&["1"]));
         let result = BootTools::default()
             .run_command("project-placeholder-occurrences", &h.invocation(), None)
-            .unwrap()
             .unwrap();
         assert_eq!(
             h.opened_locations(),
             vec![("/project/application-dev.properties".into(), 1, 4)]
         );
-        assert!(
-            !result.contains("secret") && result.contains("effective binding remain unresolved")
-        );
+        assert!(result.is_none());
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
     }
     #[test]
@@ -629,7 +626,7 @@ mod tests {
             h.opened_locations(),
             vec![("/project/application.properties".into(), 1, 11)]
         );
-        assert!(!result.unwrap().contains("private-secret"));
+        assert!(result.is_none());
         let h = command_host(text, Position::new(1, 14));
         h.answer_next_prompt(Some(&["0"]));
         tools

@@ -387,7 +387,7 @@ impl Watch {
             self.pending.as_ref().is_some_and(|p| p.spec.root == root) || self.session.as_ref().is_some_and(|s| s.spec.root == root);
         if !belongs {
             return Ok(View::message(
-                "No resource watch for this project. Run Kube Explorer: Review Managed Resource Watch… explicitly.",
+                "No resource watch for this project. Run Kube Explorer: Watch Resources… explicitly.",
             ));
         }
         self.settings_changed(context, namespace);

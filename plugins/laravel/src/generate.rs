@@ -518,7 +518,7 @@ pub fn make(
                     .map(|k| (k.id, kind_label(k))),
             );
             let Some(chosen) = host::pick(
-                crate::ui_text::text("native.generate.8f92550a35", "Generate with artisan make"),
+                crate::ui_text::text("native.generate.8f92550a35", "Generate with Artisan make"),
                 &choices,
             )?
             else {

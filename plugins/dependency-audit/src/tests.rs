@@ -439,7 +439,7 @@ fn scan_lists_vulnerable_dependencies_in_the_view() {
     let host = MockHost::install().with_capabilities(CAPS);
     let mut plugin = scanned(&host);
 
-    assert_eq!(host.project_notifications()[0].1.notification.body, "Vulnerable dependencies: 2 of 3 (3 files). See the Vulnerable Dependencies tool window.");
+    assert_eq!(host.project_notifications()[0].1.notification.body, "Vulnerable dependencies: 2 of 3 (3 files). See the Dependency Audit window.");
     assert!(host.refreshed_views().contains(&"vulnerabilities".to_string()));
     assert!(host.diagnostics().is_empty(), "scan does not publish a duplicate producer");
     assert_eq!(plugin.diagnostics(&document("/project/pom.xml", "xml", POM)).len(), 1);
@@ -554,7 +554,7 @@ fn ignored_advisory_is_not_reported() {
     host.set_setting("ignoredAdvisories", r##""# accepted\nGHSA-35jh-r3h4-6jhm  # lodash, no fix yet\n""##);
     let mut plugin = scanned(&host);
 
-    assert_eq!(host.project_notifications()[0].1.notification.body, "Vulnerable dependencies: 1 of 3 (3 files). See the Vulnerable Dependencies tool window.");
+    assert_eq!(host.project_notifications()[0].1.notification.body, "Vulnerable dependencies: 1 of 3 (3 files). See the Dependency Audit window.");
     let labels: Vec<String> = tree(&mut plugin, &host).into_iter().map(|i| i.label).collect();
     assert!(!labels.iter().any(|l| l.contains("lodash") || l == "GHSA-35jh-r3h4-6jhm"));
     assert!(labels.contains(&"GHSA-57j2-w4cx-62h2".to_string()));

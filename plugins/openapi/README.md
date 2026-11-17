@@ -15,7 +15,7 @@ Edit OpenAPI 3 and Swagger 2 files in YAML and JSON: `$ref` completion and navig
 2. Open a file with a top-level `openapi` or `swagger` key. Or create one with New › **OpenAPI 3.1 (YAML)**.
 3. Files named `openapi.*`, `swagger.*`, `*.openapi.*` or `*.swagger.*` open with the Swagger UI preview beside the text.
 4. Type inside a `$ref` value to complete component names. Use Go to Definition to jump to the target.
-5. Open the **OpenAPI** tool window (right) to see every endpoint in the project.
+5. Open the **OpenAPI Endpoints** window (right) to see every endpoint in the project.
 
 ## Features
 
@@ -74,7 +74,7 @@ Press ⌥⏎ to add missing structure:
 
 ### Browse endpoints
 
-The **OpenAPI** tool window lists `METHOD /path` for every OpenAPI file in the project, with the operationId and file name. Click a row to open the operation.
+The **OpenAPI Endpoints** window lists `METHOD /path` for every OpenAPI file in the project, with the operationId and file name. Click a row to open the operation.
 
 - **Filter** narrows the list to one tag. **Clear** shows all again.
 - **Flat/Tree** groups the rows by tag.

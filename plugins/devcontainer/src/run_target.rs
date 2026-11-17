@@ -468,7 +468,7 @@ pub(crate) fn validate_running(root: &str) -> Result<(), String> {
         return Ok(());
     };
     if containers.is_empty() {
-        return Err("The dev container is not running. Start it with Dev Container: Start first.".into());
+        return Err("The dev container is not running. Start it with Dev Container: Start Container first.".into());
     }
     Ok(())
 }

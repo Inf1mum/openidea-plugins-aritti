@@ -360,7 +360,7 @@ impl State {
         }
         if !self.scope_ok {
             return Err(invalid(
-                "Local requests require only the literal 127.0.0.1 network grant; additional/broad network grants are unsupported.",
+                "Try it out works with net:127.0.0.1 or net:ask only. Remove other network permissions for this plugin.",
             ));
         }
         if !self.granted && !self.ask {

@@ -151,7 +151,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "The edit preview exceeds 16 KiB; edit fewer locales at once." | Select fewer locales or make a smaller change. |
 | "Use an ISO 639 language, optional _Script and _REGION, then optional variants (eng, zh_Hans_CN, en_US_POSIX)." | Fix the locale name you typed in **Create locale files…**. |
 | "The locale file already exists; nothing will be overwritten." | Pick a locale that doesn't exist yet. |
-| "This property value cannot cross the clipboard UTF-8 API losslessly; its source is unchanged." | The value has a lone surrogate or broken escape. Fix it in the file, or copy it by hand. |
+| "This value has an invalid character and can't be copied." | The value has a lone surrogate or broken escape. Fix it in the file, or copy it by hand. |
 | "No compiler-proved JDK or @PropertyKey literals for this bundle/key. Use the bundle-only action if intended." | Use **Change key in this bundle only…** instead. |
 | The grid is read-only after editing a source | A file changed under the staged draft. Run **Properties: Discard Staged Locale Grid…**. |
 

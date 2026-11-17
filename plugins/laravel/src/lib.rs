@@ -2226,7 +2226,7 @@ impl Main {
             ViewEvent::Button(id) if id == "request-copy-curl" => {
                 let request = self.route_requests.request(&root)?;
                 host::copy_to_clipboard(&request.curl(DEFAULT_BASE_URL))?;
-                host::notify(NotificationLevel::Info, SOURCE, crate::ui_text::text("request.curlCopied", "Copied the request as cURL. Act as user is not part of a cURL request, and web routes still need their CSRF token against a real server."));
+                host::notify(NotificationLevel::Info, SOURCE, crate::ui_text::text("request.curlCopied", "Copied the request as curl. Act as user is not part of a curl request, and web routes still need their CSRF token against a real server."));
             }
             ViewEvent::Button(id) if id == "request-send" => {
                 let runner = self.artisan_workspace.runner(ctx)?;

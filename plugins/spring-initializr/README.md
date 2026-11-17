@@ -54,7 +54,7 @@ The **Generate Project** button is always on the toolbar. **More Actions…** li
 - **Explore in Browser**: opens the server's web page with the same options.
 - **Generate with Spring Boot CLI**: runs `spring init` in an IDE terminal. It creates a folder named after the artifact in the open project. Needs `process:spring`. Without it, the browser download runs instead.
 - **Review and Open Generated Folder…**: after the CLI finishes, shows every generated file and opens the folder as a project once you confirm.
-- **Generate and Open…** (also **Spring Initializr: Generate and Open Complete Project**): downloads the ZIP from start.spring.io, shows the destination and file list, then extracts it with `python3` and opens it. The folder can be anywhere, including outside the project. Needs `process:python3`.
+- **Generate and Open…** (also **Spring Initializr: Generate and Open…**): downloads the ZIP from start.spring.io, shows the destination and file list, then extracts it with `python3` and opens it. The folder can be anywhere, including outside the project. Needs `process:python3`.
 
 The CLI section also has a managed run: **Review and run CLI…**, **Check status / output** and **Cancel CLI**.
 
@@ -93,7 +93,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Initializr**;
 | Command | What it does |
 |---|---|
 | **Spring Initializr: Open start.spring.io** | Opens the start.spring.io site. |
-| **Spring Initializr: Generate and Open Complete Project** | Downloads, reviews, extracts and opens a complete project. |
+| **Spring Initializr: Generate and Open…** | Downloads, reviews, extracts and opens a complete project. |
 | **Spring Initializr: Prepare Add Spring Boot Starters** | Loads starters for the open build file, ready for ⌥⏎ › **Preview Add Spring Boot Starters…**. Also in **Tools**. |
 | **Spring Initializr: Prepare Maven Source-only Import** | Downloads a Maven project into memory, ready for ⌥⏎ › **Preview Import Maven Sources…**. Also in **Tools**. |
 | **Spring Initializr: Open Reviewed Source Folder** | Checks the imported files and opens the folder in a new window. Also in **Tools**. |

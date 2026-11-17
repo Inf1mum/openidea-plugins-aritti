@@ -24,7 +24,7 @@ category = "Liquibase"
 
 [[contributes.commands]]
 id = "clear-sources"
-title = "Liquibase: Browse All Project Changelogs"
+title = "Liquibase: Browse All Changelogs"
 category = "Liquibase"
 
 [[contributes.commands]]
@@ -115,7 +115,7 @@ category = "Liquibase"
 
 [[contributes.commands]]
 id = "offline-diff-run"
-title = "Liquibase: Run Reviewed Offline Snapshot Diff…"
+title = "Liquibase: Run Offline Diff…"
 category = "Liquibase"
 
 [[contributes.markerIcons]]

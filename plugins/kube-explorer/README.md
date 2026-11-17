@@ -101,11 +101,11 @@ Both modes bind to `127.0.0.1` only.
 
 ### Watch resources
 
-1. Right-click the cluster root › **Watch** › **Watch Resources…**, or run **Kube Explorer: Review Managed Resource Watch…**.
+1. Right-click the cluster root › **Watch** › **Watch Resources…**, or run **Kube Explorer: Watch Resources…**.
 2. Pick Pods, Services or Deployments in the selected namespace and review the command.
 3. Click **Launch Reviewed Watch** within 60 seconds in the **Kubernetes Resource Watch** pane.
 
-The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop Owned Watch** or **Review Restart…**. Reopen it with **Kube Explorer: Open Resource Watch Status**. The initial list is marked **UNKNOWN** completeness, because the stream has no reliable end marker.
+The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop Owned Watch** or **Review Restart…**. Reopen it with **Kube Explorer: Open Resource Watch**. The initial list is marked **UNKNOWN** completeness, because the stream has no reliable end marker.
 
 ### Run commands on the open file
 
@@ -178,13 +178,13 @@ To silence checks for YAML files that aren't Kubernetes (Compose files, CI files
 
 ### Import a kubeconfig privately
 
-**Kube Explorer: Import Pasted Kubeconfig (Private, No Connection)** (Tools menu) stores a pasted kubeconfig context inside the plugin.
+**Kube Explorer: Import Kubeconfig Privately…** (Tools menu) stores a pasted kubeconfig context inside the plugin.
 
 1. Paste the YAML or JSON.
 2. Enter a label and the context to keep.
 3. Check the redacted review and confirm.
 
-**Kube Explorer: Review Imported Kubeconfigs (Redacted)** shows what's stored, without tokens or keys. Imported profiles are not activated, merged into your files, or listed in Choose Kubeconfig. This needs no project, no `kubectl` and no network.
+**Kube Explorer: Review Imported Kubeconfigs…** shows what's stored, without tokens or keys. Imported profiles are not activated, merged into your files, or listed in Choose Kubeconfig. This needs no project, no `kubectl` and no network.
 
 ### Telepresence
 
@@ -227,10 +227,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or *
 | **Kube Explorer: Choose Kubeconfig** | Picks which configured kubeconfig file to use. | None |
 | **Kube Explorer: Customize Namespaces** | Chooses which namespaces the tree lists. | None |
 | **Kube Explorer: Edit Recent Debug Images** | Edits the recent images offered by **Debug…**. | None |
-| **Kube Explorer: Review Managed Resource Watch…** | Prepares a watch of Pods, Services or Deployments. | None |
-| **Kube Explorer: Open Resource Watch Status** | Opens the watch pane. | None |
-| **Kube Explorer: Import Pasted Kubeconfig (Private, No Connection)** (*Tools*) | Stores a pasted kubeconfig context privately. | None |
-| **Kube Explorer: Review Imported Kubeconfigs (Redacted)** (*Tools*) | Shows imported profiles without secrets. | None |
+| **Kube Explorer: Watch Resources…** | Prepares a watch of Pods, Services or Deployments. | None |
+| **Kube Explorer: Open Resource Watch** | Opens the watch pane. | None |
+| **Kube Explorer: Import Kubeconfig Privately…** (*Tools*) | Stores a pasted kubeconfig context privately. | None |
+| **Kube Explorer: Review Imported Kubeconfigs…** (*Tools*) | Shows imported profiles without secrets. | None |
 | **Kube Explorer: How to Install kubectl** | Shows install instructions. | None |
 | **Kube Explorer: Telepresence Connect** | Runs `telepresence connect` in a terminal. | None |
 | **Kube Explorer: Telepresence Quit** | Runs `telepresence quit` in a terminal. | None |
@@ -239,29 +239,29 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or *
 
 These act on the selected row in Services › Kube Explorer.
 
-| Command | Where | What it does | Shortcut |
+| Menu item | Where | What it does | Shortcut |
 |---|---|---|---|
-| **Kube Explorer: Describe** | Resources | `kubectl describe`. | None |
-| **Kube Explorer: Edit YAML…** | Resources | Opens the YAML for editing. | None |
-| **Kube Explorer: Delete…** | Resources | Deletes after confirmation. | None |
-| **Kube Explorer: Follow Logs** | Pods, workloads › **Logs** | Streams logs in a terminal. | None |
-| **Kube Explorer: View Log Snapshot…** | Pods, workloads › **Logs** | Opens the Log Viewer. | None |
-| **Kube Explorer: Select Log Sources…** | Pods, workloads › **Logs** | Picks pods or containers to log. | None |
-| **Kube Explorer: Open Shell** | Pods | Opens a shell in the pod. | None |
-| **Kube Explorer: Attach** | Pods › **Container** | Attaches to the container. | None |
-| **Kube Explorer: Debug…** | Pods › **Container** | Starts an ephemeral debug container. | None |
-| **Kube Explorer: Port Forward…** | Pods, workloads, Services | Opens the port-forward form. | None |
-| **Kube Explorer: Show Secret…** | Secrets | Shows decoded values. | None |
-| **Kube Explorer: Edit Secret…** | Secrets | Edits decoded values. | None |
-| **Kube Explorer: Create Secret…** | Secrets group | Creates an Opaque Secret. | None |
-| **Kube Explorer: Switch** | Contexts, namespaces | Selects it. | None |
+| **Describe** | Resources | `kubectl describe`. | None |
+| **Edit YAML…** | Resources | Opens the YAML for editing. | None |
+| **Delete…** | Resources | Deletes after confirmation. | None |
+| **Follow Logs** | Pods, workloads › **Logs** | Streams logs in a terminal. | None |
+| **View Log Snapshot…** | Pods, workloads › **Logs** | Opens the Log Viewer. | None |
+| **Select Log Sources…** | Pods, workloads › **Logs** | Picks pods or containers to log. | None |
+| **Open Shell** | Pods | Opens a shell in the pod. | None |
+| **Attach** | Pods › **Container** | Attaches to the container. | None |
+| **Debug…** | Pods › **Container** | Starts an ephemeral debug container. | None |
+| **Port Forward…** | Pods, workloads, Services | Opens the port-forward form. | None |
+| **Show Secret…** | Secrets | Shows decoded values. | None |
+| **Edit Secret…** | Secrets | Edits decoded values. | None |
+| **Create Secret…** | Secrets group | Creates an Opaque Secret. | None |
+| **Switch Context** / **Switch Namespace** | Contexts, namespaces | Selects it. | None |
 | **Expand** / **Collapse** | Groups, root | Expands or collapses the row. | None |
-| **Kube Explorer: Refresh** | Groups, root | Reloads the row. | None |
-| **Kube Explorer: Watch Resources…** | Root › **Watch** | Prepares a resource watch. | None |
-| **Kube Explorer: Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
-| **Kube Explorer: Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
-| **Kube Explorer: Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as the Import Pasted Kubeconfig command. | None |
-| **Kube Explorer: Review Imported Kubeconfigs…** | Root › **Kubeconfig** | Same as the Review Imported Kubeconfigs command. | None |
+| **Refresh** | Groups, root | Reloads the row. | None |
+| **Watch Resources…** | Root › **Watch** | Prepares a resource watch. | None |
+| **Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
+| **Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
+| **Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as **Kube Explorer: Import Kubeconfig Privately…**. | None |
+| **Review Imported Kubeconfigs…** | Root › **Kubeconfig** | Same as **Kube Explorer: Review Imported Kubeconfigs…**. | None |
 
 ## Settings
 
@@ -271,7 +271,7 @@ Settings › Plugins › Kube Explorer.
 |---|---|---|---|
 | Kubeconfig file, or several separated by commas (Choose Kubeconfig picks one; empty: KUBECONFIG or ~/.kube/config) | `kubeconfig` | empty | Which kubeconfig files to use. |
 | Image of the ephemeral debug container (Debug button on a pod) | `debugImage` | `busybox:stable` | Image for **Debug…**. |
-| Allow Show Secret and YAML on a secret (off: secret data is never read; on: YAML of a secret is shown unstripped) | `allowRevealSecrets` | off | Show, Edit and YAML on Secrets. |
+| Allow Show Secret and YAML on a secret | `allowRevealSecrets` | off | Show, Edit and YAML on Secrets. |
 | Open supported built-in YAML in a private editor copy (off: panel; Save is local only, explicit review/apply commands required; never Secrets) | `yamlInEditor` | off | Panel or private editor for YAML. |
 | Lines per pod the Log Viewer reads (10 to 20000) | `logViewerLines` | 1000 | Log snapshot size. |
 | Show a notification when a command succeeds (errors are always shown) | `notifySuccess` | on | Success notifications. |
@@ -304,7 +304,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | The tree shows **Kubernetes — permission required** | Allow `process:kubectl` in Settings › Plugins › *Kube Explorer*. |
 | The tree shows **How to Install kubectl** | `kubectl` can't be started and no context is stored. Install it so it's on the IDE's `PATH`, then refresh. |
 | Authentication fails for GKE, EKS or similar | Put the auth plugin (`gke-gcloud-auth-plugin`, `aws`, …) on the IDE's `PATH`. |
-| *To show them, turn on "Allow Show Secret" (allowRevealSecrets)…* | Turn on **allowRevealSecrets** in the settings. |
+| *To show them, turn on "Allow Show Secret and YAML on a secret" in Settings › Plugins › Kube Explorer.* | Turn on **Allow Show Secret and YAML on a secret** in the settings. Off: secret data is never read; on: secret YAML is shown unstripped. |
 | *Refusing … in All namespaces…* or Apply/Create Secret refused | Switch from **All namespaces** to a single namespace. |
 | *Select one namespace before watching.* | Pick a single namespace, then start the watch. |
 | *The secret changed in the cluster since it was opened…* | Click **Back** and open **Edit Secret…** again. Nothing was saved. |

@@ -115,17 +115,17 @@ path = "templates/ConfigurationProperties.kt"
 
 [[contributes.commands]]
 id = "read-dependency-jar-metadata"
-title = "Spring Boot: Read Metadata from Selected Maven Dependency JAR…"
+title = "Spring Boot: Read Metadata from Dependency JAR…"
 category = "Spring Boot"
 
 [[contributes.commands]]
 id = "current-file-placeholder-occurrences"
-title = "Spring Boot: Current-File Placeholder Occurrences…"
+title = "Spring Boot: Find Property in File…"
 category = "Spring Boot"
 
 [[contributes.commands]]
 id = "project-placeholder-occurrences"
-title = "Spring Boot: Project Property Source Occurrences…"
+title = "Spring Boot: Find Property in Project…"
 category = "Spring Boot"
 
 [[contributes.commands]]

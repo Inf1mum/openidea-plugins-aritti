@@ -107,7 +107,7 @@ All of these show a preview first and never overwrite a file. Undo reverts them.
 ### Rename and find matches
 
 - Rename works on route, config, translation and Blade-alias literals you can prove. Renaming a view or anonymous component file moves it and updates its references in one step.
-- **Laravel: Find Literal Source Matches… (Read-only)** lists literal spellings that match across routes, views, config, lang and `src`.
+- **Laravel: Find Literal Source Matches…** lists literal spellings that match across routes, views, config, lang and `src`.
 - **Laravel: Find Unused Views** lists views no code names. Components, `errors.*`, `livewire.*`, `vendor.*`, `mail.*` / `emails.*` and package views are never listed. Views are marked *maybe used* when the project builds view names at run time.
 
 ### The Laravel tool window
@@ -135,12 +135,12 @@ Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Each 
 - **Laravel: Run Artisan Command…** opens the Artisan tab. Pick a command, fill in its form, and check the exact command line before you run it.
 - Use **Run in Terminal** for interactive commands and long-running workers. **Laravel: Run Artisan in Terminal…** opens the older terminal picker.
 - **Cancel** stops the running command. A successful run reindexes the project.
-- The command list comes from your app. Run **Laravel: Refresh Artisan Command Metadata (Executes Project PHP)** once, and again after installing packages. You review the exact command before anything runs.
+- The command list comes from your app. Run **Laravel: Refresh Artisan Command Metadata** once, and again after installing packages. You review the exact command before anything runs.
 - One-click commands clear caches, migrate, seed and link storage. See [Commands](#commands).
 
 ### Generate classes
 
-- **Laravel: Generate with artisan make…** offers 30 `make:*` generators with their flags (`--resource`, `--api`, `--requests`, `--inline`), plus your package and custom `make:*` commands.
+- **Laravel: Generate with Artisan make…** offers 30 `make:*` generators with their flags (`--resource`, `--api`, `--requests`, `--inline`), plus your package and custom `make:*` commands.
 - **Laravel: New Eloquent Model…** creates a model with any of migration, factory, seeder, controller and policy (`-m -f -s -c --policy --all`).
 - **Laravel: Generate for Model…** creates a policy, observer, factory, resource or controller for a model. Right-click a model file in the Project view to skip the model pick. With `project.write`, factories and resources are filled from the model's migration columns.
 - Nova, Filament and Livewire form generators appear when `composer.json` requires `laravel/nova`, `filament/filament` or `livewire/livewire`.
@@ -151,7 +151,7 @@ Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Each 
 1. In the Routes tab, choose **Send Request** on a row.
 2. Fill in URI parameters, query, JSON body (prefilled from Form Request rules or inline validation), **Act as** user id and **Accept JSON**.
 3. Leave **Roll back database changes** on (the default) to undo writes. With it off, a write needs a second click.
-4. Read the status, time, query count, size, redirect, headers (cookies masked) and body. **Copy as cURL** copies the same request.
+4. Read the status, time, query count, size, redirect, headers (cookies masked) and body. **Copy as curl** copies the same request.
 
 No server is needed: the route runs through the app's HTTP kernel.
 
@@ -166,7 +166,7 @@ No server is needed: the route runs through the app's HTTP kernel.
 
 1. Run **Laravel: Choose Docker Target…** and pick a running container (Compose, Sail and DDEV are detected). The project must be bind-mounted into it.
 2. Allow `process:docker`.
-3. Run **Laravel: Refresh Docker Artisan Metadata (Executes Container PHP)**.
+3. Run **Laravel: Refresh Docker Artisan Metadata**.
 4. In the Artisan tab, switch the PHP runner from Local PHP to Docker.
 
 You can also set the socket, container ID and working directory by hand in Settings. **Laravel: Use Configured Docker Target** goes back to those settings.
@@ -193,8 +193,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | **Laravel: Search Names…** | Searches route names, views, components, config, translations and env keys in one list. |
 | **Laravel: Search Routes…** | Fuzzy search on route names, URIs, methods and controllers. |
 | **Laravel: Show Route List** | Runs `php artisan route:list`. |
-| **Laravel: Refresh Registered Routes (Executes Project PHP)** | Captures the real route list from Artisan, including package routes. |
-| **Laravel: Find Literal Source Matches… (Read-only)** | Lists literal spellings that match across project sources. |
+| **Laravel: Refresh Registered Routes** | Captures the real route list from Artisan, including package routes. Runs the project's PHP. |
+| **Laravel: Find Literal Source Matches…** | Lists literal spellings that match across project sources. Read-only. |
 | **Laravel: Find Unused Views** | Lists views no code names. |
 | **Laravel: New Laravel Project…** | Creates a new Laravel project in a terminal. |
 | **Laravel: Recover Project Installation…** | Reopens or forgets a new-project installation that didn't finish. |
@@ -205,7 +205,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 |---|---|
 | **Laravel: Run Artisan Command…** | Opens the Artisan tab. |
 | **Laravel: Run Artisan in Terminal…** | Picks a command and runs it in a terminal. |
-| **Laravel: Refresh Artisan Command Metadata (Executes Project PHP)** | Reads the app's command list after review. Also in the Tools menu. |
+| **Laravel: Refresh Artisan Command Metadata** | Reads the app's command list after review. Runs the project's PHP. Also in the Tools menu. |
 | **Laravel: Run Command From Class…** | Opens the Artisan form for a console command class (from its Run marker). |
 | **Laravel: Clear All Caches** | Runs `optimize:clear`. |
 | **Laravel: Clear Application Cache** | Runs `cache:clear`. |
@@ -223,14 +223,14 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 |---|---|
 | **Laravel: Choose Docker Target…** | Picks a running container for Artisan. |
 | **Laravel: Use Configured Docker Target** | Clears the choice and uses the Settings values. |
-| **Laravel: Refresh Docker Artisan Metadata (Executes Container PHP)** | Reads the command list inside the container after review. |
-| **Laravel: Browse Cached Docker Artisan Metadata (Read-only)** | Shows the cached container command list. Never runs Docker. |
+| **Laravel: Refresh Docker Artisan Metadata** | Reads the command list inside the container after review. Runs PHP in the container. |
+| **Laravel: Browse Cached Docker Artisan Metadata** | Shows the cached container command list. Read-only; never runs Docker. |
 
 **Generators and models**
 
 | Command | What it does |
 |---|---|
-| **Laravel: Generate with artisan make…** | Runs a `make:*` generator with its options. |
+| **Laravel: Generate with Artisan make…** | Runs a `make:*` generator with its options. |
 | **Laravel: New Eloquent Model…** | Creates a model and its related classes. |
 | **Laravel: Generate for Model…** | Creates a policy, observer, factory, resource or controller for a model. Also in the Project view context menu. |
 | **Laravel: Create Missing View, Component or Controller** | Creates what the name under the caret refers to. Also in the editor context menu. |
@@ -239,7 +239,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | **Laravel: Open Model Source** | Opens a model from the Models tab. |
 | **Laravel: Remove IDE Helper PHPDoc from Models** | Removes `@property`/`@method`/`@mixin` lines from indexed models. Also in the Project view context menu. |
 | **Laravel: Configure Model Helper Parameters…** | Saves helper storage, count and date preferences for the project. |
-| **Laravel: Regenerate Reviewed Model Helpers…** | Regenerates helper PHPDoc for the models you pick. |
+| **Laravel: Regenerate Model Helpers…** | Regenerates helper PHPDoc for the models you pick. |
 | **Laravel: Configure Helper Source and Automation…** | Sets advanced helper options and commands to run after generation. |
 | **Laravel: Helper Automation Status** | Shows the state of post-generation commands. |
 | **Laravel: Poll Helper Post-Generation Commands** | Checks and runs pending post-generation commands. |
@@ -249,17 +249,17 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 
 | Command | What it does |
 |---|---|
-| **Laravel: Copy as curl** | Copies the selected route as a cURL command. |
+| **Laravel: Copy as curl** | Copies the selected route as a curl command. |
 | **Laravel: Create HTTP Request File** | Writes `http/<verb>-<path>.http` for the selected route. |
-| **Laravel: Send Request (Executes Project PHP)** | Opens the Request tab for the selected route. |
+| **Laravel: Send Request** | Opens the Request tab for the selected route. Sending runs the project's PHP. |
 | **Laravel: Open Route Declaration** | Opens the route behind a marker in the editor. |
-| **Laravel: Route Request Actions…** | From a route in the editor: go to the declaration, copy the URL or cURL, or create an HTTP request. |
+| **Laravel: Route Request Actions…** | From a route in the editor: go to the declaration, copy the URL or curl, or create an HTTP request. |
 
 **Database and runtime**
 
 | Command | What it does |
 |---|---|
-| **Laravel: Refresh Database Metadata (Executes Project PHP)** | Captures the database schema. |
+| **Laravel: Refresh Database Metadata** | Captures the database schema. Runs the project's PHP. |
 | **Laravel: Add Application Database Connection…** | Registers the app's database as an IDE database source. |
 | **Laravel: Database Connections…** | Lists registered connections to connect or remove. |
 | **Laravel: Connect Database…** | Enters credentials for a registered connection. |
@@ -353,11 +353,11 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Nothing completes and the tool window is empty | The project must have an `artisan` file or require `laravel/framework`. Run **Laravel: Reindex Project**. |
 | "This project is not a Laravel application." / "Open a Laravel project first." | Open the folder that holds `artisan` or the `composer.json` requiring `laravel/framework`. |
 | "Allow the process:php capability in Settings › Plugins." | Allow `process:php` in Settings › Plugins › *Laravel*. Check that `php` is on the `PATH` the IDE sees. |
-| The Artisan tab shows no commands | Run **Laravel: Refresh Artisan Command Metadata (Executes Project PHP)**. Run it again after `composer.json` or `composer.lock` changes. |
+| The Artisan tab shows no commands | Run **Laravel: Refresh Artisan Command Metadata**. Run it again after `composer.json` or `composer.lock` changes. |
 | "Refresh Artisan command metadata to configure …" | Same as above, then run the command again. |
 | "Laravel route index is incomplete; reindex before searching." | Run **Laravel: Reindex Project**. Very large projects may hit the 5,000-file scan cap. |
 | A missing view, config or translation is not reported | Checks pause while the index is partial. Reindex. Keys built at run time aren't checked. |
-| Package routes are missing from the Routes tab | Run **Laravel: Refresh Registered Routes (Executes Project PHP)**. |
+| Package routes are missing from the Routes tab | Run **Laravel: Refresh Registered Routes**. |
 | A new file under `resources/js` or `resources/css` doesn't complete in `@vite` | Save a watched file or reindex. |
 | "Project writes denied; HTTP request copied to clipboard." | Allow `project.write` to write `.http` files. |
 | "No registered Laravel database sources. Add a Database Connection from Models first." | Run **Laravel: Add Application Database Connection…** first. |
@@ -446,8 +446,8 @@ File templates: Laravel Controller, Resource Controller, Job, Event, Listener, M
 
 ### Tool window tabs
 
-- **Routes.** Rows show the endpoint icon, path and grey `[METHOD] Controller` text. Method names appear in row details; multi-method routes ask which method for cURL/HTTP generation. **Create HTTP Request File** writes `http/<verb>-<path>.http`. **Refresh Registered Routes** runs `php artisan route:list --json --no-interaction --no-ansi` (bounded to 4 MiB, 5,000 routes, four seconds of polling) and captures real URIs, names, methods and controllers including loops, conditional registration and package routes. It first rebuilds the selected project's source index. Snapshots stay in memory for up to eight projects and are retired by reindex; failed or cancelled refreshes keep the previous snapshot; the static source index remains the fallback, and unresolved dynamic URIs are omitted rather than shown as `/?`.
-- **Request.** With rollback on, nothing is sent unless a transaction really started on the default connection. Act as user is not part of the copied cURL request, and web routes still need their CSRF token against a real server.
+- **Routes.** Rows show the endpoint icon, path and grey `[METHOD] Controller` text. Method names appear in row details; multi-method routes ask which method for curl/HTTP generation. **Create HTTP Request File** writes `http/<verb>-<path>.http`. **Refresh Registered Routes** runs `php artisan route:list --json --no-interaction --no-ansi` (bounded to 4 MiB, 5,000 routes, four seconds of polling) and captures real URIs, names, methods and controllers including loops, conditional registration and package routes. It first rebuilds the selected project's source index. Snapshots stay in memory for up to eight projects and are retired by reindex; failed or cancelled refreshes keep the previous snapshot; the static source index remains the fallback, and unresolved dynamic URIs are omitted rather than shown as `/?`.
+- **Request.** With rollback on, nothing is sent unless a transaction really started on the default connection. Act as user is not part of the copied curl request, and web routes still need their CSRF token against a real server.
 - **Views.** Folder labels follow the physical path below the indexed root; vendor overrides and configured namespaces keep their Laravel namespace.
 - **Config.** Values are bounded source previews (including `env(...)`, booleans, numbers, null, quoted strings), not evaluated configuration; array nodes stay labelled `array`. Indexing traverses list offsets, explicit integer keys and `ClassName::class` keys, supports 64 nesting levels, and marks files with unsupported arrays or reached bounds incomplete. Each source is limited to 2 MiB and 20,000 entries.
 - **Translations.** The counter counts locale-specific entries, while completion and navigation prefer the configured main locale.

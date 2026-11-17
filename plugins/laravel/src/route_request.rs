@@ -555,7 +555,7 @@ impl State {
         };
         let mut view = View::new(Body::Form(draft.fields()))
             .button(Button::new("request-send", send_label).icon(if confirming { "warning" } else { "run" }))
-            .button(Button::new("request-copy-curl", crate::ui_text::text("action.route-copy-curl", "Copy as cURL")).icon("copy"));
+            .button(Button::new("request-copy-curl", crate::ui_text::text("action.route-copy-curl", "Copy as curl")).icon("copy"));
         if !draft.template.is_empty() {
             view = view.button(Button::new("request-reset-body", crate::ui_text::text("request.resetBody", "Reset Body from Rules")).icon("refresh"));
         }

@@ -33,12 +33,12 @@ web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "import-pasted-kubeconfig"
-title = "Kube Explorer: Import Pasted Kubeconfig (Private, No Connection)"
+title = "Kube Explorer: Import Kubeconfig Privately…"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "review-imported-kubeconfigs"
-title = "Kube Explorer: Review Imported Kubeconfigs (Redacted)"
+title = "Kube Explorer: Review Imported Kubeconfigs…"
 category = "Kube Explorer"
 
 [[contributes.menus]]
@@ -538,12 +538,12 @@ category = "Kubernetes"
 
 [[contributes.commands]]
 id = "watch-resources"
-title = "Kube Explorer: Review Managed Resource Watch…"
+title = "Kube Explorer: Watch Resources…"
 category = "Kubernetes"
 
 [[contributes.commands]]
 id = "open-resource-watch"
-title = "Kube Explorer: Open Resource Watch Status"
+title = "Kube Explorer: Open Resource Watch"
 category = "Kubernetes"
 
 [[contributes.commands]]

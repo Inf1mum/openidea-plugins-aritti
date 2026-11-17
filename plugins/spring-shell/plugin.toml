@@ -21,7 +21,7 @@ languages = ["java", "kotlin"]
 
 [[contributes.commands]]
 id = "command-occurrences"
-title = "Spring Shell: Find Literal Command or Availability Occurrences"
+title = "Spring Shell: Find Command Occurrences"
 category = "Spring Shell"
 
 [[contributes.providers]]

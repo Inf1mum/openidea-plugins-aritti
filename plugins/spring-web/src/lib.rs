@@ -1120,7 +1120,7 @@ impl Plugin for WebTools {
             Err(Error::Denied(_)) => {
                 host::notify(
                     NotificationLevel::Warning,
-                    "Spring Web",
+                    "Spring Endpoints",
                     &ui_kit::denied::message("Copy as curl", "clipboard", PLUGIN_NAME),
                 )
             }
@@ -1135,7 +1135,7 @@ const PLUGIN_NAME: &str = "Spring Endpoints Tools";
 pub(crate) fn copy_after_write_denied(content: &str) -> Result<(), Error> {
     host::notify(
         NotificationLevel::Info,
-        "Spring Web",
+        "Spring Endpoints",
         &ui_kit::denied::message("Create HTTP Request File", "project.write", PLUGIN_NAME),
     );
 

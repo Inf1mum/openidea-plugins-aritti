@@ -700,7 +700,7 @@ impl openidea_plugin::RunTargetValidation for Main {
             return Ok(());
         }
         Err(format!(
-            "DDEV project \"{}\" is {}. Start it with DDEV: Start first.",
+            "DDEV project \"{}\" is {}. Run DDEV: Start first.",
             desc.name, desc.status
         ))
     }

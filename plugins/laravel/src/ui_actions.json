@@ -13,7 +13,7 @@
     "command": "route-copy-curl",
     "when": "viewItemKind == route",
     "icon": "copy",
-    "label": "Copy as cURL"
+    "label": "Copy as curl"
   },
   {
     "menu": "viewItem.context",

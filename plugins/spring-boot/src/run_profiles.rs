@@ -615,7 +615,7 @@ pub(crate) fn run_with_options(ctx: &openidea_plugin::Invocation) -> Result<Opti
     let root = project.root()?;
     let mut runs = discover(&root);
     let run = match runs.len() {
-        0 => return Err(Error::Invalid("no source-owned Spring Boot Maven/Gradle run found".into())),
+        0 => return Err(Error::Invalid("No Spring Boot run found. Apply the Spring Boot Maven or Gradle plugin.".into())),
         1 => runs.remove(0),
         _ => {
             let items: Vec<_> = runs.iter().map(|r| PickItem::new(&r.id, &r.name)).collect();

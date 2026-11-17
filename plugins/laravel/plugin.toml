@@ -22,17 +22,17 @@ optional = ["project.write", "process:php", "process:php-win", "process:docker",
 
 [[contributes.commands]]
 id = "artisan-refresh-docker-metadata"
-title = "Laravel: Refresh Docker Artisan Metadata (Executes Container PHP)"
+title = "Laravel: Refresh Docker Artisan Metadata"
 category = "Laravel"
 
 [[contributes.commands]]
 id = "artisan-browse-docker-metadata"
-title = "Laravel: Browse Cached Docker Artisan Metadata (Read-only)"
+title = "Laravel: Browse Cached Docker Artisan Metadata"
 category = "Laravel"
 
 [[contributes.commands]]
 id = "artisan-refresh-metadata"
-title = "Laravel: Refresh Artisan Command Metadata (Executes Project PHP)"
+title = "Laravel: Refresh Artisan Command Metadata"
 category = "Laravel"
 
 [[contributes.menus]]
@@ -41,12 +41,12 @@ command = "artisan-refresh-metadata"
 
 [[contributes.commands]]
 id = "find-literal-source-matches"
-title = "Laravel: Find Literal Source Matches… (Read-only)"
+title = "Laravel: Find Literal Source Matches…"
 category = "Laravel"
 
 [[contributes.commands]]
 id = "routes-runtime-refresh"
-title = "Laravel: Refresh Registered Routes (Executes Project PHP)"
+title = "Laravel: Refresh Registered Routes"
 category = "Laravel"
 
 [[contributes.commands]]
@@ -116,7 +116,7 @@ category = "Laravel"
 
 [[contributes.commands]]
 id = "make"
-title = "Laravel: Generate with artisan make…"
+title = "Laravel: Generate with Artisan make…"
 category = "Laravel"
 
 [[contributes.commands]]
@@ -151,7 +151,7 @@ category = "Laravel"
 
 [[contributes.commands]]
 id = "route-send-request"
-title = "Laravel: Send Request (Executes Project PHP)"
+title = "Laravel: Send Request"
 category = "Laravel"
 
 [[contributes.commands]]
@@ -656,7 +656,7 @@ languages = ["json"]
 
 [[contributes.commands]]
 id = "runtime-schema"
-title = "Laravel: Refresh Database Metadata (Executes Project PHP)"
+title = "Laravel: Refresh Database Metadata"
 category = "Laravel"
 
 [[contributes.commands]]
@@ -725,7 +725,7 @@ category = "Laravel"
 
 [[contributes.commands]]
 id = "regenerate-model-helpers"
-title = "Laravel: Regenerate Reviewed Model Helpers…"
+title = "Laravel: Regenerate Model Helpers…"
 category = "Laravel"
 
 [[contributes.commands]]

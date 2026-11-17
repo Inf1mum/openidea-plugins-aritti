@@ -153,8 +153,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Flyway**; bind keys 
 | **Flyway: Migrate** | Runs `flyway migrate`. |
 | **Flyway: Repair** | Runs `flyway repair`. |
 | **Flyway: Clean (Drops All Objects)…** | Runs `flyway clean` after confirmation. Drops all objects in the target schemas. |
-| **Flyway: Refresh Managed Command Status** | Reads new output from a command running in managed mode. |
-| **Flyway: Cancel Owned Managed Command** | Stops the command running in managed mode. |
+| **Flyway: Refresh Status** | Reads new output from a command running in managed mode. |
+| **Flyway: Cancel Command** | Stops the command running in managed mode. |
 | **Flyway: Review Local Comparison Report…** | Opens a `diffText` JSON report for review. |
 | **Flyway: Generate Reviewed Offline Hibernate Schema SQL…** | Builds SQL from compiled Hibernate entities. |
 
@@ -236,7 +236,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 
 - Managed mode is finite, **instance-lifetime** ownership. Shutdown or about five minutes of idle time may end the child. Status is refreshed on demand, not streamed.
 - **Refresh Status** reads bounded stdout/stderr and completion. It may need another press to drain output after exit.
-- **Cancel Owned Command** kills only the stored child. Neither exit nor cancel implies a database rollback.
+- **Cancel Command** kills only the stored child. Neither exit nor cancel implies a database rollback.
 - Status and cancel refuse another project's handle. A second start cannot silently replace a running child. A failed project-list query counts as an unavailable ownership check, not as proof of closure.
 - Unresolved or foreign-owned sources suppress managed output.
 - Output buffers complete lines per stream. Connection and auth lines, URLs and JDBC strings, control/ANSI sequences and oversized lines are suppressed. Known credential, URL and user literals are masked. This is conservative classification, not universal secret detection.

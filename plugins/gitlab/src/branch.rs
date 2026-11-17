@@ -514,10 +514,10 @@ impl GitLab {
         self.set_section(Section::Overview)?;
 
         if ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json")).is_ok() {
-            return Ok(Some(format!("!{iid} is open in the Merge Request tool window.")));
+            return Ok(Some(format!("!{iid} is open in the GitLab window.")));
         }
 
-        Ok(Some(format!("!{iid} is open in the Merge Request tool window.")))
+        Ok(Some(format!("!{iid} is open in the GitLab window.")))
     }
 }
 

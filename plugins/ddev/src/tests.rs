@@ -2893,5 +2893,5 @@ fn run_target_validation_refuses_stopped_project_and_allows_running() {
     let error = host
         .validate_run_target(&mut plugin, "ddev", &launch)
         .unwrap_err();
-    assert!(error.contains("Start it with DDEV: Start"), "{error}");
+    assert!(error.contains("Run DDEV: Start"), "{error}");
 }

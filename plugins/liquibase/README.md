@@ -70,7 +70,7 @@ By default the tool window shows every changelog. To focus on one root:
 
 The status line names the configuration file, the key and line it found, and whether that path matches the root. Supported keys: `changeLogFile`, `liquibase.command.changelogFile`, `liquibase.command.changeLogFile` and `spring.liquibase.change-log`.
 
-Press **All Sources**, or run **Liquibase: Browse All Project Changelogs**, to go back. The choice is saved per project (needs the `storage` permission). Cancelling saves nothing.
+Press **Browse All Changelogs** (or run **Liquibase: Browse All Changelogs**) to go back. The choice is saved per project (needs the `storage` permission). Cancelling saves nothing.
 
 This choice only affects the tool window. It does not configure CLI commands or pick a database.
 
@@ -151,7 +151,7 @@ All of these need `process:liquibase`.
 
 The **Offline Diff** tab compares two Liquibase JSON snapshot files in your project. No database is contacted.
 
-1. Run **Liquibase: Run Reviewed Offline Snapshot Diff…** (or **Run Reviewed Offline Diff** in the tab).
+1. Run **Liquibase: Run Offline Diff…** (or **Run Offline Diff…** in the tab).
 2. Pick the reference and target snapshots, and the object types: tables, columns, indexes, views, or all four.
 3. Review the exact command, then confirm.
 4. Press **Poll Status** to read progress. **Stop Process** stops it.
@@ -178,13 +178,13 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Liquibase**; bind ke
 | Command | What it does |
 |---|---|
 | **Liquibase: Choose Browser Root and Configuration…** | Picks the changelog root (and config file) the tool window shows. |
-| **Liquibase: Browse All Project Changelogs** | Goes back to showing every changelog. |
+| **Liquibase: Browse All Changelogs** | Goes back to showing every changelog. |
 | **Liquibase: Update (Asks First)…** | Runs `liquibase update` in a terminal after confirmation. |
 | **Liquibase: New Changeset** | Adds an empty changeset to the open changelog after you confirm (the ⌥⏎ **Add Liquibase changeset…** steps; not a single undo step). |
 | **Liquibase: New Changelog…** | Creates the changelog file directly after you confirm, optionally included from the open parent (the ⌥⏎ **Create Liquibase changelog…** steps; not a single undo step). |
 | **Liquibase: Rollback Count…** | Asks for a count, confirms, then runs `rollback-count`. |
 | **Liquibase: Review Offline Snapshot Diff** | Opens the last offline diff report. |
-| **Liquibase: Run Reviewed Offline Snapshot Diff…** | Compares two snapshot files after confirmation. |
+| **Liquibase: Run Offline Diff…** | Compares two snapshot files after confirmation. |
 
 Editor actions (⌥⏎): **Add Liquibase changeset…**, **Create Liquibase changelog…**, **Include existing changelog…**, **Save reviewed offline changesets…**, **Save grouped offline migrations…**.
 
@@ -216,7 +216,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 | "Allow running liquibase for Liquibase Changelogs…" | Allow `process:liquibase` in Settings › Plugins › Liquibase Changelogs. |
 | "No Liquibase changelogs found in this project." | Check the file is a changelog (see the top of this page). Press **Sources…** to pick a root. |
 | The status line says `partial` | The project has more changelogs than the scan limits. Choose a root with **Sources…**. |
-| "The selected changelog changed or became unavailable." | Press **Sources…** to reselect, or **All Sources**. |
+| "The selected changelog changed or became unavailable." | Press **Sources…** to reselect, or **Browse All Changelogs**. |
 | No completion in an XML changelog | The root declares a `schemaLocation`; the XML language server completes it instead. |
 | An include has no gutter link | Open the included file, or refresh the tool window. Only literal relative paths get links. |
 | "Cannot find …" stays after creating the missing file | Edit or reopen the parent changelog. |

@@ -345,22 +345,22 @@ impl Main {
             ),
             Field::new(
                 "watchDdev",
-                "Refresh status every minute",
+                "Refresh DDEV status every minute",
                 FieldValue::Checkbox(draft.watch),
             ),
             Field::new(
                 "checkForUpdates",
-                "Check for updates automatically",
+                "Check for DDEV updates automatically",
                 FieldValue::Checkbox(draft.updates),
             ),
             Field::new(
                 "autoConfigureDataSource",
-                "Maintain database connection configuration",
+                "Maintain a DDEV database connection",
                 FieldValue::Checkbox(draft.database),
             ),
             Field::new(
                 "phpVersion",
-                "PHP version override (optional)",
+                "PHP version for Configure Project (optional)",
                 FieldValue::Text(draft.php.clone()),
             ),
             Field::new(

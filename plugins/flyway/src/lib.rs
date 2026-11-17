@@ -444,7 +444,7 @@ impl Flyway {
                 shown.status = Some(format!("Captured Info · {}s ago · {}", self.info_at.map(|at|at.elapsed().as_secs()).unwrap_or(0), shown.status.as_deref().unwrap_or("source-linked rows")));
                 shown
             }
-            None => View::message("No explicit Flyway info result for this project. Refresh Info starts an approved managed command; opening/rendering never connects to a database.")
+            None => View::message("No explicit Flyway info result for this project. Press Refresh… to run Info after you approve it; opening this tab never connects to a database.")
                 .button(Button::new("refresh", "Refresh…").icon("refresh")),
         };
         let mut shown = shown;

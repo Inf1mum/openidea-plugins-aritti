@@ -58,7 +58,7 @@ fn append(session: &mut Session, label: &str, value: &str) {
 impl Operations {
     pub(crate) fn idle(&self) -> Result<(), Error> {
         if self.session.as_ref().is_some_and(|s| s.child.is_some()) {
-            return Err("An owned CLI handle is still active or draining output. Open Finite CLI Output and Refresh Status or Cancel CLI before starting another.".into());
+            return Err("An owned CLI handle is still active or draining output. Open Background Output and Refresh Status or Cancel CLI before starting another.".into());
         }
         Ok(())
     }
@@ -153,7 +153,7 @@ impl Operations {
         };
         let failure = self.failed.as_ref().filter(|(owner, _)| owner == &root).map(|(_, error)| error.as_str());
         let Some(session) = self.session.as_ref().filter(|s| s.root == root) else {
-            return row(failure.unwrap_or("No accepted finite CLI operation for this project. Use Start/Rebuild Container (Finite Managed CLI). Existing terminal commands remain available."));
+            return row(failure.unwrap_or("No accepted finite CLI operation for this project. Use Start/Rebuild Container in Background…. Existing terminal commands remain available."));
         };
         let mut view = View::new(Body::List(vec![ListItem::new(&session.key, "Dev Container CLI operation")
             .detail(&format!("{} · {}", session.config, session.status))]))

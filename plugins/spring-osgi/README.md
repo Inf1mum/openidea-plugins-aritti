@@ -74,7 +74,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | No checks or completion at all | Declare the OSGi namespace (`http://www.springframework.org/schema/osgi`) in the file. |
 | The Service check never fires | Allow `project.read`. The check also needs the interface and the whole class hierarchy in the project's Java sources. A superclass from a jar skips the check. |
-| A bean from a library shows "No cached source declaration named '…' is known" | Expected: library and container beans are invisible. The finding is info only. |
+| A bean from a library shows "No bean named '…' in project sources (library beans aren't visible)." | Expected: library and container beans are invisible. The finding is info only. |
 | **Generate OSGi service…** is missing from ⌥⏎ | Put the caret on a top-level line or a blank line inside a single, closed `<beans>` root. Declare the OSGi namespace on that root. |
 | "Declare the Spring OSGi namespace on the beans root first." | Add `xmlns:osgi="http://www.springframework.org/schema/osgi"` to the `<beans>` element. |
 | "Reference generation cannot prove name uniqueness with imported contexts; add it manually." | The file has `<import>` elements. Write the reference by hand. |

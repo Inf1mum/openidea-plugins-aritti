@@ -312,7 +312,7 @@ impl KubeExplorer {
         host::notify(
             NotificationLevel::Warning,
             "Secret values are hidden",
-            "To show them, turn on \"Allow Show Secret\" (allowRevealSecrets) in Settings › Plugins › Kube Explorer.",
+            "To show them, turn on \"Allow Show Secret and YAML on a secret\" in Settings › Plugins › Kube Explorer.",
         );
         false
     }
@@ -1507,7 +1507,7 @@ impl KubeExplorer {
             "open-resource-watch" => { crate::ui_group::reveal_view(watch::VIEW)?; return Ok(None); }
             "cache-cluster-resources" => {
                 let count=self.cluster_completion.read_resources(ctx,self.context.as_deref(),self.namespace.as_deref())?;
-                host::notify(NotificationLevel::Info,"Resource completion snapshot",&format!("Captured {count} resource names for60 seconds. Providers do not query kubectl; source deployment target remains unresolved."));
+                host::notify(NotificationLevel::Info,"Resource completion snapshot",&format!("Captured {count} resource names for 60 seconds. Providers do not query kubectl; source deployment target remains unresolved."));
                 return Ok(None);
             }
             "cache-cluster-namespaces" => {
@@ -2734,7 +2734,7 @@ mod tests {
         assert!(kube.revealed.is_none());
         let notes = host.notifications();
         assert_eq!(notes.len(), 1);
-        assert!(notes[0].body.contains("allowRevealSecrets"));
+        assert!(notes[0].body.contains("Allow Show Secret and YAML on a secret"));
         assert!(runs.borrow().is_empty());
     }
 
@@ -2828,7 +2828,7 @@ mod tests {
         assert!(kube.details.is_none());
         let notes = host.notifications();
         assert_eq!(notes.len(), 2);
-        assert!(notes[0].body.contains("allowRevealSecrets"));
+        assert!(notes[0].body.contains("Allow Show Secret and YAML on a secret"));
     }
 
     #[test]

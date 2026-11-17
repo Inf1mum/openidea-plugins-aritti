@@ -18,17 +18,17 @@ optional = ["process:devcontainer", "process:docker", "process:git", "events", "
 
 [[contributes.commands]]
 id = "up-managed"
-title = "Dev Container: Start Container (Finite Managed CLI)…"
+title = "Dev Container: Start Container in Background…"
 category = "Dev Container"
 
 [[contributes.commands]]
 id = "rebuild-managed"
-title = "Dev Container: Rebuild Container (Finite Managed CLI)…"
+title = "Dev Container: Rebuild Container in Background…"
 category = "Dev Container"
 
 [[contributes.commands]]
 id = "managed-output"
-title = "Dev Container: Show Finite CLI Output"
+title = "Dev Container: Show Background Output"
 category = "Dev Container"
 
 [[contributes.commands]]
@@ -177,12 +177,12 @@ location = "bottom"
 
 [[contributes.commands]]
 id = "register-mapped-tooling-target"
-title = "Dev Container: Prepare Experimental Mapped Project-root Tooling…"
+title = "Dev Container: Run Language Servers in Container…"
 category = "Dev Container"
 
 [[contributes.commands]]
 id = "unregister-mapped-tooling-target"
-title = "Dev Container: Remove Experimental Mapped Project-root Tooling Target"
+title = "Dev Container: Remove Language Server Container Target"
 category = "Dev Container"
 
 [[contributes.menus]]

@@ -57,5 +57,5 @@ languages = ["twig"]
 
 [[contributes.commands]]
 id = "source-symbol-occurrences"
-title = "Twig: Review Static Source Occurrences"
+title = "Twig: Show Occurrences"
 category = "Twig"

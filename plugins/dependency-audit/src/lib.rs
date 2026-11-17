@@ -429,7 +429,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
     let mut body = match visible == 0 {
         true => format!("No known vulnerabilities in {} dependencies ({} files).", deps.len(), texts.len()),
         false => format!(
-            "Vulnerable dependencies: {} of {} ({} files). See the Vulnerable Dependencies tool window.",
+            "Vulnerable dependencies: {} of {} ({} files). See the Dependency Audit window.",
             visible,
             deps.len(),
             texts.len()
@@ -438,7 +438,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
     let scoped_count = scoped::load(&root).len();
     if scoped_count > 0 { body.push_str(&format!(" ({scoped_count} project-scoped ignores configured; retained findings are filtered.)")); }
     if kept.is_err() {
-        body.push_str(" (New results could not be stored; any previous report remains in the tool window.)");
+        body.push_str(" (New results could not be stored; any previous report remains in the Dependency Audit window.)");
     }
 
     if discovery_limited {

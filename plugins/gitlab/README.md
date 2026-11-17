@@ -248,7 +248,7 @@ The token is added to requests by the IDE; the plugin never reads it ([how token
 | "Allow git for GitLab in Settings › Plugins…" | Allow `process:git`. |
 | "This checkout profile is qualified for official glab 1.130.0…" | Install glab 1.130.0, sign in to glab itself, and allow `process:glab`. |
 | "The commit list is off" / "The pipeline view is off" | Turn on `commitsView` / `pipelineView` in Settings › Plugins › GitLab. |
-| "Select a merge request in the Merge Requests tool window." | Select one in the **GitLab** tab first. |
+| "Select a merge request in the GitLab window." | Select one in the **GitLab** tab first. |
 | "Finish or clear … unsent comment before switching…" | Post or clear the comment in the original project or account first. |
 | "The IDE shows pickers only for commands." | Run **GitLab: Edit Merge Request** from Search Everywhere. |
 | Clicking a diff line does nothing in **Changes** | The desktop IDE blocks scripts in plugin pages. Comment from **Overview** or on GitLab. Use **Files** for Viewed. |

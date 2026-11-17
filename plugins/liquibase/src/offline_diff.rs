@@ -604,7 +604,7 @@ impl Liquibase {
             .unwrap_or_default() };
         let table = matches!(&body, Body::Table(_));
         let mut view = View::new(body)
-            .button(Button::new("offline-run", "Run Reviewed Offline Diff").enabled(self.offline.running.is_none()))
+            .button(Button::new("offline-run", "Run Offline Diff…").enabled(self.offline.running.is_none()))
             .button(Button::new("offline-generate", "Generate Reviewed Offline Changelog…").enabled(self.offline.running.is_none()))
             .button(Button::new("offline-poll", "Poll Status").enabled(self.offline.running.is_some()))
             .button(Button::new("offline-stop", "Stop Process").enabled(self.offline.running.is_some()))

@@ -60,5 +60,5 @@ command = "open-reviewed-import"
 
 [[contributes.commands]]
 id = "generate-archive"
-title = "Spring Initializr: Generate and Open Complete Project"
+title = "Spring Initializr: Generate and Open…"
 category = "Spring Initializr"
