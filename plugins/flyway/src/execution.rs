@@ -8,40 +8,83 @@ const MAX_OUTPUT: usize = 16 << 10;
 const MAX_INFO: usize = 1 << 20;
 #[derive(Clone, Default)]
 pub(crate) struct Redactor {
-    literals: Vec<String>,
+    /// Secret values, longest first; `true` means whole-token matching only.
+    literals: Vec<(String, bool)>,
     suppress: bool,
+}
+#[derive(Clone, Copy, PartialEq)]
+enum Secret {
+    /// Password-like: hidden as a plain substring from 2 characters, a whole token below.
+    Always,
+    /// Connection URL: plain substring, and its `user:pass@` userinfo is split out.
+    Url,
+    /// User names and token-like settings: skipped under 4 characters, whole tokens under 8.
+    Name,
 }
 /// Credential keys. `user` counts in Flyway config, under a datasource/Flyway key, or as an
 /// undotted leaf whose parent is unknown (YAML); `app.user` is not a credential.
-fn sensitive(key: &str, flyway: bool) -> bool {
+fn secret(key: &str, flyway: bool) -> Option<Secret> {
     let key = key.trim().to_ascii_lowercase();
-    ["password", "passwd", "passphrase", "secret", "token", "credential", "authorization", "privatekey", "accesskey", "url"]
-        .iter()
-        .any(|word| key.contains(word))
-        || key.contains("user") && (flyway || key.contains("flyway") || key.contains("datasource") || !key.contains('.'))
-}
-/// Secret at any length. Other values under 4 characters (`user=sa`, `token-validity=10`)
-/// would hide ordinary words and numbers, so they stay visible.
-fn always_secret(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    ["password", "passwd", "passphrase", "secret", "credential"].iter().any(|word| key.contains(word))
+    if ["password", "passwd", "passphrase", "secret", "credential", "privatekey", "accesskey", "authorization"].iter().any(|word| key.contains(word)) {
+        return Some(Secret::Always);
+    }
+    if key.contains("url") {
+        return Some(Secret::Url);
+    }
+    let user = key.contains("user") && (flyway || key.contains("flyway") || key.contains("datasource") || !key.contains('.'));
+    (user || key.contains("token")).then_some(Secret::Name)
 }
 fn word(ch: Option<char>) -> bool {
     ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
 }
+/// Masks `scheme://user:pass@` userinfo wherever it appears.
+fn mask_userinfo(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let end = tail.find(|ch: char| ch == '/' || ch.is_whitespace()).unwrap_or(tail.len());
+        match tail[..end].rfind('@') {
+            Some(userinfo) if userinfo > 0 => {
+                out.push_str("[redacted]");
+                rest = &tail[userinfo..];
+            }
+            _ => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
+}
 impl Redactor {
-    fn add(&mut self, value: &str, any_length: bool) {
+    fn add(&mut self, value: &str, kind: Secret) {
         let value = value.trim().trim_matches(['\'', '"']);
-        if value.is_empty() || !any_length && value.chars().count() < 4 {
+        if kind == Secret::Url {
+            if let Some((_, tail)) = value.split_once("://") {
+                let authority = tail.split(['/', '?', '#']).next().unwrap_or_default();
+                if let Some((userinfo, _)) = authority.rsplit_once('@') {
+                    let (user, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
+                    self.add(user, Secret::Name);
+                    self.add(password, Secret::Always);
+                }
+            }
+        }
+        let length = value.chars().count();
+        if value.is_empty() || kind == Secret::Name && length < 4 {
             return;
         }
         if value.len() > 4096 || self.literals.len() >= 128 {
             self.suppress = true;
             return;
         }
-        if !self.literals.iter().any(|existing| existing == value) {
-            self.literals.push(value.into());
-            self.literals.sort_by_key(|value| std::cmp::Reverse(value.len()));
+        // A one-character secret hidden as a substring would erase that letter everywhere.
+        let whole = kind == Secret::Name && length < 8 || length < 2;
+        match self.literals.iter_mut().find(|(existing, _)| existing == value) {
+            Some(existing) => existing.1 &= whole,
+            None => {
+                self.literals.push((value.into(), whole));
+                self.literals.sort_by_key(|(value, _)| std::cmp::Reverse(value.len()));
+            }
         }
     }
     fn source(&mut self, text: &str, flyway: bool) {
@@ -50,16 +93,15 @@ impl Redactor {
             // treat it as a comment. Retain both bounded candidates instead of
             // leaking the suffix of a known properties credential.
             if let Some((key,value))=line.split_once('=').or_else(||line.split_once(':')) {
-                if sensitive(key, flyway) {
+                if let Some(kind) = secret(key, flyway) {
                     let value=value.trim();
-                    self.add(value, always_secret(key));
+                    self.add(value, kind);
                     if value.contains('\\') || value.contains("${") || value.contains("#{") || value.starts_with(['[','{']) {self.suppress=true;}
                 }
             }
             let line = config::strip_comment(line).trim();
             if let Some((key, value)) = line.split_once('=').or_else(|| line.split_once(':')) {
-                if sensitive(key, flyway) {
-                    let any_length = always_secret(key);
+                if let Some(kind) = secret(key, flyway) {
                     let value = value.trim();
                     if value.starts_with(['|', '>'])
                         || value.starts_with("\"\"\"")
@@ -69,25 +111,26 @@ impl Redactor {
                     {
                         self.suppress = true;
                     }
-                    self.add(value, any_length);
-                    self.add(&openidea_plugin::text::unescape_json(value.trim().trim_matches('"')), any_length);
+                    self.add(value, kind);
+                    self.add(&openidea_plugin::text::unescape_json(value.trim().trim_matches('"')), kind);
                 }
             }
         }
     }
-    /// Replaces whole-token occurrences: a literal edge that is a word character must not
-    /// continue a longer word, so `sa` leaves `sales` alone.
+    /// Replaces secret values (short names only as whole tokens, so `sa` leaves `sales` alone)
+    /// and any URL userinfo.
     pub fn literals(&self, text: &str) -> String {
+        let text = mask_userinfo(text);
         let mut out = String::new();
         let mut at = 0;
         while at < text.len() {
             let before = text[..at].chars().next_back();
-            let found = self.literals.iter().find(|literal| {
+            let found = self.literals.iter().find(|(literal, whole)| {
                 text[at..].starts_with(literal.as_str())
-                    && !(word(literal.chars().next()) && word(before))
-                    && !(word(literal.chars().next_back()) && word(text[at + literal.len()..].chars().next()))
+                    && !(*whole && word(literal.chars().next()) && word(before))
+                    && !(*whole && word(literal.chars().next_back()) && word(text[at + literal.len()..].chars().next()))
             });
-            if let Some(literal) = found {
+            if let Some((literal, _)) = found {
                 out.push_str("[redacted]");
                 at += literal.len();
             } else {
@@ -229,8 +272,8 @@ fn prepare(project: &Project, goal: &str, json: bool) -> Result<Prepared, Error>
     let mut shown = Vec::new();
     for arg in &args {
         if let Some((key, value)) = arg.split_once('=') {
-            if sensitive(key, true) {
-                redactor.add(value, always_secret(key));
+            if let Some(kind) = secret(key, true) {
+                redactor.add(value, kind);
             }
             shown.push(format!("{key}=<value hidden>"));
         } else if arg.starts_with('-') {
@@ -818,7 +861,7 @@ mod tests {
             assert!(prepared.proof != before, "new nested ownership must change the approval proof");
             assert!(prepared.redactor.suppress);
             assert!(!prepared.proof.files.iter().any(|(path, _)| path.starts_with(&format!("{nested}/"))), "foreign sources must not be accepted into the outer proof");
-            assert!(!prepared.redactor.literals.iter().any(|value| value == "nested-only-secret"));
+            assert!(!prepared.redactor.literals.iter().any(|(value, _)| value == "nested-only-secret"));
             assert!(prepared.provenance.contains("foreign/unavailable owner"));
             assert!(host.process_runs().is_empty() && host.terminals().is_empty());
         }
@@ -880,17 +923,24 @@ mod tests {
     #[test]
     fn short_user_value_not_redacted_in_words() {
         let host = managed();
-        host.add_file("flyway.conf", "flyway.user=sa\nflyway.password=s3cretpw\n");
-        host.add_file("src/main/resources/application.properties", "spring.flyway.token-validity=10\napp.user=bob-the-builder\nspring.datasource.username=dbadmin\n");
+        host.add_file("flyway.conf", "flyway.user=sa\nflyway.password=s3cretpw\nflyway.url=jdbc:postgresql://deploy:urlpass@db/app\n");
+        host.add_file("src/main/resources/application.properties", "spring.flyway.token-validity=10\napp.user=bob-the-builder\nspring.datasource.username=dbadmin\nspring.datasource.password=ab\n");
         let redactor = prepare(&host.invocation().project().unwrap(), "validate", false).unwrap().redactor;
-        assert_eq!(redactor.label("V10 sales report"), "V10 sales report");
+        assert_eq!(redactor.label("V10 sales report"), "V10 sales report", "user=sa and token-validity=10 are too short to redact");
         assert_eq!(redactor.label("bob-the-builder"), "bob-the-builder", "user outside datasource/flyway is not a credential");
         assert_eq!(redactor.label("x s3cretpw y"), "x [redacted] y");
-        assert_eq!(redactor.label("s3cretpwx dbadmins"), "s3cretpwx dbadmins", "only whole tokens are redacted");
-        assert_eq!(redactor.label("by dbadmin."), "by [redacted].");
+        assert_eq!(redactor.label("s3cretpw_old s3cretpw123 Xs3cretpw"), "[redacted]_old [redacted]123 X[redacted]", "passwords are hidden even inside words");
+        assert_eq!(redactor.label("cabinet"), "c[redacted]inet", "a password is hidden wherever it appears literally, at any length");
+        assert_eq!(redactor.label("by dbadmin. dbadmins"), "by [redacted]. dbadmins", "a short user name is hidden as a whole token only");
+        assert_eq!(redactor.label("urlpass deploy deployment"), "[redacted] [redacted] deployment", "URL userinfo: password as a substring, short user as a whole token");
+        assert_eq!(redactor.label("see https://someone:hunter2@host/x"), "see https://[redacted]@host/x");
         let mut toml = Redactor::default();
-        toml.source("[environments.dev]\nuser = \"deployer\"\npassword = \"pw\"\n", true);
+        toml.source("[environments.dev]\nuser = \"deployer\"\npassword = \"pw\"\ntoken = \"0123456789abcdef\"\n", true);
         assert_eq!(toml.label("deployer pw"), "[redacted] [redacted]", "Flyway config users and short passwords stay secret");
+        assert_eq!(toml.label("x0123456789abcdefy"), "x[redacted]y", "names of 8 or more characters are plain substrings");
+        let mut one = Redactor::default();
+        one.add("p", Secret::Always);
+        assert_eq!(one.label("plan p"), "plan [redacted]", "a one-character secret is a whole token");
     }
 
     #[test]
@@ -912,8 +962,8 @@ mod tests {
     #[test]
     fn streaming_redaction_buffers_split_literals_and_suppresses_urls_controls_and_auth_lines() {
         let mut redactor = Redactor::default();
-        redactor.add("topsecret", true);
-        redactor.add("a", true);
+        redactor.add("topsecret", Secret::Always);
+        redactor.add("a", Secret::Always);
         let mut output = Output::default();
         output.push("topsec", &redactor, false);
         assert!(output.text.is_empty());

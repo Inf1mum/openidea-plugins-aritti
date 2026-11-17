@@ -215,8 +215,8 @@ aid, not approval to execute; version and edition are self-reported inputs,
 not an executable probe, and an imported report is not proven to belong to a
 future artifact's IDs. **Prepare comparison…** captures up to 64 owned
 schema-model files (1 MiB total), an optional target snapshot and fresh output
-paths, detects the installed CLI with `flyway --version` (optional
-`process:flyway`) and reviews the stage argv with the detected edition,
+paths and reviews the stage argv; after you confirm, it detects the installed
+CLI with `flyway --version` (optional `process:flyway`) and shows the edition,
 version, project configuration and locations. **Start comparison** appears
 only when a CLI was detected; the stages (one child, closed stdin, separated
 snapshot/diff/diffText, explicit Check/Continue, bounded output, refused
@@ -234,8 +234,11 @@ precedes the trusted-code approval: metadata can instantiate project
 converters/custom types with arbitrary side effects; no application bootstrap
 or JDBC operation is requested. The result stays a dated, instance-owned
 preview until **Save Hibernate schema SQL as migration…** returns one exact
-non-overwriting undoable Create; jar, compiled-class and source fingerprints
-are rechecked before saving without relaunching java. Generation runs as a
+non-overwriting undoable Create. Before saving, without relaunching java, it
+rechecks jar sizes and dates, the class-root folders, the declared entity and
+converter class files, class files the project file search can see (gitignored
+build folders are not listed) and the declared sources; an undeclared class
+rebuilt in an ignored folder is only caught when the 15-minute preview expires. Generation runs as a
 background task and needs the optional `process:java` permission. Live DB diff and automatic effective application models need separate support. See
 [setup, contract and explicit runtime fixture](adapters/README.md).
 

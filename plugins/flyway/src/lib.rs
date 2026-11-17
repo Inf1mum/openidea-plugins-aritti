@@ -27,7 +27,7 @@ use openidea_plugin::text::offset;
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Diagnostic, Error, Event, Invocation, NotificationLevel, Plugin, Position, Project};
 use spring_text::config::is_config_file;
-use spring_text::index::project_of;
+use spring_text::index::{glob_matches, project_of};
 
 use config::{Config, is_flyway_config, load, location_glob, migration_files, vendor_prefixes};
 use naming::{Kind, Name, next_version, numeric_key, parse, version_key};
@@ -146,6 +146,16 @@ impl Flyway {
             self.record_local(&root, &config, &files);
         }
         self.local.get(&root).is_some_and(|local| !local.files.is_empty())
+    }
+
+    /// Drops a cached "no migrations" result when a config file or a file in its locations changes.
+    fn forget_empty_inventory(&mut self, path: &str) {
+        let config = is_flyway_config(path) || is_config_file(path);
+        self.local.retain(|root, local| {
+            let Some(relative) = path.strip_prefix(&format!("{}/", root.trim_end_matches('/'))) else { return true };
+            let in_location = || local.locations.iter().filter_map(|location| location_glob(location, root)).any(|glob| glob_matches(&glob, relative));
+            !(local.files.is_empty() && (config || in_location()))
+        });
     }
 
     /// The file behind a migrations tree row, still owned by `root`.
@@ -388,11 +398,15 @@ impl Plugin for Flyway {
         }));
         if affected {self.info_cache=None;self.info_scope=None;self.targets.clear();self.targets_root=None;refresh_migrations();}
         for event in events {
-            if let Event::FileSaved(path) = event { self.table_navigation.invalidate(path); }
+            if let Event::FileSaved(path) = event {
+                self.table_navigation.invalidate(path);
+                self.forget_empty_inventory(path);
+            }
             if let Event::FilesChanged(batch) = event {
                 for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
                     self.navigation.invalidate(path);
                     self.table_navigation.invalidate(path);
+                    self.forget_empty_inventory(path);
                 }
             }
         }
@@ -415,12 +429,17 @@ impl Plugin for Flyway {
             return;
         };
 
-        let config = load(&project);
-        let files = migration_files(&project, &config);
         let root = project.root().unwrap_or_default();
         let prefix = format!("{}/", root.trim_end_matches('/'));
+        let flyway = configured(&project) || self.flagged.iter().any(|path| path.starts_with(&prefix));
         let before = self.local.get(&root).cloned();
-        if files.is_empty() && !configured(&project) && !self.flagged.iter().any(|path| path.starts_with(&prefix)) {
+        // A project already found without migrations is not searched again until config or a location changes.
+        if !flyway && before.as_ref().is_some_and(|local| local.files.is_empty()) {
+            return;
+        }
+        let config = load(&project);
+        let files = migration_files(&project, &config);
+        if !flyway && files.is_empty() {
             self.record_local(&root, &config, &files);
             return;
         }
@@ -797,9 +816,21 @@ mod tests {
         assert!(flyway.scanned.is_empty() && flyway.placeholders.is_empty());
         assert!(flyway.table_navigation.coverage("/project").is_none());
         assert!(host.diagnostics().is_empty());
-        host.add_file("flyway.conf", "flyway.locations=filesystem:scripts\n");
-        flyway.handle_events(&[Event::FileSaved("/project/flyway.conf".into())], &host.invocation());
-        assert!(flyway.scanned.contains("/project"), "a Flyway configuration makes it a Flyway project");
+        host.add_file("src/main/resources/db/custom/V1__a.sql", "CREATE TABLE a(id int);");
+        host.add_file("src/main/resources/application.properties", "spring.flyway.locations=classpath:db/custom\n");
+        flyway.handle_events(&[Event::FileOpened("/project/scripts/seed.sql".into())], &host.invocation());
+        assert!(flyway.local["/project"].files.is_empty(), "the cached empty result skips the migration search");
+        flyway.handle_events(&[Event::FileSaved("/project/src/main/resources/application.properties".into())], &host.invocation());
+        assert!(flyway.scanned.contains("/project"), "a config file event drops the cached empty result");
+        let mut flyway = Flyway::default();
+        host.add_file("src/main/resources/application.properties", "server.port=8080\n");
+        flyway.handle_events(&[Event::FileOpened("/project/scripts/seed.sql".into())], &host.invocation());
+        host.add_file("src/main/resources/db/migration/V1__init.sql", "CREATE TABLE b(id int);");
+        flyway.handle_events(&[Event::FileOpened("/project/scripts/seed.sql".into())], &host.invocation());
+        assert!(flyway.scanned.is_empty());
+        let created = openidea_plugin::FilesChanged { created: vec!["/project/src/main/resources/db/migration/V1__init.sql".into()], ..Default::default() };
+        flyway.handle_events(&[Event::FilesChanged(created)], &host.invocation());
+        assert!(flyway.scanned.contains("/project"), "a new file in a migration location drops the cached empty result");
     }
 
     #[test]

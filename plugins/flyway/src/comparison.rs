@@ -460,9 +460,9 @@ impl Review {
                 ViewEvent::Button(_) => match key {
                     "prepare-managed" => {
                         let plan=managed::Plan::capture(&project,d)?;
-                        let profile=managed::offline_profile(&project);
-                        if ui_kit::prompts::confirm_exact("Prepare offline comparison?",&plan.review(&profile))? {
+                        if ui_kit::prompts::confirm_exact("Prepare offline comparison?",&plan.review())? {
                             plan.revalidate_prepare(&project)?;
+                            let profile=managed::offline_profile(&project);
                             d.managed.prepare(plan, profile)?;
                             d.notice=d.managed.status.clone();
                         }

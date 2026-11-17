@@ -16,21 +16,28 @@ pub(super) struct Profile {
 /// Detects `flyway --version` through `process:flyway`, the same program the stages launch.
 pub(super) fn offline_profile(project: &Project) -> Result<Profile, Error> {
     let _task = host::begin_task("Checking the Flyway CLI", false);
+    let failed = |reason: &str| Error::from(format!("Flyway CLI check failed: {reason}").as_str());
     let output = match project.run_process("flyway", &["--version".to_owned()], None) {
         Ok(output) => output,
         Err(Error::Denied(_)) => return Err("Allow running flyway for Flyway Migrations in Settings › Plugins to start a comparison.".into()),
         Err(Error::NotFound(_)) => return Err(BLOCKED.into()),
-        Err(error) => return Err(error),
+        // The real host may report a missing program as Invalid.
+        Err(Error::Invalid(reason)) if ["no such file", "not found"].iter().any(|missing| reason.to_ascii_lowercase().contains(missing)) => {
+            return Err(BLOCKED.into());
+        }
+        Err(Error::Invalid(reason) | Error::Failed(reason)) => return Err(failed(&reason)),
+        Err(error) => return Err(failed(&error.to_string())),
     };
-    let banner = output
-        .stdout
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("Flyway ")?.split_once(" Edition "))
-        .filter(|_| output.status == Some(0));
-    let Some((edition, rest)) = banner else { return Err(BLOCKED.into()) };
-    let version = rest.split_whitespace().next().filter(|version| version.len() <= 64).ok_or(BLOCKED)?;
+    if output.status != Some(0) {
+        let code = output.status.map_or("was stopped".to_owned(), |code| format!("exited with {code}"));
+        return Err(failed(&format!("flyway --version {code}.")));
+    }
+    let banner = output.stdout.lines().find_map(|line| line.trim().strip_prefix("Flyway ")?.split_once(" Edition "));
+    let unrecognised = || failed("flyway --version did not print an edition and version.");
+    let Some((edition, rest)) = banner else { return Err(unrecognised()) };
+    let version = rest.split_whitespace().next().filter(|version| version.len() <= 64).ok_or_else(unrecognised)?;
     if edition.is_empty() || edition.len() > 64 || edition.chars().chain(version.chars()).any(char::is_control) {
-        return Err(BLOCKED.into());
+        return Err(unrecognised());
     }
     let config = config::CONFIG_FILES.iter().find(|file| project.exists(file).unwrap_or(false)).map(|file| (*file).to_owned());
     Ok(Profile { edition: edition.into(), version: version.into(), config, locations: config::load(project).locations })
@@ -169,19 +176,9 @@ impl Plan {
         args.push(format!("-workingDirectory={}", self.root));
         args
     }
-    pub fn review(&self, profile: &Result<Profile, Error>) -> String {
-        let cli = match profile {
-            Ok(profile) => format!(
-                "Flyway CLI: {} Edition {}\nProject configuration: {}\nLocations: {}",
-                profile.edition,
-                profile.version,
-                profile.config.as_deref().unwrap_or("none"),
-                profile.locations.join(", ")
-            ),
-            Err(error) => error.to_string(),
-        };
+    pub fn review(&self) -> String {
         format!(
-            "Project: {}\nSchema model: {} text files\n{cli}\nStages, each started by you and checked before the next:\n{}\nThe stages read the schema model and snapshot files only and never connect to a database. Cancelling keeps partial snapshot and diff files. Select definitions from the new report; earlier change IDs are not reused.",
+            "Project: {}\nSchema model: {} text files\nPreparing checks the installed Flyway CLI with flyway --version.\nStages, each started by you and checked before the next:\n{}\nThe stages read the schema model and snapshot files only and never connect to a database. Cancelling keeps partial snapshot and diff files. Select definitions from the new report; earlier change IDs are not reused.",
             self.root,
             self.inputs.len(),
             serde_json::to_string_pretty(&[self.args(0), self.args(1), self.args(2)])
@@ -233,7 +230,13 @@ impl Core {
             return Err("Cancel the owned comparison child first.".into());
         }
         let status = match &profile {
-            Ok(profile) => format!("Ready with Flyway {} Edition {}. Start runs the snapshot stage.", profile.edition, profile.version),
+            Ok(profile) => format!(
+                "Ready with Flyway {} Edition {} (configuration: {}; locations: {}). Start runs the snapshot stage.",
+                profile.edition,
+                profile.version,
+                profile.config.as_deref().unwrap_or("none"),
+                profile.locations.join(", ")
+            ),
             Err(error) => error.to_string(),
         };
         *self = Self {
@@ -555,7 +558,15 @@ mod tests {
         assert_eq!(profile.locations, ["filesystem:sql"]);
         assert!(!host.tasks().is_empty(), "the JVM start-up runs inside a task");
         host.on_process("flyway", |_, _| Err(Error::NotFound("flyway".into())));
-        assert_eq!(offline_profile(&project).unwrap_err().to_string(), Error::from(BLOCKED).to_string());
+        assert_eq!(offline_profile(&project).unwrap_err().to_string(), BLOCKED);
+        host.on_process("flyway", |_, _| Err(Error::Invalid("flyway: No such file or directory".into())));
+        assert_eq!(offline_profile(&project).unwrap_err().to_string(), BLOCKED, "the real host may report a missing program as Invalid");
+        host.on_process("flyway", |_, _| Err(Error::Failed("spawn timed out".into())));
+        assert_eq!(offline_profile(&project).unwrap_err().to_string(), "Flyway CLI check failed: spawn timed out");
+        host.on_process("flyway", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(1), stdout: "Flyway Community Edition 10.x by Redgate\n".into(), stderr: "ERROR: license".into() }));
+        assert_eq!(offline_profile(&project).unwrap_err().to_string(), "Flyway CLI check failed: flyway --version exited with 1.");
+        host.on_process("flyway", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "Picked up JAVA_TOOL_OPTIONS\nversion 10\n".into(), stderr: String::new() }));
+        assert_eq!(offline_profile(&project).unwrap_err().to_string(), "Flyway CLI check failed: flyway --version did not print an edition and version.");
         let denied = host.with_capabilities(&["project.read", "events", "storage"]);
         assert!(offline_profile(&denied.invocation().project().unwrap()).unwrap_err().to_string().contains("Allow running flyway for Flyway Migrations in Settings › Plugins"));
     }
@@ -570,6 +581,10 @@ mod tests {
         let prepare = |plugin: &mut Flyway| {
             plugin.run_command("review-comparison", &host.invocation(), None).unwrap();
             let token = plugin.comparison.draft.as_ref().unwrap().token.clone();
+            let runs = host.process_runs().len();
+            host.answer_next_prompt(None);
+            openidea_plugin::views::Views::handle(plugin, VIEW, ViewEvent::Button(format!("prepare-managed@{token}")), &host.invocation()).unwrap();
+            assert_eq!(host.process_runs().len(), runs, "a declined review never runs flyway --version");
             host.answer_next_prompt(Some(&[]));
             openidea_plugin::views::Views::handle(plugin, VIEW, ViewEvent::Button(format!("prepare-managed@{token}")), &host.invocation()).unwrap();
             token
