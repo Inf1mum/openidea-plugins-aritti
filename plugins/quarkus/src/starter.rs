@@ -114,15 +114,17 @@ fn owner(project: &Project, plan: &Plan, doc: &Document) -> Result<(), Error> {
 }
 fn vacant(project: &Project, plan: &Plan) -> Result<(), Error> {
     if project.stat(&plan.root)?.kind != FileKind::Directory || project.exists(&plan.target)? {
-        return Err(bad(
-            "The starter folder already exists. Choose another artifactId.",
-        ));
+        return Err(bad(&format!(
+            "{} already exists. Choose another artifactId.",
+            plan.target
+        )));
     }
     for name in plan.files.keys() {
-        if project.exists(&format!("{}/{name}", plan.target))? {
-            return Err(bad(
-                "A file of the starter already exists or is open with unsaved changes. Choose another artifactId.",
-            ));
+        let path = format!("{}/{name}", plan.target);
+        if project.exists(&path)? {
+            return Err(bad(&format!(
+                "{path} already exists or is open with unsaved changes. Choose another artifactId."
+            )));
         }
     }
     Ok(())
@@ -189,15 +191,11 @@ fn files(group: &str, artifact: &str, version: &str, platform: &str) -> BTreeMap
 }
 fn preview(plan: &Plan) -> String {
     let mut body = format!(
-        "Folder: {}\n\nA Maven project with Qute and Quarkus platform {}, created without network access; the version isn't checked online. Existing files are never overwritten.\n",
+        "Folder: {}\n\nA Maven project with Qute and Quarkus platform {}, created without network access; the version isn't checked online. Existing files are never overwritten.\n\nFiles:",
         plan.target, plan.platform
     );
-    for (path, text) in &plan.files {
-        body.push_str(&format!(
-            "\n--- {}/{path} ({} UTF-8 bytes) ---\n{text}",
-            plan.target,
-            text.len()
-        ));
+    for path in plan.files.keys() {
+        body.push_str(&format!("\n{path}"));
     }
     body
 }
@@ -248,8 +246,32 @@ impl QuarkusTools {
         owner(&project, &plan, &current)?;
         vacant(&project, &plan)?;
         let file = plan.doc.path.rsplit('/').next().unwrap_or_default().to_owned();
-        self.starter.plan = Some(plan);
-        Ok(Some(format!("Press ⌥⏎ in {file} within 5 minutes and choose Create Quarkus Starter {a} to write the files. Quarkus Tools can't write files itself.")))
+        let mut created = Vec::new();
+        for (name, text) in &plan.files {
+            let path = format!("{}/{name}", plan.target);
+            let Err(err) = project.write_file(&path, text) else {
+                created.push(path);
+                continue;
+            };
+            if matches!(err, Error::Denied(_)) && created.is_empty() {
+                self.starter.plan = Some(plan);
+                return Err(bad(&format!(
+                    "{} Or press ⌥⏎ in {file} within 5 minutes and choose Create Quarkus Starter {a}.",
+                    ui_kit::denied::message("Creating the starter", "project.write", "Quarkus Tools")
+                )));
+            }
+            let done = if created.is_empty() {
+                "Nothing was created.".to_owned()
+            } else {
+                format!("Already created: {}. Remove them before trying again.", created.join(", "))
+            };
+            return Err(bad(&format!("Couldn't create {path} ({err}). {done}")));
+        }
+        let main = format!("{}/pom.xml", plan.target);
+        created_notice(&plan.target);
+        self.starter.plan = Some(Plan { issued: true, ..plan });
+        let _ = host::open_editor(&main, None);
+        Ok(None)
     }
     pub(super) fn starter_actions(&self, doc: &Document) -> Vec<FileAction> {
         let Some(plan) = self
@@ -289,13 +311,7 @@ impl QuarkusTools {
         owner(&project, &plan, doc)?;
         vacant(&project, &plan)?;
         self.starter.plan.as_mut().ok_or(Error::Stale)?.issued = true;
-        let _ = host::set_context(STARTER_CREATED, true);
-        let _ = host::notify_with_actions(
-            openidea_plugin::NotificationLevel::Info,
-            "Quarkus",
-            &format!("Created the starter in {}.", plan.target),
-            &[openidea_plugin::NotificationAction::new("Open Starter", "open-reviewed-starter")],
-        );
+        created_notice(&plan.target);
         Ok(FileAction {
             title: "Create Quarkus starter".into(),
             kind: Some("source".into()),
@@ -335,6 +351,15 @@ impl QuarkusTools {
         host::open_project(&plan.target, true)?;
         Ok(None)
     }
+}
+fn created_notice(target: &str) {
+    let _ = host::set_context(STARTER_CREATED, true);
+    let _ = host::notify_with_actions(
+        openidea_plugin::NotificationLevel::Info,
+        "Quarkus",
+        &format!("Created Quarkus starter in {target}."),
+        &[openidea_plugin::NotificationAction::new("Open Starter", "open-reviewed-starter")],
+    );
 }
 fn verify_created(project: &Project, plan: &Plan) -> Result<(), Error> {
     if project.root()? != plan.root
@@ -405,8 +430,22 @@ mod tests {
     }
     fn prepare(h: &MockHost, q: &mut QuarkusTools) {
         answers(h);
-        q.run_command("prepare-local-starter", &h.invocation(), None)
-            .unwrap();
+        let err = q
+            .run_command("prepare-local-starter", &h.invocation(), None)
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "invalid: Creating the starter needs the project.write permission. Allow it in Settings › Plugins › Quarkus Tools. Or press ⌥⏎ in pom.xml within 5 minutes and choose Create Quarkus Starter qute-starter."
+        );
+    }
+    fn writable(h: MockHost) -> MockHost {
+        h.with_capabilities(&["project.read", "editor.read", "project.write"])
+    }
+    fn exists(path: &str) -> bool {
+        host::project_of("/project/pom.xml")
+            .unwrap()
+            .exists(path)
+            .unwrap()
     }
     fn action(q: &mut QuarkusTools, doc: &Document) -> FileAction {
         q.file_actions(doc, Range::default())
@@ -503,6 +542,70 @@ mod tests {
         assert!(q.starter.plan.as_ref().unwrap().issued);
     }
     #[test]
+    fn with_project_write_the_command_writes_every_file_after_one_confirm() {
+        let (h, mut q, _) = setup();
+        let h = writable(h);
+        answers(&h);
+        assert!(
+            q.run_command("prepare-local-starter", &h.invocation(), None)
+                .unwrap()
+                .is_none()
+        );
+        let plan = q.starter.plan.clone().unwrap();
+        for (name, text) in &plan.files {
+            let written = host::project_of("/project/pom.xml")
+                .unwrap()
+                .read_file(&format!("qute-starter/{name}"))
+                .unwrap();
+            assert_eq!(&written, text);
+        }
+        assert!(plan.issued);
+        assert!(h.context_keys().contains_key(STARTER_CREATED));
+        let notice = h.notifications_with_actions().last().unwrap().clone();
+        assert_eq!(
+            notice.notification.body,
+            "Created Quarkus starter in /project/qute-starter."
+        );
+        assert_eq!(notice.actions[0].command, "open-reviewed-starter");
+        assert!(q.starter_actions(&plan.doc).is_empty());
+    }
+    #[test]
+    fn with_project_write_a_cancelled_confirm_writes_nothing() {
+        let (h, mut q, _) = setup();
+        let h = writable(h);
+        for s in ["org.acme", "qute-starter", "1.0.0-SNAPSHOT", "3.40.1"] {
+            h.answer_next_prompt(Some(&[s]));
+        }
+        h.answer_next_prompt(None);
+        assert!(matches!(
+            q.prepare_starter(&h.invocation()),
+            Err(Error::Cancelled)
+        ));
+        assert!(!exists("qute-starter/pom.xml"));
+        assert!(!exists("qute-starter/README.md"));
+    }
+    #[test]
+    fn an_existing_folder_or_file_is_named_and_nothing_is_written() {
+        let (h, mut q, _) = setup();
+        let h = writable(h);
+        h.add_dir("qute-starter");
+        h.add_file("qute-starter/README.md", "mine");
+        answers(&h);
+        let err = q.prepare_starter(&h.invocation()).unwrap_err().to_string();
+        assert!(err.contains("/project/qute-starter already exists"), "{err}");
+        assert!(!exists("qute-starter/pom.xml"));
+        let (h, mut q, _) = setup();
+        let h = writable(h);
+        h.open_editor("/project/qute-starter/pom.xml", "xml", "unsaved", &[]);
+        answers(&h);
+        let err = q.prepare_starter(&h.invocation()).unwrap_err().to_string();
+        assert!(
+            err.contains("/project/qute-starter/pom.xml already exists"),
+            "{err}"
+        );
+        assert!(!exists("qute-starter/README.md"));
+    }
+    #[test]
     fn platform_prompt_defaults_to_the_bundled_quarkus_version() {
         let (h, mut q, _) = setup();
         for s in ["org.acme", "qute-starter", "1.0.0-SNAPSHOT"] {
@@ -510,7 +613,7 @@ mod tests {
         }
         h.answer_next_prompt(Some(&[BUNDLED_PLATFORM]));
         h.answer_next_prompt(Some(&[]));
-        let message = q.prepare_starter(&h.invocation()).unwrap().unwrap();
+        let message = q.prepare_starter(&h.invocation()).unwrap_err().to_string();
         assert!(message.contains("Create Quarkus Starter qute-starter"), "{message}");
         assert_eq!(q.starter.plan.as_ref().unwrap().platform, "3.40.1");
     }
