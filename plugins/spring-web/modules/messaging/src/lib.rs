@@ -661,6 +661,21 @@ fn resolved(mut e: Endpoint, props: &Props, constants: &HashMap<String, String>)
     Some(e)
 }
 
+/// The host's navigate arrow for every link this module draws: explicit so same-line markers
+/// group predictably, and apart from the web route icon so they never merge with its URL markers.
+const MARKER_ICON: &str = "navigate";
+
+/// Most markers one line gets; the rest are named in the tooltip.
+const MAX_LINE_TARGETS: usize = 200;
+
+/// One marker per target on `line`: the IDE folds same-line, same-icon markers into one gutter
+/// button that jumps to a single target or opens its chooser for several.
+fn per_target(line: u32, tooltip: &str, targets: Vec<Location>) -> Vec<LineMarker> {
+    let total = targets.len();
+    let tooltip = if total > MAX_LINE_TARGETS { format!("{tooltip} (first {MAX_LINE_TARGETS} of {total})") } else { tooltip.to_owned() };
+    targets.into_iter().take(MAX_LINE_TARGETS).map(|t| LineMarker { line, icon: Some(MARKER_ICON.into()), tooltip: tooltip.clone(), target: Some(t) }).collect()
+}
+
 fn location(path: &str, e: &Endpoint) -> Location {
     Location { path: path.to_owned(), range: e.range }
 }
@@ -787,22 +802,17 @@ impl Providers for Messaging {
         let all = self.endpoints(doc);
         links(doc, &all)
             .into_iter()
-            .filter_map(|(e, others)| {
+            .flat_map(|(e, others)| {
                 let wanted = |o: &Endpoint| match e.role {
                     Role::Consumer => o.role != Role::Consumer,
                     Role::Producer => o.role == Role::Consumer || (e.space == ROUTING_KEY && o.role == Role::Declaration),
                     Role::Declaration => e.space == ROUTING_KEY && o.role == Role::Producer,
                 };
                 let others: Vec<_> = others.into_iter().filter(|(_, o)| wanted(o)).collect();
-                let (path, first) = others.first()?;
                 let list: Vec<String> =
                     others.iter().map(|(p, o)| format!("{}:{} ({})", file_name(p), o.range.start.line + 1, o.via)).collect();
-                Some(LineMarker {
-                    line: e.range.start.line,
-                    icon: None,
-                    tooltip: format!("{}: {}", title(e), list.join(", ")),
-                    target: Some(location(path, first)),
-                })
+                let targets = others.iter().map(|(p, o)| location(p, o)).collect();
+                per_target(e.range.start.line, &format!("{}: {}", title(e), list.join(", ")), targets)
             })
             .collect()
     }
@@ -1212,13 +1222,16 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
             [
                 (7, "Kafka topic orders: OrderEvents.java:13 (@KafkaListener)"),
                 (12, "Kafka topic orders: OrderEvents.java:8 (send), OrderEvents.java:17 (TopicBuilder.name)"),
+                (12, "Kafka topic orders: OrderEvents.java:8 (send), OrderEvents.java:17 (TopicBuilder.name)"),
             ]
         );
         assert_eq!(markers[1].target.as_ref().unwrap().range.start, Position::new(7, 23));
+        assert_eq!(markers[2].target.as_ref().unwrap().range.start.line, 16, "the TopicBuilder is a second target");
+        assert!(markers.iter().all(|m| m.icon.as_deref() == Some(MARKER_ICON)), "same icon: one gutter button per line");
 
         let rabbit = m.line_markers(&doc("mail/Mailer.java", RABBIT));
         let tips: Vec<_> = rabbit.iter().map(|m| m.line).collect();
-        assert_eq!(tips, [7, 8, 13, 16], "producers to mails/events and their consumers");
+        assert_eq!(tips, [7, 8, 13, 13, 16, 16], "producers to mails/events and their consumers, one marker per producer");
 
         let targets = m.definition(&d, Position::new(16, 61));
         assert_eq!(targets.len(), 2, "the producer and the consumer of `orders`");

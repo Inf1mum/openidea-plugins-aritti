@@ -309,6 +309,21 @@ impl Snapshot {
     }
 }
 
+/// The host's navigate arrow for every link this module draws: explicit so same-line markers
+/// group predictably, and apart from the web route icon so they never merge with its URL markers.
+const MARKER_ICON: &str = "navigate";
+
+/// Most markers one line gets; the rest are named in the tooltip.
+const MAX_LINE_TARGETS: usize = 200;
+
+/// One marker per target on `line`: the IDE folds same-line, same-icon markers into one gutter
+/// button that jumps to a single target or opens its chooser for several.
+fn per_target(line: u32, tooltip: &str, targets: Vec<Location>) -> Vec<LineMarker> {
+    let total = targets.len();
+    let tooltip = if total > MAX_LINE_TARGETS { format!("{tooltip} (first {MAX_LINE_TARGETS} of {total})") } else { tooltip.to_owned() };
+    targets.into_iter().take(MAX_LINE_TARGETS).map(|t| LineMarker { line, icon: Some(MARKER_ICON.into()), tooltip: tooltip.clone(), target: Some(t) }).collect()
+}
+
 fn location((path, u): &(String, Use)) -> Location {
     Location { path: path.clone(), range: u.range }
 }
@@ -545,8 +560,11 @@ impl Providers for WebSocketTools {
                         let list: Vec<String> = related.iter().map(|r| describe(r)).collect();
                         tooltip = format!("{tooltip}; also used at {}", list.join(", "));
                     }
-                    let target = related.first().map(|r| location(r));
-                    markers.push(LineMarker { line: u.range.start.line, icon: None, tooltip, target });
+                    if related.is_empty() {
+                        markers.push(LineMarker { line: u.range.start.line, icon: Some(MARKER_ICON.into()), tooltip, target: None });
+                    } else {
+                        markers.extend(per_target(u.range.start.line, &tooltip, related.iter().map(|r| location(r)).collect()));
+                    }
                 }
                 Kind::Send | Kind::SendToUser | Kind::ClientSubscribe | Kind::ClientSend => {
                     if check_routing && u.kind == Kind::Send && !snap.config.brokers.is_empty() && !snap.config.routed(&u.dest) {
@@ -557,10 +575,12 @@ impl Providers for WebSocketTools {
                         );
                         problems.push(Diagnostic::new(u.range, Severity::Warning, message).code("unrouted-destination"));
                     }
-                    let Some(first) = related.first() else { continue };
+                    if related.is_empty() {
+                        continue;
+                    }
                     let list: Vec<String> = related.iter().map(|r| describe(r)).collect();
                     let tooltip = format!("{} is also used at {}.", snap.config.keys(u)[0], list.join(", "));
-                    markers.push(LineMarker { line: u.range.start.line, icon: None, tooltip, target: Some(location(first)) });
+                    markers.extend(per_target(u.range.start.line, &tooltip, related.iter().map(|r| location(r)).collect()));
                 }
             }
         }
@@ -800,6 +820,24 @@ class KtChatController(private val messagingTemplate: SimpMessagingTemplate) {
             ]
         );
         assert!(parse("", "class A { void f() { x.y(); } }").is_none());
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn every_other_use_of_a_destination_gets_a_marker_on_its_line() {
+        let host = setup();
+        host.add_file(
+            "src/main/java/com/acme/chat/Alerts.java",
+            "class Alerts {\n    void alert(Message m) { messagingTemplate.convertAndSend(\"/topic/messages\", m); }\n}\n",
+        );
+        let mut tools = warmed();
+        let markers = tools.line_markers(&doc("ChatController.java", CHAT));
+        let send_to: Vec<_> = markers.iter().filter(|m| m.line == 8).collect();
+        let files: Vec<_> = send_to.iter().map(|m| m.target.as_ref().unwrap().path.rsplit('/').next().unwrap()).collect();
+        assert_eq!(files.len(), 2, "{files:?}");
+        assert!(files.contains(&"Alerts.java") && files.contains(&"ChatController.java"));
+        assert!(send_to.iter().all(|m| m.icon.as_deref() == Some(MARKER_ICON)));
+        assert_eq!(markers.iter().filter(|m| m.line == 15).count(), 1, "one other use, one marker");
     }
 
     #[cfg(not(feature = "embedded"))]

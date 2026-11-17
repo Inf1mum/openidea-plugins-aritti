@@ -857,38 +857,44 @@ fn static_resource(literal: &str) -> Option<&str> {
     (plain && STATIC_EXTENSIONS.contains(&extension)).then_some(rel)
 }
 
+/// Most markers one line gets; the rest are named in the tooltip.
+const MAX_LINE_TARGETS: usize = 200;
+
+/// One marker per target, all on `line` with `icon`: the IDE folds them into one gutter button
+/// that jumps to a single target or opens its chooser for several.
+fn per_target(line: u32, icon: &str, targets: Vec<(Location, String)>) -> Vec<LineMarker> {
+    let total = targets.len();
+    let note = if total > MAX_LINE_TARGETS { format!(" (first {MAX_LINE_TARGETS} of {total})") } else { String::new() };
+    targets
+        .into_iter()
+        .take(MAX_LINE_TARGETS)
+        .map(|(target, tooltip)| LineMarker { line, icon: Some(icon.into()), tooltip: format!("{tooltip}{note}"), target: Some(target) })
+        .collect()
+}
+
+impl WebTools {
+    fn editor_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        let links = self.links(doc).into_iter().flat_map(|l| {
+            let targets = l.targets.into_iter().map(|t| (t, l.tooltip.clone())).collect();
+            per_target(position(&doc.text, l.at).line, ROUTE_MARKER, targets)
+        });
+        let views = self.views(doc).into_iter().flat_map(|(s, found)| {
+            let targets = found.iter().map(|t| (t.location(), format!("View template {}", t.short()))).collect();
+            per_target(position(&doc.text, s.at).line, TEMPLATE_MARKER, targets)
+        });
+        let mut markers: Vec<LineMarker> = views.chain(links).collect();
+        let taken = markers.iter().map(|m| m.line).collect();
+        markers.extend(self.url_markers(doc, &taken));
+        markers
+    }
+}
+
 impl Providers for WebTools {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         if is_xml(doc) {
             return Vec::new();
         }
-        let links = self.links(doc).into_iter().map(|l| {
-            let others = if l.targets.len() > 1 { format!(" (+{} more)", l.targets.len() - 1) } else { String::new() };
-            LineMarker {
-                line: position(&doc.text, l.at).line,
-                icon: Some(ROUTE_MARKER.into()),
-                tooltip: format!("{}{others}", l.tooltip),
-                target: l.targets.first().cloned(),
-            }
-        });
-        let views = self
-            .views(doc)
-            .into_iter()
-            .filter_map(|(s, found)| {
-                let first = found.first()?;
-                let others = if found.len() > 1 { format!(" (+{} more)", found.len() - 1) } else { String::new() };
-                Some(LineMarker {
-                    line: position(&doc.text, s.at).line,
-                    icon: Some(TEMPLATE_MARKER.into()),
-                    tooltip: format!("View template {}{others}", first.short()),
-                    target: Some(first.location()),
-                })
-            })
-            .collect::<Vec<_>>();
-        let mut markers: Vec<LineMarker> = views.into_iter().chain(links).collect();
-        let taken = markers.iter().map(|m| m.line).collect();
-        markers.extend(self.url_markers(doc, &taken));
-        markers
+        self.editor_markers(doc)
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
@@ -1229,33 +1235,7 @@ impl WebTools {
         diagnostics.extend(self.unresolved_views(doc));
         diagnostics.extend(self.api_version_hints(doc));
         publish(&doc.path, &diagnostics);
-        let links = self.links(doc).into_iter().map(|l| {
-            let others = if l.targets.len() > 1 { format!(" (+{} more)", l.targets.len() - 1) } else { String::new() };
-            LineMarker {
-                line: position(&doc.text, l.at).line,
-                icon: Some(ROUTE_MARKER.into()),
-                tooltip: format!("{}{others}", l.tooltip),
-                target: l.targets.first().cloned(),
-            }
-        });
-        let views = self
-            .views(doc)
-            .into_iter()
-            .filter_map(|(s, found)| {
-                let first = found.first()?;
-                let others = if found.len() > 1 { format!(" (+{} more)", found.len() - 1) } else { String::new() };
-                Some(LineMarker {
-                    line: position(&doc.text, s.at).line,
-                    icon: Some(TEMPLATE_MARKER.into()),
-                    tooltip: format!("View template {}{others}", first.short()),
-                    target: Some(first.location()),
-                })
-            })
-            .collect::<Vec<_>>();
-        let mut markers: Vec<LineMarker> = views.into_iter().chain(links).collect();
-        let taken = markers.iter().map(|m| m.line).collect();
-        markers.extend(self.url_markers(doc, &taken));
-        markers
+        self.editor_markers(doc)
     }
 }
 
@@ -1420,6 +1400,20 @@ class UserController {
     }
 
     #[test]
+    fn every_template_of_a_view_name_gets_a_marker_on_its_line() {
+        let host = web_project();
+        host.add_file("src/main/resources/templates/users/list.ftlh", "");
+        let mut tools = warmed();
+        let d = doc("src/main/java/com/acme/web/UserController.java", CONTROLLER);
+        let markers = tools.legacy_parser_markers(&d);
+        let list: Vec<_> = markers.iter().filter(|m| m.line == 8).collect();
+        let tooltips: Vec<_> = list.iter().map(|m| m.tooltip.as_str()).collect();
+        assert_eq!(tooltips, ["View template resources/templates/users/list.html", "View template resources/templates/users/list.ftlh"]);
+        assert!(list.iter().all(|m| m.icon.as_deref() == Some(TEMPLATE_MARKER) && m.target.is_some()));
+        assert_eq!(markers.iter().filter(|m| m.line == 13).count(), 1, "one template, one marker");
+    }
+
+    #[test]
     fn links_view_names_to_templates() {
         let _host = web_project();
         let mut tools = warmed();
@@ -1513,8 +1507,9 @@ class UserApiTests {
         let d = doc("src/test/java/com/acme/UserApiTests.java", USER_TESTS);
         let markers = tools.legacy_parser_markers(&d);
         let found: Vec<_> = markers.iter().map(|m| (m.line, m.target.as_ref().unwrap().range.start.line)).collect();
-        assert_eq!(found, [(12, 7), (13, 10), (15, 4), (16, 7), (17, 12), (18, 10)]);
+        assert_eq!(found, [(12, 7), (13, 10), (15, 4), (16, 7), (16, 13), (17, 12), (18, 10)]);
         assert_eq!(markers[0].tooltip, "Handler of GET /users/{id}");
+        assert_eq!(markers[3].icon, markers[4].icon, "both handlers of /users/by-bob share one gutter button");
 
         let at = Position::new(12, 30);
         let targets = tools.definition(&d, at);

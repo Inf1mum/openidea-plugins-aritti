@@ -495,6 +495,21 @@ fn schema_fields(schemas: &Index<Schema>, ty: &str, field: &str) -> Vec<(String,
     found
 }
 
+/// The host's navigate arrow for every link this module draws: explicit so same-line markers
+/// group predictably, and apart from the web route icon so they never merge with its URL markers.
+const MARKER_ICON: &str = "navigate";
+
+/// Most markers one line gets; the rest are named in the tooltip.
+const MAX_LINE_TARGETS: usize = 200;
+
+/// One marker per target on `line`: the IDE folds same-line, same-icon markers into one gutter
+/// button that jumps to a single target or opens its chooser for several.
+fn per_target(line: u32, tooltip: &str, targets: Vec<Location>) -> Vec<LineMarker> {
+    let total = targets.len();
+    let tooltip = if total > MAX_LINE_TARGETS { format!("{tooltip} (first {MAX_LINE_TARGETS} of {total})") } else { tooltip.to_owned() };
+    targets.into_iter().take(MAX_LINE_TARGETS).map(|t| LineMarker { line, icon: Some(MARKER_ICON.into()), tooltip: tooltip.clone(), target: Some(t) }).collect()
+}
+
 fn describe(handlers: &[(Location, String)]) -> String {
     match handlers {
         [(_, one)] => format!("Handled by {one}"),
@@ -881,22 +896,15 @@ impl Providers for GraphQlTools {
             return self
                 .java_links(doc)
                 .into_iter()
-                .filter_map(|(h, ty, found)| {
-                    let (path, f) = found.into_iter().next()?;
-                    Some(LineMarker {
-                        line: h.method.start.line,
-                        icon: None,
-                        tooltip: format!("GraphQL schema field {ty}.{}", h.field),
-                        target: Some(Location { path, range: f.range }),
-                    })
+                .flat_map(|(h, ty, found)| {
+                    let targets = found.into_iter().map(|(path, f)| Location { path, range: f.range }).collect();
+                    per_target(h.method.start.line, &format!("GraphQL schema field {ty}.{}", h.field), targets)
                 })
                 .collect();
         }
         self.schema_links(doc)
             .into_iter()
-            .filter_map(|(_, f, found)| {
-                Some(LineMarker { line: f.range.start.line, icon: None, tooltip: describe(&found), target: Some(found.first()?.0.clone()) })
-            })
+            .flat_map(|(_, f, found)| per_target(f.range.start.line, &describe(&found), found.into_iter().map(|(l, _)| l).collect()))
             .collect()
     }
 
@@ -1398,6 +1406,30 @@ class BookController {
 
     fn at(text: &str, needle: &str) -> Position {
         position(text, text.find(needle).unwrap() + 1)
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn every_match_of_a_handler_or_field_gets_a_marker_on_its_line() {
+        let host = setup();
+        host.add_file("src/main/resources/graphql/isbn.graphqls", "extend type Book { isbn: String }\n");
+        host.add_file("src/main/resources/graphql/more.graphqls", "extend type Book { isbn: String }\n");
+        host.add_file(
+            "src/main/java/com/acme/TitleController.java",
+            "@Controller\nclass TitleController {\n    @SchemaMapping(typeName = \"Book\")\n    public String title(Book book) { return null; }\n}\n",
+        );
+        let mut tools = warmed();
+        let isbn = at(CONTROLLER, "isbn(").line;
+        let handler: Vec<_> = tools.line_markers(&java()).into_iter().filter(|m| m.line == isbn).collect();
+        let files: Vec<_> = handler.iter().map(|m| m.target.as_ref().unwrap().path.rsplit('/').next().unwrap().to_owned()).collect();
+        assert_eq!(files, ["isbn.graphqls", "more.graphqls"]);
+        assert!(handler.iter().all(|m| m.icon.as_deref() == Some(MARKER_ICON)));
+
+        let title = at(SCHEMA, "title(").line;
+        let field: Vec<_> = tools.line_markers(&graphql()).into_iter().filter(|m| m.line == title).collect();
+        assert_eq!(field.len(), 2, "{field:?}");
+        assert!(field.iter().all(|m| m.icon.as_deref() == Some(MARKER_ICON)));
+        assert_eq!(tools.line_markers(&graphql()).iter().filter(|m| m.line == at(SCHEMA, "author:").line).count(), 1);
     }
 
     #[cfg(not(feature = "embedded"))]
