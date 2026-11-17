@@ -1,7 +1,7 @@
 //! Per-project file indexes read a little at a time, so that every editor
 //! provider call stays within its 50 ms.
 
-use openidea_plugin::{Project, host};
+use openidea_plugin::{Error, Event, Project, host};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
@@ -12,6 +12,8 @@ const TTL: Duration = Duration::from_secs(120);
 pub const PROVIDER_BUDGET: Duration = Duration::from_millis(30);
 /// Reading time for a command or a view.
 pub const COMMAND_BUDGET: Duration = Duration::from_secs(3);
+/// Reading time a diagnostics call may spend advancing a cold or stale index.
+pub const DIAGNOSTICS_WARM: Duration = Duration::from_millis(10);
 
 /// The project holding `path` (the innermost when projects nest).
 pub fn project_of(path: &str) -> Option<Project> {
@@ -28,8 +30,14 @@ pub struct Index<T> {
     /// A pass has started and not finished.
     reading: bool,
     passes: u32,
+    /// Unreadable files as of the last finished pass, kept current by events.
     failed: BTreeSet<String>,
     discovery_incomplete: bool,
+    /// What the pass in progress found so far; published when it finishes.
+    pass_failed: BTreeSet<String>,
+    pass_discovery_incomplete: bool,
+    /// Changes were missed: the last pass no longer counts.
+    stale: bool,
     globs: &'static [&'static str],
     parse: fn(&str, &str) -> Option<T>,
 }
@@ -37,22 +45,36 @@ pub struct Index<T> {
 impl<T: Clone> Index<T> {
     /// `parse(path, text)` keeps what matters of a file (`None`: nothing).
     pub fn new(globs: &'static [&'static str], parse: fn(&str, &str) -> Option<T>) -> Self {
-        Self { files: BTreeMap::new(), next: BTreeMap::new(), unread: Vec::new(), scanned: None, reading: false, passes: 0, failed: BTreeSet::new(), discovery_incomplete: false, globs, parse }
+        Self {
+            files: BTreeMap::new(),
+            next: BTreeMap::new(),
+            unread: Vec::new(),
+            scanned: None,
+            reading: false,
+            passes: 0,
+            failed: BTreeSet::new(),
+            discovery_incomplete: false,
+            pass_failed: BTreeSet::new(),
+            pass_discovery_incomplete: false,
+            stale: false,
+            globs,
+            parse,
+        }
     }
 
     /// Reads files for at most `budget`.
     pub fn scan(&mut self, project: &Project, budget: Duration) {
         if self.unread.is_empty() && self.scanned.is_none_or(|at| at.elapsed() > TTL) {
-            self.failed.clear();
-            self.discovery_incomplete = false;
+            self.pass_failed.clear();
+            self.pass_discovery_incomplete = false;
             let mut paths = Vec::new();
             for glob in self.globs {
                 match project.find_files(glob, MAX_FILES) {
                     Ok(found) => {
-                        self.discovery_incomplete |= found.len() >= MAX_FILES as usize;
+                        self.pass_discovery_incomplete |= found.len() >= MAX_FILES as usize;
                         paths.extend(found);
                     }
-                    Err(_) => self.discovery_incomplete = true,
+                    Err(_) => self.pass_discovery_incomplete = true,
                 }
             }
             paths.sort();
@@ -68,7 +90,7 @@ impl<T: Clone> Index<T> {
             && let Some(path) = self.unread.pop()
         {
             let Ok(text) = project.read_file(&path) else {
-                self.failed.insert(path);
+                self.pass_failed.insert(path);
                 continue;
             };
             let target = if first { &mut self.files } else { &mut self.next };
@@ -85,6 +107,9 @@ impl<T: Clone> Index<T> {
             if !first {
                 self.files = std::mem::take(&mut self.next);
             }
+            self.failed = std::mem::take(&mut self.pass_failed);
+            self.discovery_incomplete = self.pass_discovery_incomplete;
+            self.stale = false;
             self.reading = false;
             self.passes += 1;
         }
@@ -92,10 +117,7 @@ impl<T: Clone> Index<T> {
 
     /// Replaces what a file says with its current text (an open document).
     pub fn update(&mut self, path: &str, text: &str) {
-        self.unread.retain(|p| p != path);
-        self.failed.remove(path);
-        self.files.remove(path);
-        self.next.remove(path);
+        self.remove(path);
         let Some(value) = (self.parse)(path, text) else {
             return;
         };
@@ -105,10 +127,30 @@ impl<T: Clone> Index<T> {
         self.files.insert(path.to_owned(), value);
     }
 
-    /// Whether a whole, uncapped pass succeeded, with no refresh in progress.
+    /// Whether the last pass finished (some reads may have failed) and no
+    /// change was missed since. A refresh in progress keeps the last pass.
+    pub fn walked(&self) -> bool {
+        self.passes > 0 && !self.stale
+    }
+
+    /// Files the last pass, or a later change, could not read.
+    pub fn unreadable(&self) -> usize {
+        self.failed.len()
+    }
+
+    /// Whether the last pass was whole and uncapped and every file was read.
     /// Absence-based diagnostics must not trust partial discovery or failed reads.
     pub fn complete(&self) -> bool {
-        self.passes > 0 && !self.reading && self.failed.is_empty() && !self.discovery_incomplete
+        self.walked() && self.unreadable() == 0 && !self.discovery_incomplete
+    }
+
+    /// Changes were missed: `complete()` and `fresh()` stay false until the
+    /// next pass, which starts over, finishes.
+    pub fn mark_stale(&mut self) {
+        self.stale = true;
+        self.scanned = None;
+        self.unread.clear();
+        self.next.clear();
     }
 
     /// A complete source pass still inside its trust interval. Cache-only live
@@ -132,13 +174,26 @@ impl<T: Clone> Index<T> {
         self.passes = 0;
         self.failed.clear();
         self.discovery_incomplete = false;
+        self.pass_failed.clear();
+        self.pass_discovery_incomplete = false;
+        self.stale = false;
     }
 
     pub fn remove(&mut self, path: &str) {
         self.failed.remove(path);
+        self.pass_failed.remove(path);
         self.files.remove(path);
         self.next.remove(path);
         self.unread.retain(|p| p != path);
+    }
+
+    /// Forgets what a file said because it could not be read.
+    fn fail(&mut self, path: &str) {
+        self.remove(path);
+        self.failed.insert(path.to_owned());
+        if self.reading {
+            self.pass_failed.insert(path.to_owned());
+        }
     }
 
     pub fn files(&self) -> &BTreeMap<String, T> {
@@ -148,6 +203,15 @@ impl<T: Clone> Index<T> {
     pub fn iter(&self) -> impl Iterator<Item = (&str, &T)> {
         self.files.iter().map(|(p, v)| (p.as_str(), v))
     }
+}
+
+/// What [`Indexes::on_events`] did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EventOutcome {
+    /// Changed paths applied to a cached index.
+    pub updated: usize,
+    /// The deadline cut the batch short; the affected indexes were marked stale.
+    pub stale: bool,
 }
 
 /// One [`Index`] per project root.
@@ -203,19 +267,26 @@ impl<T: Clone> Indexes<T> {
         Some(index)
     }
 
+    /// Like [`Self::for_cached_document`], but a cold, stale, expired or
+    /// refreshing index reads on for at most `budget` first.
+    pub fn for_cached_document_warm(&mut self, path: &str, text: &str, budget: Duration) -> Option<&mut Index<T>> {
+        let project = project_of(path)?;
+        let root = project.root().ok().filter(|root| !root.is_empty())?;
+        let (globs, parse) = (self.globs, self.parse);
+        let index = self.by_root.entry(root).or_insert_with(|| Index::new(globs, parse));
+        if !index.fresh() || index.scanning() {
+            index.scan(&project, budget);
+        }
+        if index.globs.iter().any(|g| glob_matches(g, path)) {
+            index.update(path, text);
+        }
+        Some(index)
+    }
+
     /// Apply a watched change to a cache already owned by this project. This
     /// does not start a scan; a missing cache will discover the file normally.
     pub fn update_existing(&mut self, project: &Project, path: &str, text: Option<&str>) -> bool {
-        let Ok(root) = project.root() else { return false };
-        let prefix = format!("{}/", root.trim_end_matches('/'));
-        let Some(relative) = path.strip_prefix(&prefix) else { return false };
-        if relative.split('/').any(|part| matches!(part, "." | "..")) {
-            return false;
-        }
-        let Some(index) = self.by_root.get_mut(&root) else { return false };
-        if !index.globs.iter().any(|g| glob_matches(g, path)) {
-            return false;
-        }
+        let Some(index) = self.owned(project, path) else { return false };
         match text {
             Some(text) => index.update(path, text),
             None => index.remove(path),
@@ -223,11 +294,71 @@ impl<T: Clone> Indexes<T> {
         true
     }
 
+    /// Applies file events path by path to the caches they touch, reading each
+    /// changed file once. A missing file is removed; an unreadable one counts
+    /// against completeness on its own. Paths left when `deadline` passes mark
+    /// their index stale instead.
+    pub fn on_events(&mut self, events: &[Event], deadline: Instant) -> EventOutcome {
+        let mut outcome = EventOutcome::default();
+        for (path, removed) in changed_paths(events) {
+            let Some(project) = project_of(path) else { continue };
+            let Some(index) = self.owned(&project, path) else { continue };
+            if Instant::now() >= deadline {
+                index.mark_stale();
+                outcome.stale = true;
+                continue;
+            }
+            outcome.updated += 1;
+            if removed {
+                index.remove(path);
+                continue;
+            }
+            match project.read_file(path) {
+                Ok(text) => index.update(path, &text),
+                // A file that exists but is not text may be reported as missing.
+                Err(Error::NotFound(_)) if project.read_bytes(path).is_ok() => index.fail(path),
+                Err(Error::NotFound(_)) => index.remove(path),
+                Err(_) => index.fail(path),
+            }
+        }
+        outcome
+    }
+
+    /// The cache of `project` that watches `path`, when `path` is inside its root.
+    fn owned(&mut self, project: &Project, path: &str) -> Option<&mut Index<T>> {
+        let root = project.root().ok()?;
+        let prefix = format!("{}/", root.trim_end_matches('/'));
+        let relative = path.strip_prefix(&prefix)?;
+        if relative.split('/').any(|part| matches!(part, "." | "..")) {
+            return None;
+        }
+        self.by_root.get_mut(&root).filter(|index| index.globs.iter().any(|g| glob_matches(g, path)))
+    }
+
     /// Forgets every project's files.
     pub fn reset(&mut self) {
         self.by_root.clear();
         self.unidentified.reset();
     }
+}
+
+/// Changed paths with whether they were removed: removals first, so a path
+/// removed and created again in one batch ends up read.
+fn changed_paths(events: &[Event]) -> Vec<(&str, bool)> {
+    let mut removed = Vec::new();
+    let mut changed = Vec::new();
+    for event in events {
+        match event {
+            Event::FileSaved(path) => changed.push((path.as_str(), false)),
+            Event::FilesChanged(files) => {
+                removed.extend(files.removed.iter().map(|path| (path.as_str(), true)));
+                changed.extend(files.created.iter().chain(&files.modified).map(|path| (path.as_str(), false)));
+            }
+            _ => {}
+        }
+    }
+    removed.extend(changed);
+    removed
 }
 
 /// Whether `path` (absolute or relative) matches a project glob such as
@@ -253,6 +384,7 @@ pub fn glob_matches(glob: &str, path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openidea_plugin::FilesChanged;
     use openidea_plugin::mock::MockHost;
 
     fn words(_: &str, text: &str) -> Option<usize> {
@@ -363,5 +495,99 @@ mod tests {
         let second = indexes.for_cached_document("/second/src/Next.java", "other").unwrap();
         assert_eq!(second.files().len(), 1);
         assert!(!second.files().contains_key("/project/src/Disk.java"));
+    }
+
+    fn changed(created: &[&str], modified: &[&str], removed: &[&str]) -> Vec<Event> {
+        let owned = |paths: &[&str]| paths.iter().map(|p| (*p).to_owned()).collect();
+        vec![Event::FilesChanged(FilesChanged { created: owned(created), modified: owned(modified), removed: owned(removed) })]
+    }
+
+    #[test]
+    fn complete_survives_ttl_refresh() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("src/B.java", "b");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java"], words);
+        index.scan(&project, COMMAND_BUDGET);
+        assert!(index.complete());
+        index.scanned = Some(Instant::now() - TTL - Duration::from_secs(1));
+        index.scan(&project, Duration::ZERO);
+        assert!(index.scanning(), "the refresh is reading");
+        assert!(index.complete(), "the previous pass stays complete while refreshing");
+        assert!(index.walked());
+        index.scan(&project, COMMAND_BUDGET);
+        assert!(!index.scanning() && index.complete());
+    }
+
+    #[test]
+    fn on_events_notfound_is_removal() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        let project = host.invocation().project().unwrap();
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        indexes.get(&project, COMMAND_BUDGET);
+        indexes.update_existing(&project, "/project/src/Gone.java", Some("gone"));
+        let outcome = indexes.on_events(&changed(&[], &["/project/src/Gone.java"], &[]), Instant::now() + COMMAND_BUDGET);
+        assert_eq!((outcome.updated, outcome.stale), (1, false));
+        let index = indexes.get(&project, Duration::ZERO);
+        assert!(!index.files().contains_key("/project/src/Gone.java"));
+        assert!(index.files().contains_key("/project/src/A.java"));
+        assert!(index.complete());
+    }
+
+    #[test]
+    fn on_events_read_error_fails_only_that_path() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("src/B.java", "b c");
+        let project = host.invocation().project().unwrap();
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        indexes.get(&project, COMMAND_BUDGET);
+        host.add_file_bytes("src/Latin.java", b"caf\xe9");
+        let events = changed(&["/project/src/Latin.java"], &["/project/src/B.java"], &[]);
+        let outcome = indexes.on_events(&events, Instant::now() + COMMAND_BUDGET);
+        assert_eq!((outcome.updated, outcome.stale), (2, false));
+        let index = indexes.get(&project, Duration::ZERO);
+        assert_eq!(index.unreadable(), 1);
+        assert!(index.walked());
+        assert!(!index.complete());
+        assert_eq!(index.files().keys().collect::<Vec<_>>(), ["/project/src/A.java", "/project/src/B.java"]);
+        host.add_file("src/Latin.java", "now text");
+        indexes.on_events(&changed(&[], &["/project/src/Latin.java"], &[]), Instant::now() + COMMAND_BUDGET);
+        let index = indexes.get(&project, Duration::ZERO);
+        assert_eq!(index.unreadable(), 0);
+        assert!(index.complete());
+    }
+
+    #[test]
+    fn on_events_deadline_marks_stale() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        let project = host.invocation().project().unwrap();
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        assert!(indexes.get(&project, COMMAND_BUDGET).fresh());
+        host.add_file("src/A.java", "a b");
+        let past = Instant::now() - Duration::from_secs(1);
+        let outcome = indexes.on_events(&changed(&[], &["/project/src/A.java"], &[]), past);
+        assert_eq!((outcome.updated, outcome.stale), (0, true));
+        let index = indexes.by_root.get_mut("/project").unwrap();
+        assert!(!index.fresh() && !index.complete());
+        index.scan(&project, COMMAND_BUDGET);
+        assert!(index.fresh(), "the next finished pass clears the stale mark");
+        assert_eq!(index.files()["/project/src/A.java"], 2);
+    }
+
+    #[test]
+    fn warm_advances_when_not_fresh() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("src/B.java", "b");
+        host.add_file("src/C.java", "c");
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        let index = indexes.for_cached_document_warm("/project/src/A.java", "open a", DIAGNOSTICS_WARM).unwrap();
+        assert_eq!(index.files().len(), 3);
+        assert!(index.fresh());
+        assert_eq!(index.files()["/project/src/A.java"], 2, "the open document wins");
     }
 }
