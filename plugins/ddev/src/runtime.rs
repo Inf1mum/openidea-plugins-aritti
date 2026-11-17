@@ -78,17 +78,11 @@ pub fn publish(desc: Option<&Description>, configured: bool) {
     let _ = host::set_context("running", running);
     let _ = host::set_context("can-restart-stop", running);
     let _ = host::set_context("can-start", desc.is_some_and(|d| allowed(d, "start")));
-    let label = desc.map_or_else(
-        || {
-            if configured {
-                "DDEV: unavailable"
-            } else {
-                "DDEV: not configured"
-            }
-            .into()
-        },
-        |d| format!("DDEV: {}", d.status),
-    );
+    if !configured && desc.is_none() {
+        let _ = host::remove_window_status_item("ddev-status");
+        return;
+    }
+    let label = desc.map_or_else(|| "DDEV: unavailable".into(), |d| format!("DDEV: {}", d.status));
     // API 1.4 overrides are window-scoped; never fall back to a global
     // project-specific value when invoked without a window.
     let _ = host::set_window_status_item(
@@ -314,9 +308,9 @@ impl Main {
                 ("restart", "Restart project"),
                 ("stop", "Stop project"),
                 ("share", "Share project"),
-                ("shell", "Open web shell"),
+                ("shell", "Open shell"),
                 ("open-service", "Open service in browser"),
-                ("logs", "Open web logs"),
+                ("logs", "Open logs"),
                 ("composer", "Run Composer…"),
                 ("php", "Run PHP…"),
                 ("node", "Run Node.js…"),

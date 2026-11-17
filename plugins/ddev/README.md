@@ -41,7 +41,7 @@ Open **Services › DDEV**. The project node shows its status. Its children are 
 
 ### Use the status bar
 
-The **DDEV** status-bar item opens **DDEV: Project Actions**: a menu with service links, Restart, Share, Delete, Power Off, container tools, setup and update checks. The same menu is in **More Actions…** and the Tools menu.
+In projects with `.ddev/config.yaml`, the **DDEV** status-bar item shows the project status and opens **DDEV: Project Actions**; other projects don't show it. The menu has service links, Restart, Share, Delete, Power Off, container tools, setup and update checks. The same menu is in **More Actions…** and the Tools menu.
 
 ### Keep status up to date
 
@@ -53,7 +53,7 @@ The **DDEV** status-bar item opens **DDEV: Project Actions**: a menu with servic
 
 - **DDEV: Start Project**, **DDEV: Restart Project** and **DDEV: Stop Project** run in a terminal.
 - **DDEV: Delete Project** and **DDEV: Power Off All Projects** ask first. Delete names the project and its folder. Power Off stops every DDEV project on the machine.
-- **DDEV: Share Project** runs `ddev share`. It needs DDEV's sharing configuration.
+- **DDEV: Share Project** asks for confirmation, then runs `ddev share`, which puts the site on a public URL. It needs DDEV's sharing configuration.
 - **DDEV: Configure Project** asks first, then runs `ddev config --auto`. The YAML opens when it finishes successfully.
 - **DDEV: Run Composer…**, **DDEV: Run PHP…** and **DDEV: Run Node.js…** ask for arguments, then run them in the container. The project must be running. Quoted arguments are supported.
 - Running the same command again focuses its existing terminal.
@@ -90,7 +90,7 @@ The plugin registers a **DDEV: &lt;project&gt;** run target. The IDE asks whethe
 
 ### Get set up
 
-**DDEV: Guided Setup** opens the **DDEV Setup** panel with, from the top:
+**DDEV: Guided Setup** opens the **DDEV Guided Setup** panel with, from the top:
 
 - a setup checklist and **Check Environment** (DDEV and Docker versions);
 - project preferences: change them, then click **Save Preferences** (needs `project.write`). **Reset Changes** reloads the saved values;
@@ -123,7 +123,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **DDEV**; bind keys in
 | **DDEV: Stop Project** (*Services*) | Runs `ddev stop`. | None |
 | **DDEV: Power Off All Projects** (*Services › DDEV*) | Asks, then runs `ddev poweroff` for every project. | None |
 | **DDEV: Delete Project** (*Services › DDEV*) | Asks, naming the project, then runs `ddev delete`. | None |
-| **DDEV: Share Project** (*Services › DDEV*) | Runs `ddev share`. | None |
+| **DDEV: Share Project** (*Services › DDEV*) | Asks for confirmation, then runs `ddev share` to put the site on a public URL. | None |
 | **DDEV: Configure Project** | Asks, then runs `ddev config --auto`, with `--php-version` if one is found. | None |
 | **DDEV: Open Configuration** (*Services*) | Opens `.ddev/config.yaml`. | None |
 | **DDEV: Open Shell** (*Services*) | Opens a shell in the selected container (default `web`). | None |
@@ -135,7 +135,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **DDEV**; bind keys in
 | **DDEV: Configure Database Data Source** (*Services › DDEV*) | Creates or updates the DDEV database connection. | None |
 | **DDEV: Copy Database Password** (*Services › DDEV*) | Copies the database password. | None |
 | **DDEV: Project Actions** (*Tools*, status bar) | Opens the project action menu. | None |
-| **DDEV: Guided Setup** (*Tools*) | Opens the **DDEV Setup** panel. | None |
+| **DDEV: Guided Setup** (*Tools*) | Opens the **DDEV Guided Setup** panel. | None |
 | **DDEV: Check Environment** | Checks the DDEV and Docker versions and shows advice. | None |
 | **DDEV: Show Services** | Reveals Services › DDEV. | None |
 | **DDEV: Open Installation Guide** | Opens DDEV's installation guide. | None |
@@ -149,7 +149,7 @@ Most commands only show when they make sense: for example **DDEV: Open Shell** n
 
 ## Settings
 
-Settings › Plugins › DDEV Integration. The **DDEV Setup** panel edits the same preferences per project.
+Settings › Plugins › DDEV Integration. The **DDEV Guided Setup** panel edits the same preferences per project.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
@@ -170,7 +170,7 @@ The plugin always reads project files (`project.read`). Optional permissions are
 | `events` | Refreshing when configuration files change or you switch project. | Use **DDEV: Refresh Status**, or rely on the one-minute refresh. |
 | `storage` | Remembering your selection, the daily update-check limit, the one-time tour and a pending Configure. | Selections reset when the plugin is idle; no automatic update checks. |
 | `net:api.github.com` | Update checks. | **DDEV: Check for Updates** fails; no automatic checks. |
-| `project.write` | Saving preferences from **DDEV Setup**; the connection-file fallback. | Preferences can't be saved from the panel. |
+| `project.write` | Saving preferences from **DDEV Guided Setup**; the connection-file fallback. | Preferences can't be saved from the panel. |
 | `database.sources` | The managed Database connection and its secure password. | The connection-file fallback is used (with `project.write`), and you enter the password yourself. |
 | `clipboard` | **DDEV: Copy Database Password**. | That command fails. |
 
@@ -184,7 +184,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | *DDEV runtime is unavailable…*, *Reading DDEV runtime details needs the process:ddev permission…*, or the project row shows **Container runtime not running**, **DDEV permission needed** or **DDEV not installed** | Allow `process:ddev` in Settings › Plugins › *DDEV Integration*. Check DDEV is installed and Docker is running. Then click **Refresh Status**. |
 | *No .ddev/config.yaml in the project root. Run DDEV: Configure Project first.* | Open the folder that contains `.ddev/config.yaml`, or run **DDEV: Configure Project**. Only the project root is read. |
-| A command is missing from Search Everywhere | It doesn't fit the current state (for example the project is stopped). Click **Refresh Status** after changing DDEV outside the IDE. |
+| A command is missing from Search Everywhere | It doesn't fit the current state (for example the project is stopped), or the project has no `.ddev/config.yaml`. Click **Refresh Status** after changing DDEV outside the IDE. |
 | *Start the DDEV project before running container tools.* | Run **DDEV: Start Project** first. Composer, PHP and Node.js need a running project. |
 | *DDEV reported no service URLs. Start the project and refresh status.* | Start the project, then **Refresh Status**. |
 | *This DDEV service has no browser URL.* | That service has no web URL. Pick another node. |

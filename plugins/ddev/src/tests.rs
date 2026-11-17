@@ -225,13 +225,13 @@ fn terminal_commands_preserve_arguments_and_confirm_destructive_actions() {
             output(&running())
         }
     });
-    for command in ["restart", "stop", "share"] {
+    for command in ["restart", "stop"] {
         plugin
             .run_command(command, &host.invocation(), None)
             .unwrap();
         assert_eq!(plugin.terminal_launches.last().unwrap().args, [command]);
     }
-    for command in ["delete", "poweroff", "config"] {
+    for command in ["share", "delete", "poweroff", "config"] {
         let before = plugin.terminal_launches.len();
         plugin
             .run_command(command, &host.invocation(), None)
@@ -517,6 +517,8 @@ fn database_setup_preserves_other_sources_and_never_writes_passwords() {
     let text = project.read_file(database::FILE).unwrap();
     assert!(text.contains("# Keep my source") && text.contains("Production"));
     assert!(!text.contains("secret-for-test") && !text.contains("password"));
+    let note = &host.notifications()[0].body;
+    assert!(note.contains("database.sources permission. Allow it in Settings › Plugins › DDEV Integration."), "{note}");
     let doc: toml_edit::DocumentMut = text.parse().unwrap();
     let sources = doc["data-source"].as_array_of_tables().unwrap();
     assert_eq!(sources.len(), 2);
@@ -605,6 +607,18 @@ fn state_controls_match_original_and_reject_invalid_runtime_actions() {
             .is_err()
     );
     assert_eq!(host.status_items()["ddev-status"].text, "DDEV: stopped");
+    let err = plugin.run_command("stop", &host.invocation(), None).unwrap_err().to_string();
+    assert!(err.contains("DDEV: Stop Project needs a running project"), "{err}");
+}
+
+#[test]
+fn status_bar_item_is_hidden_in_projects_without_ddev() {
+    let host = MockHost::install().with_capabilities(&["project.read", "process:ddev"]);
+    host.set_project_root(Some("/work/plain"));
+    let item = openidea_plugin::StatusItem { text: "DDEV: running".into(), tooltip: None, command: None };
+    host::set_window_status_item("ddev-status", &item).unwrap();
+    Main::default().render(VIEW, None, &host.invocation()).unwrap();
+    assert!(!host.status_items().contains_key("ddev-status"));
 }
 
 #[test]

@@ -220,7 +220,7 @@ impl Details for Main {
             let message = match key {
                 NO_PROJECT => "Open a project containing .ddev/config.yaml to inspect its services and use DDEV controls.",
                 NOT_CONFIGURED => "This project has no DDEV configuration. Use Configure Project to review and create it. No runtime command runs when selecting this status.",
-                _ => "DDEV runtime details are unavailable. Refresh Status explicitly retries. Check the DDEV executable grant and Docker; Configuration and More Actions remain available for recovery.",
+                _ => "DDEV status is unavailable. Check that DDEV is installed, Docker is running and the process:ddev permission is allowed in Settings › Plugins › DDEV Integration, then Refresh Status. Configuration and More Actions still work.",
             };
             return Ok(vec![Tab::new("overview", "Overview", Pane::Message(message.into()))]);
         }

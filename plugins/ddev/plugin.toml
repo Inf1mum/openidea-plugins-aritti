@@ -7,7 +7,7 @@ homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/d
 license = "MIT"
 icon = "icon.svg"
 change-notes = """\
-Next release: Delete Project names the project and its path, Guided Setup shows the checklist first, the unavailable row says why and offers Help and Diagnostics, and Start, Restart and Stop are named the same everywhere. Composer runs use `ddev composer`, and Run/Test tell you when the project is not running; Services show the last DDEV status of each project window instead of running DDEV on every refresh, and Run and Test reuse a recent status; double-clicking a row without a link, or while the project is stopped, no longer shows an error; one name per action, clearer messages and shorter setting titles; the duplicate Help and Diagnostics command is gone. \
+Next release: Delete Project names the project and its path, Guided Setup shows the checklist first, the unavailable row says why and offers Help and Diagnostics, and Start, Restart and Stop are named the same everywhere. Composer runs use `ddev composer`, and Run/Test tell you when the project is not running; Services show the last DDEV status of each project window instead of running DDEV on every refresh, and Run and Test reuse a recent status; double-clicking a row without a link, or while the project is stopped, no longer shows an error; Share Project asks before putting the site on a public URL, the status bar item and project commands show only in DDEV projects, one name per action, clearer messages and shorter setting titles; the duplicate Help and Diagnostics command is gone. \
 0.2.0: consolidated panels and native service actions. \
 0.1.0: first release with Services, lifecycle controls, logs, database connections and PHP/Node/Composer run target."""
 categories = ["tools"]
@@ -99,11 +99,13 @@ when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plu
 id = "refresh"
 title = "DDEV: Refresh Status"
 category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml"
 
 [[contributes.commands]]
 id = "check-updates"
 title = "DDEV: Check for Updates"
 category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml"
 
 [[contributes.menus]]
 menu = "viewItem.context"
@@ -140,12 +142,6 @@ menu = "viewItem.context"
 view = "ddev"
 command = "open-config"
 
-[[contributes.statusBar]]
-id = "ddev-status"
-text = "DDEV"
-tooltip = "DDEV project actions"
-command = "actions"
-
 [contributes.settings]
 title = "DDEV Integration"
 schema = "settings.schema.json"
@@ -154,6 +150,7 @@ schema = "settings.schema.json"
 id = "actions"
 title = "DDEV: Project Actions"
 category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml"
 
 [[contributes.commands]]
 id = "setup-database"
@@ -235,7 +232,7 @@ submenu = "DDEV"
 
 [[contributes.views]]
 id = "setup"
-title = "DDEV Setup"
+title = "DDEV Guided Setup"
 icon = "icons/ddev.svg"
 location = "right"
 web = "web/resources/hub.html"
@@ -274,6 +271,7 @@ category = "DDEV"
 id = "disable-update-checks"
 title = "DDEV: Disable Automatic Update Checks for Project"
 category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml"
 
 
 [[contributes.menus]]
