@@ -189,7 +189,7 @@ impl Details {
         }
         View::new(Body::Table(Table { columns: ["Collector", "Type", "Metric", "Value"].map(String::from).to_vec(), total_rows: rows.len() as u32, first_row: 0, rows, editable: false }))
             .button(Button::new("close-profile-details", "Back to Requests").icon("arrow-left"))
-            .status(&format!("Profile {} · local snapshot · {} collectors · numeric metrics and bounded Stopwatch event names; application data and secrets withheld", self.token, self.collectors.len()))
+            .status(&format!("Profile {} · {} collectors · numbers and Stopwatch event names only; request data and secrets are not shown", self.token, self.collectors.len()))
     }
 }
 #[cfg(test)]

@@ -1406,7 +1406,7 @@ impl Main {
     }
 
     fn summary_of(&self, root: &str, i: &Index) -> String {
-        if !i.settings_current() {return format!("{root}: source settings changed; Reindex to refresh cached facts.");}
+        if !i.settings_current() {return format!("{root}: source settings changed; Reindex to apply them.");}
         let partial = match (i.partial, i.template_directories.is_empty()) {
             (true, _) => " (index incomplete)",
             (false, false) => " (templates in gitignored folders may not be listed)",
@@ -2361,7 +2361,7 @@ impl Views for Main {
             let stale_settings=ctx.project().and_then(|project|project.root().ok()).and_then(|root|self.indexes.get(&root)).is_some_and(|index|!index.settings_current());
             let Some(index) = self.view_index(ctx) else {
                 self.route_owner = None; self.route_selection = None; self.selected = None;
-                let message=if stale_settings {"Symfony source settings changed. Reindex to refresh cached facts."} else {"This project is not a Symfony application."};
+                let message=if stale_settings {"Symfony source settings changed. Reindex to apply them."} else {"This project is not a Symfony application."};
                 return Ok(View::message(message).button(reindex));
             };
 
@@ -2371,10 +2371,10 @@ impl Views for Main {
                 String::from("No compiled container: run Warm Up Cache to index bundle services and routes")
             };
             if index.template_paths_unknown {
-                status.push_str(" · Twig plugin hints are incomplete or runtime-unverified");
+                status.push_str(" · some Twig template paths may be missing");
             }
             if !index.ambiguous_templates.is_empty() {
-                status.push_str(" · ambiguous template hints suppressed");
+                status.push_str(" · templates with clashing names are skipped");
             }
             if index.partial {
                 status.push_str(" · Index incomplete (discovery, read or time limit)");

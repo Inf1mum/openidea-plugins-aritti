@@ -264,7 +264,7 @@ impl Editor {
                     }
                     _ => return Err("Unknown Twig settings field.".into()),
                 }
-                draft.error = "Draft only; Save validates current project directory and storage snapshot.".into();
+                draft.error = "Not saved yet. Click Save to apply.".into();
                 Ok(false)
             }
             ViewEvent::Button(id) if id == "twig-path-cancel" => {
@@ -485,7 +485,7 @@ mod tests {
         let project = host.invocation().project().unwrap();
         let index = Index::build(&project);
         assert_eq!(index.templates["@Mail/same.twig"].path, "/project/custom/same.twig");
-        assert!(index.templates["@Mail/same.twig"].detail.as_ref().unwrap().contains("unverified"));
+        assert!(index.templates["@Mail/same.twig"].detail.as_ref().unwrap().contains("may differ at runtime"));
         assert!(index.template_paths_unknown);
         store("/project", &[mapping("Mail", "custom"), mapping("Mail", "other")]);
         let index = Index::build(&project);

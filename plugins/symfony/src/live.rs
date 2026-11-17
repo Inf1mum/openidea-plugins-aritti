@@ -212,7 +212,7 @@ mod tests {
         facts.templates.insert("known.twig".into(),Entry{detail:None,path:"/project/templates/known.twig".into(),at:Position::new(0,0)});
         let out=owner.diagnostics(&doc);assert_eq!(out.len(),2,"ignore missing has static source-file absence, not a runtime-error claim");
         let at=doc.text.find("missing.twig").unwrap();assert_eq!(out[0].range.start,Position::new(0,doc.text[..at].encode_utf16().count() as u32));
-        assert!(out.iter().all(|finding|finding.code.as_deref()==Some("missing-template") && finding.message.contains("cached source template index")));
+        assert!(out.iter().all(|finding|finding.code.as_deref()==Some("missing-template") && finding.message.contains("wasn't found in the project's templates")));
         owner.indexes.get_mut("/project").unwrap().template_paths_unknown=true;assert!(owner.diagnostics(&doc).is_empty());owner.indexes.get_mut("/project").unwrap().template_paths_unknown=false;
         host.set_setting("twigChecks","false");assert!(owner.diagnostics(&doc).is_empty());host.set_setting("twigChecks","true");
         host.add_file("templates/a.twig",&doc.text);owner.check(&host.invocation().project().unwrap(),&doc.path);assert!(host.diagnostics().get(&doc.path).is_none_or(Vec::is_empty));
@@ -261,7 +261,7 @@ mod tests {
         host.add_file("config/services.yaml",&doc.text);owner.check(&host.invocation().project().unwrap(),&doc.path);
         assert!(host.diagnostics().get(&doc.path).unwrap().iter().any(|d|d.code.as_deref()==Some("service-class-missing")),"unproven reader retains saved fallback");
         owner.indexes.get_mut("/project").unwrap().psr4_source_verified=true;
-        let found=owner.diagnostics(&doc);assert_eq!(found.len(),1);assert_eq!(found[0].code.as_deref(),Some("service-class-missing"));assert!(found[0].message.contains("runtime autoloading is unverified"));
+        let found=owner.diagnostics(&doc);assert_eq!(found.len(),1);assert_eq!(found[0].code.as_deref(),Some("service-class-missing"));assert!(found[0].message.contains("wasn't found in this project's source"));
         owner.indexes.get_mut("/project").unwrap().partial=true;assert!(owner.diagnostics(&doc).is_empty());owner.indexes.get_mut("/project").unwrap().partial=false;
         doc.text=doc.text.replace("Missing","Known");doc.version+=1;assert!(owner.diagnostics(&doc).is_empty());
         doc.language="xml".into();doc.path="/project/config/services.xml".into();
@@ -335,7 +335,7 @@ mod tests {
         let mut messages=Names::new();messages.insert("key".into(),Entry{detail:None,path:"/project/translations/messages.en.yaml".into(),at:Position::new(0,0)});
         facts.translations.insert("messages".into(),messages);
         let found=owner.diagnostics(&doc);assert_eq!(found.len(),5,"{found:?}");
-        assert!(found.iter().all(|d|d.message.contains("Cached project-source index")));
+        assert!(found.iter().all(|d|d.message.contains("From the last project scan")));
         let at=doc.text.find("ghost_route").unwrap();assert_eq!(found[0].range.start,Position::new(0,doc.text[..at].encode_utf16().count() as u32));
         owner.indexes.get_mut("/project").unwrap().partial=true;assert!(owner.diagnostics(&doc).is_empty());owner.indexes.get_mut("/project").unwrap().partial=false;
         host.set_setting("twigChecks","false");assert!(owner.diagnostics(&doc).is_empty());host.set_setting("twigChecks","true");
@@ -385,7 +385,7 @@ mod tests {
         facts.assets.insert("img/known.png".into(),Entry {detail:None,path:"/project/public/img/known.png".into(),at:Position::new(0,0)});
         facts.translations.insert("messages".into(),Names::new());
         let found=owner.diagnostics(&doc);assert_eq!(found.len(),2);
-        assert!(found.iter().all(|d|d.message.contains("Cached project-source index")));
+        assert!(found.iter().all(|d|d.message.contains("From the last project scan")));
         assert_eq!(found[0].range.start,Position::new(0,doc.text[..doc.text.find("img/missing.png").unwrap()].encode_utf16().count() as u32));
         owner.indexes.get_mut("/project").unwrap().partial=true;assert!(owner.diagnostics(&doc).is_empty());
         owner.indexes.get_mut("/project").unwrap().partial=false;
