@@ -208,6 +208,7 @@ Settings › Plugins › Dependency Audit.
 | Check on open and save | `autoCheck` | on | Asks OSV when a supported file opens or is saved. Off: nothing is sent until you run a scan. |
 | Ignored advisories | `ignoredAdvisories` | empty | Advisories to hide everywhere. One id per line (`GHSA-…`, `CVE-…`); `#` starts a comment. |
 | Run Maven/Gradle when the IDE hasn't resolved dependencies | `autoResolveBuilds` | off | After a scan, runs the project's build tool when the IDE has no resolved Maven/Gradle versions. Asks once per project before the first run. Needs `process:mvn` or `process:gradle`. |
+| Most packages in the npm graph | `npmGraphMaxPackages` | 2000 | Largest `package-lock.json` that **Inspect npm Lockfile Graph** opens (100 to 20,000). The file size limit is 1 KiB per package and the edge limit 4 per package. |
 
 Ignored advisory ids are case-insensitive and match the advisory's id or any alias. A `CVE-…` works for a `GHSA-…` advisory once its details are fetched. Listed ids are hidden from the underlines and the tool window.
 
@@ -325,7 +326,7 @@ A passed check doesn't certify selected hunks: the API supplies diffs, and the s
 
 ### npm lockfile graph
 
-Edges resolve through the nearest physical `node_modules` entries. This is lockfile evidence, not proof of active platform, peer or optional resolution or of an installed runtime graph. Input is bounded to 512 KiB, 2,000 packages and 8,000 edges. Source edits and project switches withhold stale navigation. No package manager or network request runs.
+Edges resolve through the nearest physical `node_modules` entries. This is lockfile evidence, not proof of active platform, peer or optional resolution or of an installed runtime graph. Input is bounded by the **Most packages in the npm graph** setting: 2,000 packages by default, with 1 KiB of lockfile and 4 edges per package. Source edits and project switches withhold stale navigation. No package manager or network request runs.
 
 ### Maven and Gradle resolution
 
