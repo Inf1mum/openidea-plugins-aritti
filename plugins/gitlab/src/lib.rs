@@ -192,16 +192,28 @@ struct Repo {
 
 fn gitlab_project(ctx: &Invocation) -> Result<Repo, Error> {
     let project = ctx.project().ok_or("No project is open.")?;
-    let status = project.vcs_status()?.ok_or("The project is not in a git repository.")?;
+    let status = project.vcs_status()?.ok_or(NO_REPOSITORY)?;
 
     let (remote, path) = project
         .vcs_remotes()?
         .into_iter()
         .filter_map(|(name, url)| api::project_path(&url).map(|path| (name, path)))
         .min_by_key(|(name, _)| name != "origin")
-        .ok_or("The repository has no remote on the configured GitLab server.")?;
+        .ok_or(NO_REMOTE)?;
 
     Ok(Repo { status, path, remote })
+}
+
+const NO_REPOSITORY: &str = "The project is not in a git repository.";
+const NO_REMOTE: &str = "The repository has no remote on the configured GitLab server. \
+Share it on GitLab, clone a project from the Projects tab, or check the GitLab server in Settings › Plugins › GitLab.";
+
+/// A missing repository or GitLab remote offers Share Project instead of a dead end.
+fn with_share_offer(view: View, message: &str) -> View {
+    if message != NO_REPOSITORY && message != NO_REMOTE {
+        return view;
+    }
+    view.button(Button::new("share-project", "Share Project on GitLab…").icon("upload"))
 }
 
 fn selection_scope(repo: &Repo) -> String {
@@ -949,6 +961,7 @@ impl GitLab {
         let as_draft = preference(AS_DRAFT_KEY, true);
         let emoji = note_actions_enabled().then(|| self.emoji.clone().unwrap_or_else(|| safe::EMOJIS[0].to_owned()));
         let fields = details_fields(details, thread.as_ref(), comment, as_draft, emoji);
+        let mut merge_hint = None;
         let mut view =
             View::new(Body::Form(fields)).button(Button::new("comment", comment_label(as_draft, thread.is_some())).icon("review-comment"));
 
@@ -991,6 +1004,10 @@ impl GitLab {
                 false => "Merge".into(),
             };
             view = view.button(Button::new("merge", &merge).icon("github-pr-merged").enabled(can_merge && mergeable));
+            // The merge status already explains other blocks; a hidden Merge on a ready request means no permission.
+            if mergeable && !can_merge {
+                merge_hint = Some("You cannot merge this merge request");
+            }
 
             if mr.detailed_merge_status.as_deref() == Some("need_rebase") {
                 view = view.button(Button::new("rebase", "Rebase").icon("branch"));
@@ -1001,10 +1018,7 @@ impl GitLab {
             }
 
             view = view.button(Button::new("rerequest-review", "Re-request Review…").icon("github-review").enabled(!mr.reviewers.is_empty()));
-            view = view.button(Button::new("edit", "Edit Labels, People, Milestone").icon("edit"));
-            for (key, label) in attributes::ATTRIBUTES {
-                view = view.button(Button::new(&format!("edit-attribute:{key}"), label).icon("edit"));
-            }
+            view = view.button(Button::new("edit", "Edit Labels, People, Milestone…").icon("edit"));
 
             let (draft, draft_icon) = match mr.draft {
                 true => ("Mark as Ready", "github-pr-open"),
@@ -1033,7 +1047,10 @@ impl GitLab {
             .button(Button::new("copy", "Copy Link").icon("copy"))
             .button(Button::new("refresh", "Refresh").icon("refresh"));
 
-        let summary = details_summary(details);
+        let mut summary = details_summary(details);
+        if let Some(hint) = merge_hint {
+            summary.push_str(&format!(" · {hint}"));
+        }
         Ok(match &self.status {
             Some(status) => view.status(&format!("{status} · {summary}")),
             None => view.status(&summary),
@@ -2255,7 +2272,7 @@ impl Views for GitLab {
             }
 
             if matches!(view, LIST | DETAILS) {
-                if let Err(error) = self.ensure_view_owner(ctx) { return Ok(View::message(&error.to_string())); }
+                if let Err(error) = self.ensure_view_owner(ctx) { let message = error.to_string(); return Ok(with_share_offer(View::message(&message), &message)); }
             }
 
             let rendered = match view {
@@ -2265,7 +2282,10 @@ impl Views for GitLab {
                 _ => return Err(Error::NotFound(format!("view {view}"))),
             };
 
-            Ok(rendered.unwrap_or_else(|e| View::message(&e.to_string()).button(Button::new("refresh", "Refresh").icon("refresh"))))
+            Ok(rendered.unwrap_or_else(|e| {
+                let message = e.to_string();
+                with_share_offer(View::message(&message).button(Button::new("refresh", "Refresh").icon("refresh")), &message)
+            }))
         })().map(ui_kit::actions::available)
     }
 
@@ -2286,6 +2306,9 @@ impl Views for GitLab {
         }
         if matches!(&event, ViewEvent::Button(id) if id == "new-token") {
             return host::open_url(&api::new_token_url());
+        }
+        if matches!(&event, ViewEvent::Button(id) if id == "share-project") {
+            return self.run_command("share-project", ctx, None).map(|_| ());
         }
         if matches!(view, LIST | DETAILS) { self.ensure_view_owner(ctx)?; }
 

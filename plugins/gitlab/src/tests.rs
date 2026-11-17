@@ -311,11 +311,6 @@ fn details_offer_the_review_flow() {
             "merge",
             "review",
             "edit",
-            "edit-attribute:labels",
-            "edit-attribute:assignees",
-            "edit-attribute:reviewers",
-            "edit-attribute:milestone",
-            "edit-attribute:title",
             "draft",
             "close",
             "checkout",
@@ -4635,4 +4630,28 @@ fn thread_marker_icon_is_declared_in_the_manifest() {
     let manifest = include_str!("../plugin.toml");
     assert!(manifest.contains(&format!("icon = \"{}\"", crate::branch::THREAD_MARKER)));
     assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(crate::branch::THREAD_MARKER).is_file());
+}
+
+#[test]
+fn a_ready_merge_request_without_merge_permission_says_why() {
+    let host = setup();
+    host.on_fetch(|req| match req.url.split('?').next().is_some_and(|url| url.ends_with("/merge_requests/7")) {
+        true => ok(&MR.replace(r#""can_merge": true"#, r#""can_merge": false"#)),
+        false => gitlab(req),
+    });
+
+    let view = selected(&host).render(DETAILS, None, &host.invocation()).unwrap();
+
+    assert!(!buttons(&view).contains(&"merge"));
+    assert!(view.status.as_deref().is_some_and(|status| status.ends_with(" · You cannot merge this merge request")), "{view:?}");
+}
+
+#[test]
+fn a_repository_without_a_gitlab_remote_offers_share_project() {
+    let host = setup();
+    host.set_vcs_remotes(&[("origin", "git@github.com:x/y.git")]);
+
+    let view = GitLab::default().render(LIST, None, &host.invocation()).unwrap();
+
+    assert!(buttons(&view).contains(&"share-project"), "{view:?}");
 }
