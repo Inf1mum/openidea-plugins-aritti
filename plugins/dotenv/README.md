@@ -62,7 +62,7 @@ Hover also shows which Compose services load an env file through `env_file`, and
 
 ### Masked values
 
-Values of keys containing `PASS`, `SECRET`, `TOKEN`, `KEY` or `CREDENTIAL` show as `••••` in completion and hover. To see one, put the caret on the key and run **.env: Show Value at Caret** (Search Everywhere › Actions). It needs the optional `editor.read` permission.
+Values of keys containing `PASS`, `SECRET`, `TOKEN`, `KEY` or `CREDENTIAL` show as `••••` in completion and hover. To see one, put the caret on the key and run **.env: Show Value at Caret** (Search Everywhere › Actions). It lists the real value of each declaration in a picker that closes without a trace (it isn't kept in the notification history); pick one to open it. It needs the optional `editor.read` permission.
 
 ### Docker Compose and Dockerfile links
 
@@ -103,6 +103,14 @@ After you edit a key in a `.env` file without saving, ⌥⏎ may offer **Update 
 
 Completion and Go to Declaration work in PHP, Python, Java, Kotlin, Scala, Groovy, JavaScript, TypeScript (and JSX/TSX), Vue, Svelte, Go, Ruby, Rust, C# and XML.
 
+## Commands
+
+Find them in Search Everywhere › Actions (⇧⇧) under **.env**; bind keys in Settings › Keymap.
+
+| Command | What it does | Shortcut |
+|---|---|---|
+| .env: Show Value at Caret | Lists the unmasked values of the key under the caret; pick one to open its declaration. | none |
+
 ## Settings
 
 Settings › Plugins › *.env files*.
@@ -118,6 +126,16 @@ Settings › Plugins › *.env files*.
 | Check ${…} references | `checkVariableReferences` | on | Warns about an empty `${}` and variables declared in no `.env`, Dockerfile or compose file. |
 
 `showValues` hides output only. It doesn't remove values from the index or hide values already visible in source files.
+
+## Permissions
+
+Optional permissions are off until you allow them in Settings › Plugins › *.env files*.
+
+| Permission | Used for | Without it |
+|---|---|---|
+| `project.read` (required) | Reading `.env`, Dockerfile and compose files, and publishing problems | The plugin can't run. |
+| `events` (required) | Checking env files when they are opened, saved or changed | The plugin can't run. |
+| `editor.read` (optional) | **.env: Show Value at Caret** reads the caret position | That command asks you to allow it; everything else works. |
 
 ## Troubleshooting
 
