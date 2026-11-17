@@ -746,7 +746,7 @@ fn packaged_resources_expose_domain_columns_evidence_and_original_activate_keys(
     let evidence = detail_value(dependency, "Declarations / lockfile evidence");
     assert!(evidence.contains("web/package.json:3"), "{evidence}");
     assert!(evidence.contains("web/package-lock.json:1") && evidence.contains("Lockfile entry"), "{evidence}");
-    assert!(detail_value(dependency, "Report scan").contains("Unix"));
+    assert!(detail_value(dependency, "Report scan").contains(" UTC)"));
     assert!(detail_value(dependency, "Report coverage").contains("3 dependency files; 3 unique"));
     assert!(detail_value(dependency, "Ignore scope").contains("0 configured"));
     plugin.handle("vulnerabilities", ViewEvent::Activate(dependency["key"].as_str().unwrap().into()), &host.invocation()).unwrap();
@@ -1438,7 +1438,7 @@ fn known_malicious_evidence_is_dated_visible_and_never_inherits_an_old_upgrade()
     assert!(data.contains("Known malicious"));
     assert!(data.contains("OpenSSF"));
     assert!(data.contains("reversing-labs"));
-    assert!(data.contains("123"));
+    assert!(data.contains("1970-01-01 00:02 UTC"));
     assert!(!data.contains("99.0"));
     assert!(host.requests().is_empty(),"render remains cache-only");
 }
@@ -1612,4 +1612,43 @@ fn auto_resolve_is_skipped_when_little_time_remains() {
     DependencyAudit::default().auto_resolve(&host.invocation(), Instant::now() + Duration::from_secs(5));
 
     assert!(host.process_runs().is_empty());
+}
+#[test]
+fn scan_without_dependency_files_lists_the_supported_files() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = DependencyAudit::default();
+    plugin.run_command("scan", &host.invocation(), None).unwrap();
+    let body = &host.project_notifications()[0].1.notification.body;
+    assert!(body.starts_with("No supported dependency files found. Supported: pom.xml, ") && body.contains("package.json"), "{body}");
+    let view = plugin.render("vulnerabilities", None, &host.invocation()).unwrap();
+    assert!(matches!(&view.body, Body::Message(message) if message.starts_with("No supported dependency files found")), "{view:?}");
+}
+
+#[test]
+fn row_commands_from_the_palette_pick_a_dependency_and_preview_opens_its_declaration() {
+    let host = MockHost::install().with_capabilities(&["project.read", "storage", "editor.read", "editor.write"]);
+    let mut plugin = DependencyAudit::default();
+    assert!(plugin.run_command("open-declaration", &host.invocation(), None).unwrap_err().to_string().contains("Scan Project"));
+    let row = Row {
+        path: "/project/package.json".into(), line: 0, name: "lodash".into(), version: "4.17.15".into(), fix: Some("4.17.21".into()),
+        advisories: vec!["GHSA-35jh-r3h4-6jhm".into()], ecosystem: Some("npm".into()),
+        sources: vec![Declaration { path: "/project/package.json".into(), line: 2, evidence: format!("{} package.json:3", binding::DECLARED) }],
+        details: vec![],
+    };
+    let key = format!("dep:{}", actions::base(&row));
+    host::storage::set("scan:/project", &serde_json::to_string(&Report { rows: vec![row], ..Report::default() }).unwrap()).unwrap();
+    host.answer_next_prompt(Some(&[&key]));
+    plugin.run_command("open-declaration", &host.invocation(), None).unwrap();
+    assert_eq!(host.opened_locations(), [("/project/package.json".to_owned(), 2, 0)]);
+    host.open_editor("/project/other.json", "json", "{}", &[]);
+    let message = plugin.run_command("preview-upgrade", &host.invocation(), Some(&key)).unwrap().unwrap();
+    assert!(message.contains("Preview upgrade again"), "{message}");
+    assert_eq!(host.opened_locations().len(), 2);
+}
+
+#[test]
+fn report_age_shows_a_readable_utc_time() {
+    assert_eq!(resources::utc(0), "1970-01-01 00:00 UTC");
+    assert_eq!(resources::utc(1_795_427_400), "2026-11-23 09:50 UTC");
+    assert_eq!(resources::utc(951_782_400), "2000-02-29 00:00 UTC");
 }

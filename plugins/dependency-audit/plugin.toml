@@ -5,7 +5,7 @@ description = "Checks Maven, Gradle, npm, yarn, pnpm, Composer, PyPI and Cargo d
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Findings show where a dependency is declared, with Go to declaration and the chain for indirect ones; scans pyproject.toml, pylock.toml, uv.lock and poetry.lock, and PyPI and Maven results show whether your code imports the package; packages from private registries are listed as private and never sent to OSV.dev; fixes for Yarn, pnpm, npm, Gradle and PyPI version parsing, and quick fixes skip versions shared by several packages and ask you to save first; build auto-resolve asks once per project before running Maven or Gradle, and messages name the permission to allow. \
+Next release: A project without dependency files says so and lists the supported files, and row commands run from the palette let you pick a dependency. Findings show where a dependency is declared, with Go to declaration and the chain for indirect ones; scans pyproject.toml, pylock.toml, uv.lock and poetry.lock, and PyPI and Maven results show whether your code imports the package; packages from private registries are listed as private and never sent to OSV.dev; fixes for Yarn, pnpm, npm, Gradle and PyPI version parsing, and quick fixes skip versions shared by several packages and ask you to save first; build auto-resolve asks once per project before running Maven or Gradle, and messages name the permission to allow. \
 0.3.0: new hub window, dependency resolution and import-level evidence. \
 0.2.0: plugin icon, audit rows, and quick fix that audits every library sharing the bumped version."""
 categories = ["linters", "tools"]
@@ -37,22 +37,22 @@ category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "preview-upgrade"
-title = "Dependency Audit: Preview upgrade in open declaration"
+title = "Dependency Audit: Preview Upgrade…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "open-declaration"
-title = "Dependency Audit: Go to Declaration"
+title = "Dependency Audit: Go to Declaration…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "open-advisory"
-title = "Dependency Audit: Open advisory on OSV.dev"
+title = "Dependency Audit: Open Advisory on OSV.dev…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "ignore-finding"
-title = "Dependency Audit: Ignore this exact finding with reason"
+title = "Dependency Audit: Ignore Finding with Reason…"
 category = "Dependency Audit"
 
 [[contributes.commands]]

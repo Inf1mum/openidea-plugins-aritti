@@ -91,11 +91,10 @@ pub(crate) fn visible_count(root: &str, report: &Report) -> usize {
     if scopes.is_empty() {
         return report.rows.len();
     }
-    report
-        .rows
-        .iter()
-        .filter(|r| r.advisories.iter().any(|id| !matches(&scopes, resources::ecosystem(r), &r.name, &r.version, id, &aliases(r, id))))
-        .count()
+    report.rows.iter().filter(|r| visible(&scopes, r)).count()
+}
+pub(crate) fn visible(scopes: &[Ignore], r: &Row) -> bool {
+    scopes.is_empty() || r.advisories.iter().any(|id| !matches(scopes, resources::ecosystem(r), &r.name, &r.version, id, &aliases(r, id)))
 }
 fn selected(root: &str, report: &Report, key: &str) -> Result<Ignore, Error> {
     let key = key.strip_prefix("advisory:").unwrap_or(key);

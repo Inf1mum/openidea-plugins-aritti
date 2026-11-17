@@ -431,6 +431,7 @@ fn scan_report(project: &Project, live: &mut live::Live, deadline: Instant) -> R
         host::log(LogLevel::Warn, &format!("Scan results not stored: {e}"));
     }
     let mut body = match visible == 0 {
+        true if files.is_empty() => no_dependency_files(),
         true => format!("No known vulnerabilities in {} dependencies ({} files).", deps.len(), texts.len()),
         false => format!(
             "Vulnerable dependencies: {} of {} ({} files). See the Dependency Audit window.",
@@ -452,6 +453,11 @@ fn scan_report(project: &Project, live: &mut live::Live, deadline: Instant) -> R
         body.push_str(&format!(" (Partial report: {skipped} dependency files could not be read.)"));
     }
     Ok((body, kept.is_ok()))
+}
+
+fn no_dependency_files() -> String {
+    let names: Vec<&str> = GLOBS.iter().map(|glob| glob.trim_start_matches("**/")).collect();
+    format!("No supported dependency files found. Supported: {}.", names.join(", "))
 }
 
 fn dep_key(dep: &Dep) -> (manifest::Ecosystem, String, String) {
@@ -584,6 +590,15 @@ impl DependencyAudit {
 
 impl Plugin for DependencyAudit {
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        let picked;
+        let arg = match arg {
+            None if matches!(id, "preview-upgrade" | "open-declaration" | "open-advisory" | "ignore-finding") => {
+                let Some(key) = actions::pick_row(ctx)? else { return Ok(None); };
+                picked = key;
+                Some(picked.as_str())
+            }
+            arg => arg,
+        };
         let selected;
         let arg = if matches!(id, "open-advisory" | "ignore-finding") && arg.is_some_and(|key|key.starts_with("dep:")) {
             let Some(key) = actions::choose_advisory(ctx, arg.unwrap(), id == "ignore-finding")? else { return Ok(None); };
@@ -760,7 +775,8 @@ impl Views for DependencyAudit {
             let status = report_status(&report, failure.as_ref());
             if report.rows.is_empty() {
                 self.clear_presentation();
-                return Ok(View::message("The last successful scan found no known vulnerabilities (after configured ignores).")
+                let message = if report.files_scanned == Some(0) { no_dependency_files() } else { "The last successful scan found no known vulnerabilities (after configured ignores).".into() };
+                return Ok(View::message(&message)
                     .button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list"))
                     .status(&status));
             }
