@@ -364,7 +364,7 @@ struct Plan {
 fn plan(p: &Pending, inventory: &Inventory, new_name: &str) -> Result<Plan, Error> {
     let old = text_at(&p.doc.text, p.range).ok_or(Error::Stale)?;
     if !valid_name(new_name) || new_name == old {
-        return Err(Error::Invalid("Choose a different non-reserved Twig identifier (letters/digits/underscore, leading letter/underscore; at most64 UTF-8 bytes). Quotes, whitespace and interpolation are not names.".into()));
+        return Err(Error::Invalid("Choose a different non-reserved Twig identifier (letters/digits/underscore, leading letter/underscore; at most 64 UTF-8 bytes). Quotes, whitespace and interpolation are not names.".into()));
     }
     let mut edited = inventory.files.clone();
     let mut edits = vec![];
@@ -578,7 +578,7 @@ pub fn occurrences(
         for range in spans(&graph(&model(path, text)), &pending.key) {
             found.push((path.clone(), range));
             if found.len() > 256 {
-                return Err(Error::Invalid("Occurrence review exceeds256 spans.".into()));
+                return Err(Error::Invalid("Occurrence review exceeds 256 spans.".into()));
             }
         }
     }

@@ -132,7 +132,7 @@ category = "Flyway"
 
 [[contributes.commands]]
 id = "review-comparison"
-title = "Flyway: Review Local Comparison Report..."
+title = "Flyway: Review Local Comparison Report…"
 category = "Flyway"
 
 [[contributes.commands]]

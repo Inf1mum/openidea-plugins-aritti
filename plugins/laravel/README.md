@@ -16,7 +16,7 @@ Laravel support for OpenIDEA in PHP and Blade files. It completes and links rout
 2. Open a Laravel project. The plugin indexes it in the background.
 3. In a PHP file, type `route('` or `view('` and pick a name. ⌘B on the name opens its definition.
 4. Run **Laravel: Show Laravel Tool Window** to browse routes, views, config and more.
-5. To run Artisan, allow `process:php` in Settings › Plugins › *Laravel*, then run **Laravel: Run Artisan Command...**.
+5. To run Artisan, allow `process:php` in Settings › Plugins › *Laravel*, then run **Laravel: Run Artisan Command…**.
 
 ## Features
 
@@ -132,7 +132,7 @@ Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Each 
 
 ### Run Artisan
 
-- **Laravel: Run Artisan Command...** opens the Artisan tab. Pick a command, fill in its form, and check the exact command line before you run it.
+- **Laravel: Run Artisan Command…** opens the Artisan tab. Pick a command, fill in its form, and check the exact command line before you run it.
 - Use **Run in Terminal** for interactive commands and long-running workers. **Laravel: Run Artisan in Terminal…** opens the older terminal picker.
 - **Cancel** stops the running command. A successful run reindexes the project.
 - The command list comes from your app. Run **Laravel: Refresh Artisan Command Metadata (Executes Project PHP)** once, and again after installing packages. You review the exact command before anything runs.
@@ -140,9 +140,9 @@ Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Each 
 
 ### Generate classes
 
-- **Laravel: Generate with artisan make...** offers 30 `make:*` generators with their flags (`--resource`, `--api`, `--requests`, `--inline`), plus your package and custom `make:*` commands.
-- **Laravel: New Eloquent Model...** creates a model with any of migration, factory, seeder, controller and policy (`-m -f -s -c --policy --all`).
-- **Laravel: Generate for Model...** creates a policy, observer, factory, resource or controller for a model. Right-click a model file in the Project view to skip the model pick. With `project.write`, factories and resources are filled from the model's migration columns.
+- **Laravel: Generate with artisan make…** offers 30 `make:*` generators with their flags (`--resource`, `--api`, `--requests`, `--inline`), plus your package and custom `make:*` commands.
+- **Laravel: New Eloquent Model…** creates a model with any of migration, factory, seeder, controller and policy (`-m -f -s -c --policy --all`).
+- **Laravel: Generate for Model…** creates a policy, observer, factory, resource or controller for a model. Right-click a model file in the Project view to skip the model pick. With `project.write`, factories and resources are filled from the model's migration columns.
 - Nova, Filament and Livewire form generators appear when `composer.json` requires `laravel/nova`, `filament/filament` or `livewire/livewire`.
 - **New** › file templates add 47 Laravel, Livewire, Inertia, Pest, PHPUnit and Blade files (see Technical details for the list).
 
@@ -203,7 +203,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 
 | Command | What it does |
 |---|---|
-| **Laravel: Run Artisan Command...** | Opens the Artisan tab. |
+| **Laravel: Run Artisan Command…** | Opens the Artisan tab. |
 | **Laravel: Run Artisan in Terminal…** | Picks a command and runs it in a terminal. |
 | **Laravel: Refresh Artisan Command Metadata (Executes Project PHP)** | Reads the app's command list after review. Also in the Tools menu. |
 | **Laravel: Run Command From Class…** | Opens the Artisan form for a console command class (from its Run marker). |
@@ -230,9 +230,9 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 
 | Command | What it does |
 |---|---|
-| **Laravel: Generate with artisan make...** | Runs a `make:*` generator with its options. |
-| **Laravel: New Eloquent Model...** | Creates a model and its related classes. |
-| **Laravel: Generate for Model...** | Creates a policy, observer, factory, resource or controller for a model. Also in the Project view context menu. |
+| **Laravel: Generate with artisan make…** | Runs a `make:*` generator with its options. |
+| **Laravel: New Eloquent Model…** | Creates a model and its related classes. |
+| **Laravel: Generate for Model…** | Creates a policy, observer, factory, resource or controller for a model. Also in the Project view context menu. |
 | **Laravel: Create Missing View, Component or Controller** | Creates what the name under the caret refers to. Also in the editor context menu. |
 | **Laravel: New Model from Captured Database Table…** | Drafts a model from a captured database table. |
 | **Laravel: Create Model Fields…** | Adds fields to an existing model, with a migration. |

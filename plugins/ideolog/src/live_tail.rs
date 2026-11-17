@@ -93,7 +93,7 @@ impl LiveTail {
                 lease.bytes.extend(bytes);
                 while let Some(end) = lease.bytes.iter().position(|b| *b == b'\n') {
                     if end > 4096 {
-                        return Err("Tail line exceeds4096bytes.".into());
+                        return Err("Tail line exceeds 4096 bytes.".into());
                     }
                     let content = String::from_utf8(lease.bytes[..end].to_vec())
                         .map_err(|_| "Tail profile requires UTF8 text.")?;
@@ -108,7 +108,7 @@ impl LiveTail {
                     }
                 }
                 if lease.bytes.len() > 4096 {
-                    return Err("Tail line exceeds4096bytes.".into());
+                    return Err("Tail line exceeds 4096 bytes.".into());
                 }
             }
             ["TAIL1", "END", _] => {
@@ -171,7 +171,7 @@ impl Ideolog {
         if !ui_kit::prompts::confirm_exact(
             "Follow this local log?",
             &format!(
-                "Approved Java17+ helper reads only this UTF8 regular file through a secure directory handle.\nProject: {root}\nFile: {path}\nInitial tail: last64KiB; appends follow for at most5minutes/1MiB.\nNo project/application bootstrap. Rotation/truncation starts a new generation. Symlinks, unavailable secure-directory profiles and invalid UTF8 stop the helper. Switching tabs or closing the panel stops polling; the lease expires after 5 minutes."
+                "Approved Java 17+ helper reads only this UTF8 regular file through a secure directory handle.\nProject: {root}\nFile: {path}\nInitial tail: last 64KiB; appends follow for at most 5 minutes/1MiB.\nNo project/application bootstrap. Rotation/truncation starts a new generation. Symlinks, unavailable secure-directory profiles and invalid UTF8 stop the helper. Switching tabs or closing the panel stops polling; the lease expires after 5 minutes."
             ),
         )? {
             return Err(Error::Cancelled);

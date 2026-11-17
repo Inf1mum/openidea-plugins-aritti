@@ -33,12 +33,12 @@ languages = ["*"]
 
 [[contributes.commands]]
 id = "add-selected"
-title = "Add Selected Paths to the Open Ignore File"
+title = "Ignore: Add Selected Paths to the Open Ignore File"
 category = "Ignore"
 
 [[contributes.commands]]
 id = "unignore-selected"
-title = "Unignore Selected Paths in the Open Ignore File"
+title = "Ignore: Unignore Selected Paths in the Open Ignore File"
 category = "Ignore"
 
 [[contributes.commands]]

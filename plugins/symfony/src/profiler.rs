@@ -114,14 +114,14 @@ fn display_url(raw: &str) -> String {
 }
 fn parse(text: &str) -> Result<(Vec<Request>, usize), &'static str> {
     if text.len() > MAX_BYTES {
-        return Err("Index exceeds1 MiB; refresh refused.");
+        return Err("Index exceeds 1 MiB; refresh refused.");
     }
     let mut requests = Vec::new();
     let mut seen = BTreeSet::new();
     let mut ambiguous = BTreeSet::new();
     for (n, line) in text.lines().enumerate() {
         if n >= MAX_RECORDS {
-            return Err("Index exceeds10000 physical records; refresh refused.");
+            return Err("Index exceeds 10000 physical records; refresh refused.");
         }
         if line.is_empty() {
             continue;
@@ -198,7 +198,7 @@ fn configured_source() -> Result<String, &'static str> {
         None => INDEX_FILE.to_owned(),
         Some(raw) => {
             if raw.len() > 32 << 10 {
-                return Err("Profiler index setting exceeds its32KiB JSON bound.");
+                return Err("Profiler index setting exceeds its 32KiB JSON bound.");
             }
             serde_json::from_str::<String>(&raw)
                 .map_err(|_| "Profiler index setting must be a JSON string.")?
@@ -223,7 +223,7 @@ fn normalized_source(value: &str) -> Result<String, &'static str> {
             .any(|p| p.is_empty() || p == "." || p == "..")
     {
         return Err(
-            "Profiler index needs a normalized project-relative path (max4096 bytes,32 components; no traversal/globs/absolute paths).",
+            "Profiler index needs a normalized project-relative path (max 4096 bytes,32 components; no traversal/globs/absolute paths).",
         );
     }
     Ok(source.into())
@@ -544,7 +544,7 @@ fn load(project: &Project, source: &str) -> Result<(Vec<Request>, usize), &'stat
         return Err("Index does not resolve to a file; refresh refused.");
     }
     if stat.size > MAX_BYTES as u64 {
-        return Err("Index exceeds1 MiB; refresh refused.");
+        return Err("Index exceeds 1 MiB; refresh refused.");
     }
     let text = project.read_file(source).map_err(read_error)?;
     parse(&text)

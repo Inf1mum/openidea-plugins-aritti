@@ -45,7 +45,7 @@ fn parse_probe(profile:&Profile,output:&str)->Result<Proof,Error>{
  let mut fields=BTreeMap::new();for line in lines{let(k,v)=line.split_once('=').ok_or_else(||invalid("Malformed classpath proof."))?;if fields.insert(k,v).is_some(){return Err(invalid("Duplicate classpath proof field."));}}
  if fields.len()!=5||fields.get("profile").copied()!=Some(profile.profile.as_str())||fields.get("source-sha256").copied()!=Some(digest(&profile.source).as_str()){return Err(invalid("Runtime context on disk differs from the reviewed source, or the profile changed; save/rebuild and validate again."));}
  let hash=|name:&str|->Result<String,Error>{let h=fields.get(name).ok_or_else(||invalid("Missing classpath proof hash."))?;if h.len()!=64||!h.bytes().all(|b|b.is_ascii_hexdigit()&&!b.is_ascii_uppercase()){return Err(invalid("Invalid classpath proof hash."));}Ok((*h).into())};
- let java=fields.get("java").and_then(|n|n.parse::<u32>().ok()).filter(|n|*n>=17&&*n<100).ok_or_else(||invalid("This profile requires Java17 or newer."))?;
+ let java=fields.get("java").and_then(|n|n.parse::<u32>().ok()).filter(|n|*n>=17&&*n<100).ok_or_else(||invalid("This profile requires Java 17 or newer."))?;
  Ok(Proof{classpath:hash("classpath-sha256")?,context:hash("context-sha256")?,java})
 }
 fn ensure_probe(profile:&Profile)->Result<(),Error>{
@@ -101,7 +101,7 @@ impl Operation {
   if execution {if identity.parse::<u64>().ok().filter(|n|*n>0).is_none()||identity.bytes().any(|b|!b.is_ascii_digit()){return Err(invalid("Use an exact positive decimal execution ID."));}}else if identity.trim().is_empty()||identity.len()>256||identity.chars().any(char::is_control)||profile.profile=="runner-5.2.6"&&identity.starts_with('-'){return Err(invalid("Use one exact registered job name without control characters or Runner option prefixes."));}
   let mut parameters=Vec::new();if kind=="start"||profile.profile=="runner-5.2.6"&&matches!(kind.as_str(),"next"|"restart") {
    let Some(text)=host::input_multiline("Job parameters, one key=value per line (empty for none)",Some(""))? else{return Ok(None);};if text.len()>4096{return Err(invalid("Job parameters exceed 4 KiB."));}
-   for line in text.lines().filter(|line|!line.is_empty()) {let Some((key,value))=line.split_once('=') else{return Err(invalid("Each parameter must be a literal key=value argument."));};if !literal(key)||value.chars().any(char::is_control)||parameters.len()>=16{return Err(invalid("Use at most16 literal key=value arguments without control characters."));}parameters.push(line.into());}
+   for line in text.lines().filter(|line|!line.is_empty()) {let Some((key,value))=line.split_once('=') else{return Err(invalid("Each parameter must be a literal key=value argument."));};if !literal(key)||value.chars().any(char::is_control)||parameters.len()>=16{return Err(invalid("Use at most 16 literal key=value arguments without control characters."));}parameters.push(line.into());}
   }
   if profile.profile=="operator-6.0.6"&&kind=="restart"&&!parameters.is_empty(){return Err(invalid("Operator restart accepts only an execution ID; use an empty parameter list."));}
   Ok(Some(Self{kind,identity,parameters}))
@@ -156,7 +156,7 @@ impl Runtime {
      let chunk=session.child.poll(16*1024)?;let data=format!("{}{}",chunk.stdout,chunk.stderr);
      let mut shown=data.len().min((256*1024usize).saturating_sub(session.bytes));while !data.is_char_boundary(shown){shown-=1;}
      if shown>0{host::output_append(OUTPUT,&format!("\nCLI #{id} {} {} {} (context {}):\n{}",session.profile,session.operation.kind,session.operation.identity,session.context,&data[..shown]))?;session.bytes+=shown;}
-     if shown<data.len()&&!session.omitted {session.omitted=true;host::output_append(OUTPUT,&format!("\nCLI #{id}: further output omitted at the256 KiB display limit. The owned process continues; poll still reads its exit status and stop/cancel remain available.\n"))?;}
+     if shown<data.len()&&!session.omitted {session.omitted=true;host::output_append(OUTPUT,&format!("\nCLI #{id}: further output omitted at the 256 KiB display limit. The owned process continues; poll still reads its exit status and stop/cancel remain available.\n"))?;}
      if let Some(status)=chunk.status {
       let label=if session.operation.kind=="stop"&&status==0{"Stop request acknowledged; actual execution status is not established."}else if status==0{"CLI completed successfully; inspect its job/application output for execution details."}else{"CLI failed; inspect output. No successful job operation is claimed."};
       let result=format!("CLI #{id} {} {} {}: CLI exit {status}. {label}",session.profile,session.operation.kind,session.operation.identity);host::output_append(OUTPUT,&format!("\n{result}\n"))?;summaries.push(result);self.sessions.remove(&id);

@@ -120,7 +120,7 @@ The **Flyway** tab lists migrations grouped by status.
 
 ### Review a Flyway comparison report
 
-**Flyway: Review Local Comparison Report...** opens a Flyway `diffText` JSON report that is already in your project.
+**Flyway: Review Local Comparison Report…** opens a Flyway `diffText` JSON report that is already in your project.
 
 - Select change IDs and see each source and target definition with its Add, Edit or Delete label.
 - For a Delete, the target `CREATE` is the old object's definition, not a `DROP`.
@@ -155,7 +155,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Flyway**; bind keys 
 | **Flyway: Clean (Drops All Objects)…** | Runs `flyway clean` after confirmation. Drops all objects in the target schemas. |
 | **Flyway: Refresh Managed Command Status** | Reads new output from a command running in managed mode. |
 | **Flyway: Cancel Owned Managed Command** | Stops the command running in managed mode. |
-| **Flyway: Review Local Comparison Report...** | Opens a `diffText` JSON report for review. |
+| **Flyway: Review Local Comparison Report…** | Opens a `diffText` JSON report for review. |
 | **Flyway: Generate Reviewed Offline Hibernate Schema SQL…** | Builds SQL from compiled Hibernate entities. |
 
 Editor actions (⌥⏎): **Create Flyway SQL migration…**, **Create Flyway migration from prepared form…**, **Rename Flyway migration…**, **Save Hibernate schema SQL as migration…**, plus Java/Kotlin migration and callback creation.

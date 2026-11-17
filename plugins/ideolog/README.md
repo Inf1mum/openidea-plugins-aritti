@@ -168,7 +168,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Focus a Log editor, then Capture Active Log Snapshot." | Click into the log editor first. |
 | "Snapshot source changed; capture again before following a row." | Run **Ideolog: Capture Active Log Snapshot** again. |
 | "Add or import a custom Ideolog LogParsingPattern first. …" | JVM capture needs a custom format. Add one in the patterns view or Settings. |
-| "JVM observations support a nonempty log up to64KiB/512lines, each at most4096bytes." | Use a smaller log or an excerpt. |
+| "JVM observations support a nonempty log up to 64KiB/512 lines, each at most 4096 bytes." | Use a smaller log or an excerpt. |
 | "Live tail requires an owned project log without unsaved edits." | Save the log and make sure it is inside the open project. |
 | "Tail stopped because the source has unsaved edits." | Save or revert the log, then click **Start** again. |
 | "Stop the active tail before starting another source." | Click **Stop**, or run **Ideolog: Stop Live Log Tail**. |

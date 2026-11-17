@@ -203,7 +203,7 @@ pub(crate) fn ignore_editor(root:&str,f:&Finding,id:&str,revalidate:impl Fn()->R
     let mut record=selected(root,&Report{rows:vec![row],..Report::default()},&key)?;
     if ignores.len()>=MAX_ENTRIES{return Err(Error::Invalid("Scoped-ignore storage is full; restore an entry first.".into()));}
     let Some(reason)=host::input("Reason for ignoring this exact cached editor finding (required, 512 bytes max)",None)? else{return Err(Error::Cancelled)};
-    record.reason=reason.trim().into();if !valid(&record){return Err(Error::Invalid("Enter a nonempty reason of at most512bytes without controls.".into()));}
+    record.reason=reason.trim().into();if !valid(&record){return Err(Error::Invalid("Enter a nonempty reason of at most 512 bytes without controls.".into()));}
     let review=summary(root,&record).replace("retained scan snapshot","current source and cached OSV finding");
     if !ui_kit::prompts::confirm_exact("Ignore cached editor finding?",&review)?{return Err(Error::Cancelled);}
     revalidate()?;ignores.push(record);save(root,&before,&ignores)

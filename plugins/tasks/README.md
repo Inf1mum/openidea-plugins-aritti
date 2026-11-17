@@ -163,7 +163,7 @@ Tracker settings:
 | Lighthouse Cloud tenant host, such as acme.lighthouseapp.com | `lighthouseHost` | empty |
 | Lighthouse project ID (positive numeric ID) | `lighthouseProject` | empty |
 | FogBugz exact tenant host, such as acme.fogbugz.com | `fogbugzHost` | empty |
-| Absolute path to externally provisioned0600 FogBugz credential profile (token stays outside plugin) | `fogbugzProfile` | empty |
+| Absolute path to externally provisioned 0600 FogBugz credential profile (token stays outside plugin) | `fogbugzProfile` | empty |
 | Approved self-hosted tracker credential profiles | `selfHostedProfiles` | none |
 
 Secrets (set in the same page): **GitHub token**, **GitLab token**, **Codeberg token**, **YouTrack token**, **Jira credentials**, **Trello API key**, **Trello token**, **Lighthouse API Token**. Each one's description says which scopes it needs.

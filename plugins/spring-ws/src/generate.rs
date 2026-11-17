@@ -527,13 +527,13 @@ impl FileActions for WsTools {
             return Err(Error::Cancelled);
         };
         if !ident(&class) {
-            return Err("Use a non-keyword ASCII Java class identifier up to128 bytes.".into());
+            return Err("Use a non-keyword ASCII Java class identifier up to 128 bytes.".into());
         }
         let Some(method) = host::input("One-way DOM handler method", Some("handlePayload"))? else {
             return Err(Error::Cancelled);
         };
         if !ident(&method) {
-            return Err("Use a non-keyword ASCII Java method identifier up to128 bytes.".into());
+            return Err("Use a non-keyword ASCII Java method identifier up to 128 bytes.".into());
         }
         if class == "org" || before.types.contains(&format!("{}.org", package.name)) {
             return Err("A local org type would shadow the fully-qualified annotation/DOM package; generation withheld.".into());

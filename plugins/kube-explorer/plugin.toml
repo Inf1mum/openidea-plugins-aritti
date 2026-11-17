@@ -151,73 +151,73 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-log-sources"
-title = "Select Log Sources…"
+title = "Kube Explorer: Select Log Sources…"
 icon = "settings"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-log-view"
-title = "View Log Snapshot…"
+title = "Kube Explorer: View Log Snapshot…"
 icon = "filter"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-describe"
-title = "Describe"
+title = "Kube Explorer: Describe"
 icon = "info"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-yaml"
-title = "Edit YAML…"
+title = "Kube Explorer: Edit YAML…"
 icon = "file-yaml"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-logs"
-title = "Follow Logs"
+title = "Kube Explorer: Follow Logs"
 icon = "file-log"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-shell"
-title = "Open Shell"
+title = "Kube Explorer: Open Shell"
 icon = "terminal"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-attach"
-title = "Attach"
+title = "Kube Explorer: Attach"
 icon = "attach-to-process"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-debug"
-title = "Debug…"
+title = "Kube Explorer: Debug…"
 icon = "debug"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-port-forward"
-title = "Port Forward…"
+title = "Kube Explorer: Port Forward…"
 icon = "external-link"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-show-secret"
-title = "Show Secret…"
+title = "Kube Explorer: Show Secret…"
 icon = "eye"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-edit-secret"
-title = "Edit Secret…"
+title = "Kube Explorer: Edit Secret…"
 icon = "edit"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-delete"
-title = "Delete…"
+title = "Kube Explorer: Delete…"
 icon = "trash"
 category = "Kube Explorer"
 
@@ -568,7 +568,7 @@ category = "Kubernetes"
 
 [[contributes.commands]]
 id = "tree-switch"
-title = "Switch"
+title = "Kube Explorer: Switch"
 icon = "check"
 category = "Kube Explorer"
 
@@ -580,7 +580,7 @@ when = "viewItemKind == svc-context || viewItemKind == svc-namespace"
 
 [[contributes.commands]]
 id = "tree-expand"
-title = "Expand"
+title = "Kube Explorer: Expand"
 icon = "chevron-down"
 category = "Kube Explorer"
 
@@ -592,7 +592,7 @@ when = "viewItemKind == svc-group || viewItemKind == svc-secrets || viewItemKind
 
 [[contributes.commands]]
 id = "tree-collapse"
-title = "Collapse"
+title = "Kube Explorer: Collapse"
 icon = "chevron-up"
 category = "Kube Explorer"
 
@@ -604,7 +604,7 @@ when = "viewItemKind == svc-group-open || viewItemKind == svc-secrets-open || vi
 
 [[contributes.commands]]
 id = "tree-refresh"
-title = "Refresh"
+title = "Kube Explorer: Refresh"
 icon = "refresh"
 category = "Kube Explorer"
 
@@ -616,7 +616,7 @@ when = "viewItemKind == svc-group || viewItemKind == svc-secrets || viewItemKind
 
 [[contributes.commands]]
 id = "tree-create-secret"
-title = "Create Secret…"
+title = "Kube Explorer: Create Secret…"
 icon = "plus"
 category = "Kube Explorer"
 
@@ -628,7 +628,7 @@ when = "viewItemKind == svc-secrets || viewItemKind == svc-secrets-open"
 
 [[contributes.commands]]
 id = "tree-watch"
-title = "Watch Resources…"
+title = "Kube Explorer: Watch Resources…"
 icon = "eye"
 category = "Kube Explorer"
 
@@ -641,7 +641,7 @@ submenu = "Watch"
 
 [[contributes.commands]]
 id = "tree-open-watch"
-title = "Open Resource Watch"
+title = "Kube Explorer: Open Resource Watch"
 icon = "list"
 category = "Kube Explorer"
 
@@ -654,7 +654,7 @@ submenu = "Watch"
 
 [[contributes.commands]]
 id = "tree-kubeconfig"
-title = "Choose Kubeconfig…"
+title = "Kube Explorer: Choose Kubeconfig…"
 icon = "folder-open"
 category = "Kube Explorer"
 
@@ -667,7 +667,7 @@ submenu = "Kubeconfig"
 
 [[contributes.commands]]
 id = "tree-import-config"
-title = "Import Kubeconfig Privately…"
+title = "Kube Explorer: Import Kubeconfig Privately…"
 icon = "paste"
 category = "Kube Explorer"
 
@@ -680,7 +680,7 @@ submenu = "Kubeconfig"
 
 [[contributes.commands]]
 id = "tree-review-config"
-title = "Review Imported Kubeconfigs…"
+title = "Kube Explorer: Review Imported Kubeconfigs…"
 icon = "list"
 category = "Kube Explorer"
 

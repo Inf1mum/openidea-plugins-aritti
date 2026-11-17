@@ -90,7 +90,7 @@ fn invoke(server: &str, profile: &str, request: Value) -> Result<Value, Error> {
     let output = Private(format!("{directory}/fogbugz-{nonce}.out"));
     let text = request.to_string();
     if text.len() > 16384 {
-        return Err("FogBugz request exceeds16KiB.".into());
+        return Err("FogBugz request exceeds 16KiB.".into());
     }
     host::fs::write_file(&input.0, &text)?;
     let task = host::begin_task("FogBugz approved local credential bridge", true);
@@ -125,7 +125,7 @@ fn invoke(server: &str, profile: &str, request: Value) -> Result<Value, Error> {
     }
     let stat = host::fs::stat(&output.0)?;
     if stat.kind != openidea_plugin::FileKind::File || stat.size > 1 << 20 {
-        return Err("FogBugz bridge result exceeds1MiB.".into());
+        return Err("FogBugz bridge result exceeds 1MiB.".into());
     }
     let reply: Value = serde_json::from_str(&host::fs::read_file(&output.0)?)
         .map_err(|_| "Invalid FogBugz bridge JSON.")?;
@@ -150,7 +150,7 @@ fn parse(reply: &Value, server: &str) -> Result<Vec<Task>, Error> {
     let items = reply["issues"]
         .as_array()
         .filter(|a| a.len() <= 50)
-        .ok_or("FogBugz issue list exceeds50.")?;
+        .ok_or("FogBugz issue list exceeds 50.")?;
     let mut seen = std::collections::BTreeSet::new();
     let mut tasks = Vec::new();
     for item in items {
@@ -215,7 +215,7 @@ pub fn search(scope: &Scope) -> Result<Vec<Task>, Error> {
     if !ui_kit::prompts::confirm_exact(
         "Search FogBugz with the local credential bridge?",
         &format!(
-            "Approved Python3 reads your externally provisioned private profile and POSTs the official XML API to this exact HTTPS tenant. Redirects are refused.\nServer: {server}\nProfile: {}\nQuery: {}\nAt most50 results. Tokens remain inside the helper and are never native plugin settings or logs.",
+            "Approved Python3 reads your externally provisioned private profile and POSTs the official XML API to this exact HTTPS tenant. Redirects are refused.\nServer: {server}\nProfile: {}\nQuery: {}\nAt most 50 results. Tokens remain inside the helper and are never native plugin settings or logs.",
             serde_json::to_string(&profile).unwrap_or_default(),
             serde_json::to_string(query).unwrap_or_default()
         ),
@@ -234,7 +234,7 @@ pub fn search(scope: &Scope) -> Result<Vec<Task>, Error> {
         host::notify(
             openidea_plugin::NotificationLevel::Info,
             "FogBugz search",
-            "The server has more matches than the50-result window; refine the query.",
+            "The server has more matches than the 50-result window; refine the query.",
         );
     }
     parse(&reply, &server)

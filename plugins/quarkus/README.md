@@ -186,7 +186,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | The JAR read is denied | Allow `fs.read:~/.m2/repository` in Settings › Plugins › *Quarkus Tools*. |
 | *Selected JAR must be a file of at most 8 MiB.* | The JAR is too large, or not in your Maven cache yet. Build the project once so Maven downloads it. |
 | *Open a source file in the destination parent project first.* | Open a Java or XML file of the parent project, then run the starter command again. |
-| *Use literal bounded Maven coordinates, a portable lowercase folder, and an explicit Quarkus3 version…* | Use a dotted groupId, a lowercase folder name and a platform version starting with `3.`. |
+| *Use literal bounded Maven coordinates, a portable lowercase folder, and an explicit Quarkus 3 version…* | Use a dotted groupId, a lowercase folder name and a platform version starting with `3.`. |
 | **Create Reviewed Quarkus/Qute Starter…** isn't offered | The plan expires after five minutes. Run **Quarkus: Prepare Offline Maven/Qute Starter…** again from the same file. |
 | *Apply a reviewed starter FileAction first.* | Create the starter with ⌥⏎ before running **Quarkus: Open Reviewed Starter…**. |
 | *Select a current Quarkus source lens.* | Click a JAX-RS or scheduler code lens instead of running the command from Search Everywhere. |

@@ -87,7 +87,7 @@ impl Cache {
 }
 const RESOURCE_KINDS:&[(&str,&str)]=&[("Secret","secret"),("ConfigMap","configmap"),("Service","service"),("PersistentVolumeClaim","persistentvolumeclaim"),("ServiceAccount","serviceaccount")];
 fn parse_resources(output:&str,kind:&str)->Result<BTreeSet<String>,Error> {
-    if output.len()>MAX_TEXT{return Err("Resource completion snapshot exceeds64KiB.".into());}
+    if output.len()>MAX_TEXT{return Err("Resource completion snapshot exceeds 64KiB.".into());}
     let mut names=BTreeSet::new();
     for line in output.lines(){
         let name=line.strip_prefix(kind).and_then(|tail|tail.strip_prefix('/')).filter(|name|crate::is_dns_subdomain(name)).ok_or("Unsupported resource name output; no snapshot accepted.")?;

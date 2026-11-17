@@ -199,7 +199,7 @@ impl Launcher {
         let artifact = self.get("artifactId");
         if artifact.starts_with('.') || artifact.len() > 128 {
             return Err(Error::Invalid(
-                "Destination must be a non-hidden artifact child of at most128bytes.".into(),
+                "Destination must be a non-hidden artifact child of at most 128 bytes.".into(),
             ));
         }
         let target = format!("{root}/{artifact}");
@@ -264,7 +264,7 @@ impl Launcher {
     ) -> Result<(), Error> {
         let (_, proof) = self.cli_proof(ctx)?;
         let preview = format!(
-            "Project/CWD: {}\nDestination: {}\nProgram: spring\nExact arguments: {}\n\nThe installed Spring CLI executes code, may access the selected service/network and creates files. The inherited Java/environment configuration applies; no environment override is added. Destination absence is a preflight check, not exclusive reservation. No build is requested.\n\nThe child continues until exit, Cancel or window close. Status checks are explicit, not a timer. Output is bounded32KiB and may be incomplete; reaching the bound requests stop. Failure/cancellation may leave partial files. No automatic cleanup, generated-tree validation or project opening occurs.",
+            "Project/CWD: {}\nDestination: {}\nProgram: spring\nExact arguments: {}\n\nThe installed Spring CLI executes code, may access the selected service/network and creates files. The inherited Java/environment configuration applies; no environment override is added. Destination absence is a preflight check, not exclusive reservation. No build is requested.\n\nThe child continues until exit, Cancel or window close. Status checks are explicit, not a timer. Output is bounded 32KiB and may be incomplete; reaching the bound requests stop. Failure/cancellation may leave partial files. No automatic cleanup, generated-tree validation or project opening occurs.",
             proof.root,
             proof.target,
             serde_json::to_string(&proof.args).unwrap_or_default()

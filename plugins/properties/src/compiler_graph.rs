@@ -90,7 +90,7 @@ fn configured_profile() -> Result<Option<String>, Error> {
 }
 fn decode(text: &str) -> Result<Graph, Error> {
     if text.len() > LIMIT {
-        return Err("Compiler graph exceeds256KiB.".into());
+        return Err("Compiler graph exceeds 256KiB.".into());
     }
     let mut lines = text.lines();
     let complete = match lines.next() {
@@ -275,7 +275,7 @@ fn run(doc: &Document, root: &str, sources: &BTreeMap<String, String>) -> Result
         request.push_str(&format!("SOURCE\t{}\t{}\n", hex(path), hex(text)));
     }
     if request.len() > 9 << 20 {
-        return Err("Compiler request exceeds9MiB.".into());
+        return Err("Compiler request exceeds 9MiB.".into());
     }
     let directory = host::fs::plugin_dir()?;
     let nonce = std::time::SystemTime::now()
@@ -311,18 +311,18 @@ fn run(doc: &Document, root: &str, sources: &BTreeMap<String, String>) -> Result
         stderr.push_str(&chunk.stderr);
         if stdout > 8192 || stderr.len() > 8192 {
             let _ = child.kill();
-            return Err("Compiler process output exceeded8KiB.".into());
+            return Err("Compiler process output exceeded 8KiB.".into());
         }
         if let Some(status) = chunk.status {
             if status != 0 {
-                return Err(format!("Java17+ compiler helper failed (status{status}); no application was started and no sources changed. {}",stderr.chars().take(256).collect::<String>()).into());
+                return Err(format!("Java 17+ compiler helper failed (status{status}); no application was started and no sources changed. {}",stderr.chars().take(256).collect::<String>()).into());
             }
             break;
         }
     }
     let stat = host::fs::stat(&output.0)?;
     if stat.kind != openidea_plugin::FileKind::File || stat.size > LIMIT as u64 {
-        return Err("Compiler result exceeds256KiB.".into());
+        return Err("Compiler result exceeds 256KiB.".into());
     }
     decode(&host::fs::read_file(&output.0)?)
 }
@@ -347,12 +347,12 @@ fn snapshots(doc: &Document, root: &str, g: &Graph) -> Result<BTreeMap<String, S
         }
         let stat = project.stat(&absolute)?;
         if stat.kind != openidea_plugin::FileKind::File || stat.size > 128 << 10 {
-            return Err("Compiler source exceeds128KiB.".into());
+            return Err("Compiler source exceeds 128KiB.".into());
         }
         let text = project.read_file(&absolute)?;
         total += text.len();
         if text.len() > 128 << 10 || total > 4 << 20 {
-            return Err("Compiler sources exceed128KiB/file or4MiB total.".into());
+            return Err("Compiler sources exceed 128KiB/file or 4MiB total.".into());
         }
         sources.insert(path.clone(), text);
     }
@@ -523,7 +523,7 @@ pub(crate) fn resolve(
     if !ui_kit::prompts::confirm_exact(
         "Analyze Java property contracts?",
         &format!(
-            "Approved Java17+ JDK compiler only; no application bootstrap, annotation processing or class generation.\nProject: {root}\nOptional compilerClasspathProfile explicitly selects dependency JARs; exact content hashes are included in the final review and checked before/after analysis.\nOnly complete conventional Java and physical locale inventories can produce edits. Kotlin, unresolved dependencies/dynamic bundle/key contracts refuse this action. Sources stay unchanged until the final exact edit review."
+            "Approved Java 17+ JDK compiler only; no application bootstrap, annotation processing or class generation.\nProject: {root}\nOptional compilerClasspathProfile explicitly selects dependency JARs; exact content hashes are included in the final review and checked before/after analysis.\nOnly complete conventional Java and physical locale inventories can produce edits. Kotlin, unresolved dependencies/dynamic bundle/key contracts refuse this action. Sources stay unchanged until the final exact edit review."
         ),
     )? {
         return Err(Error::Cancelled);
@@ -535,7 +535,7 @@ pub(crate) fn resolve(
     )?
     .ok_or(Error::Cancelled)?;
     if new == key || new.is_empty() || new.len() > 512 || new.chars().any(char::is_control) {
-        return Err("Use a different nonempty key up to512bytes without controls.".into());
+        return Err("Use a different nonempty key up to 512 bytes without controls.".into());
     }
     atomic::unchanged(doc, root, &before)?;
     let edits = plan(doc, root, &before, &graph, &sources, key, &new)?;
@@ -628,7 +628,7 @@ pub(crate) fn inspect(ctx: &Invocation) -> Result<Option<String>, Error> {
     if !ui_kit::prompts::confirm_exact(
         "Inspect Java property contracts?",
         &format!(
-            "Analyze current declared Java sources with the approved Java17+ JDK compiler; no application startup, annotation processing or class generation.\nProject: {root}\nOptional compilerClasspathProfile selects dependency JARs; content hashes are rechecked during analysis.\nBounded conventional source inventory includes ignored Java files.\nOnly source-bound JDK ResourceBundle and canonical @PropertyKey literal contracts are listed. Missing dependencies/dynamic references are reported as incomplete."
+            "Analyze current declared Java sources with the approved Java 17+ JDK compiler; no application startup, annotation processing or class generation.\nProject: {root}\nOptional compilerClasspathProfile selects dependency JARs; content hashes are rechecked during analysis.\nBounded conventional source inventory includes ignored Java files.\nOnly source-bound JDK ResourceBundle and canonical @PropertyKey literal contracts are listed. Missing dependencies/dynamic references are reported as incomplete."
         ),
     )? {
         return Err(Error::Cancelled);

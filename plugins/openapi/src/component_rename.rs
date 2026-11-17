@@ -145,7 +145,7 @@ pub(crate) fn resolve(doc: &Document, action: CodeAction) -> Result<CodeAction, 
         let text = project.read_file(file)?;
         bytes = bytes.saturating_add(text.len());
         if bytes > 16 * 1024 * 1024 {
-            return Err("Component source graph exceeds16MiB; no edits returned.".into());
+            return Err("Component source graph exceeds 16MiB; no edits returned.".into());
         }
         before.insert(file.clone(), text);
     }
@@ -209,7 +209,7 @@ pub(crate) fn resolve(doc: &Document, action: CodeAction) -> Result<CodeAction, 
             });
             occurrences += 1;
             if occurrences > 512 {
-                return Err("More than512 physical occurrences; no edits returned.".into());
+                return Err("More than 512 physical occurrences; no edits returned.".into());
             }
         }
     }

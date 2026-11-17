@@ -217,7 +217,7 @@ impl QuarkusTools {
         )?;
         if !group(&g) || !artifact(&a) || !version(&v) || !version(&p) || !p.starts_with("3.") {
             return Err(bad(
-                "Use literal bounded Maven coordinates, a portable lowercase folder, and an explicit Quarkus3 version; no XML, interpolation, ranges or paths.",
+                "Use literal bounded Maven coordinates, a portable lowercase folder, and an explicit Quarkus 3 version; no XML, interpolation, ranges or paths.",
             ));
         }
         let (project_now, current) = source(ctx)?;
@@ -246,7 +246,7 @@ impl QuarkusTools {
         owner(&project, &plan, &current)?;
         vacant(&project, &plan)?;
         self.starter.plan = Some(plan);
-        Ok(Some("Prepared only. Invoke Create Reviewed Quarkus/Qute Starter from this source file's intentions within5minutes; that FileAction creates the files. Then Open Reviewed Starter requests the normal project trust/open flow.".into()))
+        Ok(Some("Prepared only. Invoke Create Reviewed Quarkus/Qute Starter from this source file's intentions within 5 minutes; that FileAction creates the files. Then Open Reviewed Starter requests the normal project trust/open flow.".into()))
     }
     pub(super) fn starter_actions(&self, doc: &Document) -> Vec<FileAction> {
         let Some(plan) = self

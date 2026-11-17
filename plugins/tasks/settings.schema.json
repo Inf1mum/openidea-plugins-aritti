@@ -92,7 +92,7 @@
     },
     "fogbugzProfile": {
       "type": "string",
-      "title": "Absolute path to externally provisioned0600 FogBugz credential profile (token stays outside plugin)",
+      "title": "Absolute path to externally provisioned 0600 FogBugz credential profile (token stays outside plugin)",
       "default": ""
     },
     "selfHostedProfiles": {

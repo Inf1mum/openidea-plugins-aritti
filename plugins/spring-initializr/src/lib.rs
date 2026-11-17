@@ -416,7 +416,7 @@ impl Launcher {
         let project=ctx.project().ok_or(Error::Stale)?;let root=project.root()?;
         if self.owner!=format!("project:{root}")||root.is_empty()||root=="/" {return Err(Error::Stale);}
         let artifact=self.get("artifactId");
-        if artifact.starts_with('.')||artifact.len()>128 {Self::warn("CLI destination must be a non-hidden artifact child of at most128bytes.");return Ok(());}
+        if artifact.starts_with('.')||artifact.len()>128 {Self::warn("CLI destination must be a non-hidden artifact child of at most 128 bytes.");return Ok(());}
         let target=format!("{}/{artifact}",root.trim_end_matches('/'));
         if host::project_of(&root).ok_or(Error::Stale)?.root()?!=root||host::project_of(&target).ok_or(Error::Stale)?.root()?!=root {return Err(Error::Stale);}
         if project.exists(&target)? {Self::warn("CLI destination already exists; no merge, overwrite or partial extraction is started.");return Ok(());}

@@ -177,10 +177,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dependency Audit**; 
 | Command | What it does | Menu |
 |---|---|---|
 | **Dependency Audit: Scan Project** | Checks every supported file against OSV and fills the report. | Tools |
-| **Preview upgrade in open declaration** | Previews and applies an upgrade for the selected report row. | Tool window row |
-| **Go to declaration** | Opens the file and line where the selected dependency is declared. | Tool window row |
-| **Open advisory on OSV.dev** | Opens the selected advisory on osv.dev. | Tool window row |
-| **Ignore this exact finding with reason** | Hides one finding in this project, with a reason. | Tool window row |
+| **Dependency Audit: Preview upgrade in open declaration** | Previews and applies an upgrade for the selected report row. | Tool window row |
+| **Dependency Audit: Go to Declaration** | Opens the file and line where the selected dependency is declared. | Tool window row |
+| **Dependency Audit: Open advisory on OSV.dev** | Opens the selected advisory on osv.dev. | Tool window row |
+| **Dependency Audit: Ignore this exact finding with reason** | Hides one finding in this project, with a reason. | Tool window row |
 | **Dependency Audit: Review scoped ignores** | Lists ignores and restores them. | Tools |
 | **Dependency Audit: Export scoped ignores to project file** | Writes ignores to `.openidea/dependency-audit-ignores.json`. | Tools |
 | **Dependency Audit: Import scoped ignores from project file** | Reads ignores from that file after confirmation. | Tools |

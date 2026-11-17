@@ -62,7 +62,7 @@ impl Plugin for Main {
             self.operations.idle()?;
             let Some(config) = configs::choose(&project, false)? else { return Ok(None); };
             let plan = launch::Plan::prepare(&project, if id == "up-managed" { "up" } else { "rebuild" }, &config)?;
-            if !ui_kit::prompts::confirm_exact(plan.title(), &format!("{}\n\nFinite managed mode: one CLI client is retained only while this plugin instance lives (normally about300seconds idle). Refresh Status reads bounded progress; Cancel closes that client handle. CLI exit/cancellation does not establish container or Docker-build termination, rollback or IDE ownership. Output stays in memory, latest64KiB only. Existing Start/Rebuild terminal commands remain available.", plan.preview()))? {
+            if !ui_kit::prompts::confirm_exact(plan.title(), &format!("{}\n\nFinite managed mode: one CLI client is retained only while this plugin instance lives (normally about 300 seconds idle). Refresh Status reads bounded progress; Cancel closes that client handle. CLI exit/cancellation does not establish container or Docker-build termination, rollback or IDE ownership. Output stays in memory, latest 64KiB only. Existing Start/Rebuild terminal commands remain available.", plan.preview()))? {
                 return Ok(None);
             }
             plan.launch_managed(ctx, &mut self.operations)?;

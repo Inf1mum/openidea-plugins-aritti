@@ -124,7 +124,7 @@ impl Ideolog {
             || doc.text.lines().count() > 512
             || doc.text.lines().any(|l| l.len() > 4096)
         {
-            return Err("JVM observations support a nonempty log up to64KiB/512lines, each at most4096bytes.".into());
+            return Err("JVM observations support a nonempty log up to 64KiB/512 lines, each at most 4096 bytes.".into());
         }
         let config = patterns::combined(&host::setting_string(CUSTOM_PATTERNS).unwrap_or_default());
         let formats: Vec<_> = log::elements(&config)
@@ -178,7 +178,7 @@ impl Ideolog {
             return Err("JVM capture columns must be -1 through128.".into());
         }
         let preview = format!(
-            "Run approved Java17+ source launcher in plugin-private storage; no project/application bootstrap.\nLog: {}\nFormat: {}\nInput: {}bytes, {}lines\nLocale: {}\nTimezone: {}\nRegex: {}\nDate pattern: {}\n\nOnly this bounded log is sent to the local Java helper. Snapshot results do not change editor highlighting.",
+            "Run approved Java 17+ source launcher in plugin-private storage; no project/application bootstrap.\nLog: {}\nFormat: {}\nInput: {}bytes, {}lines\nLocale: {}\nTimezone: {}\nRegex: {}\nDate pattern: {}\n\nOnly this bounded log is sent to the local Java helper. Snapshot results do not change editor highlighting.",
             path,
             field("name", "Custom format"),
             doc.text.len(),
@@ -262,7 +262,7 @@ impl Ideolog {
             }
             if let Some(status) = chunk.status {
                 if status != 0 {
-                    return Err(format!("Java17+ helper failed (status{status}); verify approved JDK and custom patterns. Previous observations retained. {}",errors.chars().take(512).collect::<String>()).into());
+                    return Err(format!("Java 17+ helper failed (status{status}); verify approved JDK and custom patterns. Previous observations retained. {}",errors.chars().take(512).collect::<String>()).into());
                 }
                 break;
             }
@@ -450,7 +450,7 @@ impl Ideolog {
     pub(crate) fn render_jvm(&self, ctx: &Invocation) -> Result<View, Error> {
         let Some(snapshot) = &self.jvm.snapshot else {
             return Ok(View::message(
-                "No JVM observations. Focus a project log and run Capture JVM Observations. Java17+ is optional; syntax providers never launch it.",
+                "No JVM observations. Focus a project log and run Capture JVM Observations. Java 17+ is optional; syntax providers never launch it.",
             ));
         };
         if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(&snapshot.root) {

@@ -102,7 +102,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | The rename or annotation fix isn't offered | The class must be a single, closed source class with literal keys. Inherited, nested, wildcard-imported or already annotated classes are refused. |
 | "A subclass of this command's class is not fully literal; rename refused." | A subclass's chain or selector can't be read literally. Rename by hand. |
 | "A subclass already has a command with that key." | Pick another key. |
-| "Use a different non-colliding lowercase literal command key, at most64 characters." | The new key collides, is unchanged or breaks the key rules above. |
+| "Use a different non-colliding lowercase literal command key, at most 64 characters." | The new key collides, is unchanged or breaks the key rules above. |
 | A code lens or occurrence pick does nothing | The file changed since the lens was shown. Wait for it to refresh, then click again. |
 
 ## Limitations

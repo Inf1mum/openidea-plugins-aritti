@@ -205,7 +205,7 @@ impl Snapshot {
     pub(crate) fn capture(project: &Project, input: &str) -> Result<Self, Error> {
         if input.len() > 512 || input.chars().any(char::is_control) {
             return Err(
-                "Use a project Compose file path up to512bytes without control characters.".into(),
+                "Use a project Compose file path up to 512 bytes without control characters.".into(),
             );
         }
         let root = project.root()?;
@@ -214,12 +214,12 @@ impl Snapshot {
         let metadata = project.stat(&path)?;
         if metadata.kind != FileKind::File || metadata.size > MAX_BYTES as u64 {
             return Err(
-                "Choose an existing Compose YAML/JSON file up to8KiB for complete review.".into(),
+                "Choose an existing Compose YAML/JSON file up to 8KiB for complete review.".into(),
             );
         }
         let source = project.read_file(&path)?;
         if source.len() > MAX_BYTES {
-            return Err("Compose source snapshot exceeds8KiB.".into());
+            return Err("Compose source snapshot exceeds 8KiB.".into());
         }
         let value=parse_source(&path,&source)?;
         let map = value
@@ -238,7 +238,7 @@ impl Snapshot {
                     .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
                 || !value.is_object()
             {
-                return Err("Each service needs a literal name up to128ASCII letters/digits/._- and an object definition.".into());
+                return Err("Each service needs a literal name up to 128ASCII letters/digits/._- and an object definition.".into());
             }
             services.push(key.clone());
         }
@@ -282,7 +282,7 @@ impl Snapshot {
                 .any(|c| c.is_control() || matches!(c, '$' | '\\'))
             || workspace.split('/').any(|v| matches!(v, "." | ".."))
         {
-            return Err("Enter a literal absolute POSIX container path up to512bytes; variables and traversal are outside this form.".into());
+            return Err("Enter a literal absolute POSIX container path up to 512 bytes; variables and traversal are outside this form.".into());
         }
         let mut value: Value = serde_json::from_str(include_str!("../templates/compose.json"))
             .map_err(|_| "Bundled Compose template is invalid.")?;

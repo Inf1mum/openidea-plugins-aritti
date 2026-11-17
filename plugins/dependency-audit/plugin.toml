@@ -34,22 +34,22 @@ category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "preview-upgrade"
-title = "Preview upgrade in open declaration"
+title = "Dependency Audit: Preview upgrade in open declaration"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "open-declaration"
-title = "Go to declaration"
+title = "Dependency Audit: Go to Declaration"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "open-advisory"
-title = "Open advisory on OSV.dev"
+title = "Dependency Audit: Open advisory on OSV.dev"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "ignore-finding"
-title = "Ignore this exact finding with reason"
+title = "Dependency Audit: Ignore this exact finding with reason"
 category = "Dependency Audit"
 
 [[contributes.commands]]

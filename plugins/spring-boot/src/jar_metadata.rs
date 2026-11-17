@@ -459,7 +459,7 @@ impl State {
         };
         if dependencies.len() > 512 {
             return Err(invalid(
-                "Declared metadata dependency catalog exceeds512 candidates.",
+                "Declared metadata dependency catalog exceeds 512 candidates.",
             ));
         }
         if dependencies.is_empty() {

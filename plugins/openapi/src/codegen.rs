@@ -222,7 +222,7 @@ fn generator_catalog(output: &str) -> Result<Vec<String>, Error> {
         }
         names.push(name.to_owned());
         if names.len() > 256 {
-            return Err("Swagger Codegen generator catalog exceeds256 entries.".into());
+            return Err("Swagger Codegen generator catalog exceeds 256 entries.".into());
         }
     }
     names.sort();

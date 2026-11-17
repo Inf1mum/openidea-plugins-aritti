@@ -9,7 +9,7 @@ pub(crate) struct Options {
 }
 fn catalog(output: &str) -> Result<Vec<(String, String)>, Error> {
     if output.len() > 128 << 10 {
-        return Err("Generator option help exceeds128KiB.".into());
+        return Err("Generator option help exceeds 128KiB.".into());
     }
     let (_, body) = output
         .split_once("CONFIG OPTIONS")
@@ -31,7 +31,7 @@ fn catalog(output: &str) -> Result<Vec<(String, String)>, Error> {
             }
             options.push((name.into(), String::new()));
             if options.len() > 256 {
-                return Err("Generator declares more than256 options.".into());
+                return Err("Generator declares more than 256 options.".into());
             }
         } else if let Some((_, description)) = options.last_mut() {
             if description.len() < 4096 {
@@ -131,7 +131,7 @@ pub(crate) fn collect(project: &Project, root: &str, generator: &str) -> Result<
         let description: String = description.chars().take(300).collect();
         let value = host::input(&format!("{key}: {description}"), None)?.ok_or(Error::Cancelled)?;
         if !valid_value(&value) {
-            return Err("Option values must be at most2048 bytes without controls, comma or equals; use a native CLI config file for more complex values.".into());
+            return Err("Option values must be at most 2048 bytes without controls, comma or equals; use a native CLI config file for more complex values.".into());
         }
         options.values.push((key, value));
     }

@@ -116,7 +116,7 @@ impl State {
         }
         self.root = Some(sample.root);
         Ok(Some(format!(
-            "{} historical positive sample hints published (up to16 of{} partial observations). Not current/effective Git status; no absence inference.",
+            "{} historical positive sample hints published (up to 16 of{} partial observations). Not current/effective Git status; no absence inference.",
             paths.len(),
             sample.observed
         )))

@@ -559,7 +559,7 @@ impl FileActions for Integration {
             return Err(Error::Cancelled);
         };
         if !name(&entered) {
-            return Err("Use an ASCII channel ID up to128 bytes (letter/_ then letters/digits/_.-); default channels are reserved.".into());
+            return Err("Use an ASCII channel ID up to 128 bytes (letter/_ then letters/digits/_.-); default channels are reserved.".into());
         }
         current(&pending, doc)?;
         let before = names(&project, doc)?;

@@ -678,7 +678,7 @@ impl Project<'_> {
         let response=host::fetch(&HttpRequest{method:"GET".into(),url:format!("{}/api/v4{}",server(),self.path(&format!("/jobs/{job_id}/trace"))),headers:vec![("Authorization".into(),authorization())],body:None,timeout_ms:Some(timeout_ms)}).map_err(|e|match e {Error::Denied(_)=>Error::Denied("Job trace request denied.".into()),_=>Error::Failed("Job trace request failed. Retry explicitly.".into())})?;
         require_read_budget()?;
         if response.status!=200 {return Err(Error::Failed(format!("Job trace unavailable (HTTP {}). Retry explicitly or open on GitLab.",response.status)));}
-        if response.body.len()>1<<20 {return Err("Job trace exceeds the1MiB plugin acceptance limit; host transfer cap is8MiB.".into());}
+        if response.body.len()>1<<20 {return Err("Job trace exceeds the 1MiB plugin acceptance limit; host transfer cap is 8MiB.".into());}
         String::from_utf8(response.body).map_err(|_|Error::from("Job trace is not UTF8 text. Open it on GitLab."))
     }
 

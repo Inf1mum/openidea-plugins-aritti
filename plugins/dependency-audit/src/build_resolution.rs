@@ -92,7 +92,7 @@ fn source_files(project: &Project, root: &str) -> Result<BTreeMap<String, String
         let text = project.read_file(&path)?;
         bytes += text.len();
         if bytes > 4 << 20 || before.len() >= 500 {
-            return Err("Build-source snapshot exceeds500 files/4MiB.".into());
+            return Err("Build-source snapshot exceeds 500 files/4MiB.".into());
         }
         before.insert(path, text);
     }
@@ -180,20 +180,20 @@ fn add(
         }
     }
     if deps.len() > 10000 {
-        return Err("Resolved dependency graph exceeds10000 coordinates.".into());
+        return Err("Resolved dependency graph exceeds 10000 coordinates.".into());
     }
     Ok(())
 }
 fn parse_maven(root: &str, text: &str) -> Result<Evidence, Error> {
     if text.len() > 4 << 20 {
-        return Err("Maven output exceeds4MiB.".into());
+        return Err("Maven output exceeds 4MiB.".into());
     }
     let trees: Vec<Value> = serde_json::Deserializer::from_str(text)
         .into_iter::<Value>()
         .collect::<Result<_, _>>()
         .map_err(|_| Error::Invalid("Maven JSON trees are malformed or truncated.".into()))?;
     if trees.is_empty() || trees.len() > 500 {
-        return Err("Maven exported no complete module trees, or more than500 modules.".into());
+        return Err("Maven exported no complete module trees, or more than 500 modules.".into());
     }
     let root_ids: HashSet<_> = trees
         .iter()
@@ -219,7 +219,7 @@ fn parse_maven(root: &str, text: &str) -> Result<Evidence, Error> {
         sources: &mut HashMap<String, String>,
     ) -> Result<(), Error> {
         if depth > 128 {
-            return Err("Maven tree depth exceeds128.".into());
+            return Err("Maven tree depth exceeds 128.".into());
         }
         let (group, name, version) = (
             tree["groupId"].as_str().ok_or("Missing Maven group")?,
@@ -275,7 +275,7 @@ fn parse_maven(root: &str, text: &str) -> Result<Evidence, Error> {
 }
 fn parse_gradle(root: &str, configuration: &str, text: &str) -> Result<Evidence, Error> {
     if text.len() > 4 << 20 {
-        return Err("Gradle export exceeds4MiB.".into());
+        return Err("Gradle export exceeds 4MiB.".into());
     }
     let mut deps = Vec::new();
     let mut sources = HashMap::new();

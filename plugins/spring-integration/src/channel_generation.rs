@@ -240,7 +240,7 @@ impl Integration {
             return Err(Error::Cancelled);
         };
         if !identifier(&class) || matches!(class.as_str(), "org" | "java" | "kotlin") {
-            return Err("Choose a new ASCII class identifier up to128 bytes without keywords or namespace roots.".into());
+            return Err("Choose a new ASCII class identifier up to 128 bytes without keywords or namespace roots.".into());
         }
         current(&pending, doc)?;
         let Some(channel) = host::input(
@@ -257,7 +257,7 @@ impl Integration {
             )
         {
             return Err(
-                "Choose a nonreserved ASCII channel/method identifier up to128 bytes.".into(),
+                "Choose a nonreserved ASCII channel/method identifier up to 128 bytes.".into(),
             );
         }
         current(&pending, doc)?;

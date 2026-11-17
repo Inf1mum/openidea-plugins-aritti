@@ -1194,7 +1194,7 @@ fn label_component(
         .sum();
     if graph_size > 4096 {
         return Err(
-            "Static label graph exceeds4096 fields/conditions; no partial Rename is admitted."
+            "Static label graph exceeds 4096 fields/conditions; no partial Rename is admitted."
                 .into(),
         );
     }
@@ -1288,7 +1288,7 @@ fn association_matrix(
                 for (owner_index, owner) in candidates(facts, selector.target).iter().enumerate() {
                     inspected += 1;
                     if inspected > 65536 {
-                        return Err("Static selector association proof exceeds65536 candidate comparisons; Rename is withheld.".into());
+                        return Err("Static selector association proof exceeds 65536 candidate comparisons; Rename is withheld.".into());
                     }
                     if matches(selector, owner, facts, all) {
                         result.push((source, selector_index, file, owner_index));
@@ -1362,7 +1362,7 @@ fn resolve_label_action(
     )?
     .ok_or(Error::Cancelled)?;
     if !label_key(&new_key) || new_key == subject.key {
-        return Err("Use a different valid Kubernetes label key (optional DNS prefix/name; name at most63 characters).".into());
+        return Err("Use a different valid Kubernetes label key (optional DNS prefix/name; name at most 63 characters).".into());
     }
     if all.iter().any(|(_, facts)| {
         facts
@@ -1475,7 +1475,7 @@ fn resolve_label_action(
     }
     if review.len() > ui_kit::prompts::MAX_CONFIRM_BYTES {
         return Err(
-            "The complete label Rename review exceeds16KiB; no partial edits were prepared.".into(),
+            "The complete label Rename review exceeds 16KiB; no partial edits were prepared.".into(),
         );
     }
     if !ui_kit::prompts::confirm_exact("Rename connected static Kubernetes label keys?", &review)? {
@@ -1603,7 +1603,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
     }
     if !files.contains(&doc.path) || files.len() > 128 {
         return Err(
-            "Rename requires an admitted inventory of at most128 project YAML/JSON sources.".into(),
+            "Rename requires an admitted inventory of at most 128 project YAML/JSON sources.".into(),
         );
     }
     let mut total = 0usize;
@@ -1798,7 +1798,7 @@ impl Cache {
         )?
         .ok_or(openidea_plugin::Error::Cancelled)?;
         if !key_name(&new_key) || new_key == subject.key {
-            return Err("Use a different data key containing only letters, digits, '.', '_' or '-' (at most253 bytes).".into());
+            return Err("Use a different data key containing only letters, digits, '.', '_' or '-' (at most 253 bytes).".into());
         }
         if snapshot
             .files
@@ -1873,7 +1873,7 @@ impl Cache {
         }
         if review.len() > ui_kit::prompts::MAX_CONFIRM_BYTES {
             return Err(
-                "The complete Rename review exceeds16KiB; no partial edits were prepared.".into(),
+                "The complete Rename review exceeds 16KiB; no partial edits were prepared.".into(),
             );
         }
         if !ui_kit::prompts::confirm_exact("Rename static Kubernetes data-key sources?", &review)? {

@@ -185,7 +185,7 @@ fn version_matches(s: &str, language: Language) -> bool {
 }
 fn parse(root: &str, language: Language, text: &str) -> Result<(Vec<Fact>, usize), Error> {
     if text.len() > 4 << 20 {
-        return Err("Scanner JSON exceeds4MiB.".into());
+        return Err("Scanner JSON exceeds 4MiB.".into());
     }
     let v: serde_json::Value = serde_json::from_str(text).map_err(|_| {
         Error::Invalid("Malformed/truncated scanner JSON; previous evidence retained.".into())
@@ -194,7 +194,7 @@ fn parse(root: &str, language: Language, text: &str) -> Result<(Vec<Fact>, usize
         .as_array()
         .ok_or("Scanner result list is unavailable; no clean result inferred.")?;
     if sources.len() > 500 {
-        return Err("Scanner source bound exceeds500; previous evidence retained.".into());
+        return Err("Scanner source bound exceeds 500; previous evidence retained.".into());
     }
     let mut facts = Vec::new();
     let mut count = 0;
@@ -464,7 +464,7 @@ impl State {
                 let json =
                     serde_json::to_string(&evidence).map_err(|e| Error::Invalid(e.to_string()))?;
                 if json.len() > 512 << 10 {
-                    return Err("Call evidence exceeds512KiB local storage budget; previous evidence retained.".into());
+                    return Err("Call evidence exceeds 512KiB local storage budget; previous evidence retained.".into());
                 }
                 host::storage::set(&format!("call-analysis:{}", run.root), &json)?;
                 self.evidence = Some(evidence);

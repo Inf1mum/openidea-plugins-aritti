@@ -309,7 +309,7 @@ fn read_plan(project: &Project, profile: &str) -> Result<Plan, Error> {
     }
     let source = project.read_file(profile)?;
     if source.len() > 32 << 10 {
-        return Err("Hibernate profile exceeds32KiB.".into());
+        return Err("Hibernate profile exceeds 32KiB.".into());
     }
     let value = json(&source)?;
     let object = value.as_object().ok_or(Error::Stale)?;

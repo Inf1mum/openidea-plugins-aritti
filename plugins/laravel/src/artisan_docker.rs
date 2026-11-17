@@ -296,7 +296,7 @@ fn refresh_with(
     let raw = value.to_string();
     if raw.len() > MAX_CACHE {
         return Err(Error::Invalid(
-            crate::ui_text::text("native.artisan_docker.6ee56051a8", "Docker metadata envelope exceeds5MiB; previous snapshot retained.").into(),
+            crate::ui_text::text("native.artisan_docker.6ee56051a8", "Docker metadata envelope exceeds 5MiB; previous snapshot retained.").into(),
         ));
     }
     host::storage::set(&key(root), &raw)?;

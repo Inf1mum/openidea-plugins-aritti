@@ -364,7 +364,7 @@ impl Launcher {
             }
         }
         if self.get("dependencies").split([',', ' ']).filter(|id| !id.is_empty()).count() > 64 {
-            return Err("Source import supports at most64 selected plain Boot-managed starters.".into());
+            return Err("Source import supports at most 64 selected plain Boot-managed starters.".into());
         }
         for id in self.get("dependencies").split([',', ' ']).filter(|s| !s.is_empty()) {
             let dep = metadata["dependencies"]["values"]

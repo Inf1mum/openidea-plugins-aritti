@@ -93,7 +93,7 @@ pub(crate) fn project_usages(ctx: &Invocation) -> Result<Option<String>, Error> 
             if physical_target(&file, relative).as_deref() != Some(target.as_str()) { continue; }
             if pointer != base && !pointer.starts_with(&format!("{base}/")) {continue;}
             locations.push((file.clone(), spring_text::range(&text, reference.at, reference.end), text.clone(), "$ref"));
-            if locations.len() > 512 {return Err("More than512 component usages; narrow the project before navigating.".into());}
+            if locations.len() > 512 {return Err("More than 512 component usages; narrow the project before navigating.".into());}
         }
     }
     let items: Vec<_> = locations.iter().enumerate().map(|(i,(path,range,_,kind))| PickItem::new(&i.to_string(), &format!("{kind} · {}:{}", path.strip_prefix(&format!("{root}/")).unwrap_or(path), range.start.line+1))).collect();

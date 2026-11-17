@@ -21,42 +21,42 @@ languages = ["java", "kotlin", "xml"]
 
 [[contributes.commands]]
 id = "generate-setter"
-title = "Generate Setter Dependency"
+title = "Spring Beans: Generate Setter Dependency"
 category = "Spring"
 
 [[contributes.commands]]
 id = "generate-constructor-dependency"
-title = "Generate Constructor Dependency"
+title = "Spring Beans: Generate Constructor Dependency"
 category = "Spring"
 
 [[contributes.commands]]
 id = "generate-autowired-dependency"
-title = "Generate Autowired Dependency"
+title = "Spring Beans: Generate Autowired Dependency"
 category = "Spring"
 
 [[contributes.commands]]
 id = "generate-event-listener"
-title = "Generate Event Listener"
+title = "Spring Beans: Generate Event Listener"
 category = "Spring"
 
 [[contributes.commands]]
 id = "change-active-profiles"
-title = "Change Active Spring Profiles"
+title = "Spring Beans: Change Active Spring Profiles"
 category = "Spring"
 
 [[contributes.commands]]
 id = "check-spring-configuration"
-title = "Check Spring Configuration"
+title = "Spring Beans: Check Spring Configuration"
 category = "Spring"
 
 [[contributes.commands]]
 id = "dump-spring-configuration"
-title = "Dump Spring Configuration"
+title = "Spring Beans: Dump Spring Configuration"
 category = "Spring"
 
 [[contributes.commands]]
 id = "externalize-annotation-string"
-title = "Move Annotation String to Property"
+title = "Spring Beans: Move Annotation String to Property"
 category = "Spring"
 
 [[contributes.menus]]
@@ -222,5 +222,5 @@ icon = "icons/marker-bean.svg"
 
 [[contributes.commands]]
 id = "choose-source-gutter-target"
-title = "Spring: Choose Source Gutter Target"
+title = "Spring Beans: Choose Source Gutter Target"
 category = "Spring"

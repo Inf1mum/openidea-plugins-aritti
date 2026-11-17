@@ -241,27 +241,27 @@ These act on the selected row in Services › Kube Explorer.
 
 | Command | Where | What it does | Shortcut |
 |---|---|---|---|
-| **Describe** | Resources | `kubectl describe`. | None |
-| **Edit YAML…** | Resources | Opens the YAML for editing. | None |
-| **Delete…** | Resources | Deletes after confirmation. | None |
-| **Follow Logs** | Pods, workloads › **Logs** | Streams logs in a terminal. | None |
-| **View Log Snapshot…** | Pods, workloads › **Logs** | Opens the Log Viewer. | None |
-| **Select Log Sources…** | Pods, workloads › **Logs** | Picks pods or containers to log. | None |
-| **Open Shell** | Pods | Opens a shell in the pod. | None |
-| **Attach** | Pods › **Container** | Attaches to the container. | None |
-| **Debug…** | Pods › **Container** | Starts an ephemeral debug container. | None |
-| **Port Forward…** | Pods, workloads, Services | Opens the port-forward form. | None |
-| **Show Secret…** | Secrets | Shows decoded values. | None |
-| **Edit Secret…** | Secrets | Edits decoded values. | None |
-| **Create Secret…** | Secrets group | Creates an Opaque Secret. | None |
-| **Switch** | Contexts, namespaces | Selects it. | None |
+| **Kube Explorer: Describe** | Resources | `kubectl describe`. | None |
+| **Kube Explorer: Edit YAML…** | Resources | Opens the YAML for editing. | None |
+| **Kube Explorer: Delete…** | Resources | Deletes after confirmation. | None |
+| **Kube Explorer: Follow Logs** | Pods, workloads › **Logs** | Streams logs in a terminal. | None |
+| **Kube Explorer: View Log Snapshot…** | Pods, workloads › **Logs** | Opens the Log Viewer. | None |
+| **Kube Explorer: Select Log Sources…** | Pods, workloads › **Logs** | Picks pods or containers to log. | None |
+| **Kube Explorer: Open Shell** | Pods | Opens a shell in the pod. | None |
+| **Kube Explorer: Attach** | Pods › **Container** | Attaches to the container. | None |
+| **Kube Explorer: Debug…** | Pods › **Container** | Starts an ephemeral debug container. | None |
+| **Kube Explorer: Port Forward…** | Pods, workloads, Services | Opens the port-forward form. | None |
+| **Kube Explorer: Show Secret…** | Secrets | Shows decoded values. | None |
+| **Kube Explorer: Edit Secret…** | Secrets | Edits decoded values. | None |
+| **Kube Explorer: Create Secret…** | Secrets group | Creates an Opaque Secret. | None |
+| **Kube Explorer: Switch** | Contexts, namespaces | Selects it. | None |
 | **Expand** / **Collapse** | Groups, root | Expands or collapses the row. | None |
-| **Refresh** | Groups, root | Reloads the row. | None |
-| **Watch Resources…** | Root › **Watch** | Prepares a resource watch. | None |
-| **Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
-| **Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
-| **Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as the Import Pasted Kubeconfig command. | None |
-| **Review Imported Kubeconfigs…** | Root › **Kubeconfig** | Same as the Review Imported Kubeconfigs command. | None |
+| **Kube Explorer: Refresh** | Groups, root | Reloads the row. | None |
+| **Kube Explorer: Watch Resources…** | Root › **Watch** | Prepares a resource watch. | None |
+| **Kube Explorer: Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
+| **Kube Explorer: Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
+| **Kube Explorer: Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as the Import Pasted Kubeconfig command. | None |
+| **Kube Explorer: Review Imported Kubeconfigs…** | Root › **Kubeconfig** | Same as the Review Imported Kubeconfigs command. | None |
 
 ## Settings
 

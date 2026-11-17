@@ -50,7 +50,7 @@ fn decode(text:&str,schema:u64)->Result<Model,Error> {
 fn read()->Result<(Raw,Model),Error> {
     let bounded=|key|->Result<Option<String>,Error>{
         let value=host::storage::get(key)?;
-        if value.as_ref().is_some_and(|v|v.len()>16384) {return Err("Stored Ignore preferences exceed16KiB; preserved without changes.".into());}
+        if value.as_ref().is_some_and(|v|v.len()>16384) {return Err("Stored Ignore preferences exceed 16KiB; preserved without changes.".into());}
         Ok(value)
     };
     let raw=Raw{legacy:bounded(KEY)?,current:bounded(KEY2)?};
@@ -231,7 +231,7 @@ impl IgnorePlugin {
                                 );
                             }
                             let encoded=serde_json::json!({"schema":2,"scope":"application:aritti.ignore","overrides":draft.model.overrides,"disabledChecks":draft.model.disabled,"disabledSupport":draft.model.disabled_support,"disabledCreation":draft.model.disabled_creation}).to_string();
-                            if encoded.len()>16384 {return Err("Ignore preferences exceed16KiB; nothing saved.".into());}
+                            if encoded.len()>16384 {return Err("Ignore preferences exceed 16KiB; nothing saved.".into());}
                             host::storage::set(KEY2, &encoded)?;
                             self.preferences.draft = None;
                             self.preferences.message = Some(

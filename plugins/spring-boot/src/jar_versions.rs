@@ -187,7 +187,7 @@ pub(super) fn cache_catalog(
         }
         if visited.len() > 64 {
             return Err(invalid(
-                "Official parent/BOM catalog exceeds64 files; no snapshot loaded.",
+                "Official parent/BOM catalog exceeds 64 files; no snapshot loaded.",
             ));
         }
         let path = dep.path(cache).trim_end_matches(".jar").to_owned() + ".pom";
@@ -204,7 +204,7 @@ pub(super) fn cache_catalog(
         let raw = host::fs::read_bytes(&path)?;
         bytes += raw.len();
         if bytes > 2 * 1024 * 1024 {
-            return Err(invalid("Official parent/BOM catalog exceeds2MiB."));
+            return Err(invalid("Official parent/BOM catalog exceeds 2MiB."));
         }
         if host::fs::stat(&path)? != stat || raw.len() as u64 != stat.size {
             return Err(invalid("Cached parent/BOM changed during reading."));

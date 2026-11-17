@@ -81,7 +81,7 @@ category = "Spring Runtime"
 
 [[contributes.commands]]
 id = "configure-snapshot-database"
-title = "Configure Database from Runtime Snapshot"
+title = "Spring Runtime: Configure Database from Runtime Snapshot"
 category = "Spring Runtime"
 
 [[contributes.menus]]

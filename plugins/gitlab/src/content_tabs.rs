@@ -168,7 +168,7 @@ impl GitLab {
                 if !self.trace_transport {return Err("Job trace snapshots require native host API1.4 redirect enforcement.".into());}
                 let selected=Self::job_membership(&repo.path,iid,pipeline,job)?;
                 if task.is_cancelled() {return Err("Snapshot loading cancelled.".into());}
-                body.push(&format!("\nPipeline: #{pipeline}\nJob: #{job}\nName: {}\nObserved status: {}\n\nHistorical bounded job trace snapshot, not a live stream or managed local process. MR membership does not assert this pipeline runs the current MR head. Refresh is explicit.\nHost transfer cap:8MiB; plugin accepts1MiB and displays up to384KiB with a truncation marker.\n\n",selected.name,selected.status));
+                body.push(&format!("\nPipeline: #{pipeline}\nJob: #{job}\nName: {}\nObserved status: {}\n\nHistorical bounded job trace snapshot, not a live stream or managed local process. MR membership does not assert this pipeline runs the current MR head. Refresh is explicit.\nHost transfer cap:8MiB; plugin accepts 1MiB and displays up to 384KiB with a truncation marker.\n\n",selected.name,selected.status));
                 body.push(&api::Project(&repo.path).job_trace(job)?);
                 if task.is_cancelled() {return Err("Snapshot loading cancelled.".into());}
                 Self::job_membership(&repo.path,iid,pipeline,job)?;

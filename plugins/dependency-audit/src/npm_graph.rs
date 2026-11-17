@@ -65,7 +65,7 @@ fn locate(packages: &serde_json::Map<String, Value>, parent: &str, name: &str, f
 
 fn model(text: &str) -> Result<(Vec<TreeItem>, HashMap<String, usize>, String), Error> {
     if text.len() > 512 << 10 {
-        return Err("Lockfile graph input exceeds512KiB.".into());
+        return Err("Lockfile graph input exceeds 512KiB.".into());
     }
     let root: Value = serde_json::from_str(text)
         .map_err(|_| Error::Invalid("Invalid package lock JSON.".into()))?;
@@ -79,7 +79,7 @@ fn model(text: &str) -> Result<(Vec<TreeItem>, HashMap<String, usize>, String), 
         .get("packages")
         .and_then(Value::as_object)
         .filter(|packages| packages.len() <= 2000)
-        .ok_or("A bounded packages map is required (at most2000 entries).")?;
+        .ok_or("A bounded packages map is required (at most 2000 entries).")?;
     let root_members =
         manifest::object_members(text, 0).ok_or("Ambiguous lockfile root ownership.")?;
     let package_at = root_members
@@ -158,7 +158,7 @@ fn model(text: &str) -> Result<(Vec<TreeItem>, HashMap<String, usize>, String), 
         for ((name, kind), requirement) in dependencies {
             edges += 1;
             if edges > 8000 {
-                return Err("Lockfile graph exceeds8000 edges.".into());
+                return Err("Lockfile graph exceeds 8000 edges.".into());
             }
             let key = format!("npm-edge:{index}:{edges}");
             let target = resolve(packages, path, name);

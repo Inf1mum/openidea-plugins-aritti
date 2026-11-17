@@ -109,7 +109,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Runtime**; bi
 | **Spring Runtime: Start Bounded Scoped Polling** | Starts polling for the current project/URL/auth mode. |
 | **Spring Runtime: Stop Future Polls** | Stops future poll attempts. |
 | **Spring Runtime: Read JMX (localhost)…** | Reads read-only JMX attributes from a local JVM. |
-| **Configure Database from Runtime Snapshot** | Creates a database connection from a captured datasource. Also in the **Tools** menu. |
+| **Spring Runtime: Configure Database from Runtime Snapshot** | Creates a database connection from a captured datasource. Also in the **Tools** menu. |
 
 The tool window has the same **Refresh** and **Clear** buttons. **Clear** stays available when the cache can't be read.
 

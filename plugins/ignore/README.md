@@ -101,8 +101,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ignore**; bind keys 
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Add Selected Paths to the Open Ignore File** | Adds the paths selected in the Project view to the open ignore file. Also in the Project view and editor context menus. | none |
-| **Unignore Selected Paths in the Open Ignore File** | Adds `!` entries for the selected paths. Also in the Project view and editor context menus. | none |
+| **Ignore: Add Selected Paths to the Open Ignore File** | Adds the paths selected in the Project view to the open ignore file. Also in the Project view and editor context menus. | none |
+| **Ignore: Unignore Selected Paths in the Open Ignore File** | Adds `!` entries for the selected paths. Also in the Project view and editor context menus. | none |
 | **Ignore: New Ignore File…** | Creates an ignore file directly after you confirm (not a single undo step): the editor's **Create exact-name ignore file…**, or an empty file of the picked type at the project root. Also in the Project view menu and Tools. | none |
 | **Ignore: Dialect Checks and Preferences** | Opens the per-file-type preferences form. Also in Tools. | none |
 | **Ignore: Start Git Ignored-File Observations (Asks First)…** | Shows the Git command, then collects a sample of ignored paths. | none |

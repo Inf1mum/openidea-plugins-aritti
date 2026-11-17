@@ -9,7 +9,7 @@ pub(crate) struct State { snapshot:Option<Snapshot>, watching:bool, serial:u64 }
 struct Snapshot {root:String,base:String,doc:Document,serial:u64,at:Instant,unused:Vec<Span<usize>>,fingerprint:String,count:usize,unsupported:usize}
 fn owned(root:&str,path:&str)->bool {host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root)}
 fn inventory(text:&str,base:&str)->Result<Vec<(String,bool)>,Error> {
-    if text.len()>1<<20 {return Err("Complete inventory output exceeds1MiB.".into());}
+    if text.len()>1<<20 {return Err("Complete inventory output exceeds 1MiB.".into());}
     let data:serde_json::Value=serde_json::from_str(text).map_err(|_|"Invalid complete inventory output.")?;
     if data["schema"]!="ignore-complete-v1"||data["root"].as_str()!=Some(base)||data["complete"]!=true
         ||data["fingerprint"].as_str().is_none_or(|s|s.len()!=64||!s.bytes().all(|b|b.is_ascii_hexdigit())) {return Err("Incomplete or foreign inventory output.".into());}
@@ -42,7 +42,7 @@ fn matched(rule:&matcher::Rule,glob:&globset::GlobMatcher,path:&str,is_dir:bool)
     })
 }
 fn find_unused(text:&str,entries:&[(String,bool)])->Result<(Vec<Span<usize>>,usize),Error> {
-    if text.len()>128<<10 {return Err("Ignore source exceeds128KiB.".into());}
+    if text.len()>128<<10 {return Err("Ignore source exceeds 128KiB.".into());}
     let mut out=Vec::new();let mut offset=0;let mut rules=0;let mut unsupported=0;let deadline=Instant::now()+Duration::from_secs(2);
     for line in text.split_inclusive('\n') {
         let body=line.trim_end_matches(['\r','\n']);let start=offset;offset+=line.len();
@@ -105,9 +105,9 @@ impl State {
         let project=ctx.project().ok_or(Error::Stale)?;let root=project.root()?;
         if !owned(&root,&path){return Err(Error::Stale);}
         let source=editor.document()?;let doc=Document{path:path.clone(),language:editor.language(),text:source.text,version:source.version};
-        if doc.text.len()>128<<10{return Err("Ignore source exceeds128KiB.".into());}
+        if doc.text.len()>128<<10{return Err("Ignore source exceeds 128KiB.".into());}
         let base=path.rsplit_once('/').ok_or(Error::Stale)?.0.to_owned();
-        if !ui_kit::prompts::confirm_exact("Capture complete unused-entry inventory?",&format!("Directory: {base}\nSource: {path}\n\nRun approved python3 in isolated mode with the bundled filesystem-only helper. It scans every entry (including hidden/ignored paths) twice, follows no symlinks and refuses errors, concurrent changes, more than4096 entries/512 directories/depth24/1MiB output or8seconds. Source files are not changed. Unmatched entries are hints about this snapshot, not future-file guarantees."))? {return Ok(None);}
+        if !ui_kit::prompts::confirm_exact("Capture complete unused-entry inventory?",&format!("Directory: {base}\nSource: {path}\n\nRun approved python3 in isolated mode with the bundled filesystem-only helper. It scans every entry (including hidden/ignored paths) twice, follows no symlinks and refuses errors, concurrent changes, more than 4096 entries/512 directories/depth24/1MiB output or8seconds. Source files are not changed. Unmatched entries are hints about this snapshot, not future-file guarantees."))? {return Ok(None);}
         let current=editor.document()?;if current.version!=doc.version||current.text!=doc.text||!owned(&root,&path){return Err(Error::Stale);}
         self.serial=self.serial.checked_add(1).ok_or(Error::Stale)?;
         let private=host::fs::plugin_dir()?;let helper=format!("{private}/complete_inventory.py");

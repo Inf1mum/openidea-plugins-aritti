@@ -424,7 +424,7 @@ fn insert_finder(project:&openidea_plugin::Project,pending:&Pending,directory:&s
     let header=&text[repository.at+repository.name.len()..close];
     if header.trim_start().starts_with('<')||file.types.iter().any(|t|matches!(t.name.as_str(),"org"|"java"|"kotlin")){return Err("Generic or namespace-shadowed repository declarations are outside insertion scope.".into());}
     let options=pending.entity.projection.iter().filter(|(name,_)|finder_method(name).is_some()).map(|(name,_)|name.as_str()).collect::<Vec<_>>().join(", ");
-    let Some(selected)=host::input(&format!("Finder criteria (property[:Operator], at most8; source properties: {options})"),None)? else{return Err(Error::Cancelled);};
+    let Some(selected)=host::input(&format!("Finder criteria (property[:Operator], at most 8; source properties: {options})"),None)? else{return Err(Error::Cancelled);};
     let(method,params)=predicate_finder(&pending.entity.projection,&selected,kotlin)?;
     if repository.members.iter().any(|m|m.name==method){return Err("This repository already declares a method with that name; no overload is inserted.".into());}
     let params=params.iter().map(|(name,ty)|if kotlin{format!("{name}: {ty}")}else{format!("{ty} {name}")}).collect::<Vec<_>>().join(", ");

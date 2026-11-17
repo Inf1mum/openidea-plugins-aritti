@@ -176,7 +176,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "No literal Batch job name is proved in this project's source." | Define the job with a literal name (XML `<job id>` or a Spring `JobBuilder` with a string literal). |
 | "The JAR does not exist in this project." | Build the JAR first, then enter its project-relative path. |
 | "Configure an optional Spring Batch runtime profile, explicit classpath, context and source before operating jobs." | Fill the four CLI settings above. |
-| "This profile requires Java17 or newer." | Point the IDE at Java 17 or newer. |
+| "This profile requires Java 17 or newer." | Point the IDE at Java 17 or newer. |
 | "Runtime context on disk differs from the reviewed source, or the profile changed; save/rebuild and validate again." | Save, rebuild, then run **Spring Batch: Validate Configured CLI Profile**. |
 | "Three launch processes are active…" or "Four owned Batch CLI processes are active…" | Run **Spring Batch: Poll CLI Output** to collect finished ones, or **Spring Batch: Cancel CLI Process**. |
 | "Current project source ownership is not ready; refresh this project." | Click **Refresh** in **Spring Structure**. |

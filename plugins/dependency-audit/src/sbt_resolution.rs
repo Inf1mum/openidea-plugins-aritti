@@ -124,7 +124,7 @@ fn decode(s: &str) -> Result<String, Error> {
 }
 fn parse(root: &str, text: &str) -> Result<Evidence, Error> {
     if text.len() > 4 << 20 {
-        return Err("sbt export exceeds4MiB.".into());
+        return Err("sbt export exceeds 4MiB.".into());
     }
     let mut lines = text.lines();
     let header: Vec<_> = lines
@@ -273,7 +273,7 @@ impl State {
         if !host::confirm(
             "Resolve sbt dependencies",
             &format!(
-                "Project: {root}\nApproved official sbt2.0.12 runner/runtime, Java17+\n\nAfter this review the runner version is probed, then a managed --server --batch session loads this executable Scala build and plugins. It may execute arbitrary configured tasks, contact configured repositories and update normal sbt/build caches. Project/global JVM/sbt options and external build inputs are not fully captured by the bounded snapshot. No project wrapper is invoked and no build definition is modified.\n\nAn owned temporary command resolves every owned project ref's update report and exports non-evicted modules across its reported configurations. External project bases refuse export. Poll/cancel the owned child, then explicitly Audit resolved dependencies to send coordinates to OSV. Failed/incomplete/stale exports retain the previous report."
+                "Project: {root}\nApproved official sbt2.0.12 runner/runtime, Java 17+\n\nAfter this review the runner version is probed, then a managed --server --batch session loads this executable Scala build and plugins. It may execute arbitrary configured tasks, contact configured repositories and update normal sbt/build caches. Project/global JVM/sbt options and external build inputs are not fully captured by the bounded snapshot. No project wrapper is invoked and no build definition is modified.\n\nAn owned temporary command resolves every owned project ref's update report and exports non-evicted modules across its reported configurations. External project bases refuse export. Poll/cancel the owned child, then explicitly Audit resolved dependencies to send coordinates to OSV. Failed/incomplete/stale exports retain the previous report."
             ),
         )? {
             return Ok(());

@@ -115,7 +115,7 @@ fn selection_end(tokens: &[&str], mut at: usize) -> Result<usize, Error> {
                 }
                 stack.push(token);
                 if stack.len() > 64 {
-                    return Err(invalid("GraphQL nesting exceeds64 levels."));
+                    return Err(invalid("GraphQL nesting exceeds 64 levels."));
                 }
             }
             ")" | "]" | "}" => {
@@ -142,7 +142,7 @@ fn selection_end(tokens: &[&str], mut at: usize) -> Result<usize, Error> {
 }
 fn subscription_name(text: &str) -> Result<Option<String>, Error> {
     if text.is_empty() || text.len() > 8192 {
-        return Err(invalid("Use a subscription document of at most8 KiB."));
+        return Err(invalid("Use a subscription document of at most 8 KiB."));
     }
     let t = tokens(text.trim_start_matches('\u{feff}'))?;
     if t.first() != Some(&"subscription") {
@@ -741,7 +741,7 @@ fn append(session: &mut Session, chunk: &host::Chunk) -> Result<(), Error> {
     if shown < data.len() {
         session.child.kill()?;
         return Err(invalid(
-            "Subscription process exceeded the256 KiB display bound and was ended.",
+            "Subscription process exceeded the 256 KiB display bound and was ended.",
         ));
     }
     Ok(())

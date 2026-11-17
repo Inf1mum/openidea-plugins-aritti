@@ -169,16 +169,16 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 
 | Command | What it does | Where |
 |---|---|---|
-| **Check Spring Configuration** | Checks the indexed project files and lists problems in the **Report** section. | Tools menu |
-| **Dump Spring Configuration** | Lists the project's beans in the **Report** section. | Tools menu |
-| **Change Active Spring Profiles** | Picks the profiles used by the profile checks. | Tools menu |
-| **Generate Setter Dependency** | Adds a setter-injected dependency to the Java class. | Java editor context menu |
-| **Generate Constructor Dependency** | Adds a constructor-injected dependency. | Java editor context menu |
-| **Generate Autowired Dependency** | Adds an `@Autowired` dependency. | Java editor context menu |
-| **Generate Event Listener** | Adds an event listener method. | Java editor context menu |
-| **Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
+| **Spring Beans: Check Spring Configuration** | Checks the indexed project files and lists problems in the **Report** section. | Tools menu |
+| **Spring Beans: Dump Spring Configuration** | Lists the project's beans in the **Report** section. | Tools menu |
+| **Spring Beans: Change Active Spring Profiles** | Picks the profiles used by the profile checks. | Tools menu |
+| **Spring Beans: Generate Setter Dependency** | Adds a setter-injected dependency to the Java class. | Java editor context menu |
+| **Spring Beans: Generate Constructor Dependency** | Adds a constructor-injected dependency. | Java editor context menu |
+| **Spring Beans: Generate Autowired Dependency** | Adds an `@Autowired` dependency. | Java editor context menu |
+| **Spring Beans: Generate Event Listener** | Adds an event listener method. | Java editor context menu |
+| **Spring Beans: Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
 | **Spring Beans: Reindex Project Sources** | Starts a fresh scan of the project's sources. | Search Everywhere |
-| **Spring: Choose Source Gutter Target** | Opens the target picker. Used by gutter icons with several targets; not meant to be run by hand. | Gutter icons |
+| **Spring Beans: Choose Source Gutter Target** | Opens the target picker. Used by gutter icons with several targets; not meant to be run by hand. | Gutter icons |
 
 ## Settings
 

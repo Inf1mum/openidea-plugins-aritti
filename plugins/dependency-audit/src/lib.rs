@@ -64,7 +64,7 @@ fn validate_report_sources(report: &Report, mut owned: impl FnMut(&str)->bool) -
     let mut paths=HashSet::new();
     for row in &report.rows {
         for path in std::iter::once(row.path.as_str()).chain(row.sources.iter().map(|s|s.path.as_str())) {
-            if paths.insert(path) && paths.len()>MAX_REPORT_OWNER_PATHS { return Err(Error::Invalid("Saved report exceeds512 unique evidence paths; owner proof unavailable.".into())); }
+            if paths.insert(path) && paths.len()>MAX_REPORT_OWNER_PATHS { return Err(Error::Invalid("Saved report exceeds 512 unique evidence paths; owner proof unavailable.".into())); }
         }
         if Instant::now()>=deadline { return Err(Error::Stale); }
     }

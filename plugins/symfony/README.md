@@ -7,7 +7,7 @@ Symfony support in PHP, Twig, YAML and XML files, built from your project's own 
 - OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
 - A Symfony project: it has `symfony.lock`, or `composer.json` requires `symfony/framework-bundle` or `symfony/symfony`.
 - The `aritti.twig` plugin for Twig files. The IDE has no Twig language of its own.
-- Optional: `php` on the `PATH` for cache commands, console commands, **Symfony: Make...** and profile inspection.
+- Optional: `php` on the `PATH` for cache commands, console commands, **Symfony: Make…** and profile inspection.
 - Optional: the `symfony` CLI for the server in the **Processes** tab.
 - Optional: a compiled dev cache (`var/cache/dev`) for missing-route and missing-service checks.
 
@@ -156,12 +156,12 @@ Rows don't refresh by themselves. They're marked **STALE** when the file changes
 ### Run console commands
 
 - **Symfony: Warm Up Cache** and **Symfony: Clear Cache** run `php bin/console cache:warmup` / `cache:clear`, then reindex.
-- **Symfony: Run Console Command...** runs any `bin/console` command in a terminal.
-- **Symfony: Make...** lists `make:*` commands, asks for the name and options, and runs it in a terminal.
+- **Symfony: Run Console Command…** runs any `bin/console` command in a terminal.
+- **Symfony: Make…** lists `make:*` commands, asks for the name and options, and runs it in a terminal.
 
 ### Jump project-wide
 
-- **Symfony: Go to Route...**, **Symfony: Go to Service...**, **Symfony: Go to Console Command...** and **Symfony: Go to Template...**.
+- **Symfony: Go to Route…**, **Symfony: Go to Service…**, **Symfony: Go to Console Command…** and **Symfony: Go to Template…**.
 - **Symfony: Find Source Occurrences** lists the literal references to the route, service or template under the caret.
 
 ### Let AI agents read the project (MCP)
@@ -187,16 +187,16 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys
 | **Symfony: Reindex Project** | Rebuilds the index. | none |
 | **Symfony: Warm Up Cache** | Runs `php bin/console cache:warmup`, then reindexes. | none |
 | **Symfony: Clear Cache** | Runs `php bin/console cache:clear`, then reindexes. | none |
-| **Symfony: Run Console Command...** | Picks a `bin/console` command and runs it in a terminal. | none |
-| **Symfony: Make...** | Picks a `make:*` command, asks for its inputs and runs it. | none |
-| **Symfony: Go to Route...** | Jumps to a route definition. | none |
-| **Symfony: Go to Service...** | Jumps to a service definition. | none |
-| **Symfony: Go to Console Command...** | Jumps to a console command class. | none |
-| **Symfony: Go to Template...** | Opens a Twig template. | none |
+| **Symfony: Run Console Command…** | Picks a `bin/console` command and runs it in a terminal. | none |
+| **Symfony: Make…** | Picks a `make:*` command, asks for its inputs and runs it. | none |
+| **Symfony: Go to Route…** | Jumps to a route definition. | none |
+| **Symfony: Go to Service…** | Jumps to a service definition. | none |
+| **Symfony: Go to Console Command…** | Jumps to a console command class. | none |
+| **Symfony: Go to Template…** | Opens a Twig template. | none |
 | **Symfony: Find Source Occurrences** | Lists literal references to the route, service or template at the caret. | none |
-| **Symfony: Extend Twig Template...** | Inserts an `extends` tag in the open template. Also in the editor context menu. | none |
+| **Symfony: Extend Twig Template…** | Inserts an `extends` tag in the open template. Also in the editor context menu. | none |
 | **Symfony: Create Twig Template…** | Creates the template directly after you confirm (not a single undo step). On a quoted reference it runs **Create missing Twig template…**; otherwise it asks for a name and creates an empty `templates/<name>`. | none |
-| **Symfony: Insert Form Rows from a Form Type...** | Inserts `form_start`, one `form_row` per field and `form_end` at the caret. | none |
+| **Symfony: Insert Form Rows from a Form Type…** | Inserts `form_start`, one `form_row` per field and `form_end` at the caret. | none |
 | **Symfony: Copy Route as curl** | Copies the selected route row as a `curl` command. | none |
 | **Symfony: Create HTTP Request File for Route** | Writes `http/<verb>-<path>.http` for the selected route row. | none |
 | **Symfony: Show Profiler** | Reads the profiler index and opens the **Profiler** tab. | none |
@@ -242,12 +242,12 @@ Optional permissions are off until you allow them in Settings › Plugins › Sy
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `process:php` | **Symfony: Warm Up Cache**, **Symfony: Clear Cache**, **Symfony: Run Console Command...**, **Symfony: Make...**, Messenger/scheduler workers and **Inspect Profile**. | Those fail with "Allow the process:php capability in Settings › Plugins." **Make...** falls back to a built-in list. |
+| `process:php` | **Symfony: Warm Up Cache**, **Symfony: Clear Cache**, **Symfony: Run Console Command…**, **Symfony: Make…**, Messenger/scheduler workers and **Inspect Profile**. | Those fail with "Allow the process:php capability in Settings › Plugins." **Make...** falls back to a built-in list. |
 | `process:symfony` | `symfony serve` and `symfony server:log` in the **Processes** tab. | Those entries fail. |
 | `project.write` | **Create HTTP Request File** and **Symfony: Create Twig Template…**. | The request is copied instead; the template command says which permission to allow. ⌥⏎ still creates templates. |
 | `clipboard` | **Copy as cURL**. | Nothing is copied. |
 | `events` | Refreshing cross-file problems and the index when files are opened, saved or changed. | Cross-file problems don't refresh on open or save; use **Reindex**. Live checks on the open file still work. |
-| `editor.read`, `editor.write` | **Symfony: Extend Twig Template...**, inserting form rows and reading the caret for **Symfony: Create Twig Template…**. | Those commands fail. |
+| `editor.read`, `editor.write` | **Symfony: Extend Twig Template…**, inserting form rows and reading the caret for **Symfony: Create Twig Template…**. | Those commands fail. |
 | `storage` | Saving **Twig Namespace Paths**. | The tab shows an error and can't save. |
 
 ## Troubleshooting

@@ -171,7 +171,7 @@ fn materialize(plan: &Plan) -> Result<(), Error> {
         }
     }
     if existing + new > 96 {
-        return Err("Private staging cap reached (96 known staging/output files; up to32 report sets or24 generated runs). Remove the plugin's empty lb-diff cache files or reinstall before creating more.".into());
+        return Err("Private staging cap reached (96 known staging/output files; up to 32 report sets or24 generated runs). Remove the plugin's empty lb-diff cache files or reinstall before creating more.".into());
     }
     for (path, text) in &plan.staged {
         if let Err(error) = host::fs::write_bytes(path, text.as_bytes()) {
@@ -362,7 +362,7 @@ impl Liquibase {
         let root = project.root()?;
         let paths = project.find_files("**/*.json", 129)?;
         if paths.len() > 128 {
-            return Err("Choose a smaller project: offline snapshot discovery is limited to128 JSON files.".into());
+            return Err("Choose a smaller project: offline snapshot discovery is limited to 128 JSON files.".into());
         }
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut inputs = Vec::new();

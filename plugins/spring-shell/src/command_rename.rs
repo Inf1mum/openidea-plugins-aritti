@@ -526,9 +526,9 @@ impl ShellTools {
         if !fresh(trigger_doc) || !current(&project)? || project.read_file(&trigger_doc.path)? != trigger_doc.text {
             return Err(Error::Stale);
         }
-        let new=host::input("New local Shell command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
+        let new=host::input("New local Shell command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max 64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
         if !name(&new) || new == pending.command.name || pending.command.names.contains(&new) {
-            return Err(Error::Invalid("Use a different non-colliding lowercase literal command key, at most64 characters.".into()));
+            return Err(Error::Invalid("Use a different non-colliding lowercase literal command key, at most 64 characters.".into()));
         }
         let declaration=match &pending.command.insertion {
             Some((range,before,after))=>TextEdit{range:*range,text:format!("{before}{new}{after}")},

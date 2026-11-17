@@ -653,7 +653,7 @@ impl Cache {
             .as_vec()
             .ok_or("This chart has no dependency list.")?;
         if dependencies.len() > 32 {
-            return Err("Dependency catalog refresh supports at most32 dependencies.".into());
+            return Err("Dependency catalog refresh supports at most 32 dependencies.".into());
         }
         let output = host::run_process(
             "helm",
