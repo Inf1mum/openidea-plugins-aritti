@@ -20,6 +20,7 @@ mod local_references;
 mod file_references;
 mod selection;
 mod offline_diff;
+mod status;
 
 use changelog::{Changelog, Format, Include, Target};
 use openidea_plugin::PickItem;
@@ -57,6 +58,8 @@ pub struct Liquibase {
     targets_root: Option<String>,
     /// `git config user.name`, asked once; the outer `None`: not asked yet.
     git_user: Option<Option<String>>,
+    /// The last explicit `status` run, kept until its sources change.
+    status: status::State,
 }
 
 impl Plugin for Liquibase {
@@ -64,7 +67,7 @@ impl Plugin for Liquibase {
         let subscriptions = [
             host::subscribe(openidea_plugin::EventKind::FileOpened),
             host::subscribe(openidea_plugin::EventKind::FileSaved),
-            host::subscribe_paths("files-changed", &["**/*.xml", "**/*.yaml", "**/*.yml", "**/*.json", "**/*.sql"]),
+            host::subscribe_paths("files-changed", &["**/*.xml", "**/*.yaml", "**/*.yml", "**/*.json", "**/*.sql", "**/liquibase.properties"]),
         ];
         if subscriptions.iter().any(|result| matches!(result, Err(Error::Denied(_)))) {
             self.live.events_denied = true;
@@ -102,6 +105,10 @@ impl Plugin for Liquibase {
                 execution_review::run(ctx, vec!["rollback-count".to_owned(), count.to_string()], "Liquibase: rollback-count", &body)?;
                 Ok(None)
             }
+            status::COMMAND => {
+                self.show_pending(ctx)?;
+                Ok(None)
+            }
             "new-changeset" => self.generator_entry(ctx, "new-changeset"),
             "new-changelog" => self.generator_entry(ctx, "new-changelog"),
             _ => Err(Error::NotFound(format!("command {id}"))),
@@ -124,9 +131,18 @@ impl Liquibase {
                     for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
                         self.live.invalidate(path);
                     }
+                    for path in &batch.modified {
+                        self.status_touched(path, false);
+                    }
+                    for path in batch.created.iter().chain(&batch.removed) {
+                        self.status_touched(path, true);
+                    }
                     changed = true;
                 }
                 openidea_plugin::Event::FileOpened(path) | openidea_plugin::Event::FileSaved(path) => {
+                    if matches!(event, openidea_plugin::Event::FileSaved(_)) {
+                        self.status_touched(path, false);
+                    }
                     self.live.forget(path);
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     if !remaining.is_zero() {
@@ -408,6 +424,8 @@ struct Walk<'a> {
     found: BTreeMap<String, Rc<(String, Changelog)>>,
     items: Vec<TreeItem>,
     targets: BTreeMap<String, (String, u32)>,
+    /// Changeset tree key → (file, id, author).
+    sets: BTreeMap<String, (String, String, String)>,
     visited: BTreeSet<String>,
     resolved: BTreeMap<(String, usize), (Vec<String>, Target)>,
     max_files: usize,
@@ -425,6 +443,7 @@ impl<'a> Walk<'a> {
             found: BTreeMap::new(),
             items: Vec::new(),
             targets: BTreeMap::new(),
+            sets: BTreeMap::new(),
             visited: BTreeSet::new(),
             resolved: BTreeMap::new(),
             max_files,
@@ -593,7 +612,8 @@ impl<'a> Walk<'a> {
                 if let Some(description) = changelog::describe(log, text, index) {
                     item = item.detail(&description);
                 }
-                self.targets.insert(child, (path.to_owned(), changelog::line_of(text, set.at)));
+                self.targets.insert(child.clone(), (path.to_owned(), changelog::line_of(text, set.at)));
+                self.sets.insert(child, (path.to_owned(), set.id.clone().unwrap_or_default(), set.author.clone().unwrap_or_default()));
                 self.items.push(item);
                 continue;
             }
@@ -778,6 +798,8 @@ impl Views for Liquibase {
                 item.expanded = true;
             }
             self.expansion.apply(&mut items);
+            let checked = self.status_line(&project, &root);
+            self.mark_status(&root, &mut items, &walk.sets);
             self.targets = std::mem::take(&mut walk.targets);
             self.targets_root = selection::project_root(&project).ok();
             let sets = self.targets.keys().filter(|key| key.contains("/c")).count();
@@ -787,6 +809,9 @@ impl Views for Liquibase {
             }
             if let Some(source) = source_status {
                 status = format!("{status}; {source}");
+            }
+            if let Some(checked) = checked {
+                status = format!("{checked} · {status}");
             }
             let shown = View::new(Body::Tree(items)).button(refresh).button(choose()).status(&status);
             Ok(self.native_browser_view(&project, shown))

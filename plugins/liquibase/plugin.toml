@@ -5,7 +5,7 @@ description = "Liquibase changelog support for XML, YAML and formatted SQL. Vers
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Run confirmations show the effect, target and command first. New Changeset and New Changelog create the entry on the open changelog; changelog include markers have their own icon, and missing include, includeAll and sqlFile targets are flagged in the editor; undeclared ${property} placeholders are flagged, with a setting to turn this off; offline structure checks for XML changelogs, faster on large changelogs and also for a changelog open before the plugin starts, and completion for JSON keys and SQL attributes; one name per action, and hover shows facts only. \
+Next release: Run confirmations show the effect, target and command first, and Show Pending Changesets marks pending and applied changesets in the browser and notes changelog files. New Changeset and New Changelog create the entry on the open changelog; changelog include markers have their own icon, and missing include, includeAll and sqlFile targets are flagged in the editor; undeclared ${property} placeholders are flagged, with a setting to turn this off; offline structure checks for XML changelogs, faster on large changelogs and also for a changelog open before the plugin starts, and completion for JSON keys and SQL attributes; one name per action, and hover shows facts only. \
 0.3.0: migration browser and generated changeset groups. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["tools", "linters"]
@@ -16,7 +16,7 @@ activation = ["on-language:xml", "on-language:yaml", "on-language:json", "on-lan
 
 [capabilities]
 required = ["project.read"]
-# process: reviewed offline diff and Update/Rollback commands; git: the author name offered in changesets.
+# process: reviewed offline diff, Update/Rollback and Show Pending Changesets (status) commands; git: the author name offered in changesets.
 # editor.*, project.write: New Changeset edits the open changelog; New Changelog… creates the file (and the parent include).
 optional = ["process:liquibase", "process:git", "storage", "events", "editor.read", "editor.write", "project.write"]
 
@@ -33,6 +33,11 @@ category = "Liquibase"
 [[contributes.commands]]
 id = "update-confirmed"
 title = "Liquibase: Update (Asks First)…"
+category = "Liquibase"
+
+[[contributes.commands]]
+id = "show-pending"
+title = "Liquibase: Show Pending Changesets…"
 category = "Liquibase"
 
 [[contributes.commands]]

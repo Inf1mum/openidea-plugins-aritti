@@ -78,11 +78,32 @@ impl Review {
         Ok(())
     }
 }
-pub(crate) fn run(ctx: &Invocation, args: Vec<String>, title: &str, effect: &str) -> Result<(), Error> {
+/// What the user confirmed: the redacted source hints, never the effective database.
+pub(crate) struct Reviewed {
+    pub(crate) root: String,
+    pub(crate) properties: Option<String>,
+    /// Redacted JDBC target, `None` when unresolved.
+    pub(crate) target: Option<String>,
+    /// The changelog path from liquibase.properties, `None` when unresolved.
+    pub(crate) changelog: Option<String>,
+}
+pub(crate) fn properties(project: &Project) -> Result<Option<String>, Error> { defaults(project) }
+/// Shows the review and asks; `None` when declined. Nothing runs before this returns `Some`.
+pub(crate) fn review(ctx: &Invocation, args: Vec<String>, title: &str, effect: &str) -> Result<Option<Reviewed>, Error> {
     let review = Review::capture(ctx, args)?;
-    if confirmed(title, &review.body(effect))? {
-        review.unchanged(ctx)?;
-        run_liquibase(review.args)?;
+    if !confirmed(title, &review.body(effect))? { return Ok(None); }
+    review.unchanged(ctx)?;
+    let resolved = |names: &[&str], connection: bool| review.defaults.as_deref().map(|text| hint(text, names, connection)).filter(|value| !value.starts_with("UNRESOLVED"));
+    Ok(Some(Reviewed {
+        target: resolved(&["url", "liquibase.command.url"], true).map(|value| value.trim_end_matches(" (parameters omitted)").to_owned()),
+        changelog: resolved(&["changeLogFile", "liquibase.command.changelogFile", "liquibase.command.changeLogFile"], false),
+        root: review.root,
+        properties: review.defaults,
+    }))
+}
+pub(crate) fn run(ctx: &Invocation, args: Vec<String>, title: &str, effect: &str) -> Result<(), Error> {
+    if review(ctx, args.clone(), title, effect)?.is_some() {
+        run_liquibase(args)?;
     }
     Ok(())
 }
