@@ -130,7 +130,7 @@ The **Flyway** tab lists migrations grouped by status.
 
 ### Generate SQL from Hibernate entities (optional)
 
-**Flyway: Generate Reviewed Offline Hibernate Schema SQL…** builds `CREATE` SQL from compiled JPA entity classes you select. It uses a pinned Hibernate 6.6.49 or 7.4.15 runtime and a dialect you choose (16 per runtime, including PostgreSQL, MySQL and MariaDB). The Hibernate 7 profile accepts Jakarta Persistence 3.2.
+**Flyway: Generate Offline Hibernate Schema SQL…** builds `CREATE` SQL from compiled JPA entity classes you select. It uses a pinned Hibernate 6.6.49 or 7.4.15 runtime and a dialect you choose (16 per runtime, including PostgreSQL, MySQL and MariaDB). The Hibernate 7 profile accepts Jakarta Persistence 3.2.
 
 - You review the classpath and a trusted-code warning before anything runs. Project converters and custom types can run code with side effects.
 - No application is started and no database is contacted.
@@ -156,7 +156,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Flyway**; bind keys 
 | **Flyway: Refresh Status** | Reads new output from a command running in managed mode. |
 | **Flyway: Cancel Command** | Stops the command running in managed mode. |
 | **Flyway: Review Local Comparison Report…** | Opens a `diffText` JSON report for review. |
-| **Flyway: Generate Reviewed Offline Hibernate Schema SQL…** | Builds SQL from compiled Hibernate entities. |
+| **Flyway: Generate Offline Hibernate Schema SQL…** | Builds SQL from compiled Hibernate entities. |
 
 Editor actions (⌥⏎): **Create Flyway SQL migration…**, **Create Flyway migration from prepared form…**, **Rename Flyway migration…**, **Save Hibernate schema SQL as migration…**, plus Java/Kotlin migration and callback creation.
 

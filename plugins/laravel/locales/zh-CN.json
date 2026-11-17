@@ -27,7 +27,7 @@
   "Laravel: Refresh Docker Artisan Metadata": "Laravel: 刷新Docker Artisan元数据",
   "Laravel: Browse Cached Docker Artisan Metadata": "Laravel: 浏览缓存的Docker Artisan元数据",
   "Laravel: Refresh Artisan Command Metadata": "Laravel: 刷新Artisan命令元数据",
-  "Laravel: Find Literal Source Matches…": "Laravel: 查找字面量源码匹配…",
+  "Laravel: Find Source Matches…": "Laravel: 查找字面量源码匹配…",
   "Laravel: Refresh Registered Routes": "Laravel: 刷新已注册路由",
   "Laravel: Reindex Project": "Laravel: 重新索引项目",
   "Laravel: Clear All Caches": "Laravel: 清除所有缓存",

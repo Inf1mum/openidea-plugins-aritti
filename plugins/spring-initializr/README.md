@@ -82,7 +82,7 @@ For a small Maven/Java/Jar project created inside the current project:
 1. Run **Spring Initializr: Prepare Maven Source-only Import** (also in the **Tools** menu).
 2. Choose a parent folder inside the project. The new project goes into a child folder named after the artifact.
 3. Press ⌥⏎ › **Preview Import Maven Sources…** to see every file and its content, then confirm.
-4. Run **Spring Initializr: Open Reviewed Source Folder** to open it in a new window.
+4. Run **Spring Initializr: Open Source Folder** to open it in a new window.
 
 Maven wrapper files (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/…`) are left out, and the preview says so.
 
@@ -96,7 +96,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Initializr**;
 | **Spring Initializr: Generate and Open…** | Downloads, reviews, extracts and opens a complete project. |
 | **Spring Initializr: Prepare Add Spring Boot Starters** | Loads starters for the open build file, ready for ⌥⏎ › **Preview Add Spring Boot Starters…**. Also in **Tools**. |
 | **Spring Initializr: Prepare Maven Source-only Import** | Downloads a Maven project into memory, ready for ⌥⏎ › **Preview Import Maven Sources…**. Also in **Tools**. |
-| **Spring Initializr: Open Reviewed Source Folder** | Checks the imported files and opens the folder in a new window. Also in **Tools**. |
+| **Spring Initializr: Open Source Folder** | Checks the imported files and opens the folder in a new window. Also in **Tools**. |
 
 ## Permissions
 
@@ -209,7 +209,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - The result is one atomic FileAction of at most 32 non-overwriting creates. Collisions, changed owner/form/server/metadata, a stale anchor document, cancellation or an oversized preview (12 KiB per file, 16 KiB confirmation) return no operation. Larger projects are refused, not summarized.
 - Only ordinary single-disk classic ZIP (stored/deflated): 1 MiB archive, 64 entries, 128 KiB each, 512 KiB declared total, bounded compression ratio. Symlinks/devices, unsafe paths, duplicates, non-UTF-8 and binary files are refused.
 - The root POM must match the chosen group/artifact/Boot parent, echo the selected literal `java.version`, use jar or omitted packaging, and contain every selected plain Boot-managed starter with its declared scope (up to 64; versions checked via `/dependencies?bootVersion=`). A source path under the chosen package must exist.
-- **Open Reviewed Source Folder** verifies all expected paths against project-visible text, then requests the normal trust/open flow in a new window. Unsaved buffers can mask disk contents; build/runtime state isn't certified.
+- **Open Source Folder** verifies all expected paths against project-visible text, then requests the normal trust/open flow in a new window. Unsaved buffers can mask disk contents; build/runtime state isn't certified.
 - Innermost-project ownership of the parent, its ancestry, the target and every planned/verified path is checked before fetch and rechecked around the final review. A nested foreign owner refuses without operations.
 
 ### Permissions

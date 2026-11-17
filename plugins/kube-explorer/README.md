@@ -81,7 +81,7 @@ The form fields aren't masked, so typed values are visible on screen.
 In a private editor copy, **Save** is local only. To send changes to the cluster:
 
 1. Run **Kube Explorer: Review Private YAML Apply…** and check the target and summary.
-2. Within 60 seconds, run **Kube Explorer: Apply Reviewed Private YAML** in the same editor.
+2. Within 60 seconds, run **Kube Explorer: Apply Private YAML** in the same editor.
 3. To apply again, reopen the resource from Services.
 
 Run **Kube Explorer: Retire Private YAML Editor** when you're done with a copy.
@@ -217,7 +217,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or *
 | **Kube Explorer: Read Cluster Namespaces for Completion** | Caches namespace names for completion (60 seconds). | None |
 | **Kube Explorer: Read Cluster Resource Names for Completion…** | Caches names of one kind in the selected namespace (60 seconds). | None |
 | **Kube Explorer: Review Private YAML Apply…** | Reviews a private YAML copy before applying. | None |
-| **Kube Explorer: Apply Reviewed Private YAML** | Applies the reviewed copy (within 60 seconds). | None |
+| **Kube Explorer: Apply Private YAML** | Applies the reviewed copy (within 60 seconds). | None |
 | **Kube Explorer: Retire Private YAML Editor** | Ends apply rights for a private copy. | None |
 
 ### Cluster, kubeconfig and tools
@@ -377,7 +377,7 @@ Each snapshot needs an invoking project with `project.read` and records its proj
 <details>
 <summary>Private YAML copies</summary>
 
-With `yamlInEditor`, supported modern built-ins open in a private SDK-storage editor copy with the schema modeline. The review shows the exact target, editor revision, byte count and digest. **Apply Reviewed Private YAML** is a separate event that rechecks project, local kubeconfig/context/namespace and unchanged current text/version, consumes the approval and sends the reviewed text on stdin with `kubectl replace`. UID and `resourceVersion` are kept and can't be edited, so server conflict checks still apply. A successful apply consumes the lease. Review cancellation, expiry, changed source, missing/foreign project, changed local scope and replay don't replace a resource; a failed apply consumes the approval but keeps the editable copy.
+With `yamlInEditor`, supported modern built-ins open in a private SDK-storage editor copy with the schema modeline. The review shows the exact target, editor revision, byte count and digest. **Apply Private YAML** is a separate event that rechecks project, local kubeconfig/context/namespace and unchanged current text/version, consumes the approval and sends the reviewed text on stdin with `kubectl replace`. UID and `resourceVersion` are kept and can't be edited, so server conflict checks still apply. A successful apply consumes the lease. Review cancellation, expiry, changed source, missing/foreign project, changed local scope and replay don't replace a resource; a failed apply consumes the approval but keeps the editable copy.
 
 Copies support stable built-in core/apps/batch/networking/rbac identities only (no Secrets, CRDs or guessed legacy schemas). They're bounded to 64 KiB, one alias/tag/duplicate-free document, depth 16 and 4,096 parser nodes; at most 16 live leases and 64 persistent backing files. **Retire Private YAML Editor** removes apply authority and may blank only a generated copy whose current text and backing bytes still match the original digest; edited copies stay. There's no private file-delete API or conditional write/CAS: files remain after retirement, external filesystem races aren't excluded, storage isn't encrypted or automatically erased, and backups/editor histories can keep contents. Closing an editor isn't an observed lease-close event; use Retire or reload/deactivate to release authority.
 

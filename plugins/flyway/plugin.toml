@@ -140,7 +140,7 @@ category = "Flyway"
 
 [[contributes.commands]]
 id = "hibernate-schema"
-title = "Flyway: Generate Reviewed Offline Hibernate Schema SQL…"
+title = "Flyway: Generate Offline Hibernate Schema SQL…"
 category = "Flyway"
 
 [[contributes.fileTemplates]]

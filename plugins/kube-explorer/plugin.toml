@@ -556,7 +556,7 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "apply-reviewed-private-yaml"
-title = "Kube Explorer: Apply Reviewed Private YAML"
+title = "Kube Explorer: Apply Private YAML"
 category = "Kube Explorer"
 
 [[contributes.commands]]

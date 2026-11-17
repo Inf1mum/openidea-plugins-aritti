@@ -27,7 +27,7 @@
   "Laravel: Refresh Docker Artisan Metadata": "Laravel: Docker Artisan 메타데이터 새로 고침",
   "Laravel: Browse Cached Docker Artisan Metadata": "Laravel: 캐시된 Docker Artisan 메타데이터 탐색",
   "Laravel: Refresh Artisan Command Metadata": "Laravel: Artisan 명령 메타데이터 새로 고침",
-  "Laravel: Find Literal Source Matches…": "Laravel: 리터럴 소스 일치 검색…",
+  "Laravel: Find Source Matches…": "Laravel: 리터럴 소스 일치 검색…",
   "Laravel: Refresh Registered Routes": "Laravel: 등록된 라우트 새로 고침",
   "Laravel: Reindex Project": "Laravel: 프로젝트 다시 인덱싱",
   "Laravel: Clear All Caches": "Laravel: 모든 캐시 지우기",

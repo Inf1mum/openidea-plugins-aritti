@@ -41,7 +41,7 @@ command = "artisan-refresh-metadata"
 
 [[contributes.commands]]
 id = "find-literal-source-matches"
-title = "Laravel: Find Literal Source Matches…"
+title = "Laravel: Find Source Matches…"
 category = "Laravel"
 
 [[contributes.commands]]

@@ -120,7 +120,7 @@ Each needs its program on `PATH` and its `process:` permission allowed.
   3. Enter the groupId (default `org.acme`), folder/artifactId (default `qute-starter`), version (default `1.0.0-SNAPSHOT`) and an exact Quarkus 3 platform version.
   4. Review the four files in the preview and confirm. Nothing is written yet.
   5. Within five minutes, press ⌥⏎ in the same file and choose **Create Reviewed Quarkus/Qute Starter…**. The files are created and the new `pom.xml` opens.
-  6. Run **Quarkus: Open Reviewed Starter…** to open the new folder as a project.
+  6. Run **Quarkus: Open Starter…** to open the new folder as a project.
 
 The starter has `pom.xml`, `src/main/resources/application.properties`, `src/main/resources/templates/hello.txt` and a README. It has no Java sources, REST endpoint or tests.
 
@@ -140,7 +140,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Quarkus**; bind keys
 |---|---|---|
 | **Quarkus: Open code.quarkus.io** | Opens the official project generator in the browser. | None |
 | **Quarkus: Prepare Offline Maven/Qute Starter…** | Asks for coordinates and previews a four-file starter. Writes nothing. | None |
-| **Quarkus: Open Reviewed Starter…** | Checks the created starter and opens it as a project. | None |
+| **Quarkus: Open Starter…** | Checks the created starter and opens it as a project. | None |
 | **Quarkus: Read Config Model from Selected Maven Dependency JAR…** | Loads config keys from a dependency JAR in your local Maven cache. | None |
 | **Quarkus: Inspect Source Declaration** | Shows the declaration behind a JAX-RS or scheduler code lens. Run it from the lens. | None |
 
@@ -188,7 +188,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *Open a source file in the destination parent project first.* | Open a Java or XML file of the parent project, then run the starter command again. |
 | *Use plain Maven coordinates, a lowercase folder name and a Quarkus 3 version.* | Use a dotted groupId, a lowercase folder name and a platform version starting with `3.`. |
 | **Create Reviewed Quarkus/Qute Starter…** isn't offered | The plan expires after five minutes. Run **Quarkus: Prepare Offline Maven/Qute Starter…** again from the same file. |
-| *Apply a reviewed starter FileAction first.* | Create the starter with ⌥⏎ before running **Quarkus: Open Reviewed Starter…**. |
+| *Apply a reviewed starter FileAction first.* | Create the starter with ⌥⏎ before running **Quarkus: Open Starter…**. |
 | *Select a current Quarkus source lens.* | Click a JAX-RS or scheduler code lens instead of running the command from Search Everywhere. |
 | Dev Mode run configuration is missing | Allow `process:mvn` / `process:gradle` / `process:quarkus` and make sure the program is on `PATH`. |
 | Dev Mode shows in a non-Quarkus project | Expected: run detectors match `pom.xml` or `build.gradle` by name only. |
@@ -246,7 +246,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **Dev Mode detectors.** A detector can only match marker files by name, so once the `process:` permission is granted the run configurations show in every Maven or Gradle project, Quarkus or not.
 
-**Offline starter.** The artifactId must be a portable lowercase folder name; the Quarkus platform version is not fetched or resolved by the plugin. The preview shows every destination and exact UTF-8 content for four files: `pom.xml`, `src/main/resources/application.properties`, `src/main/resources/templates/hello.txt` and a scope/provenance README. The create step re-previews and returns four atomic non-overwriting Create operations. Existing destinations, open unsaved targets, changed source/version/owner and expired or replayed plans are refused. It only creates a vacant direct child of the existing project: no merge, source edit, wrapper, build, process or HTTP request. **Quarkus: Open Reviewed Starter…** checks all four files and uses the ordinary project trust/open flow, with no build or automatic language-server settings. The scaffold has the platform BOM, the Quarkus Maven plugin, a direct `quarkus-qute` dependency and a literal text template. Version availability, JDK compatibility, dependency resolution and remote registry workflows are not verified.
+**Offline starter.** The artifactId must be a portable lowercase folder name; the Quarkus platform version is not fetched or resolved by the plugin. The preview shows every destination and exact UTF-8 content for four files: `pom.xml`, `src/main/resources/application.properties`, `src/main/resources/templates/hello.txt` and a scope/provenance README. The create step re-previews and returns four atomic non-overwriting Create operations. Existing destinations, open unsaved targets, changed source/version/owner and expired or replayed plans are refused. It only creates a vacant direct child of the existing project: no merge, source edit, wrapper, build, process or HTTP request. **Quarkus: Open Starter…** checks all four files and uses the ordinary project trust/open flow, with no build or automatic language-server settings. The scaffold has the platform BOM, the Quarkus Maven plugin, a direct `quarkus-qute` dependency and a literal text template. Version availability, JDK compatibility, dependency resolution and remote registry workflows are not verified.
 
 **Dependency JAR models.** The command lists supported literal direct dependencies of the current project's root `pom.xml`, reviews the exact project/POM, GAV, declared scope and standard Maven-cache archive, then reads bytes. No Maven/Gradle/Java execution, cache scan, network or extraction. Only the modern `META-INF/quarkus-config-doc/quarkus-config-model.json` layout is supported: plain property names with declared types, scalar defaults, deprecation replacements and static enum hints; optional javadoc descriptions joined by exact `sourceType.sourceElementName`. `quarkus-extension.properties` deployment coordinates, `quarkus-config-roots.list` and older javadoc layouts are deliberately not converted into a catalogue. Conflicting names and unsupported structures fail without installing a partial replacement. The snapshot is retained ten minutes per project (up to eight exact project roots, session-only, invalidated by matching POM events). Maven scope is narrow: root direct literal GAVs, JAR type, compile/runtime/provided/test scope, no classifier; BOMs, property resolution, Gradle and transitives are gaps. POMs must be complete supported XML (256 KiB, 4,096 elements, nesting 32, 128 dependencies) with coherent namespaces. Archives are classic ZIP bounded at 8 MiB, 2,048 entries, 512 KiB per metadata entry and 100:1 expansion; encryption, ZIP64 and path tricks are refused.
 

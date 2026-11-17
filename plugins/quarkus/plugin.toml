@@ -99,7 +99,7 @@ category = "Quarkus"
 
 [[contributes.commands]]
 id = "open-reviewed-starter"
-title = "Quarkus: Open Reviewed Starter…"
+title = "Quarkus: Open Starter…"
 category = "Quarkus"
 
 [[contributes.providers]]

@@ -438,7 +438,7 @@ impl Launcher {
         vacant(&project, &plan)?;
         self.import_identity(&plan)?;
         self.imports.plan = Some(plan);
-        Ok(Some("Source-only ZIP validated in memory. Open a small existing project editor and invoke Preview Import Maven Sources…; after applying its atomic edit, Open Reviewed Source Folder independently verifies expected files before normal project trust/open flow.".into()))
+        Ok(Some("Source-only ZIP validated in memory. Open a small existing project editor and invoke Preview Import Maven Sources…; after applying its atomic edit, Open Source Folder independently verifies expected files before normal project trust/open flow.".into()))
     }
     fn import_identity(&mut self, plan: &Plan) -> Result<(), Error> {
         if self.owner != format!("project:{}", plan.root)

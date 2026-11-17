@@ -184,7 +184,7 @@ fn files(group: &str, artifact: &str, version: &str, platform: &str) -> BTreeMap
 }
 fn preview(plan: &Plan) -> String {
     let mut body = format!(
-        "Destination: {}\nOwner project: {}\nSource: {} (version {})\n\nOFFLINE Maven/Qute scaffold. Platform version was supplied explicitly, not resolved/verified. No build, network, wrapper, endpoint or language-server configuration. Apply creates4 new UTF-8 files atomically; no overwrite. Then invoke Open Reviewed Starter separately.\n",
+        "Destination: {}\nOwner project: {}\nSource: {} (version {})\n\nOFFLINE Maven/Qute scaffold. Platform version was supplied explicitly, not resolved/verified. No build, network, wrapper, endpoint or language-server configuration. Apply creates4 new UTF-8 files atomically; no overwrite. Then invoke Open Starter separately.\n",
         plan.target, plan.root, plan.doc.path, plan.doc.version
     );
     for (path, text) in &plan.files {
@@ -246,7 +246,7 @@ impl QuarkusTools {
         owner(&project, &plan, &current)?;
         vacant(&project, &plan)?;
         self.starter.plan = Some(plan);
-        Ok(Some("Starter ready. Within 5 minutes, press ⌥⏎ in this file and choose Create Reviewed Quarkus/Qute Starter…. Then run Quarkus: Open Reviewed Starter….".into()))
+        Ok(Some("Starter ready. Within 5 minutes, press ⌥⏎ in this file and choose Create Reviewed Quarkus/Qute Starter…. Then run Quarkus: Open Starter….".into()))
     }
     pub(super) fn starter_actions(&self, doc: &Document) -> Vec<FileAction> {
         let Some(plan) = self

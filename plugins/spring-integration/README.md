@@ -102,7 +102,7 @@ For teams that want to start, stop or inspect jobs from the IDE through an exact
 2. Fill **Batch classpath** (one project-relative directory or JAR per line), the context class and its source file.
 3. Allow `process:java`.
 4. Run **Spring Batch: Validate Configured CLI Profile**.
-5. Run **Spring Batch: Run Reviewed Job Operation**. Runner supports start, next, stop, restart and abandon. Operator also supports recover.
+5. Run **Spring Batch: Run Job Operation**. Runner supports start, next, stop, restart and abandon. Operator also supports recover.
 
 Then use **Spring Batch: Poll CLI Output** to read output, **Spring Batch: Cancel CLI Process** to end a local process, and **Spring Batch: Inspect Execution Repository State** to look up one execution ID.
 
@@ -128,7 +128,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**
 | **Spring Batch: Find Step or Decision Usages in This Document** | Lists the declaration and references of the step or decision under the caret. |
 | **Spring Batch: Generate Job Launch Command…** | Builds a reviewed `java -jar` launch command and opens it in a terminal. |
 | **Spring Batch: Validate Configured CLI Profile** | Checks the configured profile, classpath and context without running your code. |
-| **Spring Batch: Run Reviewed Job Operation** | Shows and then runs one job operation (start, next, stop, restart, abandon, recover). |
+| **Spring Batch: Run Job Operation** | Shows and then runs one job operation (start, next, stop, restart, abandon, recover). |
 | **Spring Batch: Poll CLI Output** | Shows output from the CLI processes this plugin started. |
 | **Spring Batch: Cancel CLI Process** | Ends one local CLI process. It doesn't send a Batch stop. |
 | **Spring Batch: Inspect Execution Repository State** | Looks up one execution ID through the configured context's repository. |
@@ -289,7 +289,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - `springBatch.runtimeProfile` takes `runner-5.2.6` or `operator-6.0.6`. List 1–32 explicit project-relative classpath directories/JARs, then the exact compiled context plus its Java/Kotlin source. Runner also accepts an exact XML classpath resource with its source. Runtime context source is at most 32 KiB.
 - Profiles are disabled by default and need the optional approved `java` executable.
 - **Validate Configured CLI Profile** inspects actual classpath artifacts without loading application code: pinned official core JAR, unique launcher/context, compiled binary name, runtime-selected multi-release entries, bounded fingerprints. Manifest-added classpaths, escaping paths and shadowed launchers are refused.
-- **Run Reviewed Job Operation** shows the actual argv, cwd, source and artifact identity, validates again, then starts an owned process. Up to three launch processes leave a fourth slot for control requests.
+- **Run Job Operation** shows the actual argv, cwd, source and artifact identity, validates again, then starts an owned process. Up to three launch processes leave a fourth slot for control requests.
 - **Poll CLI Output** reads all owned sessions with bounded display output. **Cancel CLI Process** ends one selected local process and doesn't send a Batch stop. A detected project switch ends old owned CLI processes.
 - **Inspect Execution Repository State** separately reviews context startup and queries an exact execution ID through the configured `JobExplorer`/`JobRepository`: job, instance, status, times and an observation time. It's an explicit point-in-time query, never automatic.
 - Artifact fingerprints don't establish source build provenance or effective datasource identity. Invoking the selected context runs its startup code and configured database connections.

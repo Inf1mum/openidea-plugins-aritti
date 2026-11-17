@@ -73,7 +73,7 @@ const REQUEST_TIMEOUT: &str = "--request-timeout=4s";
 const PAGE: &str = include_str!("page.html");
 /// Shown in the YAML panel when the IDE blocks the page's script, which Apply and Save to File need.
 const NO_SCRIPTS: &str = "<p id=\"nojs\">Apply and Save to File don't work in this panel: this version of the IDE blocks scripts in plugin pages. \
-    For supported built-ins, enable YAML in Editor and use the explicit Review Private YAML Apply and Apply Reviewed Private YAML commands. Saving is local only.</p>";
+    For supported built-ins, enable YAML in Editor and use the explicit Review Private YAML Apply and Apply Private YAML commands. Saving is local only.</p>";
 
 /// A Kubernetes icon of the package (a `fileIcons` entry of `plugin.toml`).
 macro_rules! k8s {

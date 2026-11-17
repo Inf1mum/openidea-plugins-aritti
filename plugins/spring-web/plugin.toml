@@ -150,12 +150,12 @@ icon = "icons/route-other.svg"
 
 [[contributes.commands]]
 id = "copy-endpoint-curl"
-title = "Copy as curl"
+title = "Spring Endpoints: Copy as curl"
 category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "create-endpoint-http"
-title = "Create HTTP Request File for Endpoint"
+title = "Spring Endpoints: Create HTTP Request File for Endpoint"
 category = "Spring Endpoints"
 
 
@@ -165,7 +165,7 @@ files = ["**/*.java", "**/*.kt", "pom.xml", "**/pom.xml", "**/build.gradle*"]
 
 [[contributes.commands]]
 id = "copy-endpoints-openapi"
-title = "Copy Spring Endpoints as OpenAPI"
+title = "Spring Endpoints: Copy as OpenAPI"
 category = "Spring Endpoints"
 
 [[contributes.menus]]
@@ -174,7 +174,7 @@ menu = "tools"
 
 [[contributes.commands]]
 id = "create-source-endpoint-http"
-title = "Create HTTP Request from Endpoint Source"
+title = "Spring Endpoints: Create HTTP Request from Endpoint Source"
 category = "Spring Endpoints"
 
 [[contributes.providers]]
@@ -187,27 +187,27 @@ languages = ["html", "java"]
 
 [[contributes.commands]]
 id = "create-source-graphql-http"
-title = "Create HTTP Request from GraphQL Handler"
+title = "Spring Endpoints: Create HTTP Request from GraphQL Handler"
 category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "graphql.subscription-start"
-title = "Start Reviewed GraphQL Subscription"
+title = "Spring Endpoints: Start GraphQL Subscription"
 category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "graphql.subscription-poll"
-title = "Read GraphQL Subscription Output"
+title = "Spring Endpoints: Read GraphQL Subscription Output"
 category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "graphql.subscription-cancel"
-title = "Cancel GraphQL Subscription"
+title = "Spring Endpoints: Cancel GraphQL Subscription"
 category = "Spring Endpoints"
 
 [[contributes.commands]]
 id = "create-source-feign-http"
-title = "Create HTTP Request from Feign Client"
+title = "Spring Endpoints: Create HTTP Request from Feign Client"
 category = "Spring Endpoints"
 
 [[contributes.menus]]
@@ -224,5 +224,5 @@ menu = "tools"
 
 [[contributes.commands]]
 id = "create-source-graphql-subscription"
-title = "Prepare GraphQL Subscription from Handler"
+title = "Spring Endpoints: Prepare GraphQL Subscription from Handler"
 category = "Spring Endpoints"

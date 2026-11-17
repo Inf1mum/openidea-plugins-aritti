@@ -78,7 +78,7 @@ category = "Spring Batch"
 
 [[contributes.commands]]
 id = "batch.runtime-operate"
-title = "Spring Batch: Run Reviewed Job Operation"
+title = "Spring Batch: Run Job Operation"
 category = "Spring Batch"
 
 [[contributes.commands]]

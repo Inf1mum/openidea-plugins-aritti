@@ -47,7 +47,7 @@ fixture exposed omitted unique/foreign-key mappings in their stock exporters.
    needed by associations; converters/custom classes can require additional
    project dependencies. Each entity/converter declares its class, source file
    and compiled root. No persistence-unit discovery is implied.
-4. Run **Flyway: Generate Reviewed Offline Hibernate Schema SQL…**. The preliminary
+4. Run **Flyway: Generate Offline Hibernate Schema SQL…**. The preliminary
    pure-JDK inspection reads/hashes artifacts without loading the project model.
    Review the concrete runtime/classpath/source hashes and trusted-code warning
    before metadata generation starts.

@@ -27,7 +27,7 @@
   "Laravel: Refresh Docker Artisan Metadata": "Laravel: Docker Artisanメタデータを更新",
   "Laravel: Browse Cached Docker Artisan Metadata": "Laravel: キャッシュされたDocker Artisanメタデータを参照",
   "Laravel: Refresh Artisan Command Metadata": "Laravel: Artisanコマンドのメタデータを更新",
-  "Laravel: Find Literal Source Matches…": "Laravel: リテラルのソース一致を検索…",
+  "Laravel: Find Source Matches…": "Laravel: リテラルのソース一致を検索…",
   "Laravel: Refresh Registered Routes": "Laravel: 登録済みルートを更新",
   "Laravel: Reindex Project": "Laravel: プロジェクトを再インデックス",
   "Laravel: Clear All Caches": "Laravel: すべてのキャッシュを消去",

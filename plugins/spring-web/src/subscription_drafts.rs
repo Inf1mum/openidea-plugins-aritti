@@ -111,7 +111,7 @@ pub fn run(
         .map(|l| format!("# {l}\n"))
         .collect::<String>();
     let content = format!(
-        "# Source-qualified subscription draft. Review selections and argument values.\n# Suggested variables for the separate Start Reviewed GraphQL Subscription command:\n{sample}# Replace null custom-input samples before connecting.\n# Endpoint and initialization payload are selected/reviewed separately; this action opens no connection.\n{}\n",
+        "# Source-qualified subscription draft. Review selections and argument values.\n# Suggested variables for the separate Start GraphQL Subscription command:\n{sample}# Replace null custom-input samples before connecting.\n# Endpoint and initialization payload are selected/reviewed separately; this action opens no connection.\n{}\n",
         draft.query
     );
     if current(ctx)? != doc {

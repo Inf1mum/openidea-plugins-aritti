@@ -50,7 +50,7 @@ category = "Spring Initializr"
 
 [[contributes.commands]]
 id = "open-reviewed-import"
-title = "Spring Initializr: Open Reviewed Source Folder"
+title = "Spring Initializr: Open Source Folder"
 category = "Spring Initializr"
 
 [[contributes.menus]]

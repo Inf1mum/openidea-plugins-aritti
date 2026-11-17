@@ -107,7 +107,7 @@ All of these show a preview first and never overwrite a file. Undo reverts them.
 ### Rename and find matches
 
 - Rename works on route, config, translation and Blade-alias literals you can prove. Renaming a view or anonymous component file moves it and updates its references in one step.
-- **Laravel: Find Literal Source Matches…** lists literal spellings that match across routes, views, config, lang and `src`.
+- **Laravel: Find Source Matches…** lists literal spellings that match across routes, views, config, lang and `src`.
 - **Laravel: Find Unused Views** lists views no code names. Components, `errors.*`, `livewire.*`, `vendor.*`, `mail.*` / `emails.*` and package views are never listed. Views are marked *maybe used* when the project builds view names at run time.
 
 ### The Laravel tool window
@@ -194,7 +194,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | **Laravel: Search Routes…** | Fuzzy search on route names, URIs, methods and controllers. |
 | **Laravel: Show Route List** | Runs `php artisan route:list`. |
 | **Laravel: Refresh Registered Routes** | Captures the real route list from Artisan, including package routes. Runs the project's PHP. |
-| **Laravel: Find Literal Source Matches…** | Lists literal spellings that match across project sources. Read-only. |
+| **Laravel: Find Source Matches…** | Lists literal spellings that match across project sources. Read-only. |
 | **Laravel: Find Unused Views** | Lists views no code names. |
 | **Laravel: New Laravel Project…** | Creates a new Laravel project in a terminal. |
 | **Laravel: Recover Project Installation…** | Reopens or forgets a new-project installation that didn't finish. |
@@ -425,7 +425,7 @@ Cache ownership follows the document's current innermost open project: a nested 
 - **Create reviewed mapped FormRequest …** An absolute `\Prefix\Http\Requests\NameRequest` parameter type (or a short type with one exact unaliased `use`) creates the missing PHP file through one exact production Composer PSR-4 mapping. Namespace prefixes and source roots up to 8 segments / 256 bytes; `App\` → `app/` and explicit roots like `domain/` supported; overlapping, fallback, dev, case-variant and opaque mappings refused; a source-root scan past 4,096 results refuses the operation, including case-equivalent targets. No controller imports or source change, no PHP.
 - **Promote literal validation to reviewed FormRequest…** Works on an explicit `\Illuminate\Http\Request` parameter of a plain controller method whose body is exactly `$request->validate([...])` (or `$validated = $request->validate([...]); return $validated;`). After review it creates the request class, transfers the literal rule array, and replaces the call with `validated()`. No PHP runs.
 - **Rename.** Typed rename actions exist for proven route, config, translation and explicit Blade-alias literals; filename-based view/anonymous-component rename uses one reviewed move-and-reference transaction.
-- **Find Literal Source Matches…** scans conventional sources (routes, resources/views, config, lang, src and the current document; 2,048 paths, 8 MiB total, 512 matches, 128 KiB per source) and opens results; it adds no Rename anchors.
+- **Find Source Matches…** scans conventional sources (routes, resources/views, config, lang, src and the current document; 2,048 paths, 8 MiB total, 512 matches, 128 KiB per source) and opens results; it adds no Rename anchors.
 - **Find Unused Views** counts `view()`, `@include`, `@extends`, `Route::view`, mail and `markdown()` calls; a literal prefix (`'reports.' . $type`) counts as used.
 
 ### Hover
