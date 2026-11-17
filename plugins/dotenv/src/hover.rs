@@ -210,7 +210,7 @@ impl HoverProvider for DotEnv {
             markdown.push_str("\nValues hidden by showValues.\n");
         }
         if masked {
-            markdown.push_str("\nValue masked; run Show Env Value at Caret to see it.\n");
+            markdown.push_str("\nValue masked; run .env: Show Value at Caret to see it.\n");
         }
         if index.is_none_or(|index| !index.complete) {
             markdown.push_str("\nSource cache is incomplete; only known declarations are shown.\n");
@@ -422,7 +422,7 @@ mod tests {
         let hover = plugin.hover(&doc, Position::new(0, 14)).unwrap();
         assert!(!hover.markdown.contains("hunter2"));
         assert!(hover.markdown.contains("••••"));
-        assert!(hover.markdown.contains("Show Env Value at Caret"));
+        assert!(hover.markdown.contains(".env: Show Value at Caret"));
         let env = Document { path: "/project/.env".into(), language: "dotenv".into(), version: 2, text: "DB_PASSWORD=unsaved-pw\n".into() };
         let hover = plugin.hover(&env, Position::new(0, 3)).unwrap();
         assert!(!hover.markdown.contains("unsaved-pw"));

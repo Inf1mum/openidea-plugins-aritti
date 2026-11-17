@@ -37,12 +37,12 @@ languages = ["xml"]
 
 [[contributes.commands]]
 id = "qname-occurrences"
-title = "Find Observed QName Occurrences"
+title = "Spring WS: Find Observed QName Occurrences"
 category = "Spring WS"
 
 [[contributes.commands]]
 id = "refresh-models"
-title = "Refresh Source Models"
+title = "Spring WS: Refresh Source Models"
 category = "Spring WS"
 
 [[contributes.markerIcons]]

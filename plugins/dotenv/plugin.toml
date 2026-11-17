@@ -5,7 +5,7 @@ description = ".env file support: highlighting, inspections with quick fixes and
 authors = ["Arnaud RITTI"]
 license = "MIT"
 change-notes = """\
-Next release: Other plugins can register their own env files; Docker Compose variables and Dockerfile ARG values link to .env keys with hover details; values of keys like PASSWORD, SECRET, TOKEN and KEY show as •••• in completion and hover, and Show Env Value at Caret reveals one; saving no longer re-scans the whole project, and changes made outside the editor are picked up; settings to turn checks off, single-quoted values with ${…} are no longer flagged, one name per action and clearer messages. \
+Next release: Other plugins can register their own env files; Docker Compose variables and Dockerfile ARG values link to .env keys with hover details; values of keys like PASSWORD, SECRET, TOKEN and KEY show as •••• in completion and hover, and .env: Show Value at Caret reveals one; saving no longer re-scans the whole project, and changes made outside the editor are picked up; settings to turn checks off, single-quoted values with ${…} are no longer flagged, one name per action and clearer messages. \
 0.3.0: Docker ARG scope, Compose and env_file checks and more code references. \
 0.2.0: plugin icon and window consolidation."""
 categories = ["languages", "linters"]
@@ -23,12 +23,12 @@ fields = { fileName = "string", role = "string" }
 [capabilities]
 # project.read: read the project's .env files, publish problems. events: check .env files when opened or saved.
 required = ["project.read", "events"]
-# editor.read: Show Env Value at Caret reads the caret position.
+# editor.read: .env: Show Value at Caret reads the caret position.
 optional = ["editor.read"]
 
 [[contributes.commands]]
 id = "show-value"
-title = "Show Env Value at Caret"
+title = ".env: Show Value at Caret"
 category = ".env"
 
 # The IDE's own `dotenv` definition wins (detection, comments); this copy only

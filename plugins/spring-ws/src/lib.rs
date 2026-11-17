@@ -816,7 +816,7 @@ impl Plugin for WsTools {
                 self.resource_paths.warm(&project,left());
                 ready&=project.root().is_ok_and(|root|self.resource_paths.ready(&root));
             }
-            return Ok(Some(if ready{"XML and XPath source models refreshed."}else{"Refresh incomplete. Run Refresh Source Models again to continue."}.into()));
+            return Ok(Some(if ready{"XML and XPath source models refreshed."}else{"Refresh incomplete. Run Spring WS: Refresh Source Models again to continue."}.into()));
         }
         if id == "qname-occurrences" { return indexing::occurrences(self,ctx); }
         Err(Error::NotFound(format!("command {id}")))

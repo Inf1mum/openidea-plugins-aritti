@@ -119,7 +119,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | No gutter arrow on a `@PayloadRoot` method | Import the Spring-WS annotations explicitly (or use the fully qualified name). Wildcard or aliased imports are not followed. Check the namespace is a literal or a same-file constant. |
 | An element exists but **Unknown element** still shows | Check the schema's `targetNamespace` matches exactly. A schema that uses includes, imports or redefine suppresses the warning instead. Run **Spring WS: Refresh Source Models**. |
 | No warnings at all for a large file | Files over 256 KiB, and schema files over 128 KiB, get no missing-element warnings. |
-| *Refresh incomplete. Run Refresh Source Models again…* | Run **Spring WS: Refresh Source Models** again to continue. Very large projects may stay partial. |
+| *Refresh incomplete. Run Spring WS: Refresh Source Models again…* | Run **Spring WS: Refresh Source Models** again to continue. Very large projects may stay partial. |
 | *Open an endpoint or schema and place the caret on its QName local name.* | Move the caret onto the `localPart` value or the element `name`, then run the command again. |
 | *Put the caret on an element name written out in the file, then try again.* | The namespace isn't known. Use a literal namespace or a same-file constant. |
 | *No Spring-WS endpoint package found under src/main/java. Create one @Endpoint class there first.* | Create at least one `@Endpoint` class in a package under `src/main/java` first. The scaffold only adds to existing endpoint packages. |

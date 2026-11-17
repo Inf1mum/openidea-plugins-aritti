@@ -61,7 +61,7 @@ Hover also shows which Compose services load an env file through `env_file`, and
 
 ### Masked values
 
-Values of keys containing `PASS`, `SECRET`, `TOKEN`, `KEY` or `CREDENTIAL` show as `••••` in completion and hover. To see one, put the caret on the key and run **Show Env Value at Caret** (Search Everywhere › Actions). It needs the optional `editor.read` permission.
+Values of keys containing `PASS`, `SECRET`, `TOKEN`, `KEY` or `CREDENTIAL` show as `••••` in completion and hover. To see one, put the caret on the key and run **.env: Show Value at Caret** (Search Everywhere › Actions). It needs the optional `editor.read` permission.
 
 ### Docker Compose and Dockerfile links
 
@@ -131,7 +131,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | A key held in a variable (`process.env[name]`) isn't recognised | Expected: only literal keys are matched. |
 | Go to Declaration does nothing in a Dockerfile or compose file | Expected: keys there are declarations only. |
 | Values show in completion and you don't want them | Turn off **Show each key's value in completion and hover**. |
-| A value shows as `••••` | The key looks like a secret. Run **Show Env Value at Caret** on it; allow `editor.read` in Settings › Plugins › *.env files* if asked. |
+| A value shows as `••••` | The key looks like a secret. Run **.env: Show Value at Caret** on it; allow `editor.read` in Settings › Plugins › *.env files* if asked. |
 
 ## Limitations
 
