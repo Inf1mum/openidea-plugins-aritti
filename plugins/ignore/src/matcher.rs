@@ -95,72 +95,88 @@ enum Token<'a> {
     Star,
     DoubleStar,
     DoubleStarSlash,
-    Class(&'a [u8], usize),
+    Class(&'a [u8]),
     Never,
 }
 
-fn tokenize(mut p: &[u8]) -> Vec<Token<'_>> {
-    let mut tokens = Vec::new();
-    while !p.is_empty() {
-        let (token, used) = match p {
+/// The tokens of a pattern, read as they are matched (no per-match list).
+struct Tokens<'a>(&'a [u8]);
+
+impl<'a> Iterator for Tokens<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Token<'a>> {
+        let (token, used) = match self.0 {
             [b'*', b'*', b'/', ..] => (Token::DoubleStarSlash, 3),
             [b'*', b'*', ..] => (Token::DoubleStar, 2),
             [b'*', ..] => (Token::Star, 1),
             [b'?', ..] => (Token::Any, 1),
             [b'[', class @ ..] => match class_match(class, None) {
-                Some((_, len)) => (Token::Class(class, len), 1 + len),
+                Some((_, len)) => (Token::Class(class), 1 + len),
                 None => (Token::Never, 1),
             },
             [b'\\', c, ..] => (Token::Literal(*c), 2),
             [c, ..] => (Token::Literal(*c), 1),
-            [] => break,
+            [] => return None,
         };
-        tokens.push(token);
-        p = &p[used..];
+        self.0 = &self.0[used..];
+        Some(token)
     }
-    tokens
+}
+
+thread_local! {
+    /// The two rows of [`wildmatch`]'s table, reused across calls.
+    static ROWS: std::cell::RefCell<(Vec<bool>, Vec<bool>)> = const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
 }
 
 /// gitignore's wildmatch: `*`, `?` and `[...]` stay within one name, `**`
 /// spans directories. Dynamic programming over (token, position): O(|p|·|t|).
 /// An unclosed `[` matches nothing, as in git.
 fn wildmatch(p: &[u8], t: &[u8]) -> bool {
-    let mut cur = vec![false; t.len() + 1];
-    cur[0] = true;
-
-    for token in tokenize(p) {
-        let mut next = vec![false; t.len() + 1];
-        match token {
-            Token::Never => return false,
-            Token::Literal(c) => (0..t.len()).for_each(|j| next[j + 1] = cur[j] && t[j] == c),
-            Token::Any => (0..t.len()).for_each(|j| next[j + 1] = cur[j] && t[j] != b'/'),
-            Token::Class(class, _) => {
-                for j in 0..t.len() {
-                    next[j + 1] = cur[j] && class_match(class, Some(t[j])).is_some_and(|(hit, _)| hit);
-                }
-            }
-            Token::Star => {
-                for j in 0..=t.len() {
-                    next[j] = cur[j] || (j > 0 && next[j - 1] && t[j - 1] != b'/');
-                }
-            }
-            Token::DoubleStar => {
-                for j in 0..=t.len() {
-                    next[j] = cur[j] || (j > 0 && next[j - 1]);
-                }
-            }
-            Token::DoubleStarSlash => {
-                let mut reached = false;
-                for j in 0..=t.len() {
-                    next[j] = cur[j] || (j > 0 && t[j - 1] == b'/' && reached);
-                    reached |= cur[j];
-                }
-            }
-        }
-        cur = next;
+    if !p.iter().any(|b| matches!(b, b'*' | b'?' | b'[' | b'\\')) {
+        return p == t;
     }
+    ROWS.with(|rows| {
+        let (cur, next) = &mut *rows.borrow_mut();
+        cur.clear();
+        cur.resize(t.len() + 1, false);
+        cur[0] = true;
 
-    cur[t.len()]
+        for token in Tokens(p) {
+            next.clear();
+            next.resize(t.len() + 1, false);
+            match token {
+                Token::Never => return false,
+                Token::Literal(c) => (0..t.len()).for_each(|j| next[j + 1] = cur[j] && t[j] == c),
+                Token::Any => (0..t.len()).for_each(|j| next[j + 1] = cur[j] && t[j] != b'/'),
+                Token::Class(class) => {
+                    for j in 0..t.len() {
+                        next[j + 1] = cur[j] && class_match(class, Some(t[j])).is_some_and(|(hit, _)| hit);
+                    }
+                }
+                Token::Star => {
+                    for j in 0..=t.len() {
+                        next[j] = cur[j] || (j > 0 && next[j - 1] && t[j - 1] != b'/');
+                    }
+                }
+                Token::DoubleStar => {
+                    for j in 0..=t.len() {
+                        next[j] = cur[j] || (j > 0 && next[j - 1]);
+                    }
+                }
+                Token::DoubleStarSlash => {
+                    let mut reached = false;
+                    for j in 0..=t.len() {
+                        next[j] = cur[j] || (j > 0 && t[j - 1] == b'/' && reached);
+                        reached |= cur[j];
+                    }
+                }
+            }
+            std::mem::swap(cur, next);
+        }
+
+        cur[t.len()]
+    })
 }
 
 /// Matches `c` against the class after its `[`: whether it matched and the

@@ -7,7 +7,7 @@ use openidea_plugin::{
     Diagnostic, Error, Event, Invocation, Location, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
     TextEdit, host, text,
 };
-use std::collections::{HashSet,HashMap};
+use std::collections::HashSet;
 
 mod actions;
 mod unused;
@@ -32,20 +32,20 @@ fn range(text: &str, bytes: &std::ops::Range<usize>) -> Range {
     Range::new(text::position(text, bytes.start), text::position(text, bytes.end))
 }
 
-fn diagnostics(text: &str, dialect: Dialect) -> Vec<Diagnostic> {
-    check(text, dialect)
-        .into_iter()
+fn diagnostics(text: &str, problems: &[check::Problem]) -> Vec<Diagnostic> {
+    problems
+        .iter()
         .map(|p| {
             let severity = if p.warning { Severity::Warning } else { Severity::Error };
-            let mut diagnostic = Diagnostic::new(range(text, &(p.start..p.end)), severity, p.message);
+            let mut diagnostic = Diagnostic::new(range(text, &(p.start..p.end)), severity, p.message.clone());
             diagnostic.code = Some(p.code.into());
             diagnostic
         })
         .collect()
 }
 
-fn quick_fixes(doc: &Document, line: u32, dialect: Dialect) -> Vec<CodeAction> {
-    check(&doc.text, dialect)
+fn quick_fixes(doc: &Document, line: u32, problems: Vec<check::Problem>) -> Vec<CodeAction> {
+    problems
         .into_iter()
         .filter(|p| text::position(&doc.text, p.start).line == line)
         .flat_map(|p| p.fixes)
@@ -446,14 +446,14 @@ struct IgnorePlugin {
     inventory: git_inventory::State,
     unused: unused::State,
     directories: decorations::Directories,
-    checked_paths: HashSet<String>,
-    cached_checks: Vec<(String,String,Vec<Diagnostic>)>,
+    cached_checks: Vec<(String,String,Vec<check::Problem>)>,
     selected: Option<String>,
     expanded: HashSet<String>,
 }
 
 impl IgnorePlugin {
-    fn checks_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<Diagnostic> {
+    /// The problems of `text`, checked once per path and text (diagnostics and quick fixes share them).
+    fn problems_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<check::Problem> {
         if text.len() > 128 << 10 {
             return Vec::new();
         }
@@ -462,13 +462,18 @@ impl IgnorePlugin {
             return items.clone();
         }
 
-        let items = diagnostics(text, dialect);
+        let items = check(text, dialect);
         self.cached_checks.retain(|(p, _, _)| p != path);
         if self.cached_checks.len() >= 8 {
             self.cached_checks.remove(0);
         }
         self.cached_checks.push((path.to_owned(), text.to_owned(), items.clone()));
         items
+    }
+
+    fn checks_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<Diagnostic> {
+        let problems = self.problems_for(path, text, dialect);
+        diagnostics(text, &problems)
     }
 
     fn selected_user_template(&self) -> Option<&str> {
@@ -599,10 +604,6 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                     let Some(dialect) = dialect(path).filter(|_| checked.insert(path)) else {
                         continue;
                     };
-                    if self.checked_paths.len() >= 256 {
-                        self.checked_paths.clear();
-                    }
-                    self.checked_paths.insert(path.clone());
                     let Ok(text) = project.read_file(path) else {
                         continue;
                     };
@@ -610,7 +611,7 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                     if !preferences::checks(path) {
                         continue;
                     }
-                    self.checks_for(path, &text, dialect);
+                    self.problems_for(path, &text, dialect);
                 }
                 Event::EditorFocused(path) => show_ignored_status(path.as_deref()),
                 _ => {}
@@ -659,7 +660,10 @@ impl Providers for IgnorePlugin {
             return Vec::new();
         }
         let mut actions=match dialect(&doc.path).filter(|_| doc.text.len()<=128<<10) {
-            Some(dialect) => quick_fixes(doc, selection.start.line, dialect),
+            Some(dialect) => {
+                let problems = self.problems_for(&doc.path, &doc.text, dialect);
+                quick_fixes(doc, selection.start.line, problems)
+            }
             None => Vec::new(),
         };
         actions.extend(self.unused.actions(doc,selection));actions
