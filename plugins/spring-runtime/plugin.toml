@@ -5,7 +5,7 @@ description = "Reads the Actuator endpoints (beans, environment, conditions, hea
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: New icon for runtime value markers, and markers for one project no longer reset another project's polling or view; Read JMX (localhost) shows memory, threads and health of a local JVM, and JMX Health and Info return real data; auto-configuration and properties rows open the matching source without re-scanning every file; Health lists component details, and secret-looking values are masked in the tree, tooltips and saved data; recent requests and project beans are listed first, a timed-out endpoint keeps its previous data, short setting titles and clearer permission messages. \
+Next release: The Spring Runtime window and its Tools menu item now appear only in Maven or Gradle projects; clearer command names, a shorter status line, and Clear Snapshot is hidden when there is nothing to clear. New icon for runtime value markers, and markers for one project no longer reset another project's polling or view; Read JMX (localhost) shows memory, threads and health of a local JVM, and JMX Health and Info return real data; auto-configuration and properties rows open the matching source without re-scanning every file; Health lists component details, and secret-looking values are masked in the tree, tooltips and saved data; recent requests and project beans are listed first, a timed-out endpoint keeps its previous data, short setting titles and clearer permission messages. \
 0.3.0: runtime snapshot views and value hints. \
 0.2.0: plugin icon and Actuator support."""
 categories = ["frameworks"]
@@ -48,6 +48,7 @@ title = "Spring Runtime"
 icon = "icons/spring.svg"
 location = "bottom"
 web = "web/resources/hub.html"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts || workspaceContains:settings.gradle || workspaceContains:settings.gradle.kts"
 
 [contributes.settings]
 schema = "settings.schema.json"
@@ -74,22 +75,23 @@ category = "Spring Runtime"
 
 [[contributes.commands]]
 id = "poll-start"
-title = "Spring Runtime: Start Bounded Scoped Polling"
+title = "Spring Runtime: Start Auto-Refresh"
 category = "Spring Runtime"
 
 [[contributes.commands]]
 id = "poll-stop"
-title = "Spring Runtime: Stop Future Polls"
+title = "Spring Runtime: Stop Auto-Refresh"
 category = "Spring Runtime"
 
 [[contributes.commands]]
 id = "configure-snapshot-database"
-title = "Spring Runtime: Configure Database from Runtime Snapshot"
+title = "Spring Runtime: Configure Database from Snapshot"
 category = "Spring Runtime"
 
 [[contributes.menus]]
 menu = "tools"
 command = "configure-snapshot-database"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts || workspaceContains:settings.gradle || workspaceContains:settings.gradle.kts"
 
 [[contributes.markerIcons]]
 id = "runtime"

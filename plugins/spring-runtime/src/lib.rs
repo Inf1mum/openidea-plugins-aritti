@@ -887,9 +887,9 @@ impl Views for Runtime {
             let Some(snap) = &self.snapshot else {
                 let text = self.error.clone().unwrap_or_else(|| {
                     let url = host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into());
-                    format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}.")
+                    format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}. Change the URL in Settings › Plugins › Spring Runtime Insight.")
                 });
-                return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear Snapshot").icon("trash")));
+                return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear Snapshot").icon("trash").enabled(self.error.is_some())));
             };
             self.targets.clear();
             let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets, bytes:0, limited:false };
@@ -1375,5 +1375,12 @@ mod failure_recovery_tests {
         let host=MockHost::install().with_capabilities(&["project.read","storage"]);let scope=Scope::current(&host.invocation().project().unwrap()).unwrap();host::storage::set(&scope.key(),"invalid json").unwrap();
         let mut runtime=Runtime::default();let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(ref text) if text.contains("unreadable")));assert!(view.toolbar.iter().any(|b|b.id=="clear"));
         runtime.handle(VIEW,ViewEvent::Button("clear".into()),&host.invocation()).unwrap();assert!(!host.storage().contains_key(&scope.key()));assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn empty_view_offers_no_clear_when_nothing_is_stored() {
+        let host=MockHost::install().with_capabilities(&["project.read","storage"]);
+        let view=Runtime::default().render(VIEW,None,&host.invocation()).unwrap();
+        assert!(matches!(view.body,Body::Message(ref text) if text.contains("Settings › Plugins")));
+        assert!(!view.toolbar.iter().any(|b|b.id=="clear"));
     }
 }
