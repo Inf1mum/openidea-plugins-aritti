@@ -5,7 +5,7 @@ description = "Liquibase changelog support for XML, YAML and formatted SQL. Vers
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: New Changeset and New Changelog create the entry on the open changelog; changelog include markers have their own icon, and missing include, includeAll and sqlFile targets are flagged in the editor; undeclared ${property} placeholders are flagged, with a setting to turn this off; offline structure checks for XML changelogs, faster on large changelogs and also for a changelog open before the plugin starts, and completion for JSON keys and SQL attributes; one name per action, and hover shows facts only. \
+Next release: Run confirmations show the effect, target and command first. New Changeset and New Changelog create the entry on the open changelog; changelog include markers have their own icon, and missing include, includeAll and sqlFile targets are flagged in the editor; undeclared ${property} placeholders are flagged, with a setting to turn this off; offline structure checks for XML changelogs, faster on large changelogs and also for a changelog open before the plugin starts, and completion for JSON keys and SQL attributes; one name per action, and hover shows facts only. \
 0.3.0: migration browser and generated changeset groups. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["tools", "linters"]
@@ -22,7 +22,7 @@ optional = ["process:liquibase", "process:git", "storage", "events", "editor.rea
 
 [[contributes.commands]]
 id = "choose-sources"
-title = "Liquibase: Choose Browser Root and Configuration…"
+title = "Liquibase: Choose Sources…"
 category = "Liquibase"
 
 [[contributes.commands]]
