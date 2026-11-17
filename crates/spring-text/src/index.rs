@@ -450,6 +450,13 @@ impl<T: Clone> Indexes<T> {
         Some(index)
     }
 
+    /// The cache of the project holding `path`, as it is: the document is not
+    /// applied, so the generation does not move.
+    pub fn cached(&self, path: &str) -> Option<&Index<T>> {
+        let root = project_of(path)?.root().ok().filter(|root| !root.is_empty())?;
+        self.by_root.get(&root)
+    }
+
     /// Like [`Self::for_cached_document`], but a cold, stale, expired or
     /// refreshing index reads on for at most `budget` first.
     pub fn for_cached_document_warm(&mut self, path: &str, text: &str, budget: Duration) -> Option<&mut Index<T>> {
@@ -678,6 +685,18 @@ mod tests {
         let second = indexes.for_cached_document("/second/src/Next.java", "other").unwrap();
         assert_eq!(second.files().len(), 1);
         assert!(!second.files().contains_key("/project/src/Disk.java"));
+    }
+
+    #[test]
+    fn cached_leaves_the_generation_alone() {
+        let _host = MockHost::install();
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        assert!(indexes.cached("/project/src/Open.java").is_none());
+        indexes.for_cached_document("/project/src/Open.java", "one two");
+        let generation = indexes.cached("/project/src/Open.java").unwrap().generation();
+        assert_eq!(indexes.cached("/project/src/Open.java").unwrap().generation(), generation);
+        indexes.for_cached_document("/project/src/Open.java", "one two");
+        assert_ne!(indexes.cached("/project/src/Open.java").unwrap().generation(), generation);
     }
 
     fn changed(created: &[&str], modified: &[&str], removed: &[&str]) -> Vec<Event> {

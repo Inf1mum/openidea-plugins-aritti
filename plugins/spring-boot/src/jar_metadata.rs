@@ -6,10 +6,7 @@ use spring_text::{
     metadata::{Catalog, Meta},
     xml,
 };
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::{Duration, Instant},
-};
+use std::collections::{BTreeMap, BTreeSet};
 #[path = "jar_versions.rs"]
 mod versions;
 #[path = "jar_gradle.rs"]
@@ -249,7 +246,6 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
     Ok(result)
 }
 struct Snapshot {
-    at: Instant,
     pom: String,
     pom_digest: String,
     jar: String,
@@ -262,29 +258,56 @@ struct Snapshot {
 #[derive(Default)]
 pub struct State {
     snapshots: BTreeMap<String, Vec<Snapshot>>,
-    // Version awareness outlives positive-fact TTL; expiration must not revive
-    // an unrelated bundled3.5 baseline for the same observed POM.
-    version_scopes: BTreeMap<String, (String, String, Vec<String>)>,
+    version_scopes: BTreeMap<String, (String, String, Vec<(String, String)>)>,
 }
 impl State {
-    pub fn invalidate(&mut self, path: &str) {
-        self.version_scopes.retain(|_, (pom, _, catalogs)| {
-            pom != path && !catalogs.iter().any(|catalog| catalog == path)
+    /// Drops what was read from `path` unless it still has the digest read
+    /// (`None`: gone or unreadable).
+    pub fn invalidate(&mut self, path: &str, digest: Option<&str>) {
+        let same = |known: &str| digest == Some(known);
+        self.version_scopes.retain(|_, (pom, pom_digest, catalogs)| {
+            !(pom == path && !same(pom_digest))
+                && !catalogs
+                    .iter()
+                    .any(|(catalog, known)| catalog == path && !same(known))
         });
         self.snapshots.retain(|_, snapshots| {
             !snapshots.iter().any(|s| {
-                s.pom == path || s.version_sources.iter().any(|(source, _)| source == path)
+                (s.pom == path && !same(&s.pom_digest))
+                    || s.version_sources
+                        .iter()
+                        .any(|(source, known)| source == path && !same(known))
             })
         });
+    }
+    fn watches(&self, path: &str) -> bool {
+        self.snapshots.values().flatten().any(|s| {
+            s.pom == path || s.version_sources.iter().any(|(source, _)| source == path)
+        }) || self
+            .version_scopes
+            .values()
+            .any(|(pom, _, catalogs)| pom == path || catalogs.iter().any(|(c, _)| c == path))
+    }
+    pub fn source_changed(&mut self, path: &str, removed: bool) {
+        if !self.watches(path) {
+            return;
+        }
+        let digest = (!removed)
+            .then(|| {
+                let bytes = match host::project_of(path).and_then(|p| p.read_file(path).ok()) {
+                    Some(text) => text.into_bytes(),
+                    None => host::fs::read_bytes(path).ok()?,
+                };
+                Some(format!("{:x}", Sha256::digest(bytes)))
+            })
+            .flatten();
+        self.invalidate(path, digest.as_deref());
     }
     pub fn catalog(&self, path: &str) -> Catalog {
         let mut c = Catalog::default();
         if let Some(root) = host::project_of(path).and_then(|p| p.root().ok()) {
             if let Some(snapshots) = self.snapshots.get(&root) {
-                for snapshot in snapshots
-                    .iter()
-                    .filter(|s| s.at.elapsed() < Duration::from_secs(600))
-                {
+                for snapshot in snapshots {
                     c.add(&snapshot.meta);
                 }
             }
@@ -310,8 +333,8 @@ impl State {
     pub fn provenance(&self, path: &str) -> Option<String> {
         let root = host::project_of(path)?.root().ok()?;
         let snapshots = self.snapshots.get(&root)?;
-        let descriptions=snapshots.iter().filter(|s|s.at.elapsed()<Duration::from_secs(600)).map(|s|format!(
-            "Selected Maven dependency snapshot: {} ({} scope), {} · SHA-256 {} · entries {}. Version catalog sources: {}. Declared source provenance; resolved/runtime classpath is unverified.",
+        let descriptions=snapshots.iter().map(|s|format!(
+            "Selected dependency snapshot: {} ({} scope), {} · SHA-256 {} · entries {}. Version catalog sources: {}. Declared source provenance; resolved/runtime classpath is unverified.",
             s.dep.gav(),s.dep.scope,s.jar,s.hash,s.entries.join(", "),s.version_sources.iter().map(|(path,digest)|format!("{path} SHA-256 {digest}")).collect::<Vec<_>>().join("; ")
         )).collect::<Vec<_>>();
         (!descriptions.is_empty()).then(|| descriptions.join("\n\n"))
@@ -322,13 +345,7 @@ impl State {
             && ctx
                 .project()
                 .and_then(|p| p.root().ok())
-                .is_some_and(|root| {
-                    self.snapshots.get(&root).is_some_and(|snapshots| {
-                        snapshots
-                            .iter()
-                            .any(|s| s.at.elapsed() < Duration::from_secs(600))
-                    })
-                })
+                .is_some_and(|root| self.snapshots.contains_key(&root))
         {
             host::notify(
                 openidea_plugin::NotificationLevel::Warning,
@@ -382,12 +399,12 @@ impl State {
         }
         let (dependencies, catalog_sources) = if gradle_build {
             match host::fs::read_dir(cache) {
-                Err(Error::Denied(_)) => return Ok(None),
+                Err(Error::Denied(_)) => return gradle_denied(),
                 Err(e) => return Err(e),
                 Ok(_) => {}
             }
             match gradle::resolve(&source, cache) {
-                Err(Error::Denied(_)) => return Ok(None),
+                Err(Error::Denied(_)) => return gradle_denied(),
                 other => other?,
             }
         } else {
@@ -429,7 +446,7 @@ impl State {
             .enumerate()
             .map(|(i, d)| PickItem::new(&i.to_string(), &format!("{} ({})", d.gav(), d.scope)))
             .collect();
-        let Some(key) = host::pick("Read metadata from one declared Maven dependency", &choices)?
+        let Some(key) = host::pick("Read metadata from one declared dependency", &choices)?
         else {
             return Ok(None);
         };
@@ -441,7 +458,7 @@ impl State {
             .clone();
         let jar = if gradle_build {
             match gradle::file(cache, &selected, ".jar") {
-                Err(Error::Denied(_)) => return Ok(None),
+                Err(Error::Denied(_)) => return gradle_denied(),
                 Err(e) => return Err(e),
                 Ok(found) => found.ok_or("Selected JAR is not in the Gradle module cache.")?,
             }
@@ -504,7 +521,6 @@ impl State {
         let count = meta.props.len();
         let entries = entries.into_iter().map(|(name, _)| name).collect();
         self.snapshots.retain(|_, snapshots| {
-            snapshots.retain(|snapshot| snapshot.at.elapsed() < Duration::from_secs(600));
             !snapshots.is_empty()
         });
         if !self.snapshots.contains_key(&root) && self.snapshots.len() >= 8 {
@@ -536,16 +552,28 @@ impl State {
                 "Selected artifact metadata snapshot budget exceeded.",
             ));
         }
+        let incoming: BTreeMap<String, &spring_text::metadata::Prop> = meta
+            .props
+            .iter()
+            .map(|prop| (canonical(&prop.name), prop))
+            .collect();
+        let incoming_hints: BTreeMap<String, &Vec<String>> = meta
+            .hints
+            .iter()
+            .map(|(name, values)| (canonical(name), values))
+            .collect();
         for snapshot in other {
-            if snapshot.meta.props.iter().any(|old| {
-                meta.props
-                    .iter()
-                    .any(|new| canonical(&old.name) == canonical(&new.name) && old != new)
-            }) || snapshot.meta.hints.iter().any(|(old, values)| {
-                meta.hints.iter().any(|(new, new_values)| {
-                    canonical(old) == canonical(new) && values != new_values
+            if snapshot
+                .meta
+                .props
+                .iter()
+                .any(|old| incoming.get(&canonical(&old.name)).is_some_and(|new| **new != *old))
+                || snapshot.meta.hints.iter().any(|(old, values)| {
+                    incoming_hints
+                        .get(&canonical(old))
+                        .is_some_and(|new| *new != values)
                 })
-            }) {
+            {
                 return Err(invalid(
                     "Selected artifact metadata conflicts with a retained snapshot; no new facts installed.",
                 ));
@@ -563,15 +591,11 @@ impl State {
                 (
                     pom.clone(),
                     pom_digest.clone(),
-                    catalog_sources
-                        .iter()
-                        .map(|(path, _)| path.clone())
-                        .collect(),
+                    catalog_sources.clone(),
                 ),
             );
         }
         retained.push(Snapshot {
-            at: Instant::now(),
             pom,
             pom_digest,
             jar,
@@ -585,7 +609,7 @@ impl State {
             openidea_plugin::NotificationLevel::Info,
             "Spring Boot JAR metadata",
             &format!(
-                "Loaded {count} properties from one selected Maven dependency snapshot. Runtime classpath is unverified."
+                "Loaded {count} properties from one selected dependency snapshot. Runtime classpath is unverified."
             ),
         );
         Ok(None)
@@ -703,6 +727,15 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
         ));
     }
     Ok(result)
+}
+
+fn gradle_denied() -> Result<Option<String>, Error> {
+    host::notify(
+        openidea_plugin::NotificationLevel::Warning,
+        "Spring Boot JAR metadata",
+        "Gradle cache access not granted. Allow fs.read:~/.gradle/caches/modules-2/files-2.1 for Spring Boot Tools in Settings › Plugins.",
+    );
+    Ok(None)
 }
 
 fn build_tool_labels(gradle_build: bool) -> (&'static str, &'static str) {
@@ -831,7 +864,7 @@ mod tests {
                 && provenance.contains("dependency presence unverified")
         );
         assert!(h.process_runs().is_empty() && h.requests().is_empty());
-        state.invalidate("/project/pom.xml");
+        state.invalidate("/project/pom.xml", None);
         let cleared = state.catalog("/project/application.properties");
         assert!(
             spring_text::metadata::Lookup(vec![&cleared])
@@ -864,15 +897,12 @@ mod tests {
         answer(&h, true);
         let mut state = State::default();
         state.import_at(&h.invocation(), "/m2").unwrap();
-        state.snapshots.get_mut("/project").unwrap()[0].at =
-            Instant::now() - Duration::from_secs(600);
         assert!(state.version_scoped("/project/application.properties"));
         assert!(
             spring_text::metadata::Lookup(vec![state.bundled("/project/application.properties")])
                 .prop("server.port")
                 .is_none()
         );
-        state.snapshots.get_mut("/project").unwrap()[0].at = Instant::now();
         let mut tools = crate::BootTools {
             jars: state,
             ..Default::default()
@@ -1114,7 +1144,7 @@ mod tests {
         assert!(
             hover
                 .markdown
-                .contains("Selected Maven dependency snapshot")
+                .contains("Selected dependency snapshot")
                 && hover.markdown.contains("SHA-256")
                 && hover.markdown.contains("classpath is unverified")
         );
@@ -1166,22 +1196,20 @@ mod tests {
         answer(&h, true);
         let mut state = State::default();
         state.import_at(&h.invocation(), "/m2").unwrap();
-        state.snapshots.get_mut("/project").unwrap()[0].at =
-            Instant::now() - Duration::from_secs(600);
-        assert!(
-            state
-                .provenance("/project/application.properties")
-                .is_none()
-        );
-        answer(&h, true);
-        state.import_at(&h.invocation(), "/m2").unwrap();
-        state.invalidate("/other/pom.xml");
         assert!(
             state
                 .provenance("/project/application.properties")
                 .is_some()
         );
-        state.invalidate("/project/pom.xml");
+        answer(&h, true);
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        state.invalidate("/other/pom.xml", None);
+        assert!(
+            state
+                .provenance("/project/application.properties")
+                .is_some()
+        );
+        state.invalidate("/project/pom.xml", None);
         assert!(
             state
                 .provenance("/project/application.properties")
@@ -1334,7 +1362,7 @@ mod tests {
                 && local.contains("declared-local")
         );
         assert!(
-            !local.contains("Selected Maven dependency snapshot")
+            !local.contains("Selected dependency snapshot")
                 && !local.contains("configured-sensitive")
         );
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
@@ -1445,13 +1473,107 @@ mod tests {
     }
 
     #[test]
-    fn more_than_eight_imported_boms_are_refused() {
+    fn more_than_thirty_two_imported_boms_are_refused() {
         let h = setup();
-        let imports: String = (0..9)
+        let imports: String = (0..33)
             .map(|i| format!("<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.{i}</version><type>pom</type><scope>import</scope></dependency>"))
             .collect();
         let pom = format!("<project><dependencyManagement><dependencies>{imports}</dependencies></dependencyManagement>{VERSIONLESS}</project>");
+        for i in 0..33 {
+            boot_bom(&h, &format!("4.0.{i}"), MANAGED);
+        }
         let error = versions::cache_catalog(&pom, "/m2").unwrap_err();
-        assert!(format!("{error:?}").contains("8 imported"));
+        assert!(format!("{error:?}").contains("32 imported"));
+    }
+
+    #[test]
+    fn uncached_imports_do_not_count_against_the_bound() {
+        let h = setup();
+        let imports: String = (0..33)
+            .map(|i| format!("<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.{i}</version><type>pom</type><scope>import</scope></dependency>"))
+            .collect();
+        let pom = format!("<project><dependencyManagement><dependencies>{imports}</dependencies></dependencyManagement>{VERSIONLESS}</project>");
+        h.add_external_file("/m2/placeholder", "");
+        assert!(versions::cache_catalog(&pom, "/m2").is_ok());
+    }
+
+    #[test]
+    fn cloud_release_train_imports_accepted() {
+        let h = setup();
+        let imports: String = (0..15)
+            .map(|i| format!("<dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-part{i}-dependencies</artifactId><version>4.3.0</version><type>pom</type><scope>import</scope></dependency>"))
+            .collect();
+        let train = format!("<project><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>2025.1.0</version><dependencyManagement><dependencies>{imports}</dependencies></dependencyManagement></project>");
+        h.add_external_file("/m2/org/springframework/cloud/spring-cloud-dependencies/2025.1.0/spring-cloud-dependencies-2025.1.0.pom", &train);
+        for i in 0..15 {
+            h.add_external_file(
+                &format!("/m2/org/springframework/cloud/spring-cloud-part{i}-dependencies/4.3.0/spring-cloud-part{i}-dependencies-4.3.0.pom"),
+                &format!("<project><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-part{i}-dependencies</artifactId><version>4.3.0</version></project>"),
+            );
+        }
+        let pom = "<project><dependencyManagement><dependencies><dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>2025.1.0</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement></project>";
+        let (_, sources) = versions::cache_catalog(pom, "/m2").unwrap();
+        assert_eq!(sources.len(), 16);
+    }
+
+    #[test]
+    fn uncached_bom_skipped_on_invalid_no_such_file() {
+        let missing = |text: &str| versions::present::<()>(Err(Error::Invalid(text.into())));
+        assert_eq!(missing("/m2/x.pom: no such file").unwrap(), None);
+        assert_eq!(missing("/m2/x: no such directory").unwrap(), None);
+        assert!(missing("/m2/x.pom: is a directory").is_err());
+        let h = setup();
+        h.add_external_file("/m2/placeholder", "");
+        let pom = "<project><dependencyManagement><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>9.9.9</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement></project>";
+        let (_, sources) = versions::cache_catalog(pom, "/m2").unwrap();
+        assert!(sources.is_empty());
+    }
+
+    #[test]
+    fn uncached_gradle_coordinate_is_absent_on_invalid_no_such_directory() {
+        let h = MockHost::install().with_capabilities(&["project.read", "fs.read:/gradle"]);
+        h.add_external_file("/gradle/placeholder", "");
+        let dep = Dependency {
+            group: "org.example".into(),
+            artifact: "gone".into(),
+            version: "1.0".into(),
+            scope: "compile".into(),
+        };
+        assert_eq!(gradle::file("/gradle", &dep, ".jar").unwrap(), None);
+    }
+
+    #[test]
+    fn catalog_survives_past_600s() {
+        let h = setup();
+        answer(&h, true);
+        let mut state = State::default();
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        let path = "/project/application.properties";
+        assert!(state.provenance(path).is_some());
+        assert!(!spring_text::metadata::Lookup(vec![&state.catalog(path)]).all().next().is_none());
+    }
+
+    #[test]
+    fn opening_pom_keeps_import() {
+        let h = setup();
+        answer(&h, true);
+        let mut state = State::default();
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        for _ in 0..2 {
+            state.source_changed("/project/pom.xml", false);
+        }
+        assert!(state.provenance("/project/application.properties").is_some());
+        h.add_file("pom.xml", &POM.replace("1.2.3", "1.2.4"));
+        state.source_changed("/project/pom.xml", false);
+        assert!(state.provenance("/project/application.properties").is_none());
+    }
+
+    #[test]
+    fn gradle_cache_denied_message() {
+        let denied = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        denied.add_file("build.gradle", "dependencies { implementation 'org.example:config:1.2.3' }");
+        assert!(State::default().import_at(&denied.invocation(), "/gradle").unwrap().is_none());
+        let notes = denied.notifications();
+        assert!(notes.iter().any(|n| n.body.contains("Gradle cache access not granted")));
     }
 }

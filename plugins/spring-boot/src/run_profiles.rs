@@ -540,14 +540,22 @@ fn display(program: &str, args: &[String]) -> String {
     std::iter::once(program.to_owned()).chain(quoted).collect::<Vec<_>>().join(" ")
 }
 fn discovered_profiles(project: &openidea_plugin::Project) -> Vec<String> {
+    let (Some(roots), Ok(root)) = (crate::live::current_roots(), project.root()) else {
+        return Vec::new();
+    };
+    let owned = |path: &str| {
+        spring_text::scope::current_owner(path, &roots).as_deref() == Some(root.as_str())
+    };
     let files = project.find_files("**/application-*.*", 200).unwrap_or_default();
     let names: std::collections::BTreeSet<String> = files
         .iter()
+        .filter(|f| owned(f))
         .filter_map(|f| crate::nav::profile_of(f))
         .collect();
     let seeds: Vec<_> = crate::fileset::GLOBS
         .iter()
         .flat_map(|g| project.find_files(g, 64).unwrap_or_default())
+        .filter(|path| owned(path))
         .filter_map(|path| {
             let text = project.read_file(&path).ok()?;
             crate::fileset::read(&path, &text).map(|set| (path, set))
@@ -790,5 +798,15 @@ mod tests {
         let out = launch_args(&run, &["dev".into(), "qa".into()], &["--debug=true".into()]);
         assert_eq!(out[2], "--args=--spring.profiles.active=dev,qa --debug=true");
         assert_eq!(launch_args(&run, &[], &[]), ["--console=plain", "bootRun"]);
+    }
+    #[test]
+    fn nested_project_profiles_excluded() {
+        let host = MockHost::install();
+        host.add_file("src/main/resources/application-outer.properties", "a=1\n");
+        host.add_file("nested/src/main/resources/application-inner.properties", "a=1\n");
+        let project = host.invocation().project().unwrap();
+        assert_eq!(discovered_profiles(&project), ["inner", "outer"]);
+        host.add_project("/project/nested");
+        assert_eq!(discovered_profiles(&project), ["outer"]);
     }
 }

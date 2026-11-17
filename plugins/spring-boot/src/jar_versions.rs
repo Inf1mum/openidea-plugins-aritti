@@ -160,8 +160,16 @@ fn references(text: &str) -> Result<Vec<(Dependency, bool)>, Error> {
     }
     Ok(out)
 }
+/// `None` when the host says the path is not there (`NotFound`, or `Invalid("…: no such file")` outside the project).
+pub(super) fn present<T>(found: Result<T, Error>) -> Result<Option<T>, Error> {
+    match found {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if spring_text::fs_missing(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
 const MAX_PARENT_DEPTH: usize = 4;
-const MAX_IMPORTS: usize = 8;
+const MAX_IMPORTS: usize = 32;
 pub(super) fn cache_catalog(
     source: &str,
     cache: &str,
@@ -170,15 +178,12 @@ pub(super) fn cache_catalog(
         .into_iter()
         .map(|(d, parent)| (d, parent, 1))
         .collect();
-    let mut imports = queue.iter().filter(|(_, parent, _)| !parent).count();
-    if imports > MAX_IMPORTS {
-        return Err(invalid("More than 8 imported BOMs; no snapshot loaded."));
-    }
+    let mut imports = 0;
     let mut visited = BTreeSet::new();
     let mut catalogs = Vec::new();
     let mut snapshots = Vec::new();
     let mut bytes = 0;
-    while let Some((dep, _, depth)) = queue.pop() {
+    while let Some((dep, parent, depth)) = queue.pop() {
         if depth > MAX_PARENT_DEPTH {
             return Err(invalid("Parent/BOM chain deeper than 4; no snapshot loaded."));
         }
@@ -191,11 +196,15 @@ pub(super) fn cache_catalog(
             ));
         }
         let path = dep.path(cache).trim_end_matches(".jar").to_owned() + ".pom";
-        let stat = match host::fs::stat(&path) {
-            Ok(s) => s,
-            Err(Error::NotFound(_)) => continue,
-            Err(e) => return Err(e),
+        let Some(stat) = present(host::fs::stat(&path))? else {
+            continue;
         };
+        if !parent {
+            imports += 1;
+            if imports > MAX_IMPORTS {
+                return Err(invalid("More than 32 imported BOMs; no snapshot loaded."));
+            }
+        }
         if stat.kind != FileKind::File || stat.size > 256 * 1024 {
             return Err(invalid(
                 "Cached parent/BOM POM is not a bounded regular file.",
@@ -239,13 +248,7 @@ pub(super) fn cache_catalog(
         }
         catalogs.extend(managed(text)?.into_iter().filter(official));
         for (d, parent) in references(text)? {
-            if !parent {
-                imports += 1;
-            }
             queue.push((d, parent, depth + 1));
-        }
-        if imports > MAX_IMPORTS {
-            return Err(invalid("More than 8 imported BOMs; no snapshot loaded."));
         }
         snapshots.push((path, format!("{:x}", Sha256::digest(raw))));
     }
