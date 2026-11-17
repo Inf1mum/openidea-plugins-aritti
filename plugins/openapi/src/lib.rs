@@ -573,10 +573,10 @@ impl Plugin for OpenApi {
             let route =
                 arg.and_then(|key| self.route_list().route(key).cloned()).ok_or_else(|| Error::Invalid("select an endpoint row".into()))?;
             if id == "copy-route-curl" {
-                routes::copy_as_curl(&route, DEFAULT_BASE)?;
+                routes::copy_as_curl(&route, &route_base(&route))?;
             } else {
                 let directory = route.location.as_ref().and_then(|location| location.path.rsplit_once('/')).map(|(directory, _)| directory);
-                routes::create_http_file(&route, DEFAULT_BASE, directory, "OpenAPI")?;
+                routes::create_http_file(&route, &route_base(&route), directory, "OpenAPI")?;
             }
             return Ok(None);
         }
@@ -1351,6 +1351,18 @@ pub const ENDPOINTS: &str = "endpoints";
 pub const COMPARE: &str = "compare";
 
 const DEFAULT_BASE: &str = "http://localhost:8080";
+const RENDERER_KEY: &str = "previewRenderer";
+
+/// The route's spec server (as Write Requests uses it), else the local default.
+fn route_base(route: &routes::Route) -> String {
+    route
+        .location
+        .as_ref()
+        .and_then(|location| host::project_of(&location.path)?.read_file(&location.path).ok())
+        .and_then(|text| spec::parse(&text))
+        .map(|spec| http::base_url(&spec))
+        .unwrap_or_else(|| DEFAULT_BASE.into())
+}
 const NO_TAG: &str = "(no tag)";
 
 fn routes(path: &str, text: &str, spec: &spec::Spec) -> Vec<Route> {
@@ -1453,6 +1465,12 @@ impl Views for OpenApi {
             let ViewEvent::Message(request) = event else {
                 return Ok(());
             };
+            if let Some(renderer) = request.strip_prefix("renderer\t") {
+                if matches!(renderer, "swagger" | "redoc") {
+                    let _ = host::storage::set(RENDERER_KEY, renderer);
+                }
+                return Ok(());
+            }
             let mut parts = request.splitn(3, '\t');
             let (Some("files"), Some(id), Some(known)) = (parts.next(), parts.next(), parts.next()) else {
                 return Ok(());
@@ -1461,7 +1479,10 @@ impl Views for OpenApi {
             let path = editor.path();
             let project = project_for(&path)?;
             return match preview_files(&project, &path, &editor.document()?.text, id, known) {
-                Some(files) => crate::ui_group::post_view_message(view, &files),
+                Some(files) => match host::storage::get(RENDERER_KEY).ok().flatten().filter(|renderer| renderer == "redoc") {
+                    Some(renderer) => crate::ui_group::post_view_message(view, &format!("{{\"renderer\":\"{renderer}\",{}", &files[1..])),
+                    None => crate::ui_group::post_view_message(view, &files),
+                },
                 None => Ok(()),
             };
         }
@@ -1712,6 +1733,7 @@ mod tests {
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
         openapi.run_command("create-route-http", &host.invocation(), Some(&items[0].key)).unwrap();
         assert_eq!(host::projects().unwrap()[0].read_file("api/get-pets.http").unwrap(), "### GET /pets\nGET http://localhost:8080/pets\n");
+        assert_eq!(route_base(openapi.route_list().route(&items[0].key).unwrap()), "https://api.example.com/v1");
         assert!(host.process_runs().is_empty());
     }
 
@@ -2103,6 +2125,19 @@ mod tests {
 
     fn request(hash: &str, id: &str) -> ViewEvent {
         ViewEvent::Message(format!("files\t{id}\t{hash}"))
+    }
+
+    #[test]
+    fn preview_remembers_the_chosen_renderer() {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "storage"]);
+        host.open_editor("/project/api.yaml", "yaml", "openapi: 3.0.0\n", &[(0, 0, 0, 0)]);
+        let mut openapi = OpenApi::default();
+        openapi.handle("preview", ViewEvent::Message("renderer\tredoc".into()), &host.invocation()).unwrap();
+        openapi.handle("preview", request("", "a"), &host.invocation()).unwrap();
+        assert!(host.view_messages()[0].1.starts_with("{\"renderer\":\"redoc\",\"id\":\"a\""), "{:?}", host.view_messages());
+        openapi.handle("preview", ViewEvent::Message("renderer\tswagger".into()), &host.invocation()).unwrap();
+        openapi.handle("preview", request("", "b"), &host.invocation()).unwrap();
+        assert!(!host.view_messages()[1].1.contains("renderer"));
     }
 
     #[test]

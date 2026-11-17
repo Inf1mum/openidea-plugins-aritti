@@ -54,12 +54,12 @@ impl State {
         }
         if pending.status.is_none() {
             return Err(
-                "Stop or finish generation in its native terminal before forgetting the stage."
+                "Stop or finish generation in its terminal before clearing it."
                     .into(),
             );
         }
         if !host::confirm(
-            "Forget completed generation stage",
+            "Clear finished code generation",
             &format!(
                 "Stop tracking {}?\n\nFiles remain intact in that staging directory for manual inspection/removal. This does not delete or apply generated output.",
                 pending.stage
@@ -280,7 +280,7 @@ fn run_with_options(
     if let Some(p) = &state.pending {
         let project = host::project_of(&p.path).ok_or(Error::Stale)?;
         if !project.exists(&p.target)? || project.exists(&p.stage)? {
-            return Err("A staged generation is pending. Apply it from the specification's code actions, or finish/stop its terminal and run OpenAPI: Forget Completed Generation Stage before starting another.".into());
+            return Err("A staged generation is pending. Apply it from the specification's code actions, or finish/stop its terminal and run OpenAPI: Clear Finished Code Generation before starting another.".into());
         }
     }
     let editor = ctx

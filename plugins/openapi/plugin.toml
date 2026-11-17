@@ -5,7 +5,7 @@ description = "Editing support for OpenAPI 3 and Swagger 2 files in YAML and JSO
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Try it out also accepts a single https server with the optional net:ask permission, and refuses private, single-label and localhost servers; Draft Spec from Source Mappings and Breaking-Change Report commands; add operation and response quick fixes also in JSON, and self-contained export no longer duplicates components a nested $ref points back to; gutter markers skip JSON and YAML files that are not OpenAPI specs, and files in hidden folders are no longer $ref candidates or endpoints; shorter setting titles and clearer permission messages. \
+Next release: Unreleased: Copy as cURL and Create HTTP Request File suggest the spec server as the base URL, the preview remembers Redoc or Swagger UI, and command titles are plainer. Try it out also accepts a single https server with the optional net:ask permission, and refuses private, single-label and localhost servers; Draft Spec from Source Mappings and Breaking-Change Report commands; add operation and response quick fixes also in JSON, and self-contained export no longer duplicates components a nested $ref points back to; gutter markers skip JSON and YAML files that are not OpenAPI specs, and files in hidden folders are no longer $ref candidates or endpoints; shorter setting titles and clearer permission messages. \
 0.3.0: generation with preview and apply, richer checks. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "tools"]
@@ -79,7 +79,7 @@ category = "OpenAPI"
 
 [[contributes.commands]]
 id = "copy-route-curl"
-title = "OpenAPI: Copy as curl"
+title = "OpenAPI: Copy as cURL"
 category = "OpenAPI"
 
 [[contributes.commands]]
@@ -208,5 +208,5 @@ category = "OpenAPI"
 
 [[contributes.commands]]
 id = "forget-codegen-stage"
-title = "OpenAPI: Forget Completed Generation Stage"
+title = "OpenAPI: Clear Finished Code Generation"
 category = "OpenAPI"
