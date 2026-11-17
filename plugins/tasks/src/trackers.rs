@@ -664,7 +664,7 @@ pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
         if matches!(tracker.id,"redmine"|"mantis"|"generic") {
             for profile in bridge_profiles.iter().filter(|p|p.family==tracker.id) {
                 targets.push(SearchTarget {tracker:tracker.id,server:crate::self_hosted::server(&profile.base_url).ok_or(Error::Stale)?.into(),repository:Some(profile.base_url.clone()),label:format!("{} · {}",tracker.name,profile.base_url)});
-                if targets.len()>16 {return Err("Issue search supports at most 16server/profile selections.".into());}
+                if targets.len()>16 {return Err("Issue search supports at most 16 server/profile selections.".into());}
             }
             continue;
         }

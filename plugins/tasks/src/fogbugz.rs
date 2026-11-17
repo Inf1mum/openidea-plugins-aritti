@@ -118,7 +118,7 @@ fn invoke(server: &str, profile: &str, request: Value) -> Result<Value, Error> {
         }
         if let Some(status) = chunk.status {
             if status != 0 {
-                return Err("FogBugz credential bridge failed; check private profile, approved Python3 and network. No credential or remote error body is displayed.".into());
+                return Err("FogBugz credential bridge failed; check private profile, approved Python 3 and network. No credential or remote error body is displayed.".into());
             }
             break;
         }
@@ -215,7 +215,7 @@ pub fn search(scope: &Scope) -> Result<Vec<Task>, Error> {
     if !ui_kit::prompts::confirm_exact(
         "Search FogBugz with the local credential bridge?",
         &format!(
-            "Approved Python3 reads your externally provisioned private profile and POSTs the official XML API to this exact HTTPS tenant. Redirects are refused.\nServer: {server}\nProfile: {}\nQuery: {}\nAt most 50 results. Tokens remain inside the helper and are never native plugin settings or logs.",
+            "Approved Python 3 reads your externally provisioned private profile and POSTs the official XML API to this exact HTTPS tenant. Redirects are refused.\nServer: {server}\nProfile: {}\nQuery: {}\nAt most 50 results. Tokens remain inside the helper and are never native plugin settings or logs.",
             serde_json::to_string(&profile).unwrap_or_default(),
             serde_json::to_string(query).unwrap_or_default()
         ),
@@ -251,7 +251,7 @@ pub fn close(task: &Task) -> Result<(), Error> {
     if !ui_kit::prompts::confirm_exact(
         "Close this FogBugz issue?",
         &format!(
-            "Official FogBugz cmd=close through approved Python3 and your external private profile.\nServer: {server}\nIssue: {}\nSummary: {}\nRecorded event: {}\nThe helper re-fetches the exact issue, rejects changed credentials/event/permissions, submits ixBugEvent optimistic concurrency, and verifies closed state. Local task closure and git options are handled separately by Tasks.",
+            "Official FogBugz cmd=close through approved Python 3 and your external private profile.\nServer: {server}\nIssue: {}\nSummary: {}\nRecorded event: {}\nThe helper re-fetches the exact issue, rejects changed credentials/event/permissions, submits ixBugEvent optimistic concurrency, and verifies closed state. Local task closure and git options are handled separately by Tasks.",
             task.id,
             serde_json::to_string(&task.summary).unwrap_or_default(),
             proof.event_id

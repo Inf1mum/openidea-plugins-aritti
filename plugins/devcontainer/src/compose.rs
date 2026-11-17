@@ -238,7 +238,7 @@ impl Snapshot {
                     .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
                 || !value.is_object()
             {
-                return Err("Each service needs a literal name up to 128ASCII letters/digits/._- and an object definition.".into());
+                return Err("Each service needs a literal name up to 128 ASCII letters/digits/._- and an object definition.".into());
             }
             services.push(key.clone());
         }

@@ -256,7 +256,7 @@ fn invoke(profile: &Profile, request: Value) -> Result<Value, Error> {
         }
         if let Some(status) = chunk.status {
             if status != 0 {
-                return Err("Tracker credential bridge failed; check private profile and approved Python3. No credential or remote body is displayed.".into());
+                return Err("Tracker credential bridge failed; check private profile and approved Python 3. No credential or remote body is displayed.".into());
             }
             break;
         }
@@ -290,7 +290,7 @@ fn parse(result: &Value, profile: &Profile) -> Result<Vec<Task>, Error> {
     let items = result["issues"]
         .as_array()
         .filter(|a| a.len() <= 50)
-        .ok_or("Tracker result exceeds 50issues.")?;
+        .ok_or("Tracker result exceeds 50 issues.")?;
     let mut seen = std::collections::BTreeSet::new();
     let mut tasks = Vec::new();
     for item in items {
@@ -372,12 +372,12 @@ pub fn search(scope: &Scope, family: &str) -> Result<Vec<Task>, Error> {
         .filter(|q| q.len() <= 4096 && !q.chars().any(char::is_control))
         .ok_or("Self-hosted bridges require an explicit bounded parameter search.")?;
     if !(1..=5).contains(&scope.page) {
-        return Err("Search supports at most 5bounded pages.".into());
+        return Err("Search supports at most 5 bounded pages.".into());
     }
     if !ui_kit::prompts::confirm_exact(
         "Search this self-hosted tracker?",
         &format!(
-            "Approved Python3 reads the externally provisioned 0600 credential profile and calls this exact HTTPS service; redirects are refused.\nFamily: {family}\nBase URL: {}\nProfile: {}\nQuery parameters: {}\nPage: {} (at most 50results)\nRedmine supports documented issue filter parameters. Mantis requires project_id and optional filter_id. Generic sends the query text as the profile-declared search parameter. No unsupported free-text search is invented.",
+            "Approved Python 3 reads the externally provisioned 0600 credential profile and calls this exact HTTPS service; redirects are refused.\nFamily: {family}\nBase URL: {}\nProfile: {}\nQuery parameters: {}\nPage: {} (at most 50 results)\nRedmine supports documented issue filter parameters. Mantis requires project_id and optional filter_id. Generic sends the query text as the profile-declared search parameter. No unsupported free-text search is invented.",
             profile.base_url,
             serde_json::to_string(&profile.profile_path).unwrap_or_default(),
             serde_json::to_string(query).unwrap_or_default(),

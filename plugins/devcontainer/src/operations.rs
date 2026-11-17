@@ -169,7 +169,7 @@ impl Operations {
         let Some(session) = self.session.as_ref().filter(|s| s.key == key && s.root == root) else { return Ok(Vec::new()); };
         Ok(vec![
             Tab::new("target", "Target / State", Pane::Text(format!(
-                "Project / CLI cwd: {}\nConfiguration: {}\nProgram: devcontainer\nArguments: {}\n\n{}\n\nThe CLI reads disk and may execute referenced build/lifecycle code. This is one client handle, normally reclaimed with the plugin after about300seconds idle. Closing/killing it does not prove a container or Docker build stopped. Existing terminal commands support independent terminal sessions.", session.root, session.config, serde_json::to_string(&session.args).unwrap_or_default(), session.status))),
+                "Project / CLI cwd: {}\nConfiguration: {}\nProgram: devcontainer\nArguments: {}\n\n{}\n\nThe CLI reads disk and may execute referenced build/lifecycle code. This is one client handle, normally reclaimed with the plugin after about 300 seconds idle. Closing/killing it does not prove a container or Docker build stopped. Existing terminal commands support independent terminal sessions.", session.root, session.config, serde_json::to_string(&session.args).unwrap_or_default(), session.status))),
             Tab::new("output", "Captured Output", Pane::Text(format!("{}{}", if session.truncated { "[Earlier captured output truncated; latest 64KiB retained]\n" } else { "" }, if session.output.is_empty() { "No captured output yet. Refresh Status reads a bounded chunk." } else { &session.output }))),
         ])
     }

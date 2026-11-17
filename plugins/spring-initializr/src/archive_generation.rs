@@ -82,7 +82,7 @@ mod tests {
         zip.finish().unwrap().into_inner()
     }
     fn run(request:&Value)->std::process::Output {
-        let mut child=NativeCommand::new("python3").args(["-I","-c",ADAPTER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Python3 adapter integration tests require Python3");
+        let mut child=NativeCommand::new("python3").args(["-I","-c",ADAPTER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Python 3 adapter integration tests require Python 3");
         child.stdin.take().unwrap().write_all(request.to_string().as_bytes()).unwrap();child.wait_with_output().unwrap()
     }
     #[test]

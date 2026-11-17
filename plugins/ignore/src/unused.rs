@@ -107,7 +107,7 @@ impl State {
         let source=editor.document()?;let doc=Document{path:path.clone(),language:editor.language(),text:source.text,version:source.version};
         if doc.text.len()>128<<10{return Err("Ignore source exceeds 128KiB.".into());}
         let base=path.rsplit_once('/').ok_or(Error::Stale)?.0.to_owned();
-        if !ui_kit::prompts::confirm_exact("Capture complete unused-entry inventory?",&format!("Directory: {base}\nSource: {path}\n\nRun approved python3 in isolated mode with the bundled filesystem-only helper. It scans every entry (including hidden/ignored paths) twice, follows no symlinks and refuses errors, concurrent changes, more than 4096 entries/512 directories/depth24/1MiB output or8seconds. Source files are not changed. Unmatched entries are hints about this snapshot, not future-file guarantees."))? {return Ok(None);}
+        if !ui_kit::prompts::confirm_exact("Capture complete unused-entry inventory?",&format!("Directory: {base}\nSource: {path}\n\nRun approved python3 in isolated mode with the bundled filesystem-only helper. It scans every entry (including hidden/ignored paths) twice, follows no symlinks and refuses errors, concurrent changes, more than 4096 entries/512 directories/depth 24/1MiB output or 8 seconds. Source files are not changed. Unmatched entries are hints about this snapshot, not future-file guarantees."))? {return Ok(None);}
         let current=editor.document()?;if current.version!=doc.version||current.text!=doc.text||!owned(&root,&path){return Err(Error::Stale);}
         self.serial=self.serial.checked_add(1).ok_or(Error::Stale)?;
         let private=host::fs::plugin_dir()?;let helper=format!("{private}/complete_inventory.py");
@@ -125,7 +125,7 @@ impl State {
         let value:serde_json::Value=serde_json::from_str(&output).map_err(|_|Error::Stale)?;
         self.snapshot=Some(Snapshot{root,base,doc:doc.clone(),serial:self.serial,at:Instant::now(),unused,fingerprint:value["fingerprint"].as_str().ok_or(Error::Stale)?.into(),count:entries.len(),unsupported});
         let mut diagnostics=super::diagnostics(&doc.text,check::dialect(&path).ok_or(Error::Stale)?);diagnostics.extend(self.diagnostics(&doc));host::publish_diagnostics(&path,&diagnostics)?;
-        host::notify(NotificationLevel::Info,"Complete unused-entry snapshot",&format!("{} paths captured; {} unmatched entries; {} unsupported rules withheld. Glob matching conservatively ignores case; non-ASCII patterns are judged only by exact bytes and withheld when non-ASCII paths exist without a match, or when they use ? or [. Snapshot eligibility lasts120seconds and delivered filesystem/source changes withdraw it. Results describe capture time; rerun to refresh. Source unchanged.",entries.len(),self.snapshot.as_ref().unwrap().unused.len(),self.snapshot.as_ref().unwrap().unsupported));
+        host::notify(NotificationLevel::Info,"Complete unused-entry snapshot",&format!("{} paths captured; {} unmatched entries; {} unsupported rules withheld. Glob matching conservatively ignores case; non-ASCII patterns are judged only by exact bytes and withheld when non-ASCII paths exist without a match, or when they use ? or [. Snapshot eligibility lasts120 seconds and delivered filesystem/source changes withdraw it. Results describe capture time; rerun to refresh. Source unchanged.",entries.len(),self.snapshot.as_ref().unwrap().unused.len(),self.snapshot.as_ref().unwrap().unsupported));
         Ok(None)
     }
 }
@@ -190,7 +190,7 @@ mod tests {
     }
     #[test]
     fn actual_python_capture_includes_hidden_and_ignored_paths_and_refuses_overflow() {
-        if std::process::Command::new("python3").arg("--version").output().is_err(){eprintln!("Python3 unavailable; optional helper test skipped");return;}
+        if std::process::Command::new("python3").arg("--version").output().is_err(){eprintln!("Python 3 unavailable; optional helper test skipped");return;}
         let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let temporary=std::env::temp_dir().join(format!("ignore-complete-{unique}"));std::fs::create_dir_all(&temporary).unwrap();
         let temporary=temporary.canonicalize().unwrap();let base=temporary.join("project");std::fs::create_dir_all(base.join("ignored")).unwrap();

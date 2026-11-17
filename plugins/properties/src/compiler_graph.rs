@@ -303,7 +303,7 @@ fn run(doc: &Document, root: &str, sources: &BTreeMap<String, String>) -> Result
             return Err(if task.is_cancelled() {
                 Error::Cancelled
             } else {
-                "Java compiler graph exceeded15seconds; nothing changed.".into()
+                "Java compiler graph exceeded 15 seconds; nothing changed.".into()
             });
         }
         let chunk = child.wait(100)?;

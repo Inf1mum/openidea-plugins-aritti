@@ -13,8 +13,20 @@ ALLOWED_EXTRA_PREFIXES: dict[str, set[str]] = {
     "spring-integration": {"Spring Batch", "Spring Integration", "Spring Modulith"},
 }
 
-WORDS = r"at most|up to|exceeds|than|max|the|Java|Quarkus|provisioned|within|its|most|to|of"
-GLUED = re.compile(rf"\b(?:{WORDS})\d|[A-Za-z]\d+(?:KiB|MiB|bytes|lines|minutes)\b")
+WORDS = r"at most|up to|exceeds|than|max|the|Java|Quarkus|provisioned|within|its|most|to|of|about|or|depth|Python"
+UNITS = {"KiB", "MiB", "GiB", "TiB", "KB", "MB", "GB", "TB"}
+GLUED_WORD = re.compile(rf"\b(?:{WORDS})\d")
+GLUED_UNIT = re.compile(r"[A-Za-z]\d+(?:KiB|MiB|bytes|lines|minutes|seconds)\b")
+DIGITS_THEN_WORD = re.compile(r"(?<=\s)\d+([A-Za-z]{3,})")
+
+
+def glued(literal: str) -> bool:
+    if GLUED_WORD.search(literal) or GLUED_UNIT.search(literal):
+        return True
+    if literal.count(" ") < 3:
+        return False
+    return any(m.group(1) not in UNITS for m in DIGITS_THEN_WORD.finditer(literal))
+
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
 problems: list[str] = []
@@ -41,7 +53,7 @@ rust = list(ROOT.glob("plugins/*/src/**/*.rs")) + list(ROOT.glob("crates/ui-kit/
 for path in sorted(rust):
     for n, line in enumerate(path.read_text().splitlines(), 1):
         for lit in STRING.findall(line):
-            if GLUED.search(lit):
+            if glued(lit):
                 problems.append(f"{path.relative_to(ROOT)}:{n}: glued digit in {lit[:90]}")
 
 if problems:

@@ -171,7 +171,7 @@ fn materialize(plan: &Plan) -> Result<(), Error> {
         }
     }
     if existing + new > 96 {
-        return Err("Private staging cap reached (96 known staging/output files; up to 32 report sets or24 generated runs). Remove the plugin's empty lb-diff cache files or reinstall before creating more.".into());
+        return Err("Private staging cap reached (96 known staging/output files; up to 32 report sets or 24 generated runs). Remove the plugin's empty lb-diff cache files or reinstall before creating more.".into());
     }
     for (path, text) in &plan.staged {
         if let Err(error) = host::fs::write_bytes(path, text.as_bytes()) {
