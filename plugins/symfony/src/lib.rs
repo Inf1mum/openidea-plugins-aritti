@@ -59,7 +59,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
-use openidea_plugin::views::{Body, Button, Table, TreeItem, View, ViewEvent, Viewport, Views};
+use openidea_plugin::views::{Body, Button, Table, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Context, Diagnostic, Event, EventKind, Location, PickItem, Position, Range, Severity, TextEdit};
 use openidea_plugin::{Error, Invocation, LogLevel, NotificationLevel, Plugin, Project, StatusItem, host, text};
 
@@ -1138,8 +1138,6 @@ pub struct Main {
     indexes: BTreeMap<String, Index>,
     /// Files with published problems, checked again when the index changes.
     checked: BTreeSet<String>,
-    /// Expanded nodes of the tool window.
-    expanded: BTreeSet<String>,
 }
 
 fn concrete_method(route: &Route) -> Route {
@@ -2061,8 +2059,7 @@ fn typo_fixes(index: &Index, doc: &Document, offset: usize, selection_end: usize
         .collect()
 }
 
-/// Tool window node keys: `group:<kind>`, `domain:<name>`, `<kind>:<name>`, `translation:<domain>:<key>`.
-/// The icon is the group's and, except for translations, its leaves'.
+/// Tool window row keys: `<kind>:<name>`, `translation:<domain>:<key>`; the icon is the rows'.
 const GROUPS: &[(&str, &str, &str)] = &[
     ("route", "Routes", "web"),
     ("template", "Templates", "file-html"),
@@ -2090,17 +2087,8 @@ fn entry_for<'a>(index: &'a Index, key: &str) -> Option<&'a Entry> {
         let (domain, name) = name.split_once(':')?;
         return index.translations.get(domain)?.get(name);
     }
-    match group {
-        "entity" => return index.entities.get(name).map(|entity| &entity.entry),
-        "field" => {
-            let (class, field) = name.rsplit_once(':')?;
-            return index.entities.get(class)?.fields.iter().find(|candidate| candidate.name == field).map(|candidate| &candidate.entry);
-        }
-        "relation" => {
-            let (class, relation) = name.rsplit_once(':')?;
-            return index.entities.get(class)?.relations.iter().find(|candidate| candidate.name == relation).map(|candidate| &candidate.entry);
-        }
-        _ => {}
+    if group == "entity" {
+        return index.entities.get(name).map(|entity| &entity.entry);
     }
     group_names(index, group)?.get(name)
 }
@@ -2128,77 +2116,85 @@ impl Main {
         config.to_string()
     }
 
-    fn names_table(index: &Index, group: &str, root: &str) -> Body {
+    /// Resource table of a non-route tab: one row per fact, keyed as `entry_for` expects.
+    fn inventory_table(index: &Index, group: &str, root: &str) -> Body {
+        use serde_json::json;
         let icon = GROUPS.iter().find(|(id, _, _)| *id == group).map_or("file", |(_, _, icon)| *icon);
-        let names = group_names(index, group).expect("parameter and env groups are name maps");
-        let items: Vec<serde_json::Value> = names
-            .iter()
-            .filter(|(name, _)| group != "parameter" || !name.starts_with('.'))
-            .map(|(name, entry)| {
-                let detail = entry.detail.as_deref().unwrap_or_default();
-                let file = entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches(['/', '\\']);
-                let value = index.env_values.get(name).map_or("", String::as_str);
-                let cells = if group == "env" { vec![name.as_str(), value, detail.strip_prefix("defined in ").unwrap_or(detail)] } else { vec![name.as_str(), detail, file] };
-                serde_json::json!({"key":format!("{group}:{name}"),"cells":cells,"icon":icon})
-            })
-            .collect();
-        let data = if group == "env" {
-            serde_json::json!({"columns":["Variable","Value","File"],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":"Filter environment variables…","items":items})
-        } else {
-            serde_json::json!({"columns":["Key","Value","File"],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":"Filter parameters…","facetLabels":{"2":"All files"},"facets":[2],"items":items})
+        let file = |path: &str| path.strip_prefix(root).unwrap_or(path).trim_start_matches(['/', '\\']).to_owned();
+        let (items, data): (Vec<serde_json::Value>, serde_json::Value) = match group {
+            "env" => (
+                index.env.iter().map(|(name, entry)| {
+                    let value = index.env_values.get(name).map_or("", String::as_str);
+                    let detail = entry.detail.as_deref().unwrap_or_default();
+                    json!({"key":format!("env:{name}"),"cells":[name,value,detail.strip_prefix("defined in ").unwrap_or(detail)],"icon":icon})
+                }).collect(),
+                json!({"columns":["Variable","Value","File"],"columnStyles":["code","code","muted"],"searchPlaceholder":"Filter environment variables…"}),
+            ),
+            "parameter" => (
+                index.parameters.iter().filter(|(name, _)| !name.starts_with('.')).map(|(name, entry)| {
+                    json!({"key":format!("parameter:{name}"),"cells":[name,entry.detail.as_deref().unwrap_or_default(),file(&entry.path)],"icon":icon})
+                }).collect(),
+                json!({"columns":["Key","Value","File"],"columnStyles":["code","code","muted"],"searchPlaceholder":"Filter parameters…","facetLabels":{"2":"All files"},"facets":[2]}),
+            ),
+            "service" => (
+                index.services.iter().map(|(id, entry)| {
+                    let detail = entry.detail.as_deref().unwrap_or_default();
+                    let (class, kind) = match detail.strip_prefix("alias of ") {
+                        Some(target) => (format!("@{target}"), "Alias"),
+                        None if detail.is_empty() && id.contains('\\') => (id.clone(), "Service"),
+                        None => (detail.to_owned(), "Service"),
+                    };
+                    json!({"key":format!("service:{id}"),"cells":[id,class,kind,file(&entry.path)],"icon":icon})
+                }).collect(),
+                json!({"columns":["Service","Class","Kind","File"],"columnStyles":["code","code","text","muted"],"columnWeights":[3,3,1,3],
+                    "searchPlaceholder":"Filter services…","facetLabels":{"2":"All kinds","3":"All files"},"facets":[2,3]}),
+            ),
+            "template" => (
+                index.templates.iter().map(|(name, entry)| {
+                    let namespace = name.strip_prefix('@').and_then(|rest| rest.split_once('/')).map_or("(default)".to_owned(), |(namespace, _)| format!("@{namespace}"));
+                    let rendered_by = index.renders.iter().filter(|render| render.template == *name).count();
+                    let details: Vec<_> = entry.detail.iter().map(|detail| json!({"label":"Source","value":detail})).collect();
+                    json!({"key":format!("template:{name}"),"cells":[name,namespace,file(&entry.path),rendered_by.to_string()],"icon":icon,"details":details})
+                }).collect(),
+                json!({"columns":["Template","Namespace","File","Rendered by"],"columnStyles":["code","locale","muted","locale"],"columnWeights":[4,1.5,4,1],
+                    "searchPlaceholder":"Filter templates…","facetLabels":{"1":"All namespaces"},"facets":[1]}),
+            ),
+            "entity" => (
+                index.entities.iter().map(|(class, entity)| {
+                    let mut details = vec![json!({"label":"Class","value":class})];
+                    details.extend(entity.fields.iter().map(|field| {
+                        let value = format!("{}{}{}", field.type_name, if field.nullable { ", nullable" } else { "" }, if field.id { ", id" } else { "" });
+                        json!({"label":format!("${}", field.name),"value":value})
+                    }));
+                    details.extend(entity.relations.iter().map(|relation| {
+                        json!({"label":format!("${}", relation.name),"value":format!("{} \u{2192} {}", relation.kind, relation.target.as_deref().unwrap_or("?"))})
+                    }));
+                    let members: Vec<&str> = entity.fields.iter().map(|field| field.name.as_str()).chain(entity.relations.iter().map(|relation| relation.name.as_str())).collect();
+                    let cells = [
+                        php_text::short_name(class).to_owned(),
+                        entity.table.clone(),
+                        entity.fields.len().to_string(),
+                        entity.relations.len().to_string(),
+                        entity.repository.as_deref().map(php_text::short_name).unwrap_or_default().to_owned(),
+                        file(&entity.entry.path),
+                    ];
+                    json!({"key":format!("entity:{class}"),"cells":cells,"icon":"class","details":details,"searchText":format!("{class} {}", members.join(" "))})
+                }).collect(),
+                json!({"columns":["Entity","Table","Fields","Relations","Repository","File"],"columnStyles":["code","code","locale","locale","code","muted"],
+                    "columnWeights":[2.5,2,1,1,2.5,3],"searchPlaceholder":"Filter entities, tables or fields…"}),
+            ),
+            _ => (
+                index.translations.iter().flat_map(|(domain, names)| names.iter().map(move |(key, entry)| (domain, key, entry))).map(|(domain, key, entry)| {
+                    json!({"key":format!("translation:{domain}:{key}"),"cells":[key,domain,entry.detail.as_deref().unwrap_or_default(),file(&entry.path)],"icon":icon})
+                }).collect(),
+                json!({"columns":["Key","Domain","Value","File"],"columnStyles":["code","locale","text","muted"],"columnWeights":[3,1,3,2],
+                    "searchPlaceholder":"Filter translations…","facetLabels":{"1":"All domains"},"facets":[1]}),
+            ),
         };
+        let mut data = data;
+        data["showRowIcons"] = true.into();
+        data["items"] = items.into();
         Body::Other { kind: "resources".into(), data: data.to_string() }
-    }
-
-    fn group_tree(&self, index: &Index, group: &str) -> Vec<TreeItem> {
-        let icon = GROUPS.iter().find(|(id, _, _)| *id == group).map_or("file", |(_, _, icon)| *icon);
-        let leaf = |key: String, name: &str, entry: &Entry, icon: &str| {
-            let item = TreeItem::new(&key, name).icon(icon);
-            match &entry.detail {
-                Some(detail) if !detail.is_empty() => item.detail(detail),
-                _ => item,
-            }
-        };
-
-        if group == "entity" {
-            let mut items = Vec::new();
-            for (class, entity) in &index.entities {
-                let key = format!("entity:{class}");
-                let expanded = self.expanded.contains(&key);
-                let detail = format!("{} \u{b7} {} fields \u{b7} {} relations", entity.table, entity.fields.len(), entity.relations.len());
-                items.push(TreeItem::new(&key, php_text::short_name(class)).icon("class").detail(&detail).expandable(expanded));
-                if !expanded {
-                    continue;
-                }
-                for field in &entity.fields {
-                    let detail = format!("{}{}{}", field.type_name, if field.nullable { "?" } else { "" }, if field.id { " \u{b7} id" } else { "" });
-                    items.push(TreeItem::new(&format!("field:{class}:{}", field.name), &field.name).parent(&key).icon("property").detail(&detail));
-                }
-                for relation in &entity.relations {
-                    let detail = format!("{} \u{2192} {}", relation.kind, relation.target.as_deref().map_or("?", php_text::short_name));
-                    items.push(TreeItem::new(&format!("relation:{class}:{}", relation.name), &relation.name).parent(&key).icon("hierarchy").detail(&detail));
-                }
-            }
-            return items;
-        }
-
-        if let Some(names) = group_names(index, group) {
-            return names.iter().map(|(name, entry)| leaf(format!("{group}:{name}"), name, entry, icon)).collect();
-        }
-
-        let mut items = Vec::new();
-        for (domain, names) in &index.translations {
-            let domain_key = format!("domain:{domain}");
-            let expanded = self.expanded.contains(&domain_key);
-            items.push(TreeItem::new(&domain_key, &format!("{domain} ({})", names.len())).icon("folder").expandable(expanded));
-            if expanded {
-                for (name, entry) in names {
-                    let item = leaf(format!("translation:{domain}:{name}"), name, entry, "property");
-                    items.push(item.parent(&domain_key));
-                }
-            }
-        }
-        items
     }
 
     fn routes(&self, index: &Index) -> Vec<Route> {
@@ -2382,22 +2378,18 @@ impl Views for Main {
                 .button(reindex)
                 .button(Button::new("cache-warmup", "Warm Up Cache").icon("build-project"))
                 .status(&status);
-            let (routes, tree) = match routes_active {
-                true => (self.routes(index), Vec::new()),
-                false => (Vec::new(), self.group_tree(index, group)),
-            };
+            let routes = if routes_active { self.routes(index) } else { Vec::new() };
             let root = ctx.project().and_then(|p| p.root().ok());
-            let names_table = matches!(group, "parameter" | "env").then(|| Self::names_table(index, group, root.as_deref().unwrap_or_default()));
+            let table = (!routes_active).then(|| Self::inventory_table(index, group, root.as_deref().unwrap_or_default()));
             if self.route_owner != root { self.selected = None; self.route_selection = None; }
             self.route_owner = root;
             let window = self.window.get_or_insert_with(Window::new);
-            let view = if routes_active {
-                window.routes.set_routes(routes);
-                window.routes.render(base)
-            } else if let Some(body) = names_table {
-                View { body, ..base }
-            } else {
-                View { body: Body::Tree(tree), ..base }
+            let view = match table {
+                Some(body) => View { body, ..base },
+                None => {
+                    window.routes.set_routes(routes);
+                    window.routes.render(base)
+                }
             };
             Ok(view)
         })().map(ui_kit::actions::available)
@@ -2487,14 +2479,6 @@ impl Views for Main {
         }
 
         match event {
-            ViewEvent::Expand(key) => {
-                self.expanded.insert(key);
-                refresh_main_view();
-            }
-            ViewEvent::Collapse(key) => {
-                self.expanded.remove(&key);
-                refresh_main_view();
-            }
             ViewEvent::Activate(key) => {
                 let entry = self.view_index(ctx).and_then(|index| entry_for(index, &key));
                 if let Some(entry) = entry.filter(|e| !e.path.is_empty()) {
@@ -3140,26 +3124,24 @@ mod tests {
         plugin.run_command("reindex", &host.invocation(), None).unwrap();
         let ctx = host.invocation();
 
-        let View { body: Body::Tree(items), .. } = plugin.render(ENTITIES_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].label, "Post");
-        assert_eq!(items[0].detail.as_deref(), Some("blog_post \u{b7} 2 fields \u{b7} 1 relations"));
-
-        plugin.handle(ENTITIES_VIEW, ViewEvent::Expand("entity:App\\Entity\\Post".into()), &ctx).unwrap();
-        let View { body: Body::Tree(items), .. } = plugin.render(ENTITIES_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-        let summary: Vec<_> = items.iter().map(|item| (item.label.as_str(), item.detail.clone().unwrap_or_default())).collect();
-        assert_eq!(
-            summary[1..],
-            [("id", "int \u{b7} id".to_owned()), ("title", "string?".to_owned()), ("author", "ManyToOne \u{2192} User".to_owned())]
-        );
-        plugin.handle(ENTITIES_VIEW, ViewEvent::Activate("field:App\\Entity\\Post:title".into()), &ctx).unwrap();
-        assert_eq!(host.opened_locations(), [("/project/src/Entity/Post.php".into(), 10, 21)]);
-
         let mut table = |view: &str| {
             let View { body: Body::Other { kind, data }, .. } = plugin.render(view, None, &ctx).unwrap() else { panic!("not a table") };
             assert_eq!(kind, "resources");
             serde_json::from_str::<serde_json::Value>(&data).unwrap()
         };
+        let entities = table(ENTITIES_VIEW);
+        assert_eq!(entities["columns"], serde_json::json!(["Entity", "Table", "Fields", "Relations", "Repository", "File"]));
+        let items = entities["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["key"], "entity:App\\Entity\\Post");
+        assert_eq!(items[0]["cells"], serde_json::json!(["Post", "blog_post", "2", "1", "", "src/Entity/Post.php"]));
+        assert!(items[0]["searchText"].as_str().unwrap().contains("title"), "{entities}");
+        let details: Vec<_> = items[0]["details"].as_array().unwrap().iter().map(|detail| (detail["label"].as_str().unwrap(), detail["value"].as_str().unwrap())).collect();
+        assert_eq!(
+            details,
+            [("Class", "App\\Entity\\Post"), ("$id", "int, id"), ("$title", "string, nullable"), ("$author", "ManyToOne \u{2192} App\\Entity\\User")]
+        );
+
         let config = table(CONFIG_VIEW);
         assert_eq!(config["columns"], serde_json::json!(["Key", "Value", "File"]));
         assert!(config["items"].as_array().unwrap().iter().any(|item| item["cells"][0] == "app.items_per_page"), "{config}");
@@ -3176,6 +3158,9 @@ mod tests {
         assert!(env.iter().all(|(_, detail)| !detail.contains("secret") && !detail.contains("postgresql")));
         let secret = env_table["items"].as_array().unwrap().iter().find(|item| item["cells"][0] == "APP_SECRET").unwrap();
         assert_eq!(secret["cells"][1], "••••••");
+
+        plugin.handle(ENTITIES_VIEW, ViewEvent::Activate("entity:App\\Entity\\Post".into()), &ctx).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/src/Entity/Post.php".into(), 5, 6)]);
     }
 
     #[test]
@@ -3730,21 +3715,55 @@ mod tests {
         let mut plugin = activated(&host);
         let ctx = host.invocation();
 
-        for (view, count, icon) in [(TEMPLATES_VIEW, 2, "file-html"), (SERVICES_VIEW, 1, "class")] {
-            let View { body: Body::Tree(items), .. } = plugin.render(view, None, &ctx).unwrap() else { panic!("not a tree") };
-            assert_eq!(items.len(), count, "{view}");
-            assert!(items.iter().all(|item| item.icon.as_deref() == Some(icon) && item.parent.is_none()), "{view}");
-        }
+        let mut table = |view: &str| {
+            let View { body: Body::Other { kind, data }, .. } = plugin.render(view, None, &ctx).unwrap() else { panic!("not a table") };
+            assert_eq!(kind, "resources");
+            serde_json::from_str::<serde_json::Value>(&data).unwrap()
+        };
+        let rows = |table: &serde_json::Value| -> Vec<(String, serde_json::Value)> {
+            table["items"].as_array().unwrap().iter().map(|item| (item["key"].as_str().unwrap().to_owned(), item["cells"].clone())).collect()
+        };
 
-        plugin.handle(TRANSLATIONS_VIEW, ViewEvent::Expand("domain:admin".into()), &ctx).unwrap();
-        let View { body: Body::Tree(items), .. } = plugin.render(TRANSLATIONS_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-        let icon = |key: &str| items.iter().find(|i| i.key == key).and_then(|i| i.icon.clone());
-        assert_eq!(icon("domain:admin").as_deref(), Some("folder"));
-        assert_eq!(icon("translation:admin:menu").as_deref(), Some("property"));
+        let templates = table(TEMPLATES_VIEW);
+        assert_eq!(templates["columns"], serde_json::json!(["Template", "Namespace", "File", "Rendered by"]));
+        assert_eq!(templates["facets"], serde_json::json!([1]));
+        assert_eq!(
+            rows(&templates),
+            [
+                ("template:base.html.twig".into(), serde_json::json!(["base.html.twig", "(default)", "templates/base.html.twig", "0"])),
+                ("template:blog/index.html.twig".into(), serde_json::json!(["blog/index.html.twig", "(default)", "templates/blog/index.html.twig", "1"])),
+            ]
+        );
 
+        let services = table(SERVICES_VIEW);
+        assert_eq!(services["columns"], serde_json::json!(["Service", "Class", "Kind", "File"]));
+        assert_eq!(services["facets"], serde_json::json!([2, 3]));
+        assert_eq!(rows(&services), [("service:app.mailer".into(), serde_json::json!(["app.mailer", "App\\Mailer", "Service", "config/services.yaml"]))]);
+
+        let translations = table(TRANSLATIONS_VIEW);
+        assert_eq!(translations["columns"], serde_json::json!(["Key", "Domain", "Value", "File"]));
+        assert_eq!(translations["facets"], serde_json::json!([1]));
+        assert_eq!(
+            rows(&translations),
+            [
+                ("translation:admin:menu".into(), serde_json::json!(["menu", "admin", "Menu", "translations/admin.en.yaml"])),
+                ("translation:messages:app.title".into(), serde_json::json!(["app.title", "messages", "Blog", "translations/messages.en.yaml"])),
+            ]
+        );
+        assert!(translations["items"].as_array().unwrap().iter().all(|item| item["icon"] == "text"));
+
+        plugin.handle(TRANSLATIONS_VIEW, ViewEvent::Activate("translation:admin:menu".into()), &ctx).unwrap();
+        plugin.handle(SERVICES_VIEW, ViewEvent::Activate("service:app.mailer".into()), &ctx).unwrap();
         plugin.render(VIEW, None, &ctx).unwrap();
         plugin.handle(VIEW, ViewEvent::Activate("route:blog_index".into()), &ctx).unwrap();
-        assert_eq!(host.opened_locations(), [("/project/src/Controller/BlogController.php".into(), 4, 28)]);
+        assert_eq!(
+            host.opened_locations(),
+            [
+                ("/project/translations/admin.en.yaml".into(), 0, 0),
+                ("/project/config/services.yaml".into(), 1, 4),
+                ("/project/src/Controller/BlogController.php".into(), 4, 28),
+            ]
+        );
     }
 
     fn toolbar_labels(view: &View) -> Vec<String> {

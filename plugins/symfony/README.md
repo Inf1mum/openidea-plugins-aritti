@@ -131,10 +131,14 @@ The **Symfony** tool window on the right has these tabs:
 
 - **About**: project, Symfony and key package versions, Composer requirements, whether the compiled cache was found, index counts and which `.env*` files exist (never their values). **Run bin/console about** opens it in a terminal.
 - **Routes**: every route with method, path and controller. Filter to one controller, switch between flat and tree, and use **Copy as curl** or **Create HTTP Request File** on a row. Double-click opens the definition.
-- **Entities**: Doctrine entities from `#[ORM\Entity]` with table, repository, fields and relations.
-- **Templates**, **Services** and **Translations**: what the index holds. Double-click opens the definition.
+- **Entities**: a table of Doctrine entities from `#[ORM\Entity]` with table, field and relation counts, repository and file. Search also matches field names; **Show Details…** lists each field and relation.
+- **Templates**: template name, namespace (filter), file and how many controller `render()` calls use it.
+- **Services**: service id, class (or `@target` for aliases), kind and file; filter by kind or file.
+- **Translations**: key, domain (filter), value and file.
 - **Config**: container parameter names and where they're defined. Values aren't read.
 - **Env**: `.env` variable names and the files defining them. Values are never read.
+
+Every tab except Routes is a table: type in the search box, narrow with the filters, sort by clicking a column, and **Reset filters** when nothing matches. Double-click or Enter opens the definition; right-click a row for its actions.
 - **Profiler**: the latest requests from the profiler's CSV index. See below.
 - **Twig Namespace Paths**: navigation hints for extra Twig directories.
 - **Processes**: start the Symfony CLI server, server log and Messenger or scheduler workers in terminal tabs.
@@ -401,7 +405,7 @@ File-creating actions are lazy file actions with exact resulting-file confirmati
 - Only route usages get a gutter icon; it links to the route definition.
 - **About** runs no PHP. Versions come from `composer.lock`.
 - **Env** reads `.env`, `.env.local`, `.env.dev`, `.env.test`, `.env.prod` and their `.local` variants. Values are never read into the index or shown.
-- **Entities** reads `src/Entity/` and the `dir:` of `doctrine.orm.mappings`. Fields show Doctrine type, nullability and `id`; relations show their target. Entities expand into fields and relations; activating a row opens its declaration. Legacy annotations, XML and YAML mappings, embeddables and mapped superclasses aren't read.
+- **Entities** reads `src/Entity/` and the `dir:` of `doctrine.orm.mappings`. Fields show Doctrine type, nullability and `id`; relations show their target, in the row's details. Activating a row opens the entity class; fields and relations have no rows of their own. Legacy annotations, XML and YAML mappings, embeddables and mapped superclasses aren't read.
 
 ### Profiler
 
