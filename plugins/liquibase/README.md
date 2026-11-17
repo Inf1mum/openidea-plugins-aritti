@@ -127,7 +127,7 @@ Use ⌥⏎ in a changelog editor. Each action shows the exact change before appl
 - **Create Liquibase changelog…** creates a new XML, YAML, formatted SQL or JSON changelog from the bundled templates. From an XML, YAML or JSON parent, you can also add an `include` for it in the same step. The new file opens afterwards.
 - **Include existing changelog…** adds an `include` to an existing changelog beside or below the parent.
 
-**Liquibase: New Changeset** and **Liquibase: New Changelog…** explain which ⌥⏎ action to choose.
+**Liquibase: New Changeset** and **Liquibase: New Changelog…** run the same actions on the open changelog and apply them after you confirm. That is not a single undo step.
 
 Generated changesets are empty skeletons. Fill them in and review them before running.
 
@@ -180,8 +180,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Liquibase**; bind ke
 | **Liquibase: Choose Browser Root and Configuration…** | Picks the changelog root (and config file) the tool window shows. |
 | **Liquibase: Browse All Project Changelogs** | Goes back to showing every changelog. |
 | **Liquibase: Update (Asks First)…** | Runs `liquibase update` in a terminal after confirmation. |
-| **Liquibase: New Changeset** | Explains how to add a changeset with ⌥⏎. |
-| **Liquibase: New Changelog…** | Explains how to create a changelog with ⌥⏎. |
+| **Liquibase: New Changeset** | Adds an empty changeset to the open changelog after you confirm (the ⌥⏎ **Add Liquibase changeset…** steps; not a single undo step). |
+| **Liquibase: New Changelog…** | Creates the changelog file directly after you confirm, optionally included from the open parent (the ⌥⏎ **Create Liquibase changelog…** steps; not a single undo step). |
 | **Liquibase: Rollback Count…** | Asks for a count, confirms, then runs `rollback-count`. |
 | **Liquibase: Review Offline Snapshot Diff** | Opens the last offline diff report. |
 | **Liquibase: Run Reviewed Offline Snapshot Diff…** | Compares two snapshot files after confirmation. |
@@ -207,6 +207,8 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 | `process:git` | Suggesting `git config user.name` as author | No author is suggested unless **Author** is set. |
 | `storage` | Remembering the chosen browser root | The choice isn't saved; browsing all changelogs still works. |
 | `events` | Refreshing cached facts when files are opened, saved or changed | Checks on the current file still work; gutter links and hover may be missing until you refresh. |
+| `editor.read`, `editor.write` | **Liquibase: New Changeset** and **New Changelog…** reading and editing the open changelog | Those commands say which permission to allow. ⌥⏎ still works. |
+| `project.write` | **Liquibase: New Changelog…** creating the file | That command says which permission to allow. ⌥⏎ still works. |
 
 ## Troubleshooting
 
@@ -220,7 +222,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 | An include has no gutter link | Open the included file, or refresh the tool window. Only literal relative paths get links. |
 | "Cannot find …" stays after creating the missing file | Edit or reopen the parent changelog. |
 | "This host cannot ask for confirmation." | Use the **Liquibase: update-sql** or **status** Run configuration instead. |
-| **Liquibase: New Changeset** only shows a message | That's expected. Press ⌥⏎ in the changelog and choose **Add Liquibase changeset…**. |
+| "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first." | Focus a changelog editor, then run **Liquibase: New Changeset** or **New Changelog…** again. |
 | Offline diff: "belongs to another project" | Switch back to the project that started it. |
 
 More: [repository troubleshooting](../../README.md#troubleshooting).

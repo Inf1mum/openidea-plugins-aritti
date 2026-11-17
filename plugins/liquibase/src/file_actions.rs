@@ -110,18 +110,14 @@ fn done(title: &str, edits: Vec<(String, Vec<TextEdit>)>, operations: Vec<FileOp
 }
 impl Liquibase {
     pub(crate) fn generator_entry(&mut self, ctx: &Invocation, id: &str) -> Result<Option<String>, Error> {
-        let editor = ctx.editor().ok_or("Open a project changelog/editor first.")?;
+        const UNAVAILABLE: &str = "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first.";
+        let editor = ctx.editor().ok_or(UNAVAILABLE)?;
         let project = ctx.project().ok_or("Open a project first.")?;
-        let root = root(&project)?;
-        path(&root, &editor.path())?;
-        let title=match id {
-            SET if [".xml", ".yaml", ".yml", ".json", ".sql"].iter().any(|e| editor.path().ends_with(e)) => "Add Liquibase changeset…",
-            NEW if [".xml",".yaml",".yml",".json",".sql"].iter().any(|e|editor.path().ends_with(e)) => "Create Liquibase changelog…",
-            _ => return Err("This generator is unavailable here. Use namespaced XML, a YAML/JSON changelog array or formatted SQL.".into()),
-        };
-        Ok(Some(format!(
-            "Choose {title} from this editor's code actions (⌥⏎). Availability is validated against the current source; review the exact preview and confirm before the host applies one undoable workspace action."
-        )))
+        let prefix = if id == SET { "Add Liquibase changeset" } else { "Create Liquibase changelog" };
+        if !ui_kit::command_file_action::run_titled(self, &project, &editor, prefix, TITLE)? {
+            return Err(UNAVAILABLE.into());
+        }
+        Ok(None)
     }
 }
 impl FileActions for Liquibase {
@@ -375,6 +371,46 @@ mod tests {
         let from = offset(&doc.text, edit.range.start).unwrap();
         let to = offset(&doc.text, edit.range.end).unwrap();
         format!("{}{}{}", &doc.text[..from], edit.text, &doc.text[to..])
+    }
+    const COMMAND_CAPABILITIES: [&str; 3] = ["project.read", "editor.read", "editor.write"];
+    #[test]
+    fn new_changeset_command_inserts_into_open_changelog() {
+        let (host, mut plugin, _) = setup();
+        let host = host.with_capabilities(&COMMAND_CAPABILITIES);
+        answers(&host, &["7", "ann"], true);
+        assert_eq!(plugin.run_command("new-changeset", &host.invocation(), None).unwrap(), None);
+        assert_eq!(generate::xml_log(&host.editor_text()).unwrap().identities, [("7".into(), "ann".into())]);
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn new_changelog_command_creates_file() {
+        let (host, mut plugin, doc) = setup();
+        let host = host.with_capabilities(&[COMMAND_CAPABILITIES.as_slice(), &["project.write"]].concat());
+        answers(&host, &["xml", "db/two.xml", "ann", "standalone"], true);
+        plugin.run_command("new-changelog", &host.invocation(), None).unwrap();
+        let created = host.invocation().project().unwrap().read_file("db/two.xml").unwrap();
+        assert_eq!(generate::xml_log(&created).unwrap().identities[0].1, "ann");
+        assert_eq!(host.editor_text(), doc.text);
+        assert_eq!(host.opened_locations(), [("/project/db/two.xml".to_owned(), 0, 0)]);
+    }
+    #[test]
+    fn new_changelog_denied_write_names_permission() {
+        let (host, mut plugin, _) = setup();
+        let host = host.with_capabilities(&COMMAND_CAPABILITIES);
+        answers(&host, &["xml", "db/two.xml", "ann", "standalone"], true);
+        let error = plugin.run_command("new-changelog", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains("needs the project.write permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Liquibase Changelogs"), "{error}");
+        assert!(!host.invocation().project().unwrap().exists("db/two.xml").unwrap());
+    }
+    #[test]
+    fn generator_commands_need_a_changelog_editor() {
+        let (host, mut plugin, _) = setup();
+        let host = host.with_capabilities(&COMMAND_CAPABILITIES);
+        host.add_file("notes.txt", "");
+        host.open_editor("/project/notes.txt", "text", "", &[]);
+        let error = plugin.run_command("new-changeset", &host.invocation(), None).unwrap_err().to_string();
+        assert_eq!(error, "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first.");
     }
     #[test]
     fn registered_xml_mutation_preserves_legal_unicode_namespace_prefix() {
@@ -652,10 +688,6 @@ mod prompt_context_tests {
         host.open_editor("/project/db/log.xml", "xml", &text, &[]);
         host.on_process("git", |_, _| panic!("a lazy resolver must not launch a process"));
         let doc = Document { path: "/project/db/log.xml".into(), language: "xml".into(), version: 1, text };
-        assert!(
-            plugin.run_command("new-changeset", &host.invocation(), None).unwrap().unwrap().contains("code actions"),
-            "shortcut needs no editor.read grant"
-        );
         let lazy = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title.starts_with("Add")).unwrap();
         assert!(matches!(plugin.resolve_file_action(&doc, lazy), Err(Error::Cancelled)));
         assert!(host.notifications().is_empty());

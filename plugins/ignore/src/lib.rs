@@ -215,14 +215,23 @@ const IGNORE_FILE_NAMES: [&str; 20] = [
     ".chefignore",
 ];
 
-fn new_ignore_file(ctx: &Invocation) -> Result<(), Error> {
-    ctx.project().ok_or("Open a project first.")?.root()?;
-    host::notify(
-        NotificationLevel::Info,
-        "New Ignore File",
-        "Use New > .gitignore File (or another exact ignore type). From a project editor, enabled Create exact-name ignore file… choices follow Ignore preferences and offer confirmed, undoable creation.",
-    );
-    Ok(())
+fn new_ignore_file(plugin: &mut IgnorePlugin, ctx: &Invocation) -> Result<(), Error> {
+    let project = ctx.project().ok_or("Open a project first.")?;
+    if let Some(editor) = ctx.editor() {
+        if ui_kit::command_file_action::run_titled(plugin, &project, &editor, "Create exact-name ignore file", ".ignore")? {
+            return Ok(());
+        }
+    }
+
+    let names = preferences::creatable_names();
+    if names.is_empty() {
+        return Err("No enabled Ignore Create actions are available.".into());
+    }
+
+    let items: Vec<_> = names.iter().map(|name| PickItem::new(name, name)).collect();
+    let Some(name) = host::pick("Ignore file type (exact filename)", &items)? else { return Ok(()) };
+    let target = format!("{}/{name}", project.root()?.trim_end_matches('/'));
+    ui_kit::command_file_action::create_empty(&project, &target, "Create ignore file?", ".ignore")
 }
 
 /// The ignore files that apply to `relative`: `.git/info/exclude`, then the
@@ -544,7 +553,7 @@ impl openidea_plugin::Plugin for IgnorePlugin {
             }
             "add-selected" => add_selected(ctx, false).map(|()| None),
             "unignore-selected" => add_selected(ctx, true).map(|()| None),
-            "new-file" => new_ignore_file(ctx).map(|()| None),
+            "new-file" => new_ignore_file(self, ctx).map(|()| None),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }

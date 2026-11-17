@@ -551,12 +551,48 @@ fn the_editor_menu_adds_the_current_file_when_nothing_is_selected() {
     assert_eq!(host.opened_locations(), [("/project/.gitignore".to_owned(), 0, 0)]);
 }
 
+fn new_file_host() -> MockHost {
+    MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read", "editor.write", "storage"])
+}
+
 #[test]
-fn legacy_new_file_command_guides_to_atomic_native_creation_without_process(){
-    let host=MockHost::install().with_capabilities(&["project.read"]);
-    IgnorePlugin::default().run_command("new-file",&host.invocation(),None).unwrap();
+fn new_ignore_file_command_creates_from_editor() {
+    let host = new_file_host();
+    host.add_file("src/a.rs", "");
+    host.open_editor("/project/src/a.rs", "rust", "", &[]);
+    host.answer_next_prompt(Some(&[".dockerignore"]));
+    host.answer_next_prompt(Some(&[""]));
+    host.answer_next_prompt(Some(&[]));
+
+    IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap();
+
+    assert_eq!(host.invocation().project().unwrap().read_file(".dockerignore").unwrap(), "# .dockerignore\n");
+    assert_eq!(host.opened_locations(), [("/project/.dockerignore".to_owned(), 0, 0)]);
     assert!(host.process_runs().is_empty());
-    assert!(host.notifications()[0].body.contains("Create exact-name ignore file"));
+}
+
+#[test]
+fn new_ignore_file_without_editor_picks_type() {
+    let host = new_file_host();
+    host.answer_next_prompt(Some(&[".npmignore"]));
+    host.answer_next_prompt(Some(&[]));
+
+    IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap();
+
+    assert_eq!(host.invocation().project().unwrap().read_file(".npmignore").unwrap(), "");
+    assert_eq!(host.opened_locations(), [("/project/.npmignore".to_owned(), 0, 0)]);
+}
+
+#[test]
+fn new_ignore_file_refuses_existing() {
+    let host = new_file_host();
+    host.add_file(".gitignore", "old\n");
+    host.answer_next_prompt(Some(&[".gitignore"]));
+
+    let error = IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap_err().to_string();
+
+    assert!(error.contains("already exists"), "{error}");
+    assert_eq!(host.invocation().project().unwrap().read_file(".gitignore").unwrap(), "old\n");
 }
 
 #[test]

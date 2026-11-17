@@ -1,6 +1,6 @@
-//! Commands that run MakerBundle, guide to atomic template creation, or insert form rows.
+//! Commands that run MakerBundle, create Twig templates, or insert form rows.
 
-use openidea_plugin::{Error, Invocation, NotificationLevel, PickItem, Position, Range, TextEdit, host};
+use openidea_plugin::{Error, Invocation, PickItem, Position, Range, TextEdit, host};
 
 use crate::php_checks::{arguments, trimmed};
 use crate::php_text::{mask, skip_whitespace};
@@ -64,12 +64,22 @@ impl Main {
         }
     }
 
-    pub(crate) fn create_template(&mut self, _ctx: &Invocation) -> Result<Option<String>, Error> {
-        host::notify(
-            NotificationLevel::Info,
-            SOURCE,
-            "Place the caret inside a literal unqualified Twig extends/include/embed/use template name, then invoke the Create missing Twig template… intention. Review the exact target/content before one atomic non-overwriting Create. Commands cannot return native FileActions; this command does not write a file.",
-        );
+    pub(crate) fn create_template(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
+        let project = ctx.project().ok_or("No project is open.")?;
+        if let Some(editor) = ctx.editor() {
+            if ui_kit::command_file_action::run_titled(self, &project, &editor, "Create missing Twig template", SOURCE)? {
+                return Ok(None);
+            }
+        }
+
+        let Some(name) = host::input("Template name (e.g. blog/show.html.twig)", None)? else { return Ok(None) };
+        let name = name.trim();
+        if name.starts_with('/') || name.split('/').any(|part| part == "..") || !name.ends_with(".twig") {
+            return Err("Use a template name inside templates/ ending in .twig, without '..'.".into());
+        }
+
+        let target = format!("{}/templates/{name}", project.root()?);
+        ui_kit::command_file_action::create_empty(&project, &target, "Create Twig template?", SOURCE)?;
         Ok(None)
     }
 

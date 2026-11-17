@@ -47,7 +47,7 @@ Quick fixes on ⌥⏎: remove the entry, remove the relative part, or switch to 
 - **New › .gitignore File** and 19 more exact names (`.dockerignore`, `.npmignore`, `.hgignore`…). The Git template has a starter list. Others start with a comment; `.hgignore` starts in glob mode.
 - ⌥⏎ › **Create exact-name ignore file…** in any project editor. Pick a name and a folder (empty means the project root), then confirm.
 - ⌥⏎ › **Create ignore file from templates…** combines up to 16 templates into one new file.
-- **New Ignore File** (Project view, Tools menu) explains these options.
+- **Ignore: New Ignore File…** (Project view, Tools menu) creates the file directly. From a project editor it runs **Create exact-name ignore file…**; without an editor it creates an empty file of the type you pick at the project root. You confirm first, and the file opens. It is not a single undo step.
 
 ### Use templates
 
@@ -103,7 +103,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ignore**; bind keys 
 |---|---|---|
 | **Add Selected Paths to the Open Ignore File** | Adds the paths selected in the Project view to the open ignore file. Also in the Project view and editor context menus. | none |
 | **Unignore Selected Paths in the Open Ignore File** | Adds `!` entries for the selected paths. Also in the Project view and editor context menus. | none |
-| **New Ignore File** | Explains how to create an ignore file with New or ⌥⏎. Also in the Project view menu and Tools. | none |
+| **Ignore: New Ignore File…** | Creates an ignore file directly after you confirm (not a single undo step): the editor's **Create exact-name ignore file…**, or an empty file of the picked type at the project root. Also in the Project view menu and Tools. | none |
 | **Ignore: Dialect Checks and Preferences** | Opens the per-file-type preferences form. Also in Tools. | none |
 | **Ignore: Start Git Ignored-File Observations (Asks First)…** | Shows the Git command, then collects a sample of ignored paths. | none |
 | **Ignore: Review Cached Partial Git Observations** | Shows the cached sample and rule match counts. | none |
@@ -134,6 +134,7 @@ Optional permissions are off until you allow them in Settings › Plugins › .i
 | `vcs.read` | Finding the repository root and HEAD for the Git observation commands. | Those commands are refused. |
 | `process:python3` | Running the helper for **Ignore: Find Unused Entries from Complete Directory Snapshot…**. | That command is refused. |
 | `clipboard` | No current feature uses it. | Nothing changes. |
+| `project.write` | **Ignore: New Ignore File…** writing the new file. | That command says which permission to allow. New and ⌥⏎ still create files. |
 
 ## Troubleshooting
 
@@ -185,7 +186,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - **Create exact-name ignore file…** offers the 20 supported names and an existing project-relative directory. You confirm the exact destination and initial content, and the new file opens. Existing files or buffers, outside paths, traversal and invalid directories are refused.
 - **Create ignore file from templates…** is an atomic intention combining up to 16 bundled or user templates into one new glob-dialect file. The exact combined content and destination are reviewed first. Dismissal, duplicate or unknown selections, existing files or buffers and changed source context return no operation. Regexp dialects (including `.hgignore`) are excluded from template workflows.
 - **Append ignore template…** confirms the exact insertion. Existing template headers are refused instead of silently duplicating a block. Template pickers list the up-to-16 most recently chosen templates first (stored locally, bounds-checked).
-- **New Ignore File** is guidance, not a second file writer. **Add Selected Paths…** and **Unignore Selected Paths…** keep their version-checked editor workflow.
+- **Ignore: New Ignore File…** applies the same confirmed creation from a command, writing through `project.write`; it refuses existing files. **Add Selected Paths…** and **Unignore Selected Paths…** keep their version-checked editor workflow.
 - Native New uses the `fileName` field for exact dotfile names rather than an appended extension.
 - Native-intention creation and append hold no filesystem lock after resolution. Final application, encoding/BOM preservation, conflict detection and undo are owned by the host.
 

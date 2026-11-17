@@ -3302,11 +3302,33 @@ mod tests {
     }
 
     #[test]
-    fn legacy_create_template_command_guides_to_atomic_intention_without_process_or_writes() {
-        let (host, mut plugin) = generator_host(&["project.read"]);
+    fn create_twig_template_command_writes_file() {
+        let (host, mut plugin) = generator_host(&["project.read", "project.write", "editor.read"]);
+        let source = "{% include 'blog/new.html.twig' %}\n";
+        host.add_file("templates/caller.html.twig", source);
+        host.open_editor("/project/templates/caller.html.twig", "twig", source, &[(0, 14, 0, 14)]);
+        host.answer_next_prompt(Some(&["empty"]));
+        host.answer_next_prompt(Some(&[]));
+
         plugin.run_command("create-template", &host.invocation(), None).unwrap();
+
+        assert_eq!(host.invocation().project().unwrap().read_file("templates/blog/new.html.twig").unwrap(), "");
+        assert_eq!(host.opened_locations(), [("/project/templates/blog/new.html.twig".to_owned(), 0, 0)]);
         assert!(host.process_runs().is_empty());
-        assert!(host.notifications().iter().any(|notification| notification.body.contains("Create missing Twig template")));
+    }
+
+    #[test]
+    fn create_twig_template_command_prompts_without_caret_reference() {
+        let (host, mut plugin) = generator_host(&["project.read", "project.write"]);
+        host.answer_next_prompt(Some(&["../x.html.twig"]));
+        let error = plugin.run_command("create-template", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains(".twig"), "{error}");
+
+        host.answer_next_prompt(Some(&["blog/show.html.twig"]));
+        host.answer_next_prompt(Some(&[]));
+        plugin.run_command("create-template", &host.invocation(), None).unwrap();
+
+        assert_eq!(host.invocation().project().unwrap().read_file("templates/blog/show.html.twig").unwrap(), "");
     }
 
     #[test]
