@@ -109,10 +109,17 @@ Checks run when you open, save or edit a file. You can switch each group off in 
 The **Spring Beans** tool window (right side bar, next to Spring Structure and Spring Endpoints) has three sections. It remembers the one you last used.
 
 - **Beans**: every bean, grouped by kind, with its aliases, qualifiers, profiles and declared inputs.
-- **Graph**: who depends on whom.
+- **Graph**: who depends on whom. Arrows point to dependencies.
 - **Report**: results of **Check Spring Configuration** or **Dump Spring Configuration**. When empty, it has a **Check Spring Configuration** button.
 
 These are facts read from your source files, not from a running application.
+
+#### Find and focus beans in the graph
+
+- Click a bean, or select it and press Enter, to show only that bean with its direct dependencies and dependents. Choose **2 hops** to add their dependencies and dependents too. Click the focused bean again, or **Open Source**, to open its declaration. **Show All** (**Clear Focus** in a large project) returns to the whole graph.
+- Click **Find Bean…** and type part of a bean name or type (case does not matter). Enter focuses the first match; the graph then lists the other matches (**N of M beans match**) so you can jump between them. Escape or an empty search clears it.
+- In the **Beans** section, right-click a bean and choose **Focus in Graph**.
+- The graph draws at most 400 beans. In a larger project it starts with **Find a bean to show its neighbours** instead of a partial graph. The status bar always says how many beans are shown out of how many.
 
 Click **Refresh** to index the project or continue a scan. Run **Spring Beans: Reindex Project** to start over.
 
@@ -180,6 +187,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 | **Spring Beans: Generate Autowired Dependency** | Adds an `@Autowired` dependency. | Java editor context menu |
 | **Spring Beans: Generate Event Listener** | Adds an event listener method. | Java editor context menu |
 | **Spring Beans: Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
+| **Spring Beans: Focus Bean in Graph** | Asks for a bean name or type, then shows that bean and its neighbours in the **Graph** section. | Command palette, **Focus in Graph** on a bean row |
 | **Spring Beans: Reindex Project** | Starts a fresh scan of the project's sources. | Tools menu, Search Everywhere |
 | **Spring Beans: Choose Source Gutter Target** | Opens the target picker. Used by gutter icons with several targets; not meant to be run by hand. | Gutter icons |
 
@@ -299,6 +307,8 @@ Limits: eight retained roots, 4,096 inventoried files per root, 512 KiB per sour
 ### Tool window states
 
 Rendering is cache-only and states are explicit: cold, incomplete-source, pending-scan and stale snapshots stay visibly distinct and cannot prove missing beans. Explicit configuration reports label incomplete inventories/checked-file caps instead of displaying a clean result. Reports are snapshots of their explicit Check/Dump command, bound to their source project; a foreign project cannot render another project's report, and closing a report's owner clears its cached report. **Refresh** in the view advances pending work or restarts a completed/incomplete pass.
+
+**Find Bean** asks in a prompt rather than an inline search field: the packaged view runs no page scripts, so each graph control is a button that asks the plugin to redraw. The search, focused bean and depth are kept per IDE session and are matched against the whole index, not only the 400 drawn beans. A focused bean that disappears from the index falls back to the whole graph.
 
 ### Generation and refactoring safety
 

@@ -23,6 +23,7 @@ mod model;
 mod resources;
 mod sites;
 mod spel;
+mod graph;
 mod gutter;
 mod target_checks;
 mod xml_actions;
@@ -44,7 +45,6 @@ use openidea_plugin::{
     Context, Diagnostic, Error, Event, EventKind, Invocation, Location, LogLevel, Plugin, Position, Project, Range, Severity, TextEdit, host,
 };
 use sites::{Hit, Site, Word};
-use spring_text::diagram;
 use spring_text::index::COMMAND_BUDGET;
 use spring_text::java::{self, MemberKind};
 use spring_text::tree::Expansion;
@@ -720,6 +720,7 @@ pub struct Navigator {
     report_root: Option<String>,
     report_incomplete: bool,
     sections: Switcher,
+    graph: graph::State,
 }
 
 impl Default for Navigator {
@@ -736,6 +737,7 @@ impl Default for Navigator {
             report_root: None,
             report_incomplete: false,
             sections: Switcher::new("beans.section", SECTIONS),
+            graph: graph::State::default(),
         }
     }
 }
@@ -1303,38 +1305,17 @@ impl Navigator {
             }
         }
     }
+}
 
-    fn graph(index: &Cache, empty: &str) -> View {
-        let world = World::new(index);
-        let total = world.beans().count();
-        let beans: Vec<Found> = world.beans().take(MAX_GRAPH).collect();
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        if beans.is_empty() {
-            let text = if index.complete() { empty.to_owned() } else { index.state() };
-            return View::message(&text).button(refresh);
-        }
-        let node_of: BTreeMap<(&str, Range), usize> = beans.iter().enumerate().map(|(i, (p, b))| ((*p, b.range), i)).collect();
-        let mut edges = BTreeSet::new();
-        for (path, m) in world.files {
-            for inj in &m.injections {
-                let Some(from) = inj.owner.and_then(|o| node_of.get(&(path.as_str(), m.beans[o].range))) else {
-                    continue;
-                };
-                for (p, b) in world.candidates(inj) {
-                    if let Some(&to) = node_of.get(&(p, b.range)) {
-                        edges.insert((*from, to));
-                    }
-                }
-            }
-        }
-        let nodes: Vec<diagram::Node> =
-            beans.iter().map(|(p, b)| diagram::Node::new(&location_key(p, b.range), &b.name).detail(&b.kind)).collect();
-        let edges: Vec<diagram::Edge> = edges.into_iter().map(|(a, b)| diagram::Edge::new(&nodes[a].id, &nodes[b].id)).collect();
-        let shown = if total > nodes.len() { format!("{} of {total} beans shown", nodes.len()) } else { bean_count(total) };
-        let status = format!("{shown} · {} dependencies · arrows point to dependencies{}", edges.len(), scanning(index));
-        View::new(Body::Html(diagram::html(&nodes, &edges, empty)))
-            .button(refresh)
-            .status(&status)
+impl Navigator {
+    /// Asks for a bean name or type and focuses the graph on the first match; Escape clears the search.
+    fn find_in_graph(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        let project = ctx.project().ok_or("Open a project first.")?;
+        let current = (!self.graph.query.is_empty()).then(|| self.graph.query.clone());
+        let query = host::input("Find bean by name or type", current.as_deref())?.unwrap_or_default();
+        let index = self.indexes.get(&project, COMMAND_BUDGET);
+        self.graph.search(&query, index);
+        Ok(())
     }
 }
 
@@ -1385,7 +1366,7 @@ impl Views for Navigator {
                 };
                 let empty = no_beans_message(&project);
                 if section == GRAPH_SECTION {
-                    Self::graph(index, empty)
+                    graph::view(index, empty, &self.graph)
                 } else if ui_kit::web::is_rendering() {
                     resources::view(index, empty)
                 } else {
@@ -1400,7 +1381,9 @@ impl Views for Navigator {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+        // Row actions belong to bean rows, not to the Report's problem rows that share their keys.
+        let row_actions = |nav: &Self, _: &str, _: &View| Ok((nav.sections.active() != "beans").then(Vec::new));
+        if ui_kit::web::handle_with_actions(self, view, &event, ctx, include_str!("ui_config.json"), row_actions)? {
             return Ok(());
         }
 
@@ -1423,6 +1406,21 @@ impl Views for Navigator {
                 }
                 refresh_beans_view();
                 return Ok(());
+            }
+            ViewEvent::Button(b) if b == graph::FIND => {
+                self.find_in_graph(ctx)?;
+                refresh_beans_view();
+                return Ok(());
+            }
+            ViewEvent::Message(message) if self.sections.active() == GRAPH_SECTION => {
+                let index = ctx.project().and_then(|project| self.indexes.cached(&project));
+                match self.graph.handle(&message, index)? {
+                    Some(key) => key,
+                    None => {
+                        refresh_beans_view();
+                        return Ok(());
+                    }
+                }
             }
             ViewEvent::Activate(key) | ViewEvent::Message(key) => key,
             _ => return Ok(()),
@@ -1555,6 +1553,22 @@ impl Plugin for Navigator {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
             "choose-source-gutter-target"=>self.choose_source_gutter_target(ctx,_arg),
+            "focus-in-graph" => {
+                let project = ctx.project().ok_or("Open a project first.")?;
+                match _arg {
+                    Some(key) => {
+                        if !self.indexes.cached(&project).is_some_and(|index| graph::has_bean(index, key)) {
+                            return Err(Error::Stale);
+                        }
+                        self.graph.focus = Some(key.into());
+                    }
+                    None => self.find_in_graph(ctx)?,
+                }
+                self.sections.set(GRAPH_SECTION);
+                host::reveal_view(BEANS_VIEW)?;
+                refresh_beans_view();
+                Ok(None)
+            }
             "reindex" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
                 self.indexes.reset_project(&project);
