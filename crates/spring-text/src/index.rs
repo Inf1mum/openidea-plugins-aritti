@@ -49,6 +49,8 @@ pub struct Index<T> {
     total: usize,
     required: fn(&str, Option<&str>) -> bool,
     rejected: fn(&str, &str) -> bool,
+    /// Discovery leaves files of nested open projects to their own index.
+    exclude_nested: bool,
     generation: u64,
 }
 
@@ -83,6 +85,7 @@ impl<T: Clone> Index<T> {
             total: 0,
             required: every,
             rejected: never,
+            exclude_nested: false,
             generation: 0,
         }
     }
@@ -108,6 +111,13 @@ impl<T: Clone> Index<T> {
     /// `rejected(path, text)`: broken rather than irrelevant.
     pub fn rejecting(mut self, rejected: fn(&str, &str) -> bool) -> Self {
         self.rejected = rejected;
+        self
+    }
+
+    /// Discovery skips the files of open projects nested inside this one:
+    /// they belong to the innermost project, as [`project_of`] answers.
+    pub fn excluding_nested_projects(mut self) -> Self {
+        self.exclude_nested = true;
         self
     }
 
@@ -153,8 +163,10 @@ impl<T: Clone> Index<T> {
             }
             paths.sort();
             paths.dedup();
-            let nested = nested_roots(project);
-            paths.retain(|path| !nested.iter().any(|root| path.starts_with(root)));
+            if self.exclude_nested {
+                let nested = nested_roots(project);
+                paths.retain(|path| !nested.iter().any(|root| path.starts_with(root)));
+            }
             paths.reverse(); // popped from the end: read in path order
             self.unread = paths;
             self.scanned = Some(Instant::now());
@@ -857,13 +869,16 @@ mod tests {
     }
 
     #[test]
-    fn discovery_leaves_nested_projects_to_their_own_index() {
+    fn discovery_leaves_nested_projects_to_their_own_index_only_when_asked() {
         let host = MockHost::install();
         host.add_project("/project/inner");
         host.add_file("/project/src/Outer.java", "outer");
         host.add_file("/project/inner/src/Inner.java", "inner");
         let project = host.invocation().project().unwrap();
         let mut index = Index::new(&["**/*.java"], words);
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(index.files().len(), 2, "the default keeps nested projects' files");
+        let mut index = Index::new(&["**/*.java"], words).excluding_nested_projects();
         index.scan(&project, COMMAND_BUDGET);
         assert_eq!(index.files().keys().collect::<Vec<_>>(), ["/project/src/Outer.java"]);
         assert!(index.complete());
