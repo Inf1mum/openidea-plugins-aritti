@@ -99,6 +99,7 @@ fn remote_authority(authority: &str) -> bool {
     let labels: Vec<&str> = host.split('.').collect();
     let tld = labels.last().copied().unwrap_or("");
     let numeric_label = |l: &str| l.bytes().all(|b| b.is_ascii_digit()) || l.strip_prefix("0x").is_some_and(|h| h.bytes().all(|b| b.is_ascii_hexdigit()));
+    // ponytail: name-only guard; a public name can still resolve to a private address (DNS rebinding), so the net:ask prompt at send time is the backstop. Resolving and pinning the IP needs a host API.
     let public_name = labels.len() > 1
         && (tld.starts_with("xn--") || tld.bytes().all(|b| b.is_ascii_lowercase()))
         && !matches!(tld, "localhost" | "local" | "internal" | "lan")
