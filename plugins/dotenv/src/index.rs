@@ -740,7 +740,11 @@ mod tests {
             host.add_file(&format!("unrelated/{n}.txt"), "");
         }
         let project = host.invocation().project().unwrap();
-        let index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(10));
+        let mut index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(10));
+        assert!(!index.complete);
+        index.update("/p/.env", Some("A=1\n"));
+        assert!(!index.complete);
+        index.forget_under("/p/unrelated");
         assert!(!index.complete);
     }
 
