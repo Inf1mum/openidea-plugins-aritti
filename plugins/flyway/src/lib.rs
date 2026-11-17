@@ -103,6 +103,10 @@ fn root_relative<'a>(path: &'a str, root: &str) -> &'a str {
 fn refresh_migrations() {
     ui_kit::web::refresh_view("migrations", include_str!("ui_config.json"));
 }
+fn notify_runner_denied(goal: &str) {
+    let (program, _) = runner_args(goal, false);
+    host::notify(NotificationLevel::Warning, TITLE, &ui_kit::denied::message("Running Flyway", &format!("process:{program}"), PLUGIN));
+}
 fn open_root(project: &Project) -> Option<String> {
     let root = project.root().ok()?;
     (root.starts_with('/') && !root.chars().any(char::is_control)
@@ -289,14 +293,7 @@ impl Flyway {
     fn run_flyway(&mut self, goal: &str, ctx: &Invocation) -> Result<Option<String>, Error> {
         match self.execution.start(ctx, goal, false, false) {
             Ok(()) | Err(Error::Cancelled) => {}
-            Err(Error::Denied(_)) => {
-                let (program, _) = runner_args(goal, false);
-                host::notify(
-                    NotificationLevel::Warning,
-                    TITLE,
-                    &ui_kit::denied::message("Running Flyway", &format!("process:{program}"), PLUGIN),
-                );
-            }
+            Err(Error::Denied(_)) => notify_runner_denied(goal),
             Err(error) => return Err(error),
         }
         Ok(None)
@@ -549,7 +546,7 @@ impl Flyway {
         };
         let mut shown = shown;
         if let Some(status) = self.execution.migration_status(&root) {
-            shown.status = Some(format!("{} · Captured instance command status: {status}",shown.status.as_deref().unwrap_or("No accepted Info snapshot")));
+            shown.status = Some(format!("{} · Command status: {status}",shown.status.as_deref().unwrap_or("No accepted Info snapshot")));
         }
         shown.button(Button::new("execution-output", "Output").icon("terminal"))
     }
@@ -685,6 +682,7 @@ impl Views for Flyway {
                         self.poll_execution(_ctx)?;
                     }
                     Err(Error::Cancelled) => {}
+                    Err(Error::Denied(_)) => notify_runner_denied("info"),
                     Err(error) => return Err(error),
                 }
                 ui_kit::web::refresh_view(view, include_str!("ui_config.json"));

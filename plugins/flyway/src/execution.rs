@@ -348,6 +348,70 @@ fn prepare(project: &Project, goal: &str, json: bool) -> Result<Prepared, Error>
     let provenance = redactor.literals(&provenance);
     Ok(Prepared { proof: Proof { root, runner: runner.into(), args, mode, locations:host::setting_string("locations").unwrap_or_default(), files, unknown }, redactor, provenance })
 }
+fn preview(goal: &str, prepared: &Prepared, managed: bool) -> String {
+    let impact = match goal {
+        "clean" => "CLEAN DROPS ALL OBJECTS in the schemas selected by the CLI.",
+        "migrate" => "Migrate may change the database schema/data.",
+        "repair" => "Repair changes Flyway schema history.",
+        _ => "This explicit command may connect to the CLI-selected database.",
+    };
+    format!(
+        "{impact}\nTarget database: {}\n\n{}\n\n{}\n{}",
+        target_hint(&prepared.proof.files, &prepared.proof.args),
+        prepared.provenance,
+        if managed {
+            "Runs in the background: follow it in Flyway Command Output with Refresh Status and Cancel. It stops if the window or plugin closes, or after about five idle minutes."
+        } else {
+            "Opens in the project's terminal; use the terminal to follow or stop it."
+        },
+        "Cancelling does not roll back the database. Check CLI and environment settings before proceeding."
+    )
+}
+/// Best-known target from Flyway config files only, as a host/database hint without credentials or parameters.
+fn target_hint(files: &[(String, Observed)], args: &[String]) -> String {
+    if args.iter().any(|arg| arg.split_once('=').is_some_and(|(key, _)| key.to_ascii_lowercase().ends_with("url"))) {
+        return "UNKNOWN (set by command-line arguments; value hidden)".into();
+    }
+    let mut urls = BTreeSet::new();
+    for (path, observed) in files {
+        let Observed::Source(text) = observed else { continue };
+        if is_config_file(path) {
+            continue;
+        }
+        urls.extend(config::settings(path, text).into_iter().filter(|(key, _)| key == "flyway.url").map(|(_, url)| url));
+        if path.ends_with(".toml") {
+            let mut table = "";
+            for line in text.lines().map(|line| config::strip_comment(line).trim()) {
+                if let Some(header) = line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+                    table = header.trim();
+                } else if let Some((key, value)) = line.split_once('=').filter(|_| table.starts_with("environments.")) {
+                    if key.trim() == "url" {
+                        urls.insert(value.trim().trim_matches(['"', '\'']).to_owned());
+                    }
+                }
+            }
+        }
+    }
+    match urls.into_iter().collect::<Vec<_>>().as_slice() {
+        [url] => safe_jdbc(url).map_or_else(
+            || "UNKNOWN (the configured url is dynamic, holds credentials or is unsupported; value hidden)".into(),
+            |hint| format!("{hint} (from project config files; CLI or environment settings can override it)"),
+        ),
+        [] => "UNKNOWN (no url in the project's Flyway config files)".into(),
+        _ => "UNKNOWN (several urls are configured)".into(),
+    }
+}
+fn safe_jdbc(value: &str) -> Option<String> {
+    let base = value.split(['?', ';']).next()?;
+    let (prefix, address) = ["jdbc:postgresql://", "jdbc:mysql://", "jdbc:mariadb://"].iter().find_map(|prefix| base.strip_prefix(prefix).map(|rest| (*prefix, rest)))?;
+    let (authority, database) = address.split_once('/')?;
+    if authority.is_empty() || database.is_empty() || base.len() > 1024
+        || !authority.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+        || !database.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/".contains(&b)) {
+        return None;
+    }
+    Some(format!("{prefix}{authority}/{database} (parameters omitted)"))
+}
 #[derive(Default)]
 struct Output {
     text: String,
@@ -417,22 +481,7 @@ impl Execution {
         let project = ctx.project().ok_or("Open a project first.")?;
         let prepared = prepare(&project, goal, json)?;
         let managed = force_managed || prepared.proof.mode == "managed";
-        let impact = match goal {
-            "clean" => "CLEAN DROPS ALL OBJECTS in the schemas selected by the CLI.",
-            "migrate" => "Migrate may change the database schema/data.",
-            "repair" => "Repair changes Flyway schema history.",
-            _ => "This explicit command may connect to the CLI-selected database.",
-        };
-        let preview = format!(
-            "{}\n\n{impact}\n{}\n{}",
-            prepared.provenance,
-            if managed {
-                "Managed finite command: start/status/cancel in Flyway Command Output. It belongs to this plugin instance and may be terminated by window/plugin shutdown or roughly five-minute idle reclamation. Refresh Status polls it; no durable job claim."
-            } else {
-                "Open the approved command in the invoking project's terminal; native terminal controls own its status/cancellation and raw output."
-            },
-            "Cancellation/termination is not a database rollback. Runtime target remains unknown; review external CLI/environment settings before proceeding."
-        );
+        let preview = preview(goal, &prepared, managed);
         if !ui_kit::prompts::confirm_exact(&format!("Flyway: {goal}"), &preview)? {
             return Err(Error::Cancelled);
         }
@@ -476,7 +525,7 @@ impl Execution {
                     refresh_migrations();
                     return match error {
                         Error::Denied(_) => Err(error),
-                        _ => Err(Error::Failed("Managed command could not start; inspect scoped Command Output.".into())),
+                        _ => Err(Error::Failed("Command could not start; see Flyway Command Output.".into())),
                     };
                 }
             }
@@ -543,7 +592,7 @@ impl Execution {
         session.stderr.push(&chunk.stderr, &session.redactor, drained);
         let status = chunk.status?;
         if !drained {
-            session.status = format!("Process exited {status}; Refresh Status to finish draining bounded output.");
+            session.status = format!("Process exited {status}; Refresh Status to read the remaining output.");
             return None;
         }
         session.status = format!(
@@ -581,7 +630,7 @@ impl Execution {
         session.raw.clear();
         session.output.push("", &session.redactor, true);
         session.stderr.push("", &session.redactor, true);
-        session.status = "Cancelled owned process; database outcome/rollback are unknown.".into();
+        session.status = "Cancelled. Database changes are not rolled back; the outcome is unknown.".into();
         refresh_migrations();
         Ok(())
     }
@@ -593,12 +642,12 @@ impl Execution {
             Field::new("execution-status", "Status", FieldValue::readonly_text(&session.status, true)),
             Field::new(
                 "execution-provenance",
-                "Invoked source provenance (not effective target)",
+                "Command details (target not verified)",
                 FieldValue::readonly_text(&session.provenance, true),
             ),
             Field::new(
                 "execution-log",
-                "Redacted bounded output",
+                "Command output",
                 FieldValue::readonly_text(
                     &format!(
                         "[stdout]\n{}\n[stderr]\n{}{}",
@@ -612,7 +661,7 @@ impl Execution {
         ]))
         .button(Button::new("execution-status", "Refresh Status").icon("refresh").enabled(session.child.is_some()))
         .button(Button::new("execution-cancel", "Cancel Command").enabled(session.child.is_some()))
-        .status("Instance-lifetime finite command · output classification is conservative, not universal · cancellation is not rollback")
+        .status("Output is kept until the plugin restarts · secrets are hidden · cancelling does not roll back the database")
     }
     pub fn closed_roots(&mut self) {
         if !self.session.as_ref().is_some_and(|session| session.child.is_some()) {
@@ -796,7 +845,7 @@ mod tests {
         let host=managed();let mut plugin=Flyway::default();start(&mut plugin.execution,&host,false);
         plugin.execution.session.as_ref().unwrap().child.as_ref().unwrap().kill().unwrap();
         plugin.run_command("status",&host.invocation(),None).unwrap();
-        assert!(plugin.execution.migration_status("/project").unwrap().contains("draining"));
+        assert!(plugin.execution.migration_status("/project").unwrap().contains("remaining output"));
         assert_eq!(invalidations(&host),2);
         plugin.run_command("status",&host.invocation(),None).unwrap();
         assert!(plugin.execution.migration_status("/project").unwrap().contains("Finished"));
@@ -990,7 +1039,7 @@ mod tests {
         assert!(execution.session.as_ref().unwrap().output.text.contains("started: flyway"));
         execution.cancel("/project").unwrap();
         assert!(execution.session.as_ref().unwrap().child.is_none());
-        assert!(execution.session.as_ref().unwrap().status.contains("rollback"));
+        assert!(execution.session.as_ref().unwrap().status.contains("rolled back"));
         host.set_project_root(Some("/other"));
         assert!(matches!(execution.view("/other").body, Body::Message(_)));
     }
@@ -1047,6 +1096,23 @@ mod tests {
         execution.closed_roots();
         assert!(execution.session.as_ref().unwrap().child.is_none());
         assert!(execution.session.as_ref().unwrap().status.contains("outcome unknown"));
+    }
+    #[test]
+    fn confirmation_leads_with_impact_and_redacted_target_hint() {
+        let host = managed();
+        host.add_file("flyway.conf", "flyway.url=jdbc:postgresql://db.example:5432/app?password=TOKEN_1\nflyway.password=TOKEN_1\n");
+        let prepared = prepare(&host.invocation().project().unwrap(), "clean", false).unwrap();
+        let body = preview("clean", &prepared, true);
+        assert!(body.starts_with("CLEAN DROPS ALL OBJECTS"), "{body}");
+        assert!(body.lines().nth(1).unwrap().starts_with("Target database: jdbc:postgresql://db.example:5432/app (parameters omitted)"), "{body}");
+        assert!(body.find("Target database").unwrap() < body.find("Invoking project").unwrap());
+        assert!(!body.contains("TOKEN_1"), "{body}");
+        let toml = vec![("/project/flyway.toml".to_owned(), Observed::Source("[environments.default]\nurl = \"jdbc:mysql://h/db\"\n".into()))];
+        assert!(target_hint(&toml, &[]).starts_with("jdbc:mysql://h/db"));
+        assert!(target_hint(&toml, &["validate".into(), "-url=jdbc:mysql://other/x".into()]).starts_with("UNKNOWN"));
+        let credentials = vec![("/project/flyway.conf".to_owned(), Observed::Source("flyway.url=jdbc:postgresql://user:pw@h/db\n".into()))];
+        assert!(target_hint(&credentials, &[]).starts_with("UNKNOWN") && !target_hint(&credentials, &[]).contains("pw"));
+        assert!(target_hint(&[], &[]).starts_with("UNKNOWN"));
     }
     #[test]
     fn cancel_and_extra_goals_never_execute_and_unknown_sources_are_labelled() {
