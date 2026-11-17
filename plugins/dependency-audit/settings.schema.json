@@ -13,9 +13,9 @@
     },
     "autoResolveBuilds": {
       "type": "boolean",
-      "title": "Resolve Maven/Gradle dependencies after each scan",
+      "title": "Run Maven/Gradle when the IDE hasn't resolved dependencies",
       "default": true,
-      "description": "Asks once per project before running the build tool."
+      "description": "After each scan, Maven/Gradle versions come from the IDE's last Maven reload or Dependency Analyzer. When it has none, this runs mvn or gradle in the project, asking once per project first."
     }
   }
 }

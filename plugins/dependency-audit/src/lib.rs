@@ -857,13 +857,9 @@ mod tests;
 
 impl DependencyAudit {
     fn auto_resolve(&mut self, ctx: &Invocation, deadline: Instant) {
-        if host::setting_bool("autoResolveBuilds") == Some(false) {
-            return;
-        }
-        if deadline.saturating_duration_since(Instant::now()) < MIN_RESOLVE_TIME {
-            return;
-        }
-        let _ = self.build_resolution.start(ctx, false);
+        let run_tool = host::setting_bool("autoResolveBuilds") != Some(false)
+            && deadline.saturating_duration_since(Instant::now()) >= MIN_RESOLVE_TIME;
+        let _ = self.build_resolution.after_scan(ctx, run_tool);
     }
     fn resolution_tick(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {
         let request: serde_json::Value = serde_json::from_str(raw).map_err(|_| Error::Stale)?;
