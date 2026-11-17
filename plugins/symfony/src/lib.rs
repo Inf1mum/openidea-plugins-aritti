@@ -1435,12 +1435,14 @@ impl Plugin for Main {
             "cache-clear" => self.console(ctx, "cache:clear"),
             "run-console-command" => self.run_console_command(ctx),
             "route-copy-curl" => {
+                if self.selected.is_none() { return Err(Error::Invalid("Select a route in the Symfony window first.".into())); }
                 if let Some(route) = self.selected_route(ctx) {
                     routes::copy_as_curl(&concrete_method(route), DEFAULT_BASE_URL)?;
                 }
                 Ok(None)
             }
             "route-create-http" => {
+                if self.selected.is_none() { return Err(Error::Invalid("Select a route in the Symfony window first.".into())); }
                 if let Some(route) = self.selected_route(ctx) {
                     routes::create_http_file(&concrete_method(route), DEFAULT_BASE_URL, None)?;
                 }
@@ -2560,6 +2562,12 @@ mod tests {
             plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();let messages=host.view_messages();assert_eq!(messages.len(),before+1);
             let reply:serde_json::Value=serde_json::from_str(&messages[before].1).unwrap();assert_eq!(reply["channel"],"ui-kit");assert!(reply.get("model").is_some());
         }
+    }
+    #[test]
+    fn route_copy_curl_without_selection_explains(){
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let error=plugin.run_command("route-copy-curl",&host.invocation(),None).unwrap_err();
+        assert!(matches!(error,Error::Invalid(ref message) if message=="Select a route in the Symfony window first."),"{error:?}");
     }
     #[test]
     fn route_actions_reject_last_other_root_and_no_index_cached_rows(){

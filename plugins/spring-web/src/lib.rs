@@ -1105,6 +1105,9 @@ impl Plugin for WebTools {
         if id != "copy-endpoint-curl" && id != "create-endpoint-http" {
             return Err(Error::NotFound(format!("command {id}")));
         }
+        if arg.is_none() {
+            return Err(Error::Invalid("Select an endpoint in the Spring Endpoints window first.".into()));
+        }
         let Some(mut route) = arg.and_then(|key| self.route_list().route(key).cloned()) else {
             return Ok(None);
         };
@@ -2033,6 +2036,14 @@ class Users {
         assert!(host.clipboard().unwrap().contains("POST http://localhost:9000/api/users"));
         assert!(notifications.iter().any(|n| n.body.contains("needs the project.write permission")
             && n.body.contains("Settings › Plugins › Spring Endpoints Tools")));
+    }
+
+    #[test]
+    fn copy_endpoint_curl_without_selection_explains() {
+        let host = MockHost::install();
+        let mut tools = WebTools::default();
+        let error = tools.run_command("copy-endpoint-curl", &host.invocation(), None).unwrap_err();
+        assert!(matches!(error, Error::Invalid(ref message) if message == "Select an endpoint in the Spring Endpoints window first."), "{error:?}");
     }
 
     #[test]

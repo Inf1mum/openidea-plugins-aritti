@@ -3549,3 +3549,16 @@ fn invokable_controller_gets_route_marker() {
 
     assert!(markers.iter().any(|m| m.line == 7 && m.tooltip.starts_with("Route POST /x/wish")), "{markers:?}");
 }
+
+#[test]
+fn route_copy_curl_without_selection_explains() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+
+    let error = plugin.run_command("route-copy-curl", &host.invocation(), None).unwrap_err();
+    assert!(matches!(error, Error::Invalid(ref message) if message == "Select a route in the Laravel window first."), "{error:?}");
+    let error = plugin.run_command("model-open-source", &host.invocation(), None).unwrap_err();
+    assert!(matches!(error, Error::Invalid(ref message) if message == "Select a model in the Laravel window first."), "{error:?}");
+    let error = plugin.run_command("console-command-open", &host.invocation(), None).unwrap_err();
+    assert!(matches!(error, Error::Invalid(ref message) if message == "Select a command in the Laravel window first."), "{error:?}");
+}

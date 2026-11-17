@@ -224,7 +224,7 @@ pub(crate) fn symbols(doc: &Document) -> Vec<DocumentSymbol> {
 pub(crate) fn inspect(ctx: &Invocation, arg: Option<&str>) -> Result<(), Error> {
     let raw = arg
         .filter(|s| s.len() <= 4096)
-        .ok_or("Select a current Quarkus source lens.")?;
+        .ok_or_else(|| Error::Invalid("Click a Quarkus code lens in the editor first.".into()))?;
     let payload: serde_json::Value =
         serde_json::from_str(raw).map_err(|_| Error::Invalid("Invalid source lens.".into()))?;
     let editor = ctx.editor().ok_or("Focus the source editor again.")?;
@@ -352,6 +352,12 @@ mod tests {
             version: 3,
             text: text.into(),
         }
+    }
+    #[test]
+    fn inspect_source_declaration_without_selection_explains() {
+        let host = openidea_plugin::mock::MockHost::install();
+        let error = inspect(&host.invocation(), None).unwrap_err();
+        assert!(matches!(error, Error::Invalid(ref message) if message == "Click a Quarkus code lens in the editor first."), "{error:?}");
     }
     #[test]
     fn jaxrs_lenses_and_symbols_are_literal_declared_routes_not_runtime_urls() {

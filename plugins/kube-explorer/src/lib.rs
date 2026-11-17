@@ -1550,7 +1550,7 @@ impl KubeExplorer {
 
 impl KubeExplorer {
     fn resource_command(&mut self, action: &str, key: Option<&str>, ctx: &Invocation) -> Result<(), Error> {
-        let (kind,row)=self.checked_resource(key.ok_or("Right-click a resource in Kube Explorer.")?)?.ok_or("Right-click a resource in Kube Explorer.")?;
+        let (kind,row)=self.checked_resource(key.ok_or_else(||Error::Invalid("Select a resource in the Kube Explorer window first.".into()))?)?.ok_or_else(||Error::Invalid("Select a resource in the Kube Explorer window first.".into()))?;
         let applies = match action {
             "logs" | "log-sources" | "log-view" => kind == "pods" || WORKLOADS.contains(&kind.as_str()),
             "shell" | "attach" | "debug" => kind == "pods",

@@ -1000,7 +1000,7 @@ impl Plugin for Main {
             "model-open-source" => {
                 let project = ctx.project().ok_or(Error::Stale)?;
                 let index = self.view_index(ctx).ok_or(Error::Stale)?;
-                model_overview::open(index, &project, arg.ok_or(Error::Stale)?)?;
+                model_overview::open(index, &project, arg.ok_or(Error::Invalid("Select a model in the Laravel window first.".into()))?)?;
                 Ok(None)
             }
             "model-create-fields" => {
@@ -1025,7 +1025,7 @@ impl Plugin for Main {
                 Ok(None)
             }
             "console-command-open" => {
-                let name=console_editor::resolve(ctx,arg.ok_or(Error::Stale)?)?;
+                let name=console_editor::resolve(ctx,arg.ok_or(Error::Invalid("Select a command in the Laravel window first.".into()))?)?;
                 if !self.artisan_workspace.run_entry(ctx,&name,&self.artisan_terminals,false)? {
                     ui_kit::web::reveal_view(artisan_workspace::VIEW,include_str!("ui_config.json"))?;
                     host::notify(NotificationLevel::Info,SOURCE,&crate::ui_text::format("root.formatted.79812948ba", "Refresh Artisan command metadata to configure {name}.", &[("name", &format!("{}", name))]));
@@ -1070,12 +1070,12 @@ impl Plugin for Main {
             }
             "route-editor-open" => {
                 let index = self.view_index(ctx).ok_or(Error::Stale)?;
-                route_editor::open(index, ctx, arg.ok_or(Error::Stale)?)?;
+                route_editor::open(index, ctx, arg.ok_or(Error::Invalid("Select a route in the Laravel window first.".into()))?)?;
                 Ok(None)
             }
             "route-editor-action" => {
                 let index = self.view_index(ctx).ok_or(Error::Stale)?;
-                route_editor::action(index, ctx, arg.ok_or(Error::Stale)?, DEFAULT_BASE_URL)?;
+                route_editor::action(index, ctx, arg.ok_or(Error::Invalid("Select a route in the Laravel window first.".into()))?, DEFAULT_BASE_URL)?;
                 Ok(None)
             }
             "find-literal-source-matches" => crate::source_matches::run(ctx),
@@ -1112,6 +1112,7 @@ impl Plugin for Main {
             "storage-link" => self.artisan(ctx, "storage:link"),
             "db-seed" => self.artisan(ctx, "db:seed"),
             "route-send-request" => {
+                if arg.is_none() { return Err(Error::Invalid("Select a route in the Laravel window first.".into())); }
                 let Some(route) = arg.and_then(|key| self.route_at(key, ctx)) else {
                     return Ok(None);
                 };
@@ -1124,6 +1125,7 @@ impl Plugin for Main {
                 Ok(None)
             }
             "route-copy-curl" | "route-create-http" => {
+                if arg.is_none() { return Err(Error::Invalid("Select a route in the Laravel window first.".into())); }
                 let Some(mut route) = arg.and_then(|key| self.route_at(key, ctx)) else {
                     return Ok(None);
                 };

@@ -80,7 +80,7 @@ impl KubeExplorer {
     }
 
     pub(super) fn tree_context_action(&mut self, id: &str, key: Option<&str>, ctx: &Invocation) -> Result<(), Error> {
-        let key = key.ok_or(Error::Stale)?;
+        let key = key.ok_or_else(|| Error::Invalid("Select a resource in the Kube Explorer window first.".into()))?;
         let current = self.render(TREE, None, ctx)?;
         let Body::Tree(items) = current.body else { return Err(Error::Stale); };
         let payload=self.service_payload(key)?;
@@ -121,6 +121,14 @@ mod tests {
             plugin.expanded.insert(group.into());plugin.children.insert(group.into(),Ok(names.into_iter().map(str::to_owned).collect()));
         }
         (host, plugin)
+    }
+    #[test]
+    fn resource_describe_without_selection_explains() {
+        let (host, mut plugin) = fixture();
+        for id in ["resource-describe", "tree-switch", "tree-refresh"] {
+            let error = plugin.run_command(id, &host.invocation(), None).unwrap_err();
+            assert!(matches!(error, Error::Invalid(ref message) if message == "Select a resource in the Kube Explorer window first."), "{id}: {error:?}");
+        }
     }
     fn request(host: &MockHost, plugin: &mut KubeExplorer, operation: Value) -> Value {
         let mut request = operation;

@@ -51,7 +51,7 @@ fn current(ctx:&Invocation,pending:&Pending)->Result<openidea_plugin::Project,Er
 }
 impl Navigator {
     pub(crate) fn choose_source_gutter_target(&mut self,ctx:&Invocation,argument:Option<&str>)->Result<Option<String>,Error>{
-        let ticket=argument.ok_or("Use this chooser from a Spring source gutter icon.")?;
+        let ticket=argument.ok_or_else(||Error::Invalid("Click a bean gutter icon first.".into()))?;
         let pending=self.gutter.pending.get(ticket).cloned().ok_or(Error::Stale)?;
         let project=current(ctx,&pending)?;let mut snapshots=BTreeMap::new();
         for choice in &pending.choices {
@@ -73,6 +73,12 @@ impl Navigator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn choose_source_gutter_target_without_selection_explains() {
+        let host=openidea_plugin::mock::MockHost::install();
+        let error=Navigator::default().choose_source_gutter_target(&host.invocation(),None).unwrap_err();
+        assert!(matches!(error,Error::Invalid(ref message) if message=="Click a bean gutter icon first."),"{error:?}");
+    }
     use openidea_plugin::mock::MockHost;
     const SOURCE:&str="package shop;\n@org.springframework.stereotype.Service class Consumer {\n @org.springframework.beans.factory.annotation.Autowired ServiceType service;\n}";
     fn setup()->(MockHost,Navigator,Document){

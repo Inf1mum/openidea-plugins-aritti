@@ -972,7 +972,7 @@ mod public_anchor_tests {
 pub(super) fn occurrences(ctx: &Invocation,at_override:Option<Position>) -> Result<Option<String>,Error> {
     let editor=ctx.editor().ok_or("Open a supported Java or Kotlin ShellComponent and select a literal command or availability name.")?;
     let snapshot=editor.document()?;let path=editor.path();
-    let at=if let Some(at)=at_override{at}else{editor.selections()?.first().map(|r|r.start).ok_or(Error::Stale)?};
+    let at=if let Some(at)=at_override{at}else{editor.selections()?.first().map(|r|r.start).ok_or_else(||Error::Invalid("Put the caret on a Spring Shell command key first.".into()))?};
     let project=ctx.project().ok_or(Error::Stale)?;let root=project.root()?;
     if root=="/" || !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
     let edges=public_edges(&openidea_plugin::indexing::Document {path:path.clone(),text:snapshot.text.clone(),symbols:vec![]});
@@ -991,6 +991,13 @@ pub(super) fn occurrences(ctx: &Invocation,at_override:Option<Position>) -> Resu
 mod occurrence_command_tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
+    #[test]
+    fn command_occurrences_without_selection_explains() {
+        let h=MockHost::install();
+        h.open_editor("/project/C.java","java","class C {}",&[]);
+        let error=ShellTools::default().run_command("command-occurrences",&h.invocation(),None).unwrap_err();
+        assert!(matches!(error,Error::Invalid(ref message) if message=="Put the caret on a Spring Shell command key first."),"{error:?}");
+    }
     #[test]
     fn registered_picker_keeps_selector_and_indicator_roles_separate() {
         let h=MockHost::install();
