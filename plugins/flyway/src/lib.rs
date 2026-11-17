@@ -25,7 +25,7 @@ use openidea_plugin::host;
 use openidea_plugin::providers::{CompletionItem, Document, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Diagnostic, Error, Event, Invocation, NotificationLevel, Plugin, Position, Project};
+use openidea_plugin::{Diagnostic, Error, Event, Invocation, NotificationLevel, Plugin, Position, Project, StatusItem};
 use spring_text::config::is_config_file;
 use spring_text::index::{glob_matches, project_of};
 
@@ -64,6 +64,8 @@ pub struct Flyway {
     local_root: Option<String>,
     /// Migration file by local row key (`l:<n>`), from the last local render.
     local_targets: BTreeMap<String, String>,
+    /// Whether migration files carry notes from the accepted Info result.
+    info_noted: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -77,6 +79,11 @@ struct Local {
 fn configured(project: &Project) -> bool {
     config::CONFIG_FILES.iter().any(|file| project.exists(file).unwrap_or(false))
 }
+
+/// Project-tree note set for Info states on migration files.
+const INFO_NOTES: &str = "flyway-info";
+/// Window status item showing the best-known target database.
+const STATUS_ITEM: &str = "flyway-target";
 
 /// The configured runner and its arguments for a goal; `json` asks for machine-readable output.
 fn runner_args(goal: &str, json: bool) -> (&'static str, Vec<String>) {
@@ -107,6 +114,27 @@ fn notify_runner_denied(goal: &str) {
     let (program, _) = runner_args(goal, false);
     host::notify(NotificationLevel::Warning, TITLE, &ui_kit::denied::message("Running Flyway", &format!("process:{program}"), PLUGIN));
 }
+/// Shows the confirmation's redacted target hint in the window's status bar while the
+/// project has a Flyway config file; clicking opens the Flyway panel.
+fn update_status(ctx: &Invocation) {
+    let Some(project) = ctx.project() else { return };
+    let item = open_root(&project).and_then(|_| execution::status_target(&project)).map(|target| match target {
+        Some((short, hint)) => StatusItem {
+            text: format!("Flyway: {short}"),
+            tooltip: Some(format!("Target database: {hint}. Click to open the Flyway panel.")),
+            command: Some("show-migrations".into()),
+        },
+        None => StatusItem {
+            text: "Flyway".into(),
+            tooltip: Some("Target database unknown from the project's Flyway config files. Click to open the Flyway panel.".into()),
+            command: Some("show-migrations".into()),
+        },
+    });
+    let _ = match item {
+        Some(item) => host::set_window_status_item(STATUS_ITEM, &item),
+        None => host::remove_window_status_item(STATUS_ITEM),
+    };
+}
 fn open_root(project: &Project) -> Option<String> {
     let root = project.root().ok()?;
     (root.starts_with('/') && !root.chars().any(char::is_control)
@@ -115,6 +143,28 @@ fn open_root(project: &Project) -> Option<String> {
         .then_some(root)
 }
 impl Flyway {
+    fn drop_info(&mut self) {
+        self.info_cache = None;
+        self.info_scope = None;
+        self.targets.clear();
+        self.targets_root = None;
+        self.clear_info_notes();
+    }
+    fn clear_info_notes(&mut self) {
+        if std::mem::take(&mut self.info_noted) {
+            let _ = host::clear_file_decorations(INFO_NOTES);
+        }
+    }
+    fn show_info_notes(&mut self, notes: &BTreeMap<String, String>) {
+        // ponytail: one shared set, matching the single cached Info result.
+        self.clear_info_notes();
+        self.info_noted = !notes.is_empty();
+        for (path, note) in notes.iter().take(2_000) {
+            if host::set_file_note(path, INFO_NOTES, note, Some("State from the last Flyway Info run")).is_err() {
+                break;
+            }
+        }
+    }
     fn scan(&mut self, project: &Project) -> (Config, Vec<String>, BTreeMap<String, Vec<Diagnostic>>) {
         let config = load(project);
         let files = migration_files(project, &config);
@@ -306,10 +356,11 @@ impl Flyway {
         if finished.goal == "info" {
             // Accepting reads the bounded source proof (Status or a render poll); it never runs a command.
             if execution::info_scope(&project).as_ref().ok() != Some(&finished.proof) {
-                self.info_cache = None;self.info_scope = None;self.targets.clear();self.targets_root = None;
+                self.drop_info();
                 refresh_migrations();
                 return Err(Error::Stale);
             }
+            self.clear_info_notes();
             self.info_scope = Some(finished.proof.clone());
             self.info_at = Some(std::time::Instant::now());
             self.targets.clear();
@@ -341,7 +392,12 @@ impl Plugin for Flyway {
         Ok(())
     }
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        update_status(ctx);
         match id {
+            "show-migrations" => {
+                ui_kit::web::reveal_view("migrations", include_str!("ui_config.json"))?;
+                Ok(None)
+            }
             "hibernate-schema" => self.generate_hibernate_schema(ctx),
             "review-comparison" => {
                 self.comparison.begin(ctx)?;
@@ -395,7 +451,7 @@ impl Plugin for Flyway {
                 || self.targets.values().any(|source|source==path || !path.is_empty() && source.starts_with(&format!("{}/",path.trim_end_matches('/'))))),
             _ => false,
         }));
-        if affected {self.info_cache=None;self.info_scope=None;self.targets.clear();self.targets_root=None;refresh_migrations();}
+        if affected {self.drop_info();refresh_migrations();}
         for event in events {
             if let Event::FileSaved(path) = event {
                 self.table_navigation.invalidate(path);
@@ -424,6 +480,7 @@ impl Plugin for Flyway {
             _ => None,
         });
         let Some(path) = qualifying else { return };
+        update_status(_ctx);
         let Some(project) = project_of(path) else {
             return;
         };
@@ -536,6 +593,9 @@ impl Flyway {
 
     fn migrations_view(&mut self, project: &Project) -> View {
         let Some(root) = open_root(project) else {return View::message("Current project identity is unavailable; cached Flyway info withheld.");};
+        if self.info_cache.as_ref().is_some_and(|(owner, _)| owner == &root) && !self.info_scope.as_ref().is_some_and(|scope| scope.settings_current(&root)) {
+            self.clear_info_notes();
+        }
         let shown = match self.info_cache.as_ref().filter(|(owner, _)| owner == &root && self.info_scope.as_ref().is_some_and(|scope|scope.settings_current(&root))) {
             Some((_, cached)) => {
                 let mut shown = cached.clone();
@@ -628,14 +688,21 @@ impl Flyway {
         let files = migration_files(project, &config);
         self.targets.clear();
         let mut items = Vec::new();
+        let mut notes = BTreeMap::new();
         for (index, migration) in migrations.iter().enumerate() {
             let key = format!("m:{index}");
             if let Some(path) = self.migration_file(project, &files, migration, &config.naming) {
+                // Info lists history in order, so a file's latest row wins.
+                match migration.note() {
+                    Some(note) => notes.insert(path.clone(), note),
+                    None => notes.remove(&path),
+                };
                 self.targets.insert(key.clone(), path);
             }
             items.push(TreeItem::new(&key, &redactor.label(&migration.label)).detail(migration.state).icon(migration.icon));
         }
 
+        self.show_info_notes(&notes);
         let pending = migrations.iter().filter(|m| m.state == "Pending").count();
         View::new(Body::Tree(items)).button(refresh).status(&format!("{} migrations, {pending} pending", migrations.len()))
     }

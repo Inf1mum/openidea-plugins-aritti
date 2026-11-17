@@ -367,6 +367,22 @@ fn preview(goal: &str, prepared: &Prepared, managed: bool) -> String {
         "Cancelling does not roll back the database. Check CLI and environment settings before proceeding."
     )
 }
+/// The confirmation's target hint for the status bar: `None` without a project Flyway config
+/// file, `Some(None)` when the target is unknown, else the short `host/database` and full hint.
+pub(crate) fn status_target(project: &Project) -> Option<Option<(String, String)>> {
+    let prepared = prepare(project, "info", true).ok()?;
+    let files = &prepared.proof.files;
+    if !files.iter().any(|(path, observed)| matches!(observed, Observed::Source(_)) && crate::config::is_flyway_config(path)) {
+        return None;
+    }
+    let hint = target_hint(files, &prepared.proof.args);
+    if hint.starts_with("UNKNOWN") {
+        return Some(None);
+    }
+    let url = hint.split(" (").next().unwrap_or_default();
+    let short = url.split_once("://").map_or(url, |(_, rest)| rest).to_owned();
+    Some(Some((short, hint)))
+}
 /// Best-known target from Flyway config files only, as a host/database hint without credentials or parameters.
 fn target_hint(files: &[(String, Observed)], args: &[String]) -> String {
     if args.iter().any(|arg| arg.split_once('=').is_some_and(|(key, _)| key.to_ascii_lowercase().ends_with("url"))) {
@@ -600,6 +616,15 @@ impl Execution {
             session.started.elapsed().as_secs()
         );
         session.child = None;
+        if status == 0 && matches!(session.goal.as_str(), "migrate" | "repair" | "clean") {
+            let refresh = openidea_plugin::NotificationAction::new("Refresh Info", "info");
+            let _ = host::notify_with_actions(
+                openidea_plugin::NotificationLevel::Info,
+                "Flyway",
+                &format!("Flyway {} finished. Refresh Info to see the database's migration state.", session.goal),
+                &[refresh],
+            );
+        }
         if session.json {
             let stdout = if session.raw_capped { String::new() } else { std::mem::take(&mut session.raw) };
             Some(Finished {
@@ -1096,6 +1121,66 @@ mod tests {
         execution.closed_roots();
         assert!(execution.session.as_ref().unwrap().child.is_none());
         assert!(execution.session.as_ref().unwrap().status.contains("outcome unknown"));
+    }
+    #[test]
+    fn accepted_info_notes_migration_files_and_clears_them_when_stale() {
+        let host = managed();
+        host.add_file("src/main/resources/db/migration/V1__init.sql", "");
+        host.add_file("src/main/resources/db/migration/V2__more.sql", "");
+        host.add_file("src/main/resources/db/migration/V3__unknown.sql", "");
+        let mut plugin = Flyway::default();
+        let mut finished = finished_info(&host);
+        finished.output.stdout = r#"{"migrations":[{"version":"1","description":"init","state":"Success","installedOnUTC":"2026-11-10 09:00"},{"version":"2","description":"more","state":"Pending"},{"version":"3","description":"unknown","state":"Odd"}]}"#.into();
+        plugin.accept_finished(&host.invocation().project().unwrap(), finished).unwrap();
+        let notes: Vec<_> = host.file_notes().into_iter().map(|((set, path), (note, _))| (set, path, note)).collect();
+        assert_eq!(notes, [
+            ("flyway-info".into(), "/project/src/main/resources/db/migration/V1__init.sql".into(), "applied 2026-11-10".into()),
+            ("flyway-info".into(), "/project/src/main/resources/db/migration/V2__more.sql".into(), "pending".into()),
+        ]);
+        plugin.handle_events(&[Event::FileSaved("/project/src/main/resources/db/migration/V2__more.sql".into())], &host.invocation());
+        assert!(host.file_notes().is_empty());
+        plugin.accept_finished(&host.invocation().project().unwrap(), finished_info(&host)).unwrap();
+        assert!(host.file_notes().is_empty(), "no Info rows, no notes");
+    }
+    #[test]
+    fn status_item_follows_flyway_config_and_opens_the_panel() {
+        let host = managed();
+        let mut plugin = Flyway::default();
+        plugin.run_command("show-migrations", &host.invocation(), None).unwrap();
+        assert!(!host.status_items().contains_key("flyway-target"));
+        host.add_file("flyway.toml", "[flyway]\nurl = \"jdbc:mysql://db.example/app\"\n");
+        plugin.run_command("show-migrations", &host.invocation(), None).unwrap();
+        let item = &host.status_items()["flyway-target"];
+        assert_eq!(item.text, "Flyway: db.example/app");
+        assert_eq!(item.command.as_deref(), Some("show-migrations"));
+    }
+    #[test]
+    fn successful_managed_write_offers_refresh_info() {
+        let host = managed();
+        let mut execution = Execution::default();
+        host.answer_next_prompt(Some(&["yes"]));
+        execution.start(&host.invocation(), "migrate", false, false).unwrap();
+        let session = execution.session.as_mut().unwrap();
+        Execution::ingest(session, Chunk { status: Some(0), ..Default::default() });
+        let sent = host.notifications_with_actions();
+        assert_eq!(sent.len(), 1);
+        assert_eq!((sent[0].actions[0].label.as_str(), sent[0].actions[0].command.as_str()), ("Refresh Info", "info"));
+        host.answer_next_prompt(Some(&["yes"]));
+        execution.start(&host.invocation(), "migrate", false, false).unwrap();
+        Execution::ingest(execution.session.as_mut().unwrap(), Chunk { status: Some(1), ..Default::default() });
+        assert_eq!(host.notifications_with_actions().len(), 1, "failures do not offer Refresh Info");
+    }
+    #[test]
+    fn status_target_is_the_redacted_hint_only_with_flyway_config() {
+        let host = managed();
+        let project = host.invocation().project().unwrap();
+        assert_eq!(status_target(&project), None);
+        host.add_file("flyway.conf", "flyway.password=TOKEN_1\n");
+        assert_eq!(status_target(&project), Some(None));
+        host.add_file("flyway.conf", "flyway.url=jdbc:postgresql://db.example:5432/app?password=TOKEN_1\n");
+        let (short, hint) = status_target(&project).unwrap().unwrap();
+        assert_eq!(short, "db.example:5432/app");
+        assert!(!hint.contains("TOKEN_1") && hint.starts_with("jdbc:postgresql://db.example:5432/app"));
     }
     #[test]
     fn confirmation_leads_with_impact_and_redacted_target_hint() {
