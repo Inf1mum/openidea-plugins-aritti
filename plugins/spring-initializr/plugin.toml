@@ -5,7 +5,7 @@ description = "Starts a Spring Boot project from a tool window. Pick the build, 
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Generate and Open is the main button with one confirmation and falls back to the browser download without its permissions, Generate Project is renamed Download ZIP, and artifact problems show before you click; Add Spring Boot Starters asks for the starters and shows the inserted lines itself, leaving one ⌥⏎ action that inserts them, and works with more Maven and Gradle layouts, including version catalogs, on build files up to 256 KiB; generated ZIPs keep executable scripts, the downloaded archive is deleted afterwards and a failed extract shows the kept folder, and Open Source Folder appears in Tools and in a notification once an import created its files; Generate and Open and source-only import are off for custom servers and refuse folders that are not on the machine running the project; unsaved form changes survive switching projects, the plugin no longer wakes when a pom.xml opens, the status line is one sentence, CLI buttons use plain names and Tools shows Add Starters only in Maven and Gradle projects. \
+Next release: Generate and Open is the main button with one confirmation and falls back to the browser download without its permissions, Generate Project is renamed Download ZIP, and artifact problems show before you click; with the optional project.write permission, Add Spring Boot Starters writes the build file after one confirmation (otherwise one ⌥⏎ action inserts them) and supports more Maven and Gradle layouts, including version catalogs; generated ZIPs keep executable scripts, the downloaded archive is deleted afterwards and a failed extract shows the kept folder, Prepare Maven Project Import creates the files after one confirmation, never overwriting any, and Open Source Folder, in Tools, opens without asking again; Generate and Open and source-only import are off for custom servers and refuse folders that are not on the machine running the project; unsaved form changes survive switching projects, the plugin no longer wakes when a pom.xml opens, the status line is one sentence, CLI buttons use plain names and Tools shows Add Starters only in Maven and Gradle projects. \
 0.3.0: Add Starters for Maven and Gradle and project generation. \
 0.2.0: plugin icon and server list."""
 categories = ["frameworks"]
@@ -16,7 +16,7 @@ activation = ["on-view:initializr"]
 
 [capabilities]
 required = ["storage"]
-optional = ["project.read", "process:spring", "process:python3", "net:start.spring.io", "editor.read"]
+optional = ["project.read", "process:spring", "process:python3", "net:start.spring.io", "editor.read", "project.write"]
 
 [[contributes.commands]]
 id = "open-start"
