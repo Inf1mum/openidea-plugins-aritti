@@ -14,6 +14,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 const MAX_TEXT: usize = 256 * 1024;
 const TTL: Duration = Duration::from_secs(120);
+const FALLBACK_BUDGET: Duration = Duration::from_millis(10);
 const MAX_RESOLVED: usize = 16;
 struct Fact {
     at: Instant,
@@ -33,6 +34,7 @@ struct Properties {
 /// What the project said when a changelog was last opened, saved or touched on disk; diagnostics never ask the project again.
 struct Resolution {
     at: Instant,
+    source: Option<(u64, u64)>,
     targets: BTreeMap<Spec, Target>,
     properties: Option<Properties>,
 }
@@ -40,6 +42,8 @@ struct Resolution {
 pub struct State {
     roots: BTreeMap<String, BTreeMap<String, Fact>>,
     resolved: BTreeMap<String, Resolution>,
+    /// Set when the host refused the event subscriptions; diagnostics then warm the open document themselves.
+    pub events_denied: bool,
 }
 fn text_hash(text: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -136,7 +140,9 @@ impl State {
         files.insert(path.into(), Fact { at: Instant::now(), bytes, log, source });
     }
     /// Asks the project what `text`'s includes point at and which properties it can supply. Only events and commands call this.
-    pub fn warm(&mut self, project: &Project, root: &str, path: &str, text: &str) {
+    /// Whatever `budget` does not reach stays unknown, which the checks treat as quiet.
+    pub fn warm(&mut self, project: &Project, root: &str, path: &str, text: &str, budget: Duration, source: Option<(u64, u64)>) {
+        let deadline = Instant::now() + budget;
         self.resolved.remove(path);
         if !owned(root, path) {
             return;
@@ -146,14 +152,17 @@ impl State {
         };
         let mut targets = BTreeMap::new();
         for include in log.includes.iter().chain(&log.sql_files).take(512) {
+            if Instant::now() > deadline {
+                break;
+            }
             targets.entry(spec(include)).or_insert_with(|| crate::target(project, root, path, include));
         }
         let has_unknown_placeholder = checks::placeholders(text, log.format)
             .into_iter()
             .any(|(_, _, name)| !name.starts_with("database.") && !log.properties.iter().any(|p| p == name));
         let properties = has_unknown_placeholder.then(|| Properties {
-            parameters: crate::project_parameters(project, root, path),
-            declared: crate::project_properties(project, root, path, &log),
+            parameters: crate::project_parameters(project, root, path, deadline),
+            declared: crate::project_properties(project, root, path, &log, deadline),
         });
         if self.resolved.len() >= MAX_RESOLVED {
             let oldest = self.resolved.iter().min_by_key(|(_, r)| r.at).map(|(p, _)| p.clone());
@@ -161,7 +170,20 @@ impl State {
                 self.resolved.remove(&oldest);
             }
         }
-        self.resolved.insert(path.into(), Resolution { at: Instant::now(), targets, properties });
+        self.resolved.insert(path.into(), Resolution { at: Instant::now(), source, targets, properties });
+    }
+    fn warm_current(&mut self, doc: &Document, root: Option<&str>) {
+        let source = Some((doc.version, text_hash(&doc.text)));
+        if self.resolved.get(&doc.path).is_some_and(|r| r.source == source) {
+            return;
+        }
+        let Some(root) = root else {
+            return;
+        };
+        let Some(project) = host::project_of(&doc.path) else {
+            return;
+        };
+        self.warm(&project, root, &doc.path, &doc.text, FALLBACK_BUDGET, source);
     }
     pub fn forget(&mut self, path: &str) {
         self.invalidate(path);
@@ -202,9 +224,12 @@ impl State {
         if found.next().is_some() { None } else { Some(first) }
     }
     pub fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
-        let Some((_, log)) = self.current(doc) else {
+        let Some((root, log)) = self.current(doc) else {
             return vec![];
         };
+        if self.events_denied {
+            self.warm_current(doc, root.as_deref());
+        }
         let resolution = self.resolved.get(&doc.path);
         let target = |include: &Include| resolution.and_then(|r| r.targets.get(&spec(include))).cloned().unwrap_or(Target::Unknown);
         let defined = |name: &str| {

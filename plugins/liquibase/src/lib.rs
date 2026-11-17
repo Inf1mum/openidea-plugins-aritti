@@ -59,9 +59,15 @@ pub struct Liquibase {
 
 impl Plugin for Liquibase {
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
-        let _ = host::subscribe(openidea_plugin::EventKind::FileOpened);
-        let _ = host::subscribe(openidea_plugin::EventKind::FileSaved);
-        let _ = host::subscribe_paths("files-changed", &["**/*.xml", "**/*.yaml", "**/*.yml", "**/*.json", "**/*.sql"]);
+        let subscriptions = [
+            host::subscribe(openidea_plugin::EventKind::FileOpened),
+            host::subscribe(openidea_plugin::EventKind::FileSaved),
+            host::subscribe_paths("files-changed", &["**/*.xml", "**/*.yaml", "**/*.yml", "**/*.json", "**/*.sql"]),
+        ];
+        if subscriptions.iter().any(|result| matches!(result, Err(Error::Denied(_)))) {
+            self.live.events_denied = true;
+            host::notify(NotificationLevel::Warning, TITLE, "Allow events for Liquibase Changelogs in Settings › Plugins so include and property checks follow your edits.");
+        }
         Ok(())
     }
     fn handle_events(&mut self, events: &[openidea_plugin::Event], _ctx: &Invocation) {
@@ -75,7 +81,7 @@ impl Plugin for Liquibase {
                 }
                 openidea_plugin::Event::FileOpened(path) | openidea_plugin::Event::FileSaved(path) => {
                     self.live.forget(path);
-                    self.warm_from_disk(path);
+                    self.warm_from_disk(path, REWARM_BUDGET);
                 }
                 _ => {}
             }
@@ -119,7 +125,7 @@ const TITLE: &str = "Liquibase Changelogs";
 const REWARM_BUDGET: Duration = Duration::from_secs(2);
 
 impl Liquibase {
-    fn warm_from_disk(&mut self, path: &str) {
+    fn warm_from_disk(&mut self, path: &str, budget: Duration) {
         let Some(project) = host::project_of(path) else {
             return;
         };
@@ -128,16 +134,16 @@ impl Liquibase {
             return;
         };
         self.live.update(&root, path, &text);
-        self.live.warm(&project, &root, path, &text);
+        self.live.warm(&project, &root, path, &text, budget, None);
     }
 
     fn rewarm(&mut self) {
         let started = Instant::now();
         for path in self.live.warmed_paths() {
-            if started.elapsed() > REWARM_BUDGET {
+            let Some(remaining) = REWARM_BUDGET.checked_sub(started.elapsed()) else {
                 return;
-            }
-            self.warm_from_disk(&path);
+            };
+            self.warm_from_disk(&path, remaining);
         }
     }
 }
@@ -235,7 +241,7 @@ fn likely_changelog(candidate: &str, open: &str) -> bool {
 /// too big or unreadable, a JSON changelog is around, or some changelog has an `includeAll`, an include the host cannot
 /// resolve or a `property` loaded from a file.
 // ponytail: lists and reads every likely changelog on each check that finds an unknown placeholder; cache per project if it misses the 50 ms budget
-fn project_properties(project: &Project, root: &str, path: &str, open: &Changelog) -> Option<BTreeSet<String>> {
+fn project_properties(project: &Project, root: &str, path: &str, open: &Changelog, deadline: Instant) -> Option<BTreeSet<String>> {
     let mut paths = BTreeSet::new();
     for glob in ["**/*.xml", "**/*.yaml", "**/*.yml", "**/*.sql", "**/*.json"] {
         let listed = project.find_files(glob, MAX_LISTED_FILES as u32).ok()?;
@@ -263,6 +269,9 @@ fn project_properties(project: &Project, root: &str, path: &str, open: &Changelo
     };
     absorb(path, open)?;
     for file in paths {
+        if Instant::now() > deadline {
+            return None;
+        }
         let text = match project.read_file(&file) {
             Ok(text) => text,
             Err(Error::NotFound(_) | Error::Invalid(_)) => continue,
@@ -320,7 +329,7 @@ fn build_passes_parameters(project: &Project, root: &str, changelog: &str) -> bo
 
 /// The parameters the project's `liquibase.properties` and Spring configuration files (profile and module files included) set;
 /// `None` when none of those files can be read or the configuration cannot be followed completely.
-fn project_parameters(project: &Project, root: &str, changelog: &str) -> Option<BTreeSet<String>> {
+fn project_parameters(project: &Project, root: &str, changelog: &str, deadline: Instant) -> Option<BTreeSet<String>> {
     if build_passes_parameters(project, root, changelog) {
         return None;
     }
@@ -342,6 +351,9 @@ fn project_parameters(project: &Project, root: &str, changelog: &str) -> Option<
     let mut names = BTreeSet::new();
     let mut readable = false;
     for path in files {
+        if Instant::now() > deadline {
+            return None;
+        }
         match project.read_file(&path) {
             Ok(text) => {
                 readable = true;
@@ -393,7 +405,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    // ponytail: reads every xml/yaml/sql file the host lists, up to MAX_FILES per extension and DISCOVERY_BUDGET (checked between reads), on every render; the plugin has no `events` capability to invalidate a cache on save; index them (spring_text::index) if big projects hit the cap
+    // ponytail: reads every xml/yaml/sql file the host lists, up to MAX_FILES per extension and DISCOVERY_BUDGET (checked between reads), on every render; index them (spring_text::index) if big projects hit the cap
     fn discover(&mut self) {
         if self.discovery_done {
             return;
@@ -882,7 +894,7 @@ mod tests {
         let mut liquibase = Liquibase::default();
         if let Some(project) = project_of(path) {
             if let Ok(root) = project.root() {
-                liquibase.live.warm(&project, &root, path, text);
+                liquibase.live.warm(&project, &root, path, text, Duration::from_secs(2), None);
             }
         }
         openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut liquibase, &doc(path, text))
@@ -1518,6 +1530,41 @@ mod tests {
         let changed = openidea_plugin::FilesChanged { created: vec!["/project/db/later.xml".into()], ..Default::default() };
         liquibase.handle_events(&[openidea_plugin::Event::FilesChanged(changed)], &host.invocation());
         assert_eq!(count(&mut liquibase), 0);
+    }
+
+    #[test]
+    fn denied_event_subscription_notifies_once() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut liquibase = Liquibase::default();
+        liquibase.activate(&host.context("aritti.liquibase")).unwrap();
+        let notes = host.notifications();
+        assert_eq!(notes.len(), 1);
+        assert!(format!("{notes:?}").contains("Allow events for Liquibase Changelogs in Settings"));
+    }
+
+    #[test]
+    fn missing_include_of_the_open_file_is_flagged_without_events() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut liquibase = Liquibase::default();
+        liquibase.activate(&host.context("aritti.liquibase")).unwrap();
+        let text = "<databaseChangeLog><include file=\"nope.xml\" relativeToChangelogFile=\"true\"/></databaseChangeLog>";
+        let codes: Vec<_> = openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut liquibase, &doc(PROPERTY_PATH, text))
+            .into_iter()
+            .filter_map(|d| d.code)
+            .collect();
+        assert_eq!(codes, ["unresolved-include"]);
+    }
+
+    #[test]
+    fn exhausted_warm_budget_leaves_facts_unknown_and_quiet() {
+        let host = host();
+        host.add_file("liquibase.properties", "url=x\n");
+        let mut liquibase = Liquibase::default();
+        let project = project_of(PROPERTY_PATH).unwrap();
+        let text = "<databaseChangeLog><include file=\"nope.xml\" relativeToChangelogFile=\"true\"/><changeSet id=\"${p}\" author=\"a\"/></databaseChangeLog>";
+        liquibase.live.warm(&project, "/project", PROPERTY_PATH, text, Duration::ZERO, None);
+        let found = openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut liquibase, &doc(PROPERTY_PATH, text));
+        assert!(found.is_empty(), "{found:?}");
     }
 
     #[test]
