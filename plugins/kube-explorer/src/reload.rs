@@ -91,6 +91,9 @@ impl KubeExplorer {
         let namespace = in_file.map(|v| v.text.clone()).or_else(|| self.namespace.clone().filter(|ns| ns != crate::ALL_NAMESPACES));
         let _task = host::begin_task(&format!("Reading {kind}/{name}"), false);
         let text = self.kubectl_in(namespace.as_deref(), &["get", &kind, name, "-o", "yaml", REQUEST_TIMEOUT], None)?;
+        if !Self::reveal_allowed() && manifest::documents(&text).iter().any(|d| resource_type(d).as_deref() == Some("secret")) {
+            return Err("Secret values are hidden; turn on \"Allow Show Secret\" to reload it".into());
+        }
         Ok(without_resource_version(&text))
     }
 }
@@ -177,5 +180,19 @@ mod tests {
         host.open_editor("/p/web.yaml", "yaml", SECRET_FILE, &[(0, 0, 0, 0)]);
         KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap();
         assert!(host.editor_text().contains("password: bmV3"));
+    }
+
+    #[test]
+    fn reload_refuses_a_fetched_secret_under_another_kind_name() {
+        const PLURAL_FILE: &str = "apiVersion: v1\nkind: Secrets\nmetadata:\n  name: db\n  namespace: shop\ndata:\n  password: b2xk\n";
+        let host = MockHost::install().with_capabilities(&["project.read", "process:kubectl", "editor.read", "editor.write", "storage"]);
+        host.set_project_root(Some("/p"));
+        host.on_process(KUBECTL, |_, _| {
+            Ok(ProcessOutput { status: Some(0), stdout: "apiVersion: v1\nkind: Secret\nmetadata:\n  name: db\ndata:\n  password: bmV3\n".into(), stderr: String::new() })
+        });
+        host.open_editor("/p/db.yaml", "yaml", PLURAL_FILE, &[(0, 0, 0, 0)]);
+        let error = KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap_err();
+        assert!(error.to_string().contains("Secret values are hidden"));
+        assert!(!host.editor_text().contains("bmV3"));
     }
 }

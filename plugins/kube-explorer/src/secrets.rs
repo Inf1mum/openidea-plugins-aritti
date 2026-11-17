@@ -53,9 +53,50 @@ pub fn display(bytes: &[u8]) -> String {
 
 /// Bound and validate the Secret JSON; with `preserve_order` its members keep the order kubectl printed.
 /// serde_json's default recursion bound prevents unbounded unknown-field descent.
+/// JSON naming no key twice in any object; `serde_json::Value` would silently keep only the last.
+struct NoDuplicateKeys;
+
+impl<'de> serde::Deserialize<'de> for NoDuplicateKeys {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(NoDuplicateKeys)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for NoDuplicateKeys {
+    type Value = Self;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("JSON without duplicate keys")
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<Self, E> { Ok(self) }
+    fn visit_i64<E>(self, _: i64) -> Result<Self, E> { Ok(self) }
+    fn visit_u64<E>(self, _: u64) -> Result<Self, E> { Ok(self) }
+    fn visit_f64<E>(self, _: f64) -> Result<Self, E> { Ok(self) }
+    fn visit_str<E>(self, _: &str) -> Result<Self, E> { Ok(self) }
+    fn visit_unit<E>(self) -> Result<Self, E> { Ok(self) }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self, A::Error> {
+        while seq.next_element::<Self>()?.is_some() {}
+        Ok(self)
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self, A::Error> {
+        let mut seen = std::collections::HashSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if !seen.insert(key) {
+                return Err(serde::de::Error::custom("duplicate key"));
+            }
+            map.next_value::<Self>()?;
+        }
+        Ok(self)
+    }
+}
+
 fn validate_object(json:&str)->Result<serde_json::Value,String> {
     if json.len()>2<<20 {return Err("Secret JSON exceeds the 2 MiB read bound".into());}
     let value:serde_json::Value=serde_json::from_str(json).map_err(|_|"Malformed or excessively nested Secret JSON".to_owned())?;
+    serde_json::from_str::<NoDuplicateKeys>(json).map_err(|_|"Secret JSON names a key twice".to_owned())?;
     let object=value.as_object().ok_or("The Secret is not a JSON object")?;
     if let Some(data)=object.get("data").filter(|v|!v.is_null()) {
         let data=data.as_object().ok_or("Secret data is not a JSON object")?;
@@ -325,6 +366,13 @@ mod tests {
 
     fn type_into(kube: &mut KubeExplorer, key: &str, value: &str) {
         kube.editing_secret.as_mut().unwrap().set_field(key, value.into());
+    }
+
+    #[test]
+    fn duplicate_data_key_is_rejected() {
+        let error = data_entries(r#"{"kind":"Secret","data":{"user":"YQ==","user":"Yg=="}}"#).unwrap_err();
+        assert!(error.contains("twice"));
+        assert_eq!(data_entries(r#"{"kind":"Secret","data":{"user":"YQ==","pw":"Yg=="}}"#).unwrap().len(), 2);
     }
 
     #[test]

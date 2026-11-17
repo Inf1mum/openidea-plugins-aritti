@@ -185,6 +185,7 @@ version = "0.1.0"
 dependencies = [
  "openidea-plugin",
  "regex-lite",
+ "serde",
  "serde_json",
  "sha2",
  "ui-kit",

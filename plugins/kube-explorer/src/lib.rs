@@ -511,7 +511,7 @@ impl KubeExplorer {
         Ok(custom_resource_names(names))
     }
 
-    /// Drops cached children and reloads those of expanded nodes.
+    /// Drops cached children and reloads those of expanded nodes; only an unreachable cluster stops the rest.
     fn reload(&mut self) {
         self.watch.settings_changed(&self.context,&self.namespace);
         self.cluster_completion.clear();
@@ -525,7 +525,9 @@ impl KubeExplorer {
                 None => self.load(&key),
             };
             if let Err(failure) = &loaded {
-                first_failure.get_or_insert_with(|| failure.clone());
+                if connection_failure(failure) {
+                    first_failure.get_or_insert_with(|| failure.clone());
+                }
             }
             self.children.insert(key, loaded);
         }
@@ -1136,6 +1138,12 @@ impl KubeExplorer {
 fn resource_type_name(value:&str)->bool {
     let (plural,group)=value.split_once('.').map_or((value,None),|(plural,group)|(plural,Some(group)));
     is_dns_label(plural)&&group.is_none_or(is_dns_subdomain)
+}
+
+/// kubectl could not reach the cluster at all, so every further call would fail the same way.
+fn connection_failure(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    ["unable to connect", "connection refused", "i/o timeout", "dial tcp", "no such host", "context deadline exceeded"].iter().any(|m| message.contains(m))
 }
 
 /// Sorted `kind.group` names without the core and built-in groups, deduplicated.
@@ -1964,6 +1972,23 @@ mod tests {
         assert_eq!(chart_dir(&ctx, "/project/charts/app/templates/a.yaml").unwrap(), "/project/charts/app");
         assert_eq!(chart_dir(&ctx, "/project/charts/app/charts/sub/templates/a.yaml").unwrap(), "/project/charts/app/charts/sub");
         assert!(chart_dir(&ctx, "/project/other/a.yaml").is_err());
+    }
+
+    #[test]
+    fn reload_continues_past_a_forbidden_kind() {
+        let host = MockHost::install().with_capabilities(&["process:kubectl", "storage"]);
+        host.on_process(KUBECTL, |args, _| match args.iter().any(|a| a == "nodes") {
+            true => Ok(ProcessOutput { status: Some(1), stdout: String::new(), stderr: "Error from server (Forbidden): nodes is forbidden\n".into() }),
+            false => ok("pod/web-1\n"),
+        });
+        let mut kube = KubeExplorer { context: Some("c".into()), ..Default::default() };
+        for key in ["kind:nodes", "kind:pods"] {
+            kube.expanded.insert(key.into());
+        }
+        kube.reload();
+        assert_eq!(host.process_runs().len(), 2);
+        assert!(kube.children["kind:nodes"].is_err());
+        assert!(kube.children["kind:pods"].is_ok());
     }
 
     #[test]
