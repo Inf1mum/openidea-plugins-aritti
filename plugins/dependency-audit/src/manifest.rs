@@ -132,6 +132,7 @@ pub fn notes(path: &str, text: &str, members: &HashSet<String>) -> Vec<Note> {
         Some(Kind::YarnLock) => private_notes(yarn_lock(path, text).1),
         Some(Kind::ComposerLock) => private_notes(composer_lock(path, text).1),
         Some(Kind::CargoLock) => private_notes(toml_lock(path, text, Ecosystem::CratesIo).1),
+        Some(Kind::PoetryLock) => private_notes(toml_lock(path, text, Ecosystem::PyPI).1),
         _ => Vec::new(),
     }
 }
@@ -488,6 +489,7 @@ fn package_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
             }
             let local = lock.as_ref().is_some_and(|l| {
                 l.get("packages").and_then(|p| p.get(format!("node_modules/{name}"))).is_some_and(|entry| entry.get("link").is_some() || private_npm(entry))
+                    || (l.get("lockfileVersion").and_then(Value::as_u64) == Some(1) && l.get("dependencies").and_then(|d| d.get(name)).is_some_and(private_npm))
             });
             if local {
                 continue;
@@ -579,7 +581,7 @@ fn package_lock(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
         return Default::default();
     };
     if root.get("lockfileVersion").and_then(Value::as_u64) == Some(1) {
-        return (package_lock_v1(path, text), Vec::new());
+        return package_lock_v1(path, text);
     }
     let (Some(packages), Some(base)) = (root.get("packages").and_then(Value::as_object), section_start(text, "packages")) else {
         return Default::default();
@@ -643,29 +645,36 @@ pub(crate) fn object_members(text: &str, start: usize) -> Option<Vec<(String, (u
     }
 }
 
-fn package_lock_v1(path: &str, text: &str) -> Vec<Dep> {
-    fn walk(path: &str, text: &str, at: usize, depth: usize, deps: &mut Vec<Dep>) -> Option<()> {
+fn package_lock_v1(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
+    fn walk(path: &str, text: &str, at: usize, depth: usize, deps: &mut Vec<Dep>, private: &mut Vec<Dep>) -> Option<()> {
         if depth > 32 { return None; }
         for (name, span, start) in object_members(text, at)? {
             let members = object_members(text, start)?;
             let version = members.iter().find(|(name,_,_)| name == "version").and_then(|(_,_,at)| {
                 serde_json::Deserializer::from_str(&text[*at..]).into_iter::<String>().next()?.ok()
             });
+            let resolved = members.iter().find(|(name,_,_)| name == "resolved").and_then(|(_,_,at)| {
+                serde_json::Deserializer::from_str(&text[*at..]).into_iter::<String>().next()?.ok()
+            });
             if let Some(version) = version.filter(|version| is_version(version)) {
-                deps.push(Dep { path:path.into(), ecosystem:Ecosystem::Npm, name, version, at:span, version_at:None });
-                if deps.len() > 10_000 { return None; }
+                let dep = Dep { path:path.into(), ecosystem:Ecosystem::Npm, name, version, at:span, version_at:None };
+                match private_url(resolved.as_deref(), NPM_HOSTS) {
+                    true => private.push(dep),
+                    false => deps.push(dep),
+                }
+                if deps.len() + private.len() > 10_000 { return None; }
             }
             if let Some((_,_,at)) = members.iter().find(|(name,_,_)| name == "dependencies") {
-                walk(path, text, *at, depth + 1, deps)?;
+                walk(path, text, *at, depth + 1, deps, private)?;
             }
         }
         Some(())
     }
-    let Some(members) = object_members(text, 0) else { return Vec::new(); };
-    let Some((_,_,at)) = members.iter().find(|(name,_,_)| name == "dependencies") else { return Vec::new(); };
-    let mut deps = Vec::new();
-    if walk(path,text,*at,0,&mut deps).is_none() { return Vec::new(); }
-    deps
+    let Some(members) = object_members(text, 0) else { return Default::default(); };
+    let Some((_,_,at)) = members.iter().find(|(name,_,_)| name == "dependencies") else { return Default::default(); };
+    let (mut deps, mut private) = (Vec::new(), Vec::new());
+    if walk(path,text,*at,0,&mut deps,&mut private).is_none() { return Default::default(); }
+    (deps, private)
 }
 
 fn pipfile_lock(path: &str, text: &str) -> Vec<Dep> {
@@ -1006,6 +1015,7 @@ fn toml_lock(path: &str, text: &str, ecosystem: Ecosystem) -> (Vec<Dep>, Vec<Dep
         version: &'a str,
         public: bool,
         private: bool,
+        source_table: bool,
     }
 
     let cargo = ecosystem == Ecosystem::CratesIo;
@@ -1018,7 +1028,7 @@ fn toml_lock(path: &str, text: &str, ecosystem: Ecosystem) -> (Vec<Dep>, Vec<Dep
             return;
         };
         let dep = lock_dep(path, ecosystem, record.name, record.version, record.at);
-        match (record.private, record.public || !cargo) {
+        match (record.private || record.source_table, record.public || !cargo) {
             (true, _) => private.push(dep),
             (false, true) => deps.push(dep),
             (false, false) => {}
@@ -1033,7 +1043,7 @@ fn toml_lock(path: &str, text: &str, ecosystem: Ecosystem) -> (Vec<Dep>, Vec<Dep
                 current = Some(Record::default());
                 keys = true;
             } else if header == "[package.source]" && !cargo {
-                current.iter_mut().for_each(|r| r.name = "");
+                current.iter_mut().for_each(|r| r.source_table = true);
             } else if !header.starts_with("[package.") {
                 flush(&mut current);
             }
@@ -1522,6 +1532,7 @@ source = { registry = "https://pypi.org/simple/" }
         let deps = parse("/p/poetry.lock", include_str!("../tests/fixtures/poetry.lock"), None);
 
         assert_eq!(found(&deps), [("click", "8.1.7"), ("colorama", "0.4.6")]);
+        assert_eq!(private_names("/p/poetry.lock", include_str!("../tests/fixtures/poetry.lock")), [("internal-lib".to_owned(), "1.2.0".to_owned())]);
     }
 
     #[test]
@@ -1544,6 +1555,16 @@ source = { registry = "https://pypi.org/simple/" }
         let yarn = "lodash@^4.17.15:\n  version \"4.17.15\"\n  resolved \"https://registry.yarnpkg.com/lodash/-/lodash-4.17.15.tgz#abc\"\n\nsecret@^1.0.0:\n  version \"1.0.0\"\n  resolved \"https://npm.corp.example/secret/-/secret-1.0.0.tgz#abc\"\n";
         assert_eq!(found(&parse("/p/yarn.lock", yarn, None)), [("lodash", "4.17.15")]);
         assert_eq!(private_names("/p/yarn.lock", yarn), [("secret".to_owned(), "1.0.0".to_owned())]);
+    }
+
+    #[test]
+    fn npm_v1_private_resolved_not_queried() {
+        let lock = r#"{"lockfileVersion":1,"dependencies":{"lodash":{"version":"4.17.21","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"},"secret":{"version":"1.0.0","resolved":"https://npm.corp.example/secret/-/secret-1.0.0.tgz","dependencies":{"inner":{"version":"2.0.0","resolved":"https://registry.npmjs.org/inner/-/inner-2.0.0.tgz"}}}}}"#;
+        assert_eq!(found(&parse("/p/package-lock.json", lock, None)), [("lodash", "4.17.21"), ("inner", "2.0.0")]);
+        assert_eq!(private_names("/p/package-lock.json", lock), [("secret".to_owned(), "1.0.0".to_owned())]);
+
+        let manifest = r#"{"dependencies":{"secret":"1.0.0","lodash":"^4.0.0"}}"#;
+        assert_eq!(found(&parse("/p/package.json", manifest, Some(lock))), [("lodash", "4.17.21")]);
     }
 
     #[test]

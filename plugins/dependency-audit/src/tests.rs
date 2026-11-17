@@ -1447,6 +1447,21 @@ fn report_lists_checked_coordinates_and_skipped_files() {
 }
 
 #[test]
+fn report_lists_private_notes_as_not_checked() {
+    let _host = MockHost::install();
+    let report: Report = serde_json::from_value(json!({
+        "rows":[],
+        "notes":[["Private, not queried","secret","npm","1.0.0","/project/package-lock.json"]]
+    })).unwrap();
+    let Body::Other { data, .. } = resource_body("/project", &report, None) else { panic!() };
+    let value: Value = serde_json::from_str(&data).unwrap();
+    let item = &value["items"][0];
+    assert_eq!(item["cells"][0], "Private, not queried");
+    assert_eq!(item["cells"][5], "Not checked");
+    assert!(item["details"][1]["value"].as_str().unwrap().contains("never sent to OSV.dev"));
+}
+
+#[test]
 fn report_lists_local_workspace_and_marker_notes() {
     let _host = MockHost::install();
     let report: Report = serde_json::from_value(json!({
