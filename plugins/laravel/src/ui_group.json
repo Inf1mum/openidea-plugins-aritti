@@ -27,11 +27,6 @@
       "icon": "table"
     },
     {
-      "id": "laravel-schema",
-      "label": "Schema",
-      "icon": "hierarchy"
-    },
-    {
       "id": "laravel-views",
       "label": "Views",
       "icon": "file-html"
