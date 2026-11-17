@@ -15,7 +15,7 @@ mod hibernate_schema;
 mod info;
 mod naming;
 pub(crate) const PLACEHOLDER_MARKER: &str = "icons/marker-placeholder.svg";
-pub(crate) const TABLE_MARKER: &str = "icons/marker-table.svg";
+pub(crate) const TABLE_MARKER: &str = "icons/flyway.svg";
 /// Markers one gutter button lists at most; the IDE merges a line's same-icon markers into one chooser.
 const MAX_LINE_TARGETS: usize = 200;
 

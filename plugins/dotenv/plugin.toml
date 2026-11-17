@@ -42,7 +42,7 @@ languages = ["dotenv"]
 
 [[contributes.markerIcons]]
 id = "related"
-icon = "icons/marker-related.svg"
+icon = "icons/dotenv.svg"
 
 [[contributes.providers]]
 kinds = ["completion", "definition", "hover"]

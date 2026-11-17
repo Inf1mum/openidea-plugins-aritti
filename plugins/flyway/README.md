@@ -126,7 +126,7 @@ When the project has a Flyway config file (`flyway.toml` or `flyway.conf`), the 
 - **Placeholders:** Go to Definition on `${name}` in SQL jumps to where the placeholder is declared in `flyway.conf` or `flyway.toml`. Names match case-insensitively, as Flyway does. Values and credentials are never shown.
 - **Tables:** in migration SQL, table names after `FROM`, `JOIN`, `UPDATE`, `INSERT INTO`, `ALTER/DROP/TRUNCATE TABLE` and `REFERENCES` jump to the `CREATE TABLE` in your migrations.
 - **Entities:** when a JPA `@Entity` maps to that table, the entity class is offered too. This covers Java and Kotlin classes with `@Table`, and `orm.xml` / `persistence.xml` mapping files.
-- **Table gutter icon:** a line with table references gets a table icon listing the same targets: the `CREATE TABLE` migrations and the mapped entities. Click it to pick one; with a single target it opens right away.
+- **Table gutter icon:** a line with table references gets the Flyway icon listing the same targets: the `CREATE TABLE` migrations and the mapped entities. Click it to pick one; with a single target it opens right away.
 
 ### Review a Flyway comparison report
 

@@ -32,8 +32,7 @@ languages = ["twig"]
 # Gutter icon on the first (or extends) line listing parent, child and including templates.
 [[contributes.markerIcons]]
 id = "related"
-icon = "icons/twig.svg"
-iconDark = "icons/twig_dark.svg"
+icon = "icons/twig-logo.svg"
 
 [[contributes.languages]]
 path = "languages/twig.toml"

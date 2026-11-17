@@ -36,6 +36,11 @@ languages = ["properties", "quarkus-properties", "yaml"]
 kinds = ["completion", "code-actions", "line-markers"]
 languages = ["java"]
 
+[[contributes.markerIcons]]
+id = "config"
+icon = "icons/quarkus.svg"
+iconDark = "icons/quarkus_dark.svg"
+
 [[contributes.providers]]
 kinds = ["diagnostics", "hover", "definition"]
 languages = ["java", "properties", "quarkus-properties", "yaml"]

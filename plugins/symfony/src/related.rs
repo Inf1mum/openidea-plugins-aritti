@@ -7,7 +7,7 @@ use crate::php_text::{self, Visibility, short_name};
 use openidea_plugin::providers::LineMarker;
 use openidea_plugin::{Location, Position, Range, text};
 
-pub const ICON: &str = "icons/marker-related.svg";
+pub const ICON: &str = "icons/symfony-logo.svg";
 const TOOLTIP: &str = "Related files";
 const FAMILY_SUFFIXES: [&str; 5] = ["Controller", "FormType", "Type", "Fixtures", "Repository"];
 

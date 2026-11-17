@@ -25,7 +25,7 @@ icon = "icons/marker-ref.svg"
 
 [[contributes.markerIcons]]
 id = "referenced-by"
-icon = "icons/marker-referenced-by.svg"
+icon = "icons/openapiinitiative.svg"
 
 [[contributes.providers]]
 kinds = ["completion", "definition", "code-actions", "line-markers"]

@@ -113,7 +113,7 @@ It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `
 
 - **OpenAPI: Write Self-Contained Spec** writes `<name>.bundled.<ext>` with every external `$ref` copied into `components`.
 - **OpenAPI: Copy Reference to the Key at the Caret** copies `$ref: '#/components/schemas/Pet'` (or the JSON form) for the key under the caret.
-- **OpenAPI: Find Component Occurrences in This Document** lists the declaration and local references of a component. The Referenced by gutter icon on a used component declaration opens the same local references.
+- **OpenAPI: Find Component Occurrences in This Document** lists the declaration and local references of a component. The Referenced by gutter icon (the OpenAPI Initiative logo) on a used component declaration opens the same local references.
 - **OpenAPI: Find Component Usages in Project** does the same across local and relative-file `$ref`s.
 - On a component key or `$ref`, ⌥⏎ › **Rename component in visible project sources…** renames it everywhere after you review the edit.
 

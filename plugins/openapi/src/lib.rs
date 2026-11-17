@@ -92,7 +92,7 @@ fn is_spec_file(path: &str) -> bool {
 }
 
 pub(crate) const REF_MARKER: &str = "icons/marker-ref.svg";
-pub(crate) const REFERENCED_BY_MARKER: &str = "icons/marker-referenced-by.svg";
+pub(crate) const REFERENCED_BY_MARKER: &str = "icons/openapiinitiative.svg";
 const MAX_LINE_TARGETS: usize = 200;
 const PREVIEWS: [&str; 2] = ["preview", "preview-any"];
 

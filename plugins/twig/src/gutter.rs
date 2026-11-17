@@ -5,7 +5,7 @@
 use crate::*;
 use openidea_plugin::providers::LineMarker;
 
-pub(crate) const RELATED: &str = "icons/twig.svg";
+pub(crate) const RELATED: &str = "icons/twig-logo.svg";
 const OVERRIDING: &str = "overriding";
 const OVERRIDDEN: &str = "overridden";
 const MAX_DEPTH: usize = 8;

@@ -150,6 +150,10 @@ location = "services"
 kinds = ["completion", "code-actions", "line-markers"]
 languages = ["json", "jsonc"]
 
+[[contributes.markerIcons]]
+id = "file"
+icon = "icons/devcontainer.svg"
+
 [contributes.settings]
 title = "Dev Container CLI"
 schema = "settings.schema.json"

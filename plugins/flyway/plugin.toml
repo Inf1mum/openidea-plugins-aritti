@@ -163,4 +163,4 @@ icon = "icons/marker-placeholder.svg"
 
 [[contributes.markerIcons]]
 id = "table"
-icon = "icons/marker-table.svg"
+icon = "icons/flyway.svg"

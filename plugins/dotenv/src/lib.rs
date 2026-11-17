@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 /// What an activation or a batch of events may spend walking projects (of their 5 s).
 const SCAN_BUDGET: Duration = Duration::from_secs(3);
-const RELATED_MARKER: &str = "icons/marker-related.svg";
+const RELATED_MARKER: &str = "icons/dotenv.svg";
 /// Markers one gutter button lists at most; the IDE merges a line's same-icon markers into one chooser.
 const MAX_LINE_TARGETS: usize = 200;
 

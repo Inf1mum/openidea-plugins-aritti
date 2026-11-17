@@ -2,6 +2,7 @@
 use super::*;
 use openidea_plugin::Location;
 use spring_text::java as source;
+pub(crate) const CONFIG_MARKER: &str = "icons/quarkus.svg";
 #[derive(Clone)]
 pub(crate) struct Target {
     pub key: String,
@@ -220,7 +221,7 @@ impl QuarkusTools {
                 _ => tooltip.to_owned(),
             };
             for target in found.into_iter().take(MAX_LINE_TARGETS) {
-                markers.push(LineMarker { line, icon: Some("navigate".into()), tooltip: tooltip.clone(), target: Some(target) });
+                markers.push(LineMarker { line, icon: Some(CONFIG_MARKER.into()), tooltip: tooltip.clone(), target: Some(target) });
             }
         }
         markers
@@ -363,7 +364,7 @@ mod tests {
         let byte = JAVA.find("greeting.message").unwrap();
         assert_eq!(targets(&config, 1), [(JAVA_PATH.to_owned(), range(JAVA, byte, byte + 16))]);
         assert_eq!(config.len(), 1);
-        assert!(config.iter().chain(&java).all(|m| m.icon.as_deref() == Some("navigate") && m.target.as_ref().unwrap().range.start < m.target.as_ref().unwrap().range.end));
+        assert!(config.iter().chain(&java).all(|m| m.icon.as_deref() == Some(CONFIG_MARKER) && m.target.as_ref().unwrap().range.start < m.target.as_ref().unwrap().range.end));
     }
     #[test]
     fn several_targets_give_several_same_icon_markers_on_one_line() {

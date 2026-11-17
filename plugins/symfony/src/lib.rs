@@ -5170,7 +5170,7 @@ mod marker_icon_guard {
             .lines()
             .filter_map(|line| line.strip_prefix("icon = \"icons/marker-"))
             .collect();
-        assert_eq!(declared.len(), 2);
+        assert_eq!(declared.len(), 1);
         for name in declared {
             let icon = format!("icons/marker-{}", name.trim_end_matches('"'));
             assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&icon).is_file(), "{icon}");

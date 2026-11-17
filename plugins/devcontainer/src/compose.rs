@@ -231,6 +231,7 @@ pub(crate) fn resolve(folder: &str, rel: &str, prefix: &str) -> Option<String> {
 }
 
 const MAX_LINE_TARGETS: usize = 200;
+pub(crate) const FILE_MARKER: &str = "icons/devcontainer.svg";
 /// One marker per existing Compose file or Dockerfile a devcontainer.json names, on the line of its entry.
 pub(crate) fn file_markers(doc_path: &str, text: &str) -> Vec<openidea_plugin::providers::LineMarker> {
     let Some(project) = host::project_of(doc_path) else { return vec![] };
@@ -251,7 +252,7 @@ pub(crate) fn file_markers(doc_path: &str, text: &str) -> Vec<openidea_plugin::p
         let at = |byte| openidea_plugin::text::position(&target, byte);
         markers.push(openidea_plugin::providers::LineMarker {
             line: openidea_plugin::text::position(text, range.start).line,
-            icon: Some("navigate".into()),
+            icon: Some(FILE_MARKER.into()),
             tooltip: format!("Open {file}"),
             target: Some(openidea_plugin::Location { path: absolute, range: openidea_plugin::Range::new(at(token.start), at(token.end)) }),
         });
@@ -463,7 +464,7 @@ mod tests {
             (4, "/project/.devcontainer/Dockerfile".into(), r(0, 0, 4)),
             (6, "/project/legacy/Dockerfile.dev".into(), r(0, 2, 6)),
         ]);
-        assert!(markers.iter().all(|m| m.icon.as_deref() == Some("navigate")));
+        assert!(markers.iter().all(|m| m.icon.as_deref() == Some(FILE_MARKER)));
         assert_eq!(markers[0].tooltip, markers[1].tooltip);
         assert_eq!(markers[2].tooltip, "Open Dockerfile");
     }
