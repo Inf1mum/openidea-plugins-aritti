@@ -112,7 +112,7 @@ impl Plugin for Tasks {
         refresh_tasks_view();
         match id {
             "review-issue-branch-at-caret" => {
-                if !self.git { return Err("Grant process:git and reload Tasks to review branch options.".into()); }
+                if !self.git { return Err(ui_kit::denied::message("Reviewing branch options", "process:git", "Tasks").into()); }
                 let review = issue_context::prepare(&self.issue_search, ctx)?;
                 if tasks.find(&review.issue.id).is_some() {
                     return Err("This issue already has a local task; use its existing task switch/branch workflow.".into());
@@ -342,10 +342,8 @@ impl Views for Tasks {
                     .button(Button::new("new", "New Task…").icon("plus"))
                     .button(Button::new("find", open_label).icon("run").enabled(open_enabled))
                     .button(Button::new("close-active", "Close Active Task…").icon("check").enabled(!tasks.active().is_default()))
-                    .button(Button::new("search-issues", "Search Issues…").icon("search"))
-                    .button(Button::new("contexts", "Contexts…").icon("layout"))
-                    .button(Button::new("actions", "Task Actions…").icon("more").enabled(selected.is_some()))
-                    .button(Button::new("refresh", "Update Issues").icon("refresh"))
+                    .button(Button::new("actions", "Task Actions…").icon("edit").enabled(selected.is_some()))
+                    .button(Button::new("more", "More…").icon("more"))
                     .status(&format!("Active: {} · {}", tasks.active().label(), selected.map(|task| format!("Selected: {}", task.label())).unwrap_or_else(|| "Select a task; Enter opens it".into()))),
             ))
         })().map(ui_kit::actions::available)
@@ -578,14 +576,22 @@ impl Tasks {
                 }
             }
             "search-issues" => self.search_issues(&project, &tasks, ctx)?,
-            "contexts" => {
-                let choices = [PickItem::new("save", "Save Open Editor Context…"), PickItem::new("load", "Load Context…"), PickItem::new("remove", "Remove Context…")];
-                if let Some(action) = host::pick("Tasks and Contexts", &choices)? {
+            "more" => {
+                let choices = [
+                    PickItem::new("search-issues", "Search Issues…"),
+                    PickItem::new("refresh", "Update Issues"),
+                    PickItem::new("save-context", "Save Context…"),
+                    PickItem::new("load-context", "Load Context…"),
+                    PickItem::new("remove-context", "Remove Saved Context…"),
+                ];
+                if let Some(action) = host::pick("More Tasks actions", &choices)? {
                     if load(&project.root()?)? != tasks { return Err(Error::Stale); }
                     match action.as_str() {
-                        "save" => save_context(&project, &tasks, ctx)?,
-                        "load" => load_context(&project, &tasks)?,
-                        "remove" => remove_context(&project, &tasks)?,
+                        "search-issues" => self.search_issues(&project, &tasks, ctx)?,
+                        "refresh" => refresh_issues(&project, false)?,
+                        "save-context" => save_context(&project, &tasks, ctx)?,
+                        "load-context" => load_context(&project, &tasks)?,
+                        "remove-context" => remove_context(&project, &tasks)?,
                         _ => return Err(Error::Stale),
                     }
                 }
@@ -1318,6 +1324,8 @@ mod tests {
         press(&mut plugin, &host, ViewEvent::Select("task:LOCAL-00002".into()));
         let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
         assert!(view.toolbar.iter().any(|b| b.label == "Switch Task" && b.enabled));
+        let labels: Vec<_> = view.toolbar.iter().map(|b| b.label.as_str()).collect();
+        assert_eq!(labels, ["New Task…", "Switch Task", "Close Active Task…", "Task Actions…", "More…"]);
         press(&mut plugin, &host, ViewEvent::Button("close-active".into()));
         assert!(matches!(&plugin.form, Some(Form::Close { id }) if id == "LOCAL-00001"));
         let form = plugin.render(VIEW, None, &host.invocation()).unwrap();
@@ -1710,6 +1718,21 @@ mod tests {
         assert!(host.requests()[0].url.contains("is%3Aopen%20crash"));
         assert_eq!(plugin.form, Some(Form::Open { id: "tool-7".into() }));
         assert_eq!(host.revealed_views(), ["tasks"]);
+    }
+
+    #[test]
+    fn more_button_runs_search_issues_from_its_picker() {
+        let host = MockHost::install().with_capabilities(ALL);
+        host.set_secret("github-token", "t0ken");
+        host.set_vcs_remotes(&[("origin", "git@github.com:acme/tool.git")]);
+        github_hit(&host);
+        let mut plugin = plugin(&host);
+        host.answer_next_prompt(Some(&["search-issues"]));
+        host.answer_next_prompt(Some(&["crash"]));
+        host.answer_next_prompt(Some(&["0"]));
+        press(&mut plugin, &host, ViewEvent::Button("more".into()));
+
+        assert!(host.requests()[0].url.contains("is%3Aopen%20crash"));
     }
 
     #[test]

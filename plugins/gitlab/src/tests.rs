@@ -486,7 +486,7 @@ fn merge_sends_the_head_sha_and_options() {
 
     assert!(writes(&host).is_empty(), "the first click only asks to confirm");
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
-    assert_eq!(label(&view, "merge"), "Confirm Merge !7 into main");
+    assert_eq!(label(&view, "merge"), "Confirm Merge !7 into main (squash, delete source branch)");
 
     plugin.handle(DETAILS, ViewEvent::Button("merge".into()), &host.invocation()).unwrap();
 
@@ -528,7 +528,7 @@ fn a_merge_confirm_does_not_follow_a_switch_to_the_branch_merge_request() {
 
     assert!(writes(&host).is_empty(), "{:?}", writes(&host));
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
-    assert_eq!(label(&view, "merge"), "Confirm Merge !8 into main");
+    assert_eq!(label(&view, "merge"), "Confirm Merge !8 into main (delete source branch)");
 }
 
 #[test]
@@ -1042,7 +1042,10 @@ fn copy_link_without_clipboard_notifies() {
 
     GitLab::default().run_command("copy-link", &host.invocation(), None).unwrap();
 
-    assert_eq!(host.notifications()[0].body, "https://gitlab.com/g/p/-/blob/abc123/a.rs#L1");
+    assert_eq!(
+        host.notifications()[0].body,
+        "Copying the link needs the clipboard permission. Allow it in Settings › Plugins › GitLab.\nhttps://gitlab.com/g/p/-/blob/abc123/a.rs#L1"
+    );
 }
 
 #[test]
@@ -1764,6 +1767,7 @@ mod worktree_tests {
     fn update_branch_request_targets_rebase_endpoint() {
         let host = setup();
         let _plugin = selected(&host);
+        host.answer_next_prompt(Some(&[]));
 
         let message = GitLab::default().run_command("update-merge-request-branch", &host.invocation(), None).unwrap();
 
@@ -1781,6 +1785,7 @@ mod worktree_tests {
             _ => gitlab(req),
         });
         let _plugin = selected(&host);
+        host.answer_next_prompt(Some(&[]));
 
         let message = GitLab::default().run_command("update-merge-request-branch", &host.invocation(), None).unwrap();
 
@@ -1795,10 +1800,22 @@ mod worktree_tests {
             _ => gitlab(req),
         });
         let _plugin = selected(&host);
+        host.answer_next_prompt(Some(&[]));
 
         let error = GitLab::default().run_command("update-merge-request-branch", &host.invocation(), None).unwrap_err();
 
         assert_eq!(error.to_string(), "Rebase of !7 failed: Rebase failed. Please rebase locally");
+    }
+
+    #[test]
+    fn rebase_command_asks_first_and_does_nothing_when_cancelled() {
+        let host = setup();
+        let _plugin = selected(&host);
+
+        let message = GitLab::default().run_command("update-merge-request-branch", &host.invocation(), None).unwrap();
+
+        assert_eq!(message, None);
+        assert!(writes(&host).is_empty());
     }
 }
 
@@ -3247,6 +3264,28 @@ fn project_view_opens_a_file_blob_and_a_folder_tree() {
     assert_eq!(host.opened_urls(), ["https://gitlab.com/g/p/-/blob/abc123/src/a%20b.rs", "https://gitlab.com/g/p/-/tree/abc123/src"]);
 }
 
+#[test]
+fn selecting_a_merge_request_enables_its_palette_commands() {
+    let host = setup();
+    assert!(!host.context_keys().contains_key("mrSelected"));
+
+    let _plugin = selected(&host);
+
+    assert_eq!(host.context_keys().get("mrSelected"), Some(&openidea_plugin::ContextValue::Flag(true)));
+}
+
+#[test]
+fn project_view_copies_the_selected_file_link_not_the_editor() {
+    let host = setup();
+    host.add_file("/project/src/b.rs", "x");
+    host.open_editor("/project/src/a.rs", "rust", "x", &[(0, 0, 0, 0)]);
+    host.select_paths(&["/project/src/b.rs"]);
+
+    GitLab::default().run_command("copy-link", &host.invocation(), None).unwrap();
+
+    assert_eq!(host.clipboard().as_deref(), Some("https://gitlab.com/g/p/-/blob/abc123/src/b.rs"));
+}
+
 mod ci_aid_tests {
     use super::*;
     use crate::ci;
@@ -4323,9 +4362,23 @@ mod diff_row_path_receipts {
             "https://gitlab.com/api/v4/projects/g%2Fp/repository/files/src%2Fa.rs/raw?ref=abcdef1",
         ]);
         assert!(writes(&host).is_empty());
+        let diffs=host.opened_diffs();
+        assert_eq!((diffs[0].0.left.as_deref(),diffs[0].0.right.as_deref(),diffs[0].1.as_deref()),(Some("file text"),Some("file text"),Some("src/a.rs")));
         let before=host.requests().len();
         assert!(changes_message(&mut plugin,&host,ViewEvent::Message(r#"{"type":"diff","path":"src/other.rs"}"#.into())).is_err());
         assert_eq!(host.requests().len(),before);
+    }
+    #[test]
+    fn added_file_diff_has_no_left_side_and_skips_the_base_read() {
+        let host=setup();
+        host.on_fetch(|r|if r.url.contains("/diffs") {ok(r#"[{"old_path":"src/a.rs","new_path":"src/a.rs","new_file":true,"diff":"@@ -0,0 +1 @@\n+c\n"}]"#)}
+            else if r.url.contains("/repository/files/") {ok("new text")} else {gitlab(r)});
+        let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+        changes_message(&mut plugin,&host,ViewEvent::Message(r#"{"type":"diff","path":"src/a.rs"}"#.into())).unwrap();
+        let reads:Vec<String>=host.requests().into_iter().map(|r|r.url).filter(|u|u.contains("/repository/files/")).collect();
+        assert_eq!(reads,["https://gitlab.com/api/v4/projects/g%2Fp/repository/files/src%2Fa.rs/raw?ref=abcdef1"]);
+        let diff=&host.opened_diffs()[0].0;
+        assert_eq!((diff.left.as_deref(),diff.right.as_deref()),(None,Some("new text")));
     }
     #[test]
     fn registered_current_diff_row_opens_without_remote_mutation() {
@@ -4613,7 +4666,9 @@ mod source_cli_checkout {
     #[test]
     fn dirty_worktree_refuses_even_version_probe(){let(h,mut p)=prepared();let mut s=status("main");s.changed_files=1;h.set_vcs_status(Some(s));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());}
     #[test]
-    fn unsupported_cli_profile_never_launches(){let(h,mut p)=prepared();h.on_process("glab",|_,_|Ok(ProcessOutput{status:Some(0),stdout:"glab 1.129.0\n".into(),stderr:String::new()}));h.answer_next_prompt(Some(&["ok"]));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.terminals().is_empty());}
+    fn unsupported_cli_profile_never_launches(){let(h,mut p)=prepared();h.on_process("glab",|_,_|Ok(ProcessOutput{status:Some(0),stdout:"glab 2.0.0\n".into(),stderr:String::new()}));h.answer_next_prompt(Some(&["ok"]));let error=p.checkout_source_cli(&h.invocation()).unwrap_err().to_string();assert_eq!(error,"Checking out with glab needs GitLab CLI glab 1.x (found 2.0.0). Install it, sign in with glab auth login, then retry.");assert!(h.terminals().is_empty());}
+    #[test]
+    fn any_glab_1x_launches_checkout(){let(h,mut p)=prepared();h.on_process("glab",|_,_|Ok(ProcessOutput{status:Some(0),stdout:"glab version 1.46.1 (2024-10-01)\n".into(),stderr:String::new()}));h.answer_next_prompt(Some(&["ok"]));p.checkout_source_cli(&h.invocation()).unwrap();assert_eq!(h.terminals().len(),1);}
     #[test]
     fn moving_source_identity_refuses_launch(){
         let(h,mut p)=prepared();let moved=std::rc::Rc::new(std::cell::Cell::new(false));let m=moved.clone();

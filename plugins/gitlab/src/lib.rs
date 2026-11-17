@@ -573,6 +573,7 @@ impl GitLab {
     /// Switches every merge request view to `iid`, dropping what belonged to the previous one.
     fn select_merge_request(&mut self, iid: u64) -> Result<(), Error> {
         storage::set(SELECTED_KEY, &iid.to_string())?;
+        let _ = host::set_context("mrSelected", true);
         self.timeline = timeline::State::default();
         storage::delete(COMMENT_KEY)?;
         self.details = None;
@@ -1003,7 +1004,16 @@ impl GitLab {
             let can_merge = mr.user.as_ref().is_some_and(|u| u.can_merge);
             let mergeable = mr.detailed_merge_status.as_deref() == Some("mergeable");
             let merge = match self.confirm == Some(format!("merge:{}", mr.iid)) {
-                true => format!("Confirm Merge !{} into {}", mr.iid, mr.target_branch),
+                true => {
+                    let options: Vec<&str> = [(details.squash, "squash"), (details.remove_source_branch, "delete source branch")]
+                        .into_iter()
+                        .filter_map(|(on, option)| on.then_some(option))
+                        .collect();
+                    match options.is_empty() {
+                        true => format!("Confirm Merge !{} into {}", mr.iid, mr.target_branch),
+                        false => format!("Confirm Merge !{} into {} ({})", mr.iid, mr.target_branch, options.join(", ")),
+                    }
+                }
                 false => "Merge".into(),
             };
             view = view.button(Button::new("merge", &merge).icon("github-pr-merged").enabled(can_merge && mergeable));
@@ -1374,7 +1384,8 @@ fn first_listed<'a>(first: &str, branches: impl Iterator<Item = &'a str>) -> Vec
 fn copy_link(url: &str) -> Result<(), Error> {
     match host::copy_to_clipboard(url) {
         Err(Error::Denied(_)) => {
-            host::notify(NotificationLevel::Info, "GitLab link", url);
+            let denied = ui_kit::denied::message("Copying the link", "clipboard", "GitLab");
+            host::notify(NotificationLevel::Info, "GitLab link", &format!("{denied}\n{url}"));
             Ok(())
         }
         other => other,
@@ -1418,13 +1429,12 @@ fn selected_link(ctx: &Invocation, path: &str) -> Result<String, Error> {
     })
 }
 
-fn open_link(ctx: &Invocation) -> Result<(), Error> {
-    let link = match ctx.selected_paths().first() {
-        Some(path) => selected_link(ctx, path)?,
-        None => file_link(ctx)?,
-    };
-
-    host::open_url(&link)
+/// The Project view selection's link, or the focused editor's.
+fn current_link(ctx: &Invocation) -> Result<String, Error> {
+    match ctx.selected_paths().first() {
+        Some(path) => selected_link(ctx, path),
+        None => file_link(ctx),
+    }
 }
 
 /// The focused file's repository path (its name outside the repository) and the selection, or the whole file.
@@ -1528,7 +1538,10 @@ impl Plugin for GitLab {
         let mut parts=context.api_version.split('.');let major=parts.next();let minor=parts.next();let patch=parts.next();
         let numeric=|s:&str|!s.is_empty()&&s.bytes().all(|b|b.is_ascii_digit());
         self.trace_transport=major==Some("1")&&minor.is_some_and(|m|numeric(m)&&m.parse::<u32>().is_ok_and(|n|n>=4))&&patch.is_none_or(numeric)&&parts.next().is_none()&&context.has("net:gitlab.com");
-        self.retire_job_snapshots();Ok(())
+        self.retire_job_snapshots();
+        let _ = host::set_context("mrSelected", Self::selected().is_some());
+        let _ = host::set_context("pendingFolder", repo::has_pending_folder());
+        Ok(())
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
@@ -1537,8 +1550,8 @@ impl Plugin for GitLab {
         api::begin_budget();
         match id {
             "new-token" => host::open_url(&api::new_token_url())?,
-            "open-in-browser" => open_link(ctx)?,
-            "copy-link" => copy_link(&file_link(ctx)?)?,
+            "open-in-browser" => host::open_url(&current_link(ctx)?)?,
+            "copy-link" => copy_link(&current_link(ctx)?)?,
             "create-snippet" => return create_snippet(ctx),
             "share-project" => {
                 if !host::secret_is_set(api::token()) {
@@ -1799,6 +1812,10 @@ impl GitLab {
         let repo = gitlab_project(ctx)?;
         let iid = self.command_target()?;
         let api = api::Project(&repo.path);
+        let target = api.merge_request(iid)?.target_branch;
+        if !host::confirm(&format!("Rebase !{iid} onto {target}?"), "GitLab rewrites the source branch on the server. Your local branches are not changed.")? {
+            return Ok(None);
+        }
         api.rebase(iid)?;
 
         let state = api.rebase_state(iid)?;

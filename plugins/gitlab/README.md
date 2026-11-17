@@ -23,9 +23,9 @@ GitLab merge requests in OpenIDEA. List them, follow their timeline, review the 
 
 ### Browse merge requests
 
-The **GitLab** tool window has three tabs: **GitLab**, **Details** and **Projects**. Commands select the tab they need.
+The **GitLab** tool window has three tabs: **Merge Requests**, **Details** and **Projects**. Commands select the tab they need.
 
-The **GitLab** tab lists the project's merge requests as `!iid title`, with author, branches and draft state.
+The **Merge Requests** tab lists the project's merge requests as `!iid title`, with author, branches and draft state.
 
 - **Filter** cycles through the quick filters: Open, Include my changes, Need my review, Assigned to me (the default) and Closed. It can also pick an author, reviewer, label or text filter.
 - Expand a merge request to load its timeline in date order: threads (author, reply count, resolved or not, `path:line`) with their replies, plus GitLab's system notes and state, label and milestone changes.
@@ -46,9 +46,9 @@ The **GitLab** tab lists the project's merge requests as `!iid title`, with auth
   - **Comment**, **Reply** or **Add to Review**.
   - **Submit Review (n)** publishes pending comments. Text in the comment field is posted as a summary.
   - **Resolve Thread** / **Unresolve Thread**, **Approve** / **Revoke Approval**.
-  - **Merge**, when you can merge and GitLab reports `mergeable`. Options: **Delete source branch** and **Squash commits**. If the request is ready but you lack the rights, the status line says *You cannot merge this merge request*.
+  - **Merge**, when you can merge and GitLab reports `mergeable`. Options: **Delete source branch** and **Squash commits**. Click twice: the second click reads *Confirm Merge !iid into target* with the chosen options. If the request is ready but you lack the rights, the status line says *You cannot merge this merge request*.
   - **Rebase**, when GitLab reports `need_rebase`.
-  - **Edit Labels, People, Milestone…** (same as **GitLab: Edit Merge Request**), **Close**, **Reopen**.
+  - **Edit Labels, People, Milestone…** (same as **GitLab: Edit Merge Request**), **Close** (click twice), **Reopen**.
   - **Check Out Branch**, when the merge request isn't merged and isn't the current branch.
   - **Open on GitLab**, **More…**, **Refresh**.
 - **More…** holds the less frequent actions that apply: **React**, **Add Me as Reviewer**, **Re-request Review…**, **Mark as Draft** / **Mark as Ready**, **Open MR Snapshot**, **Open Diff Snapshot**, **Open Existing Worktree** and **Copy Link**.
@@ -58,7 +58,7 @@ The **GitLab** tab lists the project's merge requests as `!iid title`, with auth
 
 - Click a line number to comment (**Add to Review** or **Comment Now**). Threads have **Reply** and **Resolve** / **Unresolve**.
 - **Viewed** collapses a file until it changes again.
-- Click a file name to open it locally, or to open it in the IDE's side-by-side diff viewer. Click the header to fold it.
+- Click a file name to open it locally, or to open it in the IDE's side-by-side diff viewer. An added or deleted file shows as added or deleted, with no empty side. Click the header to fold it.
 - Binary and very large files have no diff here; open them on GitLab.
 
 **Commits** lists the merge request's commits. Double-click one to see its diff, read-only, in **Changes**. Commit diffs have no comments and no viewed marks.
@@ -116,7 +116,7 @@ When a review thread has a suggestion block (` ```suggestion:-N+M `) on a line o
 - **GitLab: Open Merge Request in Worktree** fetches the selected merge request (else the current branch's) and runs `git worktree add --detach` in a sibling folder `<repository>-<branch>`. Git refuses a folder that already holds files. A notification shows the path and offers **Open Worktree**.
 - **GitLab: Open Existing Merge Request Worktree** lists your local worktrees that match the merge request's head, and opens the one you pick in a new window. It creates nothing.
 - **GitLab: Check Out Merge Request Source (glab)…** checks out the source branch with `glab` in a terminal. See [Commands](#commands).
-- **GitLab: Update Merge Request Branch** asks GitLab to rebase the selected merge request (else the current branch's) onto its target. It is the same call as **Rebase** and reports conflicts.
+- **GitLab: Rebase Merge Request** asks GitLab to rebase the selected merge request (else the current branch's) onto its target, after you confirm which one. It is the same call as **Rebase** and reports conflicts.
 
 ### Create merge requests, snippets and projects
 
@@ -180,10 +180,12 @@ The GitLab icon is shown on `.gitlab-ci.yml`, `.gitlab-ci.yaml`, `*.gitlab-ci.ym
 
 Find them in Search Everywhere › Actions (⇧⇧) under **GitLab**; bind keys in Settings › Keymap. No shortcuts are set by default.
 
+**Edit Merge Request**, **Re-request Review…**, **Open Existing Merge Request Worktree** and **Check Out Merge Request Source (glab)…** stay disabled until you select a merge request. **Open Cloned or Worktree Folder** stays disabled until a clone or worktree is offered.
+
 | Command | What it does | Menus |
 |---|---|---|
 | **GitLab: Open on GitLab** | Opens the file at the current commit, with the selected lines (`#L3-L5`). In the Project view, the first selected file or folder. | Editor, editor tab and Project view context |
-| **GitLab: Copy Link** | Copies the same link. | Editor and Project view context |
+| **GitLab: Copy Link** | Copies the same link; in the Project view, the selected file or folder's link. | Editor and Project view context |
 | **GitLab: Edit Merge Request** | Picks labels, assignees, reviewers, milestone and title from the project's lists. | Details button **Edit Labels, People, Milestone…** |
 | **GitLab: Create Snippet** | Creates a snippet from the selection, the file or the selected files. | Editor, editor tab and Project view context |
 | **GitLab: Create Merge Request** | Asks for branches, title, description and draft, then creates the merge request. | Tools |
@@ -192,12 +194,12 @@ Find them in Search Everywhere › Actions (⇧⇧) under **GitLab**; bind keys 
 | **GitLab: Open Merge Request in Worktree** | Adds a detached worktree for the merge request in a sibling folder. | — |
 | **GitLab: Open Existing Merge Request Worktree** | Opens a local worktree that matches the merge request's head, in a new window. Creates nothing. | Details › **More…** |
 | **GitLab: Open Cloned or Worktree Folder** | Opens the folder from the last clone or new worktree in a new window. The **Open Clone** / **Open Worktree** notification buttons run it. | — |
-| **GitLab: Update Merge Request Branch** | Asks GitLab to rebase the merge request onto its target; reports conflicts. | — |
+| **GitLab: Rebase Merge Request** | Asks GitLab to rebase the merge request onto its target, after you confirm; reports conflicts. | — |
 | **GitLab: Create Access Token** | Opens GitLab's token page with name and scopes filled in. | Tool window button |
 | **GitLab: Re-request Review…** | Picks an assigned reviewer, confirms, and asks GitLab for a new review. Cancelling sends nothing. | Details › **More…** |
 | **GitLab: Check Out Merge Request Source (glab)…** | Checks out the merge request's source branch with `glab` in a terminal. | — |
 
-**GitLab: Check Out Merge Request Source (glab)…** in detail: it picks a merge request, saves editor buffers and commits or stashes local changes. It reviews the target project, source project ID and branch, and full head. Then it opens a terminal running `glab mr checkout <iid> --repo https://gitlab.com/<target> --branch review/mr-<iid>-<head-prefix>` (official glab 1.130.0 profile; no `--force`). It may update branch tracking and configuration, and prompt about conflicts. This is a source-branch checkout, not an exact-head snapshot. Stop cancels the process, but fetched refs and configuration may remain.
+**GitLab: Check Out Merge Request Source (glab)…** in detail: it needs a clean working tree and saved editors. It asks you to confirm the merge request, source branch and new local branch. Then it opens a terminal running `glab mr checkout <iid> --repo https://gitlab.com/<target> --branch review/mr-<iid>-<head-prefix>` (any glab 1.x; no `--force`). It may update branch tracking and configuration, and prompt about conflicts. This is a source-branch checkout, not an exact-head snapshot. Stop cancels the process, but fetched refs and configuration may remain.
 
 Editor quick fix (⌥⏎): **GitLab: Apply suggestion**.
 
@@ -228,7 +230,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Gi
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `clipboard` | **Copy Link**, the snippet URL | The link is shown in a notification. |
+| `clipboard` | **Copy Link**, the snippet URL | The link is shown in a notification that says the permission is off. |
 | `project.read` | Jumping to a thread's line, threads in the editor | A thread's double-click opens its GitLab page. |
 | `events` | Status bar item and threads in the editor | Neither is shown. |
 | `process:git` | **Check Out Branch**, worktrees, clone, **Share Project**, Viewed tracking | Those actions fail with a message to allow git. Viewed compares with the head commit. |
@@ -246,9 +248,9 @@ The token is added to requests by the IDE; the plugin never reads it ([how token
 | "The repository has no remote on the configured GitLab server…" | Click **Share Project on GitLab…** to publish it, add a remote on your GitLab server, or set **GitLab server** to match your remote. Plain-HTTP servers aren't supported. |
 | A self-hosted server isn't used | The value must be an HTTPS URL; an invalid value falls back to gitlab.com. Approve the host when asked (revocable in Settings › Plugins). |
 | "Checking out a branch needs the process:git permission. Allow it in Settings › Plugins › GitLab." (or "Adding a worktree needs…") | Allow `process:git`. |
-| "This checkout profile is qualified for official glab 1.130.0…" | Install glab 1.130.0, sign in to glab itself, and allow `process:glab`. |
+| "… needs GitLab CLI glab 1.x (found …)" | Install glab 1.x, sign in with `glab auth login`, and allow `process:glab`. |
 | "The commit list is off" / "The pipeline view is off" | Turn on `commitsView` / `pipelineView` in Settings › Plugins › GitLab. |
-| "Select a merge request in the GitLab window." | Select one in the **GitLab** tab first. |
+| "Select a merge request in the GitLab window." | Select one in the **Merge Requests** tab first. |
 | "Finish or clear … unsent comment before switching…" | Post or clear the comment in the original project or account first. |
 | "The IDE shows pickers only for commands." | Run **GitLab: Edit Merge Request** from Search Everywhere. |
 | Clicking a diff line does nothing in **Changes** | The desktop IDE blocks scripts in plugin pages. Comment from **Overview** or on GitLab. Use **Files** for Viewed. |

@@ -15,7 +15,7 @@ Supported trackers: GitHub, GitLab (gitlab.com), Codeberg, YouTrack (Cloud or se
 
 1. Install the plugin ([how](../../README.md#install-a-plugin)).
 2. Open the **Tasks** tool window (left).
-3. Click **New Task…** to create a local task, or set up a tracker (below) and click **Search Issues…**.
+3. Click **New Task…** to create a local task, or set up a tracker (below) and click **More…** › **Search Issues…**.
 4. Pick the task and click **Open Task…**. With `process:git` allowed, the form offers a branch for it.
 5. When you're done, press ⌥⇧W (**Tasks: Close Active Task**).
 
@@ -34,10 +34,8 @@ The **Tasks** window shows open tasks, closed tasks and tracker issues as trees 
 - **New Task…**: create a local task.
 - **Open Task…** / **Switch Task** / **Reopen Task**: activate the selected task. With nothing selected, a searchable picker opens.
 - **Close Active Task…**: review and close the active task, whatever is selected.
-- **Search Issues…**: search a tracker.
-- **Contexts…**: save, load or remove a named set of open files.
 - **Task Actions…**: show the description, edit, switch, close, open in browser or post work time for the selected task.
-- **Update Issues**: refresh issues now.
+- **More…**: **Search Issues…** (search a tracker), **Update Issues** (refresh issues now), and **Save Context…**, **Load Context…** and **Remove Saved Context…** (a named set of open files).
 
 Open and Close forms remember your last choices. Task descriptions open in read-only tabs. A successful close shows a **Task closed** notification.
 
@@ -84,7 +82,7 @@ The message uses **Commit message format** (default `{id} {summary}`).
 - Each page has up to 50 issues, and up to five pages per query. Refine the query for more.
 - Pick an issue to open it as a task. Cancel keeps your active task.
 - In Jira, start the query with `jql:` to send your own JQL. Otherwise the text becomes `text ~ "…"`.
-- Turn on **Include closed GitHub, GitLab, Codeberg and Lighthouse issues in explicit Search Issues** to find closed issues. Picking one creates a local task; it doesn't reopen the issue.
+- Turn on **Include closed issues in Search Issues** to find closed GitHub, GitLab, Codeberg and Lighthouse issues. Picking one creates a local task; it doesn't reopen the issue.
 
 ### Use issue IDs in your code
 
@@ -108,7 +106,7 @@ After a search, hover an issue ID in any file to see its summary, tracker and li
 | Trello | **Trello API key** and **Trello token** secrets | `net:api.trello.com` |
 | Lighthouse Cloud | **Lighthouse API Token** secret, **Lighthouse Cloud tenant host**, **Lighthouse project ID** | `net:*.lighthouseapp.com` |
 | FogBugz Cloud | **FogBugz exact tenant host** and the profile path. See [profile setup](adapters/README.md). | `process:python3` |
-| Redmine, MantisBT | **Approved self-hosted tracker credential profiles**. See [setup and server contracts](adapters/SELF_HOSTED.md). | `process:python3` |
+| Redmine, MantisBT | **Redmine, MantisBT and generic trackers**. See [setup and server contracts](adapters/SELF_HOSTED.md). | `process:python3` |
 | Other REST trackers | A `generic` entry in the same profiles list. See [adapters/GENERIC.md](adapters/GENERIC.md). | `process:python3` |
 
 All token-based trackers also need `secrets`.
@@ -119,7 +117,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Tasks**; bind keys i
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Tasks: New Task…** | Opens the new task form in the Tasks tool window. | |
+| **Tasks: New Task…** | Opens the new task form in the Tasks tool window. | ⌥⇧K |
 | **Tasks: Open Task…** | Picks an open task or cached issue and opens it. | ⌥⇧N |
 | **Tasks: Switch Task** | Picks another task and switches to it. | |
 | **Tasks: Close Active Task** | Opens the close form with your last choices. Also in **Tools**. | ⌥⇧W |
@@ -133,10 +131,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Tasks**; bind keys i
 | **Tasks: Remove Saved Context** | Deletes a saved context. | |
 | **Tasks: Add Repository** | Adds another GitHub, GitLab or Codeberg repository. | |
 | **Tasks: Remove Added Repository** | Removes an added repository. | |
-| **Tasks: Open Issue at Caret in Browser** | Opens the issue whose ID is under the caret. Also in the editor context menu. | |
-| **Tasks: Start Task for Issue at Caret (No Branch)** | Activates that issue as a task without Git. Also in the editor context menu. | |
-| **Tasks: Start Task with Branch for Issue at Caret…** | Opens the branch options for that issue. | |
-| **Tasks: Reset Tasks for This Project…** | Deletes this project's stored tasks after a preview. For corrupt or unwanted data. | |
+| **Tasks: Open Issue at Caret in Browser** | Opens the issue whose ID is under the caret. Also in the editor context menu. Needs a focused editor. | |
+| **Tasks: Start Task for Issue at Caret (No Branch)** | Activates that issue as a task without Git, after you confirm. Also in the editor context menu. Needs a focused editor. | |
+| **Tasks: Start Task with Branch for Issue at Caret…** | Opens the branch options for that issue. Needs a focused editor. | |
+| **Tasks: Reset Tasks for This Project…** | Deletes this project's saved tasks, time tracking, contexts and repository overrides, after a confirmation that counts them. For corrupt or unwanted data. | |
 
 ## Settings
 
@@ -148,7 +146,7 @@ Settings › Plugins › Tasks. The common ones:
 | Branch name format | `branchNameFormat` | `{id}` | Same placeholders. An empty name falls back to the first two words of the summary. |
 | Pre-fill the commit message from the active task | `fillCommitTemplate` | off | Pre-fills the commit field. A template you set yourself is left alone. |
 | Update issues every 20 minutes | `updateIssuesAutomatically` | on | Background issue refresh. |
-| Include closed GitHub, GitLab, Codeberg and Lighthouse issues in explicit Search Issues | `searchClosedIssues` | off | Adds closed issues to searches. |
+| Include closed issues in Search Issues | `searchClosedIssues` | off | Adds closed GitHub, GitLab, Codeberg and Lighthouse issues to searches. |
 
 Tracker settings:
 
@@ -157,9 +155,9 @@ Tracker settings:
 | GitHub repository as owner/name (leave empty to use the github.com remote) | `githubRepository` | empty |
 | GitHub: only issues assigned to me | `githubAssignedOnly` | off |
 | GitHub: extra search qualifiers (label:bug, milestone:v2…) | `githubQuery` | empty |
-| GitLab project as group/name (leave empty to use the gitlab.com remote, or all your issues if there is none) | `gitlabProject` | empty |
+| GitLab project as group/name (empty: the gitlab.com remote, or all your issues if there is none) | `gitlabProject` | empty |
 | Codeberg repository as owner/name (leave empty to use the codeberg.org remote) | `forgejoRepository` | empty |
-| YouTrack host, such as acme.youtrack.cloud or youtrack.example.com (self-hosted asks for permission at first use) | `youtrackHost` | empty |
+| YouTrack host, such as acme.youtrack.cloud (a self-hosted host is approved on first use) | `youtrackHost` | empty |
 | YouTrack search query | `youtrackQuery` | `Assignee: me sort by: updated #Unresolved` |
 | YouTrack state to set when closing a task | `youtrackCloseState` | `Fixed` |
 | Jira Cloud host, such as acme.atlassian.net | `jiraHost` | empty |
@@ -167,8 +165,8 @@ Tracker settings:
 | Lighthouse Cloud tenant host, such as acme.lighthouseapp.com | `lighthouseHost` | empty |
 | Lighthouse project ID (positive numeric ID) | `lighthouseProject` | empty |
 | FogBugz exact tenant host, such as acme.fogbugz.com | `fogbugzHost` | empty |
-| FogBugz credential profile path (mode 0600) | `fogbugzProfile` | empty |
-| Approved self-hosted tracker credential profiles | `selfHostedProfiles` | none |
+| FogBugz credential file (readable only by you) | `fogbugzProfile` | empty |
+| Redmine, MantisBT and generic trackers | `selfHostedProfiles` | none |
 
 Secrets (set in the same page): **GitHub token**, **GitLab token**, **Codeberg token**, **YouTrack token**, **Jira credentials**, **Trello API key**, **Trello token**, **Lighthouse API Token**. Each one's description says which scopes it needs.
 
@@ -306,7 +304,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Different project roots keep separate counters and data.
 - Limits: 2 MiB serialized; 512 tasks, 1000 cached issues, 64 named contexts, ten files per task/context; bounded names/descriptions/overrides. A rejected oversized write keeps the last valid record.
 - Writes recheck the original raw record and advance a checked revision, so stale writers fail instead of retrying. The SDK has no atomic compare-and-set, so a final read/write race remains.
-- Reset previews the exact key, byte count and scope, rechecks the original bytes, then replaces only that key with a fresh default. It changes no Git, tracker, source files or other project's key.
+- Reset names the project and counts its tasks, contexts and repository overrides (or says the saved data can't be read), rechecks the stored data, then replaces only this project's record with a fresh default. It changes no Git, tracker, source files or other project's key.
 - Tree keys, field keys and button IDs carry opaque project/snapshot/form identity. Only an exact local write confirmation advances a callback binding, so stale callbacks can't submit another project's form.
 - UI drafts and selection reset across projects; only submitted state persists.
 - File-open events record only exact owning-project paths (longest-root check for nested projects).
