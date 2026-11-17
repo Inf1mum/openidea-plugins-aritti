@@ -5,7 +5,7 @@ description = "Spring Framework beans for Java, Kotlin and XML configuration: fi
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: The Spring Beans window and Tools menu items now appear only in Maven or Gradle projects, all commands are filed under Spring Beans, and the empty Report tab has a Check Spring Configuration button. Beans, Graph and Report share one Spring Beans window, and Check Spring Configuration runs as a background task; beans switched off by a false @ConditionalOnProperty, @Profile or @ConditionalOnMissingBean show as inactive, and @NoRepositoryBean interfaces are not beans; SpEL completion and checks in injections, and bean navigation, markers and completion cover the whole project with no 512-file limit; Create Bean from a reference in XML, and the Generate commands, Move Annotation String to Property and XML bean intentions work on files of any size and show only the changed lines; short setting titles and clearer permission messages. \
+Next release: The Spring Beans window now docks on the right, next to Spring Structure and Spring Endpoints. The Spring Beans window and Tools menu items now appear only in Maven or Gradle projects, all commands are filed under Spring Beans, and the empty Report tab has a Check Spring Configuration button. Beans, Graph and Report share one Spring Beans window, and Check Spring Configuration runs as a background task; beans switched off by a false @ConditionalOnProperty, @Profile or @ConditionalOnMissingBean show as inactive, and @NoRepositoryBean interfaces are not beans; SpEL completion and checks in injections, and bean navigation, markers and completion cover the whole project with no 512-file limit; Create Bean from a reference in XML, and the Generate commands, Move Annotation String to Property and XML bean intentions work on files of any size and show only the changed lines; short setting titles and clearer permission messages. \
 0.3.0: one Spring Beans window with live templates and more completion. \
 0.2.0: plugin icon and bean checks."""
 categories = ["frameworks"]
@@ -199,7 +199,7 @@ extensions = ["java", "kt", "xml", "properties", "yml", "yaml", "sql"]
 id = "beans"
 title = "Spring Beans"
 icon = "icons/beans.svg"
-location = "left"
+location = "right"
 web = "web/resources/hub.html"
 when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts || workspaceContains:settings.gradle || workspaceContains:settings.gradle.kts"
 
