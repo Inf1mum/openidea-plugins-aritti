@@ -55,26 +55,6 @@ fn path(value: &str) -> Option<String> {
 fn inside(root: &str, file: &str) -> bool {
     file.starts_with(&format!("{}/", root.trim_end_matches('/')))
 }
-fn balanced(text: &str) -> bool {
-    let mut stack = Vec::new();
-    for token in java::tokens(text) {
-        if token.s.starts_with('"') && (!token.s.ends_with('"') || token.s.len() < 2) {
-            return false;
-        }
-        match token.s {
-            "(" => stack.push(")"),
-            "[" => stack.push("]"),
-            "{" => stack.push("}"),
-            ")" | "]" | "}" => {
-                if stack.pop() != Some(token.s) {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-    }
-    stack.is_empty()
-}
 fn annotation_namespace(file: &JavaFile, text: &str, annotation: &java::Annotation) -> Option<String> {
     let tokens = java::tokens(&text[annotation.at..annotation.name_at + annotation.name.len()]);
     let mut names = &tokens[1..];
@@ -265,7 +245,7 @@ fn graph_fields(file:&JavaFile,ty:&java::TypeDecl,text:&str,namespace:&str,kotli
 }
 
 fn entity(doc: &Document, selection: Range) -> Option<Entity> {
-    if doc.text.len() > MAX_TEXT || !matches!(doc.language.as_str(), "java" | "kotlin") || !balanced(&doc.text) {
+    if doc.text.len() > MAX_TEXT || !matches!(doc.language.as_str(), "java" | "kotlin") || !spring_text::text::balanced(&doc.text, is_kotlin(&doc.path)) {
         return None;
     }
     let kotlin = is_kotlin(&doc.path);
@@ -410,7 +390,7 @@ fn insert_finder(project:&openidea_plugin::Project,pending:&Pending,directory:&s
     let name=name.trim();if !identifier(name)||name==pending.entity.name{return Err("Choose an existing repository type name in this source package.".into());}
     let kotlin=is_kotlin(&doc.path);let target=format!("{directory}/{name}.{}",if kotlin{"kt"}else{"java"});
     let text=project.read_file(&target)?;
-    if text.len()>MAX_TEXT||!balanced(&text){return Err("Existing repository is oversized or structurally incomplete.".into());}
+    if text.len()>MAX_TEXT||!spring_text::text::balanced(&text, kotlin){return Err("Existing repository is oversized or structurally incomplete.".into());}
     if kotlin && java::tokens(&text).windows(2).any(|tokens|tokens[0].s=="as"&&tokens[1].is_ident()){return Err("Aliased or transformed Kotlin repository identities require explicit semantic ownership; no method was inserted.".into());}
     let file=parse_source(&target,&text);
     let [repository]=file.types.as_slice() else{return Err("Existing-repository insertion requires one directly declared interface.".into());};
