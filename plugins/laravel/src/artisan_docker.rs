@@ -265,7 +265,7 @@ fn stale_reason(reason: &str) -> Error {
     host::notify(
         NotificationLevel::Warning,
         "Laravel",
-        &format!("Docker metadata is out of date: {reason}."),
+        &crate::ui_text::format("native.artisan_docker.70ad98e84b", "Docker metadata is out of date: {reason}.", &[("reason", reason)]),
     );
     Error::Stale
 }
@@ -296,23 +296,23 @@ fn refresh_with(
         )
     };
     if !current()? {
-        return Err(stale_reason("the project, Docker target or saved metadata changed before the refresh started"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.6ebc5c3664", "the project, Docker target or saved metadata changed before the refresh started")));
     }
     let proof = inspect(&run(&project, &target.inspect())?, &before)?;
     if !current()? {
-        return Err(stale_reason("the project, Docker target or saved metadata changed while the container was inspected"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.5c2c4d8dac", "the project, Docker target or saved metadata changed while the container was inspected")));
     }
     let output = run(&project, &target.exec())?;
     let commands = metadata::parse(&output)?;
     if !current()? {
-        return Err(stale_reason("the project, Docker target or saved metadata changed while php artisan list ran"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.90b1c1210d", "the project, Docker target or saved metadata changed while php artisan list ran")));
     }
     let after = inspect(&run(&project, &target.inspect())?, &before)?;
     if proof != after {
-        return Err(stale_reason("the container was restarted or its image or mounts changed while php artisan list ran"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.b491b31cd1", "the container was restarted or its image or mounts changed while php artisan list ran")));
     }
     if !current()? {
-        return Err(stale_reason("the project, Docker target or saved metadata changed after php artisan list ran"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.5d348134a9", "the project, Docker target or saved metadata changed after php artisan list ran")));
     }
     let _ = load(root)?;
     let captured = std::time::SystemTime::now()
@@ -399,10 +399,10 @@ fn verify_with(
     let proof = inspect(&run(project, &target.inspect())?, &before["identity"])?;
     let saved = inspect(&before["proof"].to_string(), &before["identity"])?;
     if proof != saved {
-        return Err(stale_reason("the container's start time, image or mounts differ from the saved Docker metadata; refresh the Docker commands again"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.d6e64708d2", "the container's start time, image or mounts differ from the saved Docker metadata; refresh the Docker commands again")));
     }
     if snapshot(project)? != before {
-        return Err(stale_reason("the saved Docker metadata changed while the container was verified"));
+        return Err(stale_reason(crate::ui_text::text("native.artisan_docker.d92d98511b", "the saved Docker metadata changed while the container was verified")));
     }
     Ok(())
 }
@@ -517,7 +517,7 @@ pub(super) fn ui_error(error:Error)->Error {
         "Docker mount source is unavailable." => crate::ui_text::t("native.artisan_docker.aacdd913eb",&message),
         "Docker mount type is unavailable." => crate::ui_text::t("native.artisan_docker.92c8419b6f",&message),
         "Docker project directory has an unverified or foreign shadowing mount." => crate::ui_text::t("native.artisan_docker.e7c08659a7",&message),
-        "Docker project directory must map exactly to this project through its most-specific bind mount, or be a DDEV project (com.ddev.approot) on its synced project volume." => crate::ui_text::t("native.artisan_docker.9e58d466b2",&message),
+        "Docker project directory must map exactly to this project through its most-specific bind mount, or be a DDEV project (com.ddev.approot) on its synced project volume." => crate::ui_text::t("native.artisan_docker.f2508eb86c",&message),
         "Docker start identity is unavailable." => crate::ui_text::t("native.artisan_docker.a155ecb69d",&message),
         "Docker target has no verifiable bind mapping for this project directory." => crate::ui_text::t("native.artisan_docker.1d49b5d402",&message),
         "Docker target is not the exact configured running, unpaused container." => crate::ui_text::t("native.artisan_docker.b71ac18ab8",&message),

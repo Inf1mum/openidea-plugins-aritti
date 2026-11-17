@@ -68,6 +68,7 @@
 [data-database-workspace] .dbw-icon{flex:0 0 16px;display:inline-flex}
 [data-database-workspace] .dbw-tree-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 [data-database-workspace] .dbw-depth-0 .dbw-tree-label{font-weight:600}
+[data-database-workspace] .dbw-hit .dbw-tree-label{color:var(--ui-accent);font-weight:600}
 [data-database-workspace] .dbw-muted-cell{color:var(--ui-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 [data-database-workspace] [data-dbw-panel]{gap:0!important}
 [data-database-workspace] .dbw-toolbar>.dbw-search{margin-left:6px}
@@ -84,6 +85,6 @@
 [data-database-workspace]{position:relative!important}
 [data-database-workspace] .dbw-menu{position:absolute!important;z-index:30;min-width:170px;margin:0!important;padding:4px!important;list-style:none!important;background:var(--ui-popup-bg,var(--ui-bg));border:1px solid var(--ui-popup-border,var(--ui-border));border-radius:8px;box-shadow:var(--ui-popup-shadow,0 4px 12px rgba(0,0,0,.3))}
 [data-database-workspace] .dbw-menu-item{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;border-radius:4px;cursor:pointer;white-space:nowrap;list-style:none!important}
-[data-database-workspace] .dbw-menu-item:hover{background:var(--ui-selected)}
+[data-database-workspace] .dbw-menu-item:hover,[data-database-workspace] .dbw-menu-item:focus-visible{background:var(--ui-selected);outline:none}
 [data-database-workspace] .dbw-toolbar>.dbw-inline{gap:8px!important;margin-right:12px}
 [data-database-workspace] [data-dbw-panel]>p.dbw-muted+.dbw-scroll{margin-top:8px!important;border-top:1px solid var(--ui-separator)!important}

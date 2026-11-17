@@ -288,7 +288,7 @@ fn discover_with(
     }
     let candidates = candidates(&root, &socket, &values)?;
     if candidates.is_empty() {
-        return Err(Error::Invalid(crate::ui_text::text("native.dockerRoute.932d948d9f","No running container has a verifiable bind mapping for this project. Compose, Sail and DDEV bind mounts are supported; volume-only/Mutagen project roots and foreign shadowing mounts require a bind-mounted target.").into()));
+        return Err(Error::Invalid(crate::ui_text::text("native.dockerRoute.745a724077","No running container maps this project in a way that can be verified. Compose, Sail and DDEV bind mounts and DDEV synced project volumes are supported; other volume-only or Mutagen project roots, and mounts that hide the project, need a bind-mounted target.").into()));
     }
     let items: Vec<_> = candidates
         .iter()
@@ -324,21 +324,38 @@ fn discover_with(
         ));
     }
     host::storage::set(&key(&root), &raw)?;
-    host::notify(
-        NotificationLevel::Info,
-        "Laravel",
-        &crate::ui_text::format("native.dockerRoute.1471b62c63","Selected {label} at {workdir}. Refresh Docker commands to discover this target's Artisan definitions.",&[("label",&candidate_label_ui(candidate)),("workdir",&(candidate.target.workdir).to_string())]),
-    );
     Ok(None)
 }
 pub(crate) fn discover(ctx: &Invocation) -> Result<Option<String>, Error> {
+    discover_then(ctx, run, super::refresh)
+}
+fn discover_then(
+    ctx: &Invocation,
+    run: impl FnMut(&Project, &[String]) -> Result<String, Error>,
+    refresh: impl FnOnce(&Invocation) -> Result<Option<String>, Error>,
+) -> Result<Option<String>, Error> {
     let root = owner(ctx)?.1;
     let before = host::storage::get(&key(&root))?;
     let result = discover_with(ctx, run).map_err(super::ui_error)?;
-    if host::storage::get(&key(&root))? != before {
-        return super::refresh(ctx);
+    if host::storage::get(&key(&root))? == before {
+        return Ok(result);
     }
-    Ok(result)
+    let error = match refresh(ctx) {
+        Ok(refreshed) => return Ok(refreshed),
+        Err(error) => error,
+    };
+    let reason = match error {
+        Error::Cancelled => return Ok(None),
+        Error::Failed(message) | Error::Invalid(message) | Error::NotFound(message) => message,
+        Error::Stale => crate::ui_text::text("native.dockerRoute.9d6bdab432", "the project or Docker target changed while the commands were refreshed").to_owned(),
+        other => other.to_string(),
+    };
+    host::notify(
+        NotificationLevel::Warning,
+        "Laravel",
+        &crate::ui_text::format("native.dockerRoute.9617cadca8", "Saved the Docker target, but its Artisan commands could not be refreshed: {reason}", &[("reason", &reason)]),
+    );
+    Ok(None)
 }
 pub(crate) fn clear_discovered_target(ctx: &Invocation) -> Result<Option<String>, Error> {
     let (_, root) = owner(ctx)?;
@@ -387,6 +404,26 @@ mod tests {
         selected(&host.invocation().project().unwrap())
             .unwrap()
             .unwrap()
+    }
+    #[test]
+    fn docker_target_saved_when_refresh_fails() {
+        let host = setup();
+        host.answer_next_prompt(Some(&["target:0"]));
+        let mut calls = 0;
+        let result = discover_then(
+            &host.invocation(),
+            |_, _| {
+                calls += 1;
+                Ok(if calls == 1 { format!("{ID}\n") } else { raw().to_string() })
+            },
+            |_| Err(Error::Failed("php artisan list exited 255".into())),
+        );
+        assert_eq!(result, Ok(None));
+        assert!(host.storage().contains_key(&key("/project")));
+        let notices = host.notifications();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert_eq!(notices[0].level, NotificationLevel::Warning);
+        assert!(notices[0].body.contains("php artisan list exited 255"));
     }
     #[test]
     fn explicit_metadata_discovery_picks_a_project_target_without_bootstrapping_php() {

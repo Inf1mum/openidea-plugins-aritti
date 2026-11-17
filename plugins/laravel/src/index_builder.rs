@@ -5,12 +5,13 @@ use openidea_plugin::{Error,Project,host};
 use std::{cell::{Cell,RefCell},collections::{BTreeMap,BTreeSet}};
 const FILES_PER_STEP:usize=16;
 const BYTES_PER_STEP:usize=256*1024;
-const STEP_BUDGET:std::time::Duration=std::time::Duration::from_millis(150);
+pub(crate) const STEP_BUDGET:std::time::Duration=std::time::Duration::from_millis(150);
+pub(crate) const PROVIDER_STEP_BUDGET:std::time::Duration=std::time::Duration::from_millis(20);
 pub(crate) enum BuildProgress{Pending{completed:usize,total:usize},Ready(Index)}
 pub(crate) struct Builder{root:String,index:Index,session:Session,finished:bool,topology:BTreeSet<String>}
 #[derive(Default)]pub(super) struct Session{
  done:RefCell<BTreeSet<String>>,known:RefCell<BTreeSet<String>>,attempted:RefCell<BTreeSet<String>>,
- used:Cell<usize>,semantic_used:Cell<usize>,bytes:Cell<usize>,pending:Cell<bool>,started:Cell<Option<std::time::Instant>>,opaque:Cell<bool>,listing_bytes:Cell<usize>,
+ used:Cell<usize>,semantic_used:Cell<usize>,bytes:Cell<usize>,pending:Cell<bool>,deadline:Cell<Option<std::time::Instant>>,captured:Cell<usize>,opaque:Cell<bool>,listing_bytes:Cell<usize>,
  pub(super) source_cache:RefCell<read_cache::SourceCache>,
  listings:RefCell<BTreeMap<Vec<String>,Vec<String>>>,queries:RefCell<BTreeMap<(String,u32),Option<Vec<String>>>>,
  snapshots:RefCell<BTreeMap<String,Option<String>>>,snapshot_bytes:Cell<usize>,
@@ -20,12 +21,14 @@ pub(crate) struct Builder{root:String,index:Index,session:Session,finished:bool,
 impl Builder{
  pub(crate) fn new(project:&Project)->Result<Self,Error>{let root=project.root()?;let source_settings=["viewPaths","modelDirectories","publicDirectory","locale"].into_iter().map(|key|(key.into(),host::setting_string(key))).collect();let topology=host::projects()?.into_iter().filter_map(|p|p.root().ok()).collect();Ok(Self{index:Index{source_root:root.clone(),source_settings,..Index::default()},root,session:Session::default(),finished:false,topology})}
  pub(crate) fn root(&self)->&str{&self.root}
- pub(crate) fn step(&mut self,project:&Project)->Result<BuildProgress,Error>{
+ /// One step that stops starting new work at `deadline`; capture resumes on the next step.
+ pub(crate) fn step(&mut self,project:&Project,deadline:std::time::Instant)->Result<BuildProgress,Error>{
   if self.finished||project.root()?!=self.root||!super::index_settings_current(&self.index){return Err(Error::Stale);}
   let topology=host::projects()?.into_iter().filter_map(|p|p.root().ok()).collect::<BTreeSet<_>>();if topology!=self.topology{return Err(Error::Stale);}
-  self.session.begin();Index::build_pass(project,&mut self.index,&self.session);
-  if self.session.done.borrow().contains("final:publish") {
-   self.finished=true;self.session.capture(project,&mut self.index);
+  self.session.begin(deadline);
+  if !self.session.done("final:publish"){Index::build_pass(project,&mut self.index,&self.session);}
+  if self.session.done("final:publish")&&self.session.capture(project,&mut self.index) {
+   self.finished=true;
    return Ok(BuildProgress::Ready(std::mem::take(&mut self.index)));
   }
   let completed=self.session.done.borrow().len();let total=self.session.known.borrow().len().max(completed+1);
@@ -33,14 +36,14 @@ impl Builder{
  }
 }
 impl Session{
- fn begin(&self){self.started.set(Some(std::time::Instant::now()));self.used.set(0);self.semantic_used.set(0);self.bytes.set(0);self.pending.set(false);self.attempted.borrow_mut().clear();}
+ fn begin(&self,deadline:std::time::Instant){self.deadline.set(Some(deadline));self.used.set(0);self.semantic_used.set(0);self.bytes.set(0);self.pending.set(false);self.attempted.borrow_mut().clear();}
  pub(super) fn retire(&self,key:&str){if self.known.borrow().contains(key){self.done.borrow_mut().insert(key.into());}}
  pub(super) fn mark_done(&self,key:&str){self.known.borrow_mut().insert(key.into());self.done.borrow_mut().insert(key.into());}
  pub(super) fn done(&self,key:&str)->bool{self.done.borrow().contains(key)}
  pub(super) fn pending(&self)->bool{self.pending.get()}
  pub(super) fn heavy(&self,key:&str)->bool{
   self.known.borrow_mut().insert(key.into());if self.done(key){return false;}
-  if self.used.get()>0||self.semantic_used.get()>0{self.pending.set(true);return false;}
+  if self.used.get()>0||self.semantic_used.get()>0||self.out_of_time(){self.pending.set(true);return false;}
   self.used.set(FILES_PER_STEP);self.done.borrow_mut().insert(key.into());true
  }
  pub(super) fn semantics(&self,index:&mut Index,stage:&str)->bool{
@@ -48,16 +51,16 @@ impl Session{
   let keys=index.eloquent_models.keys().cloned().collect::<Vec<_>>();
   for round in 0..4{for key in &keys{
    let job=format!("{stage}:{round}:{key}");self.known.borrow_mut().insert(job.clone());if self.done(&job){continue;}
-   if self.semantic_used.get()>=32||(self.semantic_used.get()>0&&self.out_of_time()){self.pending.set(true);return false;}
+   if self.semantic_used.get()>=32||self.out_of_time(){self.pending.set(true);return false;}
    self.semantic_used.set(self.semantic_used.get()+1);crate::eloquent_members::finish_model(&mut index.eloquent_models,key);self.done.borrow_mut().insert(job);
   }}
   self.mark_done(stage);true
  }
- fn out_of_time(&self)->bool{self.started.get().is_some_and(|started|started.elapsed()>=STEP_BUDGET)}
+ fn out_of_time(&self)->bool{self.deadline.get().is_some_and(|deadline|std::time::Instant::now()>=deadline)}
  pub(super) fn attempted(&self,stage:&str,path:&str)->bool{self.attempted.borrow().contains(&format!("{stage}\0{path}"))}
  pub(super) fn file(&self,project:&Project,stage:&str,path:&str,index:&mut Index)->bool{
   let key=format!("{stage}\0{path}");self.known.borrow_mut().insert(key.clone());if self.done(&key){return false;}
-  if self.used.get()>=FILES_PER_STEP||(self.used.get()>0&&self.out_of_time()){self.pending.set(true);return false;}
+  if self.used.get()>=FILES_PER_STEP||self.out_of_time(){self.pending.set(true);return false;}
   let root=&index.source_root;let absolute=if path.starts_with('/') {path.into()}else{format!("{root}/{path}")};
   if host::project_of(&absolute).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {
    self.opaque.set(true);index.partial=true;self.done.borrow_mut().insert(key);self.used.set(self.used.get()+1);return false;
@@ -90,9 +93,12 @@ impl Session{
   if text.is_none()&&!matches!(project.stat(path),Err(Error::NotFound(_))){self.opaque.set(true);}
   self.snapshot_bytes.set(self.snapshot_bytes.get()+bytes);self.snapshots.borrow_mut().insert(path.into(),text.clone());text
  }
- fn capture(&self,project:&Project,index:&mut Index){
+ /// Records source evidence; false when the deadline cut it short (the next step resumes it).
+ fn capture(&self,project:&Project,index:&mut Index)->bool{
   let root=index.source_root.clone();
-  for (path,text)in self.source_cache.borrow().sources().iter().chain(self.snapshots.borrow().iter()){
+  for (path,text)in self.source_cache.borrow().sources().iter().chain(self.snapshots.borrow().iter()).skip(self.captured.get()){
+   if self.out_of_time(){self.pending.set(true);return false;}
+   self.captured.set(self.captured.get()+1);
    let relative=path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_owned();
    let stamp=text.as_ref().map(|text|(text.len(),crate::artisan_metadata::hash(text)));
    if stamp.is_none()&&!matches!(project.stat(&relative),Err(Error::NotFound(_))){self.opaque.set(true);}
@@ -101,11 +107,12 @@ impl Session{
   }
   index.source_queries.extend(self.queries.borrow().clone());index.source_evidence_incomplete|=self.opaque.get();index.partial|=self.opaque.get();
   for(path,stamp)in &index.metadata.source_evidence{if index.source_evidence.get(path).is_some_and(|old|old!=stamp){index.source_evidence_incomplete=true;}index.source_evidence.insert(path.clone(),stamp.clone());}index.source_queries.extend(index.metadata.source_queries.clone());index.source_evidence_incomplete|=index.metadata.source_evidence_incomplete;
+  true
  }
 }
 #[cfg(test)]mod tests{
  use super::*;use openidea_plugin::mock::MockHost;
- fn complete(builder:&mut Builder,project:&Project)->(Index,usize){let mut previous=0;for step in 0..512{match builder.step(project).unwrap(){BuildProgress::Ready(index)=>return(index,step+1),BuildProgress::Pending{completed,total}=>{assert!(completed>=previous);assert!(total>completed);previous=completed;}}}panic!("builder did not finish");}
+ fn complete(builder:&mut Builder,project:&Project)->(Index,usize){let mut previous=0;for step in 0..512{match builder.step(project,std::time::Instant::now()+STEP_BUDGET).unwrap(){BuildProgress::Ready(index)=>return(index,step+1),BuildProgress::Pending{completed,total}=>{assert!(completed>=previous);assert!(total>completed);previous=completed;}}}panic!("builder did not finish");}
  #[test]fn resumed_jobs_retain_late_models_migrations_vite_and_exact_freshness_queries(){
   let h=MockHost::install();h.add_file("composer.json",r#"{"autoload":{"psr-4":{"App\\":"app/"}}}"#);
   for i in 0..13{h.add_file(&format!("app/Http/Controllers/C{i}.php"),&format!("<?php namespace App\\Http\\Controllers; class C{i}{{public function index(){{}}}}"));}
@@ -116,10 +123,10 @@ impl Session{
   h.add_file("app/Models/New.php","<?php namespace App\\Models; class New{}");assert!(!super::super::index_sources_current(&project,&index));
  }
  #[test]fn pending_is_not_a_published_partial_and_source_mutation_invalidates_completed_proof(){
-  let h=MockHost::install();h.add_file("composer.json","{}");h.add_file("config/app.php","<?php return ['name'=>'first'];");let project=h.invocation().project().unwrap();let mut builder=Builder::new(&project).unwrap();assert!(matches!(builder.step(&project).unwrap(),BuildProgress::Pending{..}));assert!(!builder.index.partial);let(index,_)=complete(&mut builder,&project);assert!(super::super::index_sources_current(&project,&index));h.add_file("config/app.php","<?php return ['name'=>'other'];");assert!(!super::super::index_sources_current(&project,&index));assert!(matches!(builder.step(&project),Err(Error::Stale)));
+  let h=MockHost::install();h.add_file("composer.json","{}");h.add_file("config/app.php","<?php return ['name'=>'first'];");let project=h.invocation().project().unwrap();let mut builder=Builder::new(&project).unwrap();assert!(matches!(builder.step(&project,std::time::Instant::now()+STEP_BUDGET).unwrap(),BuildProgress::Pending{..}));assert!(!builder.index.partial);let(index,_)=complete(&mut builder,&project);assert!(super::super::index_sources_current(&project,&index));h.add_file("config/app.php","<?php return ['name'=>'other'];");assert!(!super::super::index_sources_current(&project,&index));assert!(matches!(builder.step(&project,std::time::Instant::now()+STEP_BUDGET),Err(Error::Stale)));
  }
  #[test]fn paused_builder_rejects_changed_settings_and_project_ownership_topology(){
-  let h=MockHost::install();h.add_file("composer.json","{}");let project=h.invocation().project().unwrap();let mut builder=Builder::new(&project).unwrap();h.set_setting("modelDirectories","\"src/Models\"");assert!(matches!(builder.step(&project),Err(Error::Stale)));let mut builder=Builder::new(&project).unwrap();h.add_project("/project/nested");assert!(matches!(builder.step(&project),Err(Error::Stale)));
+  let h=MockHost::install();h.add_file("composer.json","{}");let project=h.invocation().project().unwrap();let mut builder=Builder::new(&project).unwrap();h.set_setting("modelDirectories","\"src/Models\"");assert!(matches!(builder.step(&project,std::time::Instant::now()+STEP_BUDGET),Err(Error::Stale)));let mut builder=Builder::new(&project).unwrap();h.add_project("/project/nested");assert!(matches!(builder.step(&project,std::time::Instant::now()+STEP_BUDGET),Err(Error::Stale)));
  }
 
 }

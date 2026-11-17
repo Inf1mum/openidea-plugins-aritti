@@ -234,8 +234,8 @@ if ($mode === 'database-compare' || $mode === 'database-rows') {
         }
         echo json_encode(['table' => $table, 'columns' => $columns, 'rows' => $rows, 'total' => $total, 'page' => $page, 'size' => $size, 'masked' => array_values(array_filter($columns, $masked))], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
     } catch (Throwable $error) {
-        // Driver errors can include DSNs or SQL values: report the type, never the message.
-        echo json_encode(['error' => $error instanceof RuntimeException ? $error->getMessage() : 'Database inspection failed ('.get_class($error).').']);
+        // Driver errors (PDOException, and QueryException which extends it) can include DSNs or SQL values: report the type, never the message.
+        echo json_encode(['error' => $error instanceof RuntimeException && !($error instanceof PDOException) ? $error->getMessage() : 'Database inspection failed ('.get_class($error).').']);
     }
     exit;
 }

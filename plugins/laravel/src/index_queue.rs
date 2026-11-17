@@ -42,6 +42,13 @@ impl Main {
     }
 
     pub(crate) fn advance_index(&mut self, project: &Project) {
+        self.advance_index_within(project, index::STEP_BUDGET);
+    }
+
+    /// One bounded step; editor providers pass a budget well under their 50 ms.
+    pub(crate) fn advance_index_within(&mut self, project: &Project, budget: std::time::Duration) {
+        let deadline = std::time::Instant::now() + budget;
+        if std::time::Instant::now() >= deadline { return; }
         let Ok(root) = project.root() else { return };
         if self.indexes.get(&root).is_some_and(|index|!index::index_settings_current(index)) { self.queue_index(project); }
         if !self.pending_indexes.contains(&root) {
@@ -97,7 +104,7 @@ impl Main {
                 Err(error) => { self.fail_index(&root, &error); return; }
             }
         }
-        let result = self.index_builders.get_mut(&root).expect("queued builder").step(project);
+        let result = self.index_builders.get_mut(&root).expect("queued builder").step(project, deadline);
         match result {
             Ok(index::BuildProgress::Pending { completed, total }) => {
                 task.report(completed.min(u32::MAX as usize) as u32,Some(total.min(u32::MAX as usize) as u32),None);
@@ -133,7 +140,7 @@ impl Main {
     }
 
     pub(crate) fn advance_document_index(&mut self, path: &str) {
-        if let Some(project) = crate::project_for(path) { self.advance_index(&project); }
+        if let Some(project) = crate::project_for(path) { self.advance_index_within(&project, index::PROVIDER_STEP_BUDGET); }
     }
 
     pub(crate) fn advance_context_index(&mut self, ctx: &Invocation) {
@@ -178,6 +185,28 @@ impl Main {
 mod tests {
     use crate::*;
     use openidea_plugin::mock::MockHost;
+
+    #[test]
+    fn provider_advance_zero_budget_does_no_work() {
+        let host=MockHost::install();
+        host.add_file("composer.json",r#"{"require":{"laravel/framework":"^13.0"}}"#);
+        host.add_file("app/Models/User.php","<?php namespace App\\Models; class User extends \\Illuminate\\Database\\Eloquent\\Model{}");
+        let project=host.invocation().project().unwrap();
+        let mut plugin=Main::default();
+        plugin.activate(&host.context("aritti.laravel")).unwrap();
+        plugin.advance_index_within(&project,std::time::Duration::ZERO);
+        assert!(plugin.index_builders.is_empty());
+        assert!(plugin.index_progress.is_empty());
+        plugin.advance_index(&project);
+        let progress=plugin.index_progress.get("/project").copied();
+        assert!(progress.is_some());
+        plugin.advance_index_within(&project,std::time::Duration::ZERO);
+        assert_eq!(plugin.index_progress.get("/project").copied(),progress);
+        while plugin.index_pending("/project") { plugin.advance_index(&project); }
+        plugin.index_rechecks.insert("/project".into(),std::collections::VecDeque::from(["/project/app/Models/User.php".to_owned()]));
+        plugin.advance_index_within(&project,std::time::Duration::ZERO);
+        assert_eq!(plugin.index_rechecks["/project"].len(),1);
+    }
 
     #[test]
     fn activation_queues_every_scope_without_starting_a_builder() {
