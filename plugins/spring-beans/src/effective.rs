@@ -2,7 +2,6 @@
 //! else (other conditions, missing, repeated or placeholder values) stays
 //! undecided and the bean keeps counting as a candidate.
 
-use crate::checks::same_scope;
 use crate::model::{Bean, Condition};
 use crate::World;
 use spring_text::config::canonical;
@@ -87,7 +86,7 @@ impl World<'_> {
                 && !other.conditional
                 && other.profiles.is_empty()
                 && !other.ty.is_empty();
-            let present = plain && same_scope(path, other_path) && types.iter().any(|t| self.is_a(&other.ty, t));
+            let present = plain && types.iter().any(|t| self.is_a(&other.ty, t)) && self.same_scope(path, other_path);
             present.then(|| format!("{} already defines the type, so @ConditionalOnMissingBean fails", other.name))
         })
     }

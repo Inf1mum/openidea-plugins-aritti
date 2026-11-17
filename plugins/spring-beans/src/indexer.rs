@@ -390,12 +390,24 @@ pub(crate) fn navigation_of(path: &str, text: &str, model: &FileModel) -> Edges 
     Edges { definitions, references, aliases, markers }
 }
 
+/// The keys the host's index may link project-wide: class declarations,
+/// resource files and profiles. Bean, type, event and package links stay with
+/// the providers, which resolve them through the project's own model.
+fn published(key: &str) -> bool {
+    key.starts_with("class:") || key.starts_with("resource#") || key.starts_with("profile#")
+}
+
 impl DocumentIndexer for Navigator {
-    fn index(&mut self, _doc: &Document) -> Edges {
-        // Type/bean/event/filename links do not all cover interchangeable names.
-        // Providers resolve them from the project-owned model instead. Native
-        // language-server Rename remains available for actual source symbols.
-        Edges::default()
+    fn index(&mut self, doc: &Document) -> Edges {
+        if doc.text.len() > crate::cache::MAX_TEXT || crate::cache::build_output(&doc.path) {
+            return Edges::default();
+        }
+        let Some(model) = model::parse(&doc.path, &doc.text) else { return Edges::default() };
+        let anchors = |pairs: &[(String, openidea_plugin::Range)]| {
+            pairs.iter().filter(|(key, _)| published(key)).map(|(key, range)| Anchor { key: key.clone(), range: *range }).collect()
+        };
+        let graph = &model.navigation;
+        Edges { definitions: anchors(&graph.definitions), references: anchors(&graph.references), aliases: Vec::new(), markers: anchors(&graph.markers) }
     }
 }
 
@@ -621,6 +633,27 @@ mod anchor_tests {
         for text in ["", "\n  \n"] {
             let (definitions, ..) = link_keys("src/main/resources/application-dev.yml", text);
             assert!(definitions.iter().all(|d| nonempty(&d.range)));
+        }
+    }
+    #[test]
+    fn indexer_publishes_class_and_profile_keys() {
+        let _host = openidea_plugin::mock::MockHost::install();
+        let keys = |anchors: &[Anchor]| anchors.iter().map(|a| a.key.clone()).collect::<Vec<_>>();
+        let mut nav = Navigator::default();
+        let mut index = |path: &str, text: &str| nav.index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() });
+        let java = index(
+            "/project/src/main/java/a/Dev.java",
+            "package a;\n@org.springframework.context.annotation.Profile(\"dev\")\n@org.springframework.context.annotation.ImportResource(\"classpath:beans.xml\")\n@org.springframework.stereotype.Service(\"devService\")\nclass Dev implements Api {\n @org.springframework.beans.factory.annotation.Autowired Api api;\n}\n",
+        );
+        assert!(keys(&java.definitions).contains(&"class:Dev#decl".to_owned()), "{:?}", keys(&java.definitions));
+        assert!(keys(&java.references).contains(&"profile#dev".to_owned()));
+        assert!(keys(&java.references).contains(&"resource#beans.xml".to_owned()));
+        let config = index("/project/src/main/resources/application-dev.yml", "server:\n  port: 1\n");
+        assert!(keys(&config.definitions).contains(&"profile#dev".to_owned()) && keys(&config.definitions).contains(&"resource#application-dev.yml".to_owned()));
+        for edges in [&java, &config] {
+            let all = edges.definitions.iter().chain(&edges.references).chain(&edges.markers);
+            assert!(all.map(|a| a.key.as_str()).all(|k| k.starts_with("class:") || k.starts_with("resource#") || k.starts_with("profile#")));
+            assert!(edges.aliases.is_empty());
         }
     }
 }

@@ -5,9 +5,19 @@ use openidea_plugin::language_features::{GutterAction,LanguageFeatures};
 use sha2::{Digest,Sha256};
 const COMMAND:&str="choose-source-gutter-target";
 #[derive(Clone)] struct Choice {label:String,location:Location,model:[u8;32]}
-#[derive(Clone)] struct Pending {root:String,doc:Document,choices:Vec<Choice>}
+#[derive(Clone)] struct Pending {root:String,doc:Rc<Document>,choices:Vec<Choice>}
 #[derive(Default)] pub(crate) struct State {next:u64,pending:BTreeMap<String,Pending>}
-fn digest(model:&FileModel)->[u8;32]{Sha256::digest(format!("{model:?}").as_bytes()).into()}
+fn put(hash:&mut Sha256,text:&str){hash.update((text.len() as u64).to_le_bytes());hash.update(text.as_bytes());}
+fn at(hash:&mut Sha256,range:Range){for n in [range.start.line,range.start.character,range.end.line,range.end.character]{hash.update(n.to_le_bytes());}}
+/// What a chooser target depends on: names and places of beans, injection points, types and related-source definitions.
+fn digest(model:&FileModel)->[u8;32]{
+    let mut hash=Sha256::new();
+    for bean in &model.beans {put(&mut hash,&bean.name);put(&mut hash,&bean.kind);put(&mut hash,&bean.ty);at(&mut hash,bean.range);}
+    for injection in &model.injections {put(&mut hash,&injection.ty);put(&mut hash,&injection.name);at(&mut hash,injection.range);}
+    for ty in &model.types {put(&mut hash,&ty.name);at(&mut hash,ty.range);}
+    for (key,range) in &model.navigation.definitions {put(&mut hash,key);at(&mut hash,*range);}
+    hash.finalize().into()
+}
 fn groups(world:&World,model:&FileModel,doc:&Document)->BTreeMap<u32,Vec<(String,Location)>>{
     let mut groups:BTreeMap<u32,Vec<(String,Location)>>=BTreeMap::new();
     let mut add=|line:u32,label:String,location:Location|{let items=groups.entry(line).or_default();if items.len()<1000&&!items.iter().any(|(_,old)|old==&location){items.push((label,location));}};
@@ -33,12 +43,13 @@ impl LanguageFeatures for Navigator {
             }).collect::<Vec<_>>()
         });
         self.gutter.pending.retain(|_,pending|pending.doc.path!=doc.path);
+        let shared=Rc::new(doc.clone());
         let mut actions=Vec::new();
         if self.gutter.pending.len()+groups.len().min(64)>64{self.gutter.pending.clear();}
         for (line,choices) in groups.into_iter().take(64){
             let Some(next)=self.gutter.next.checked_add(1)else{break;};self.gutter.next=next;
             let ticket=format!("spring-source:{next}:{}:{line}",doc.version);let count=choices.len();
-            self.gutter.pending.insert(ticket.clone(),Pending{root:root.clone(),doc:doc.clone(),choices});
+            self.gutter.pending.insert(ticket.clone(),Pending{root:root.clone(),doc:shared.clone(),choices});
             actions.push(GutterAction{line,icon:Some(BEAN_MARKER.into()),tooltip:if count==1000 {"Choose Spring source target (1000 shown; bounded list)".into()}else{format!("Choose among {count} cached Spring source targets")},command:COMMAND.into(),argument:Some(ticket)});
         }actions
     }
@@ -47,7 +58,7 @@ fn current(ctx:&Invocation,pending:&Pending)->Result<openidea_plugin::Project,Er
     let editor=ctx.editor().ok_or(Error::Stale)?;let source=editor.document()?;
     let doc=Document{path:editor.path(),language:editor.language(),text:source.text,version:source.version};
     let project=ctx.project().ok_or(Error::Stale)?;
-    if doc!=pending.doc||project.root()?!=pending.root||host::project_of(&doc.path).and_then(|p|p.root().ok()).as_deref()!=Some(pending.root.as_str()){return Err(Error::Stale);}Ok(project)
+    if doc!=*pending.doc||project.root()?!=pending.root||host::project_of(&doc.path).and_then(|p|p.root().ok()).as_deref()!=Some(pending.root.as_str()){return Err(Error::Stale);}Ok(project)
 }
 impl Navigator {
     pub(crate) fn choose_source_gutter_target(&mut self,ctx:&Invocation,argument:Option<&str>)->Result<Option<String>,Error>{
