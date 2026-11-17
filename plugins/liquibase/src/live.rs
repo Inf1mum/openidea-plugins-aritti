@@ -140,8 +140,9 @@ impl State {
         files.insert(path.into(), Fact { at: Instant::now(), bytes, log, source });
     }
     /// Asks the project what `text`'s includes point at and which properties it can supply. Only events and commands call this.
+    /// `project_wide` allows the project listings behind property facts; without it those stay unknown.
     /// Whatever `budget` does not reach stays unknown, which the checks treat as quiet.
-    pub fn warm(&mut self, project: &Project, root: &str, path: &str, text: &str, budget: Duration, source: Option<(u64, u64)>) {
+    pub fn warm(&mut self, project: &Project, root: &str, path: &str, text: &str, budget: Duration, source: Option<(u64, u64)>, project_wide: bool) {
         let deadline = Instant::now() + budget;
         self.resolved.remove(path);
         if !owned(root, path) {
@@ -155,12 +156,12 @@ impl State {
             if Instant::now() > deadline {
                 break;
             }
-            targets.entry(spec(include)).or_insert_with(|| crate::target(project, root, path, include));
+            targets.entry(spec(include)).or_insert_with(|| crate::target_until(project, root, path, include, Some(deadline)));
         }
         let has_unknown_placeholder = checks::placeholders(text, log.format)
             .into_iter()
             .any(|(_, _, name)| !name.starts_with("database.") && !log.properties.iter().any(|p| p == name));
-        let properties = has_unknown_placeholder.then(|| Properties {
+        let properties = (project_wide && has_unknown_placeholder).then(|| Properties {
             parameters: crate::project_parameters(project, root, path, deadline),
             declared: crate::project_properties(project, root, path, &log, deadline),
         });
@@ -183,7 +184,7 @@ impl State {
         let Some(project) = host::project_of(&doc.path) else {
             return;
         };
-        self.warm(&project, root, &doc.path, &doc.text, FALLBACK_BUDGET, source);
+        self.warm(&project, root, &doc.path, &doc.text, FALLBACK_BUDGET, source, false);
     }
     pub fn forget(&mut self, path: &str) {
         self.invalidate(path);

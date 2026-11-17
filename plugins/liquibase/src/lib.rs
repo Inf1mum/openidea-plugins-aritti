@@ -134,7 +134,7 @@ impl Liquibase {
             return;
         };
         self.live.update(&root, path, &text);
-        self.live.warm(&project, &root, path, &text, budget, None);
+        self.live.warm(&project, &root, path, &text, budget, None, true);
     }
 
     fn rewarm(&mut self) {
@@ -195,7 +195,13 @@ fn dir_exists(read: Result<String, Error>) -> Option<bool> {
 }
 
 /// Where `include`, written in `changelog` (inside `project`, rooted at `root`), points.
+#[cfg(test)]
 fn target(project: &Project, root: &str, changelog: &str, include: &Include) -> Target {
+    target_until(project, root, changelog, include, None)
+}
+
+/// As `target`, but `Unknown` once `deadline` has passed.
+fn target_until(project: &Project, root: &str, changelog: &str, include: &Include, deadline: Option<Instant>) -> Target {
     if include.path.is_empty() {
         return Target::Unknown;
     }
@@ -206,6 +212,9 @@ fn target(project: &Project, root: &str, changelog: &str, include: &Include) -> 
     let mut unsure = false;
     // ponytail: reads or probes each include to test it exists (no exists API; a directory is probed by a failed read, so an empty one is not flagged); cap or cache if master changelogs with hundreds of includes miss the 50 ms budget
     for candidate in candidates {
+        if deadline.is_some_and(|deadline| Instant::now() > deadline) {
+            return Target::Unknown;
+        }
         let read = project.read_file(&candidate);
         let seen = if include.dir { dir_exists(read) } else { file_exists(read) };
         match seen {
@@ -261,7 +270,7 @@ fn project_properties(project: &Project, root: &str, path: &str, open: &Changelo
         }
         names.extend(log.properties.iter().cloned());
         for include in &log.includes {
-            if include.dir || target(project, root, at, include) == Target::Unknown {
+            if include.dir || target_until(project, root, at, include, Some(deadline)) == Target::Unknown {
                 return None;
             }
         }
@@ -894,7 +903,7 @@ mod tests {
         let mut liquibase = Liquibase::default();
         if let Some(project) = project_of(path) {
             if let Ok(root) = project.root() {
-                liquibase.live.warm(&project, &root, path, text, Duration::from_secs(2), None);
+                liquibase.live.warm(&project, &root, path, text, Duration::from_secs(2), None, true);
             }
         }
         openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut liquibase, &doc(path, text))
@@ -1562,9 +1571,25 @@ mod tests {
         let mut liquibase = Liquibase::default();
         let project = project_of(PROPERTY_PATH).unwrap();
         let text = "<databaseChangeLog><include file=\"nope.xml\" relativeToChangelogFile=\"true\"/><changeSet id=\"${p}\" author=\"a\"/></databaseChangeLog>";
-        liquibase.live.warm(&project, "/project", PROPERTY_PATH, text, Duration::ZERO, None);
+        liquibase.live.warm(&project, "/project", PROPERTY_PATH, text, Duration::ZERO, None, true);
         let found = openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut liquibase, &doc(PROPERTY_PATH, text));
         assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn fallback_with_many_includes_skips_project_listings_and_stays_quiet() {
+        let host = host();
+        host.add_file("liquibase.properties", "url=x\n");
+        let mut liquibase = Liquibase::default();
+        liquibase.live.events_denied = true;
+        let includes = (0..300).map(|n| format!("<include file=\"c{n}.xml\" relativeToChangelogFile=\"true\"/>")).collect::<String>();
+        let text = format!("<databaseChangeLog>{includes}<changeSet id=\"${{p}}\" author=\"a\"/></databaseChangeLog>");
+        let codes: Vec<_> = openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut liquibase, &doc(PROPERTY_PATH, &text))
+            .into_iter()
+            .filter_map(|d| d.code)
+            .collect();
+        assert!(!codes.contains(&"unresolved-property".to_owned()), "{codes:?}");
+        assert!(codes.iter().all(|c| c == "unresolved-include"), "{codes:?}");
     }
 
     #[test]
