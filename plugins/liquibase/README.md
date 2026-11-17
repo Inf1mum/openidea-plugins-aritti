@@ -116,7 +116,7 @@ Completion describes syntax. It does not enable licensed executors or check data
 
 ### Jump to definitions
 
-- **Includes:** Go to Definition on an `include` file value (XML, YAML or JSON) opens the included changelog. A gutter link on the `include` line does the same once the target is known. `includeAll` directories have no single target.
+- **Includes:** Go to Definition on an `include` file value (XML, YAML or JSON) opens the included changelog; when the path matches files under several resource roots, a chooser lists each one. A gutter link on the `include` line does the same once the target is known. On a relative `includeAll` line, the gutter link lists every known changelog in that directory and its subdirectories (up to 200).
 - **Properties:** Go to Definition opens a unique property declaration in the current changelog.
 - **Rollback references:** a rollback with a literal `changeSetId` and `changeSetAuthor` jumps to that changeset in the same file.
 - **Resource files:** `sqlFile.path`, `loadData.file` and `loadUpdateData.file` values open the file when `relativeToChangelogFile="true"`.
@@ -227,7 +227,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 | The status line says `partial` | The project has more changelogs than the scan limits. Choose a root with **Sources…**. |
 | "The selected changelog changed or became unavailable." | Press **Sources…** to reselect, or **Browse All Changelogs**. |
 | No completion in an XML changelog | The root declares a `schemaLocation`; the XML language server completes it instead. |
-| An include has no gutter link | Open the included file, or refresh the tool window. Only literal relative paths get links. |
+| An include has no gutter link | Open the included file, or refresh the tool window. Only literal relative paths get links; an `includeAll` link lists only the changelogs already known. |
 | "Cannot find …" stays after creating the missing file | Edit or reopen the parent changelog. |
 | "This host cannot ask for confirmation." | Use the **Liquibase: update-sql** or **status** Run configuration instead. |
 | "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first." | Focus a changelog editor, then run **Liquibase: New Changeset** or **New Changelog…** again. |
@@ -277,7 +277,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
   - An include isn't flagged when its path contains `${property}`, leaves the project root, is empty (half-typed), when an `includeAll` directory exists but is empty, when it sets `errorIfMissing: false` (`errorIfMissingOrEmpty: false`), or when the file exists but can't be read for a reason other than being missing.
   - `unresolved-property` is quiet when no config file can be read, when a scan cap is hit, when any changelog uses `includeAll`, an unresolvable include or `property file=`, when the configuration uses `defaultsFile` or `spring.config.import`/`location`/`activate`, for escaped (`$${x}`, `\${x}`), numeric or dynamic names, and inside comments. `database.*` names are built in. Parameters passed with `-D` or the environment are invisible.
 - Hover shows changeset id/author, literal include options and, when unambiguous, where a property is declared through cached relative includes. It never shows property values.
-- Include targets are positive cached facts only for literal relative file paths. Classpath, absolute and dynamic paths, `includeAll`, runtime precedence and missing targets stay unestablished. Cold or expired targets have no gutter link.
+- Include targets are positive cached facts only for literal relative paths. Classpath, absolute and dynamic paths, runtime precedence and missing targets stay unestablished. A relative `includeAll` gutter link lists the cached changelogs under its directory, in path order, excluding the changelog itself; it ignores `maxDepth`, `filter` and `resourceComparator`. Cold or expired targets have no gutter link.
 - The cache belongs to exact verified project roots and full paths. It is warmed only from supplied documents, optional open/save events or already-read browser sources. Positive facts expire after 120 seconds. Files-changed events invalidate facts; current text replaces or removes a document's facts.
 - Limits: 256 KiB per document, 4,096 parsed records per document, 1,024 placeholder markers and 8,192 XML tag markers, eight roots, 128 files and 4 MiB per root, 32 files / 128 include edges per property traversal, the first 256 include candidates for markers, 256 diagnostics. Browser warming: 128 files / 4 MiB / 30 ms between documents. Running out of the property edge budget withholds the property hover.
 - Cached paths count only while the host's innermost project owner still matches the cache root. A nested project can't lend files to an outer root. Caches are partial; they never prove an include or property absent. Denied events or project access leave current-source checks working, with no cross-project fallback.

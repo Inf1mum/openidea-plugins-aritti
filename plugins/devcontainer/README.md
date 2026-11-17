@@ -108,6 +108,10 @@ Checks run when a `devcontainer.json` changes in the editor. Comments and traili
 
 Feature completion needs the feature list. Allow `storage` and `net:containers.dev`, then run **Dev Container: Refresh Feature List** once. The list is not updated automatically.
 
+### Open referenced files from the gutter
+
+A gutter icon next to each `dockerComposeFile` entry, `build.dockerfile` and the older `dockerFile` opens that file. Paths are read relative to devcontainer.json. When one line names several Compose files, the icon lists them so you can pick one. Missing files, folders, empty files, paths outside the project and paths with `${…}` variables get no icon.
+
 ### Run code in the container (experimental)
 
 The Tools menu can register a Run Target, so a run configuration can run inside the dev container.
@@ -225,6 +229,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 **Checks.** Run on `.devcontainer/devcontainer.json`, `.devcontainer/<folder>/devcontainer.json` or `.devcontainer.json`; files above 256 KB are skipped. `unknown-property` flags top-level keys not in the [specification](https://containers.dev/implementors/json_reference) but within edit distance 2 of one; other unknown keys, `x-*`, `$`-prefixed keys and everything under `customizations` stay quiet, since the property list may be incomplete. `folder-structure` looks at the file's path only. The type check leaves malformed, incomplete or unsupported composite values quiet. Compose checks are quiet for `${...}` values, `include` and unparsable files. Remote and dynamic feature values stay quiet.
 
 **Completion.** Existing properties are omitted and editing an existing property keeps its value; arbitrary extension/environment keys and arrays stay quiet. Feature ids come from the public index at `containers.dev/static/devcontainer-index.json`, downloaded only by **Dev Container: Refresh Feature List** and kept in storage, so completion is empty until you run it once and may lag behind the registry. Feature option completion needs the option cache to match the current index; unsupported descriptors stay quiet. The provider is declared for the `json` and `jsonc` language ids (`jsonc` is unverified in the IDE).
+
+**Gutter icon.** The plugin logo from `icon.svg` with the white tile removed.
 
 **Feature option cache.** Refresh Feature List also keeps a bounded subset of the index's declared Boolean and string-enum options in a separate optional cache (the name index must match). The processor admits index text up to 3 MiB, scans at most 512 collections / 4,096 features, binds at most 128 creation references and stores at most 512 KiB. At most 64 option definitions per feature are examined and 8 supported options offered. Enum lists have 1–16 unique strings up to 128 bytes each; values are bounded to 4,096 bytes. A metadata-cache write failure reports a warning after names refresh.
 

@@ -113,7 +113,7 @@ It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `
 
 - **OpenAPI: Write Self-Contained Spec** writes `<name>.bundled.<ext>` with every external `$ref` copied into `components`.
 - **OpenAPI: Copy Reference to the Key at the Caret** copies `$ref: '#/components/schemas/Pet'` (or the JSON form) for the key under the caret.
-- **OpenAPI: Find Component Occurrences in This Document** lists the declaration and local references of a component.
+- **OpenAPI: Find Component Occurrences in This Document** lists the declaration and local references of a component. The Referenced by gutter icon (the OpenAPI Initiative logo) on a used component declaration opens the same local references.
 - **OpenAPI: Find Component Usages in Project** does the same across local and relative-file `$ref`s.
 - On a component key or `$ref`, ⌥⏎ › **Rename component in visible project sources…** renames it everywhere after you review the edit.
 
@@ -255,7 +255,9 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Each check processes at most 1,024 refs, 32 unique file reads, 4 MiB of captured target text, a 16 MiB retained-model limit, 512 KiB / 8,192-node / 48-depth proofs and 4 MiB of flattened-path storage. Skipped, over-budget or unreadable targets are Unknown.
 - Path-parameter checks use the same source proof: real parameter arrays, owned name/in/reference fields, canonical local reusable parameter references, operation-level `(name, in)` overriding path-item entries, lists up to 1,024 items and fields up to 4 KiB.
 - Duplicate-operationId diagnostics count only real operation owners and owned string fields, up to 4 KiB IDs and 256 diagnostics, with exact UTF-16 ranges.
-- Every operation whose body has a resolvable local `$ref` gets a gutter marker (packaged icon) that opens the first target. Markers need a real operation owner and an exact source-backed target; a narrow singleton YAML flow reference is supported. At most 256 markers.
+- Every operation whose body has a resolvable local `$ref` gets a gutter marker (packaged icon). One target opens directly; several (request body, responses...) open a chooser listing each one. Markers need a real operation owner and an exact source-backed target; a narrow singleton YAML flow reference is supported.
+- A component declaration (under `components/schemas`, `responses`, `parameters`...) that is used by local `$ref`s in the same document gets a Referenced by marker; it opens the use, or a chooser when there are several. Other files are not searched; use **OpenAPI: Find Component Usages in Project** for that.
+- At most 256 marked lines and 200 targets per line; a longer list says how many were left out.
 
 ### Live JSON structure diagnostics
 

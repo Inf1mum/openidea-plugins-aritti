@@ -414,6 +414,9 @@ fn sws_resources(text: &str) -> Vec<(String, Range)> {
 const RESOURCE_DIRS: [&str; 2] = ["src/main/resources", "src/test/resources"];
 
 /// Only an established exact namespace/local pair supplies QName authority.
+/// Most markers one line gets: the IDE folds same-line, same-icon markers into one button with a chooser.
+const MAX_LINE_TARGETS: usize = 200;
+
 fn elements_for<'a>(schemas: &'a Index<SchemaFile>, namespace: Option<&str>) -> Vec<(&'a str, &'a str, Range)> {
     let Some(namespace) = namespace else { return Vec::new(); };
     schemas.iter().flat_map(|(p, file)| file.schemas.iter()
@@ -488,16 +491,14 @@ impl WsTools {
         };
         let mut markers = Vec::new();
         for e in endpoints_with_syntax(&f, text, doc.path.ends_with(".kt")) {
-            let found = elements_for(schemas, e.namespace.as_deref());
-            match found.iter().find(|(_, n, _)| *n == e.local) {
-                Some((path, _, r)) => markers.push(LineMarker {
-                    line: e.target.start.line,
-                    icon: Some(SCHEMA_MARKER.into()),
-                    tooltip: format!("Payload element <{}> in {}", e.local, file_name(path)),
-                    target: Some(Location { path: (*path).into(), range: *r }),
-                }),
-                None => {}
-            }
+            let found: Vec<_> = elements_for(schemas, e.namespace.as_deref()).into_iter().filter(|(_, n, _)| *n == e.local).collect();
+            let shown = if found.len() > MAX_LINE_TARGETS { format!(" (first {MAX_LINE_TARGETS} of {})", found.len()) } else { String::new() };
+            markers.extend(found.iter().take(MAX_LINE_TARGETS).map(|(path, _, r)| LineMarker {
+                line: e.target.start.line,
+                icon: Some(SCHEMA_MARKER.into()),
+                tooltip: format!("Payload element <{}> in {}{shown}", e.local, file_name(path)),
+                target: Some(Location { path: (*path).into(), range: *r }),
+            }));
         }
         for b in java::bean_names(&f).into_iter().filter(|b| b.ty == "DefaultWsdl11Definition") {
             let line = openidea_plugin::text::position(text, b.at).line;
@@ -522,15 +523,15 @@ impl WsTools {
                     .flat_map(|(p, facts)| facts.endpoints.iter().map(move |e| (p, e)))
                     .filter(|(_, e)| &e.local == name && e.namespace.as_ref().is_none_or(|ns| ns == &s.namespace))
                     .collect();
-                if let Some((path, e)) = handlers.first() {
-                    let labels: Vec<&str> = handlers.iter().map(|(_, e)| e.label.as_str()).collect();
-                    markers.push(LineMarker {
-                        line: r.start.line,
-                        icon: Some(ENDPOINT_MARKER.into()),
-                        tooltip: format!("Handled by {}", labels.join(", ")),
-                        target: Some(Location { path: (*path).into(), range: e.target }),
-                    });
-                }
+                let labels: Vec<&str> = handlers.iter().map(|(_, e)| e.label.as_str()).collect();
+                let shown = if handlers.len() > MAX_LINE_TARGETS { format!(" (first {MAX_LINE_TARGETS} of {})", handlers.len()) } else { String::new() };
+                let tooltip = format!("Handled by {}{shown}", labels.join(", "));
+                markers.extend(handlers.iter().take(MAX_LINE_TARGETS).map(|(path, e)| LineMarker {
+                    line: r.start.line,
+                    icon: Some(ENDPOINT_MARKER.into()),
+                    tooltip: tooltip.clone(),
+                    target: Some(Location { path: (*path).into(), range: e.target }),
+                }));
             }
         }
         markers
@@ -973,6 +974,31 @@ class KtCountryEndpoint {
         assert_eq!(s[0].namespace, "http://acme.com/countries");
         assert_eq!(s[0].elements.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), ["getCountryRequest", "getCountryResponse"]);
         assert_eq!(schemas(WSDL)[0].elements[0].0, "placeOrder");
+    }
+
+    #[test]
+    fn every_matching_element_or_handler_gets_a_marker_on_its_line() {
+        let host = setup();
+        host.add_file("src/main/resources/legacy/countries.xsd", XSD);
+        host.add_file(
+            "src/main/java/com/acme/ws/LegacyEndpoint.java",
+            &ENDPOINT.replace("class CountryEndpoint", "class LegacyEndpoint").replace("class WsConfig", "class LegacyConfig"),
+        );
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let markers = ws.line_markers(&java());
+        let schemas: Vec<_> = markers.iter().filter(|m| m.line == 8).map(|m| m.target.as_ref().unwrap().path.as_str()).collect();
+        assert_eq!(schemas.len(), 2, "{schemas:?}");
+        assert!(schemas.contains(&XSD_PATH) && schemas.contains(&"/project/src/main/resources/legacy/countries.xsd"));
+        assert!(markers.iter().filter(|m| m.line == 8).all(|m| m.icon.as_deref() == Some(SCHEMA_MARKER)));
+        assert_eq!(markers.iter().filter(|m| m.line == 14).count(), 1, "one schema, one marker");
+        assert_eq!(ws.definition(&java(), pos(ENDPOINT, "getCountryRequest\"")).len(), 2, "definition lists the same candidates");
+
+        let xsd = ws.line_markers(&Document { path: XSD_PATH.into(), language: "xml".into(), version: 1, text: XSD.into() });
+        let handlers: Vec<_> = xsd.iter().map(|m| m.target.as_ref().unwrap().path.rsplit('/').next().unwrap()).collect();
+        assert_eq!(handlers.len(), 2, "{handlers:?}");
+        assert!(handlers.contains(&"CountryEndpoint.java") && handlers.contains(&"LegacyEndpoint.java"));
+        assert!(xsd.iter().all(|m| m.line == xsd[0].line && m.icon.as_deref() == Some(ENDPOINT_MARKER)));
     }
 
     #[test]

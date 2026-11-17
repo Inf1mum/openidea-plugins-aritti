@@ -34,6 +34,7 @@ mod profiler;
 mod profiler_details;
 mod query_builder_checks;
 mod refs;
+mod related;
 mod reference_model;
 mod rewrites;
 mod route_defs;
@@ -58,7 +59,7 @@ mod panic_regressions;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
+use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::views::{Body, Button, Table, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Context, Diagnostic, Event, EventKind, Location, PickItem, Position, Range, Severity, TextEdit};
 use openidea_plugin::{Error, Invocation, LogLevel, NotificationLevel, Plugin, Project, StatusItem, host, text};
@@ -1639,6 +1640,11 @@ impl Providers for Main {
             .collect();
         if host::project_of(&doc.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str()) {return Vec::new();}
         items
+    }
+
+    fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        let Some(index) = self.index_for(&doc.path) else { return Vec::new() };
+        related::markers(index, &doc.path, &doc.language, &doc.text)
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {

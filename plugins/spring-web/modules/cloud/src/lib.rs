@@ -641,15 +641,25 @@ fn uses(config: &Index<StreamConfig>, name: &str) -> Vec<(Location, String)> {
     found
 }
 
-fn marker(range: Range, prefix: &str, found: &[(Location, String)]) -> Option<LineMarker> {
+/// The host's navigate arrow for every link this module draws: explicit so same-line markers
+/// group predictably, and apart from the web route icon so they never merge with its URL markers.
+const MARKER_ICON: &str = "navigate";
+
+/// Most markers one line gets; the rest are named in the tooltip.
+const MAX_LINE_TARGETS: usize = 200;
+
+/// One marker per target on `line`: the IDE folds same-line, same-icon markers into one gutter
+/// button that jumps to a single target or opens its chooser for several.
+fn per_target(line: u32, tooltip: &str, targets: Vec<Location>) -> Vec<LineMarker> {
+    let total = targets.len();
+    let tooltip = if total > MAX_LINE_TARGETS { format!("{tooltip} (first {MAX_LINE_TARGETS} of {total})") } else { tooltip.to_owned() };
+    targets.into_iter().take(MAX_LINE_TARGETS).map(|t| LineMarker { line, icon: Some(MARKER_ICON.into()), tooltip: tooltip.clone(), target: Some(t) }).collect()
+}
+
+fn marker(range: Range, prefix: &str, found: &[(Location, String)]) -> Vec<LineMarker> {
     let mut labels: Vec<&str> = found.iter().map(|(_, l)| l.as_str()).collect();
     labels.dedup();
-    Some(LineMarker {
-        line: range.start.line,
-        icon: None,
-        tooltip: format!("{prefix} {}", labels.join(", ")),
-        target: Some(found.first()?.0.clone()),
-    })
+    per_target(range.start.line, &format!("{prefix} {}", labels.join(", ")), found.iter().map(|(l, _)| l.clone()).collect())
 }
 
 #[derive(Clone, Copy)]
@@ -766,17 +776,22 @@ impl CloudTools {
                 .map(|(p, e)| (Location { path: p.to_owned(), range: e.range }, format!("{} ({} {})", e.label, e.verb, e.path)))
                 .collect::<Vec<_>>()
         };
-        let mut markers = Vec::new();
+        let mut markers: Vec<LineMarker> = Vec::new();
+        let mut add = |group: Vec<LineMarker>| {
+            let line_taken = markers.last().zip(group.first()).is_some_and(|(last, next)| last.line == next.line);
+            if !line_taken {
+                markers.extend(group);
+            }
+        };
         for c in &facts.clients {
-            markers.extend(marker(c.range, "Calls", &endpoints(|f| &f.servers, &|s| calls(c, s))));
+            add(marker(c.range, "Calls", &endpoints(|f| &f.servers, &|s| calls(c, s))));
         }
         for s in &facts.servers {
-            markers.extend(marker(s.range, "Called by Feign client", &endpoints(|f| &f.clients, &|c| calls(c, s))));
+            add(marker(s.range, "Called by Feign client", &endpoints(|f| &f.clients, &|c| calls(c, s))));
         }
         for f in &facts.functions {
-            markers.extend(marker(f.range, "Stream bindings:", &uses(config, &f.name)));
+            add(marker(f.range, "Stream bindings:", &uses(config, &f.name)));
         }
-        markers.dedup_by_key(|m| m.line);
         markers
     }
 
@@ -1334,7 +1349,8 @@ class StreamFunctions {
         let mut tools = warmed();
         let java = doc("src/main/java/com/acme/stream/StreamFunctions.java", "java", FUNCTIONS);
         let markers = tools.line_markers(&java);
-        let tips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
+        let mut tips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
+        tips.dedup();
         assert_eq!(
             tips,
             [
@@ -1344,8 +1360,12 @@ class StreamFunctions {
                 (17, "Stream bindings: uppercaseprocess-in-0, spring.cloud.function.definition"),
             ]
         );
-        let target = markers[1].target.as_ref().unwrap();
+        let target = markers.iter().find(|m| m.line == 8).unwrap().target.as_ref().unwrap();
         assert!(target.path.ends_with("application.properties"), "binding keys come first");
+        let process: Vec<_> = markers.iter().filter(|m| m.line == 5).collect();
+        assert_eq!(process.len(), 4, "every binding key and definition naming process is a target");
+        assert!(process.iter().all(|m| m.icon.as_deref() == Some(MARKER_ICON)));
+        assert_eq!(markers.iter().filter(|m| m.line == 11).count(), 1, "one binding, one marker");
 
         let lines = |found: Vec<Location>| found.into_iter().map(|l| l.range.start.line).collect::<Vec<_>>();
         assert_eq!(lines(tools.definition(&yaml(), at(YAML, "process-in-0"))), [5]);

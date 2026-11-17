@@ -19,7 +19,7 @@ Spring Web Services support for Java, Kotlin and XML projects in OpenIDEA. It li
 
 ### Jump between endpoints and schemas
 
-- A `@PayloadRoot(namespace = …, localPart = "x")` method gets a gutter arrow to the top-level element `x` in the schema with that namespace.
+- A `@PayloadRoot(namespace = …, localPart = "x")` method gets a gutter arrow to the top-level element `x` in the schema with that namespace. When several schemas declare it, or several endpoints handle an element, the arrow opens a chooser.
 - Each literal entry of `@PayloadRoots` works the same way.
 - **Go to Definition** on the `localPart` text does the same.
 - In the schema, the element gets an arrow back to the method that handles it (tooltip: *Handled by …*).

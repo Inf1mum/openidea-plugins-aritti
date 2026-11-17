@@ -25,7 +25,7 @@ Find and follow Spring beans in Java, Kotlin and Spring XML files. Jump from an 
 - Candidates are matched by type, then narrowed by `@Qualifier`, `@Named`, `@Resource(name)`, `@Primary` and the parameter or field name.
 - `List<T>`, `Map<String, T>` and arrays take every `T` bean.
 - `Optional<T>`, `ObjectProvider<T>`, `Provider<T>`, `ObjectFactory<T>` and `SortedSet<T>` take a `T` bean.
-- When a line has several targets, the gutter opens a picker. With one target, the arrow jumps straight there.
+- When a line has several targets, such as an injection with several candidate beans, clicking its gutter icon opens the IDE's target list under the icon. With one target, the icon jumps straight there.
 
 Injection points covered:
 
@@ -189,7 +189,6 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 | **Spring Beans: Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
 | **Spring Beans: Focus Bean in Graph** | Asks for a bean name or type, then shows that bean and its neighbours in the **Graph** section. | Command palette, **Focus in Graph** on a bean row |
 | **Spring Beans: Reindex Project** | Starts a fresh scan of the project's sources. | Tools menu, Search Everywhere |
-| **Spring Beans: Choose Source Gutter Target** | Opens the target picker. Used by gutter icons with several targets; not meant to be run by hand. | Gutter icons |
 
 ## Settings
 
@@ -277,7 +276,7 @@ On a Java `@Bean` factory method name, hover shows the current source model's na
 
 Bean/type, event publisher/listener, class/XML, override, profile/resource and package links are kept in a project-owned navigation graph, separate from the host's automatic Find Usages/Rename graph. Several targets are declaration-wide, zero-length, derived names or aliases; those rename anchors are deliberately gated, so no host Rename/Find Usages entries are published, and native language servers keep handling their supported refactorings. Candidate targets are refreshed from current project reads (including unsaved buffers); watched changes invalidate cached files. Project-wide Go to Declaration and gutter markers also come from the host's document index (bean names, aliases, qualifiers, injection points by type), without the provider time budget.
 
-The source navigation chooser rechecks the originating document/version, project and all candidate source snapshots before opening a target.
+A line's bean markers carry one target each (at most 1000; the tooltip says when more were cut), and the IDE joins them into one gutter icon whose click opens its Choose Mapping Target list. Targets come from the current document and the cached project model, recomputed on every edit of the document.
 
 ### Check details
 

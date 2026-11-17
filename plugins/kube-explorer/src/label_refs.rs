@@ -4,13 +4,14 @@
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker};
 use openidea_plugin::{Location, Position, Range, host, text};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use yaml_rust2::{
     parser::{Event, MarkedEventReceiver, Parser},
     scanner::{Marker, TScalarStyle},
 };
 const MAX_TEXT: usize = 128 << 10;
 const MAX_FILES: usize = 64;
+const MAX_LINE_TARGETS: usize = 200;
 #[derive(Clone, Debug)]
 pub(crate) struct Scalar {
     pub(crate) value: String,
@@ -2283,18 +2284,30 @@ impl Cache {
             .chain(facts.references.iter().map(|r| r.key.range))
             .chain(facts.label_uses.iter().map(|r| r.key.range))
             .collect();
-        ranges
-            .into_iter()
-            .filter_map(|range| {
-                let targets = Self::definition_in(&all, range.start);
-                if targets.len() != 1 {
-                    return None;
+        // One marker per target with the same icon: the IDE merges a line's markers into one button with a chooser.
+        let mut lines: BTreeMap<u32, Vec<Location>> = BTreeMap::new();
+        for range in ranges {
+            let targets = lines.entry(range.start.line).or_default();
+            for target in Self::definition_in(&all, range.start) {
+                if target.range.start != target.range.end && !targets.contains(&target) {
+                    targets.push(target);
                 }
-                Some(LineMarker {
-                    line: range.start.line,
+            }
+        }
+        lines
+            .into_iter()
+            .flat_map(|(line, targets)| {
+                let total = targets.len();
+                let tooltip = if total > MAX_LINE_TARGETS {
+                    format!("Read-only exact label/key source candidate (first {MAX_LINE_TARGETS} of {total} shown)")
+                } else {
+                    "Read-only exact label/key source candidate".to_owned()
+                };
+                targets.into_iter().take(MAX_LINE_TARGETS).map(move |target| LineMarker {
+                    line,
                     icon: Some(crate::LABEL_MARKER.into()),
-                    tooltip: "Read-only exact label/key source candidate".into(),
-                    target: targets.into_iter().next(),
+                    tooltip: tooltip.clone(),
+                    target: Some(target),
                 })
             })
             .collect()
@@ -3180,6 +3193,25 @@ mod tests {
         cache.warm("/p/cm.yaml", CM);
         host.add_project("/p/cm.yaml");
         assert!(cache.definition(&doc, at).is_empty());
+    }
+    #[test]
+    fn a_selector_matching_several_sources_gets_one_same_icon_marker_per_target() {
+        let (_host, cache) = setup(&[("pod.yaml", POD), ("service.yaml", SERVICE)]);
+        let doc = document("service.yaml", SERVICE);
+        let single = cache.markers(&doc);
+        assert_eq!(single.len(), 2);
+        let pod2 = POD.replace("name: web\n  namespace", "name: web2\n  namespace");
+        let (_host, cache) = setup(&[("pod.yaml", POD), ("pod2.yaml", &pod2), ("service.yaml", SERVICE)]);
+        let markers = cache.markers(&doc);
+        assert_eq!(markers.len(), 4);
+        assert!(markers.iter().all(|m| m.line == 4 && m.icon.as_deref() == Some(crate::LABEL_MARKER)));
+        let targets: BTreeSet<_> = markers.iter().map(|m| {
+            let target = m.target.as_ref().unwrap();
+            assert!(target.range.start != target.range.end);
+            (target.path.clone(), target.range.start.line, target.range.start.character)
+        }).collect();
+        assert_eq!(targets.len(), 4);
+        assert!(targets.iter().any(|(path, ..)| path == "/p/pod2.yaml"));
     }
     #[test]
     fn absent_namespaces_aliases_tags_and_generated_expressions_withhold_models() {

@@ -24,7 +24,6 @@ mod resources;
 mod sites;
 mod spel;
 mod graph;
-mod gutter;
 mod target_checks;
 mod xml_actions;
 mod xml_checks;
@@ -399,6 +398,18 @@ fn file_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
+/// Markers of one line and icon join into one gutter button whose click opens the IDE's target popup.
+const MAX_LINE_TARGETS: usize = 1000;
+
+/// Says on the line's first marker that `total` targets were cut to the bound.
+fn bounded(markers: &mut [LineMarker], total: usize) {
+    if total <= MAX_LINE_TARGETS {
+        return;
+    }
+    let first = &mut markers[markers.len() - MAX_LINE_TARGETS];
+    first.tooltip = format!("{} ({MAX_LINE_TARGETS} of {total} shown)", first.tooltip);
+}
+
 fn describe(b: &Bean) -> String {
     let mut s = if b.kind == "@Bean" { format!("{}() (@Bean)", b.name) } else { format!("{} ({})", b.name, b.kind) };
     if b.primary {
@@ -711,7 +722,6 @@ impl Parsed {
 pub struct Navigator {
     indexes: Indexes,
     parsed: Vec<Parsed>,
-    gutter: gutter::State,
     expansion: Expansion,
     xml_generation: xml_file_actions::Generation,
     property_generation: property_file_actions::Generation,
@@ -728,7 +738,6 @@ impl Default for Navigator {
         Self {
             indexes: Indexes::default(),
             parsed: Vec::new(),
-            gutter: gutter::State::default(),
             expansion: Expansion::default(),
             xml_generation: xml_file_actions::Generation::default(),
             property_generation: property_file_actions::Generation::default(),
@@ -889,42 +898,29 @@ impl Providers for Navigator {
                     world.files.get(path).map(|model| model.navigation.clone())
                 })
                 .markers(&model.navigation);
-            let mut chooser_lines=BTreeSet::new();
-            let mut by_line:BTreeMap<u32,BTreeSet<(String,Position,Position)>>=BTreeMap::new();
-            for marker in &markers {if let Some(target)=&marker.target{by_line.entry(marker.line).or_default().insert((target.path.clone(),target.range.start,target.range.end));}}
-            chooser_lines.extend(by_line.into_iter().filter(|(_,targets)|targets.len()>1).map(|(line,_)|line));
             for inj in &model.injections {
                 let found = world.candidates(inj);
-                if found.len()>1 {chooser_lines.insert(inj.range.start.line);continue;}
-                let Some((path, first)) = found.first() else {
-                    continue;
-                };
-                let tooltip = match found.as_slice() {
-                    [(_, one)] => format!("Injected bean: {}", describe(one)),
-                    many => {
-                        let names: Vec<String> = many.iter().map(|(_, b)| describe(b)).collect();
-                        format!("{} candidate beans: {}", many.len(), names.join(", "))
-                    }
-                };
-                let target = Location { path: path.to_string(), range: first.range };
-                markers.push(LineMarker { line: inj.range.start.line, icon: Some(BEAN_MARKER.into()), tooltip, target: Some(target) });
+                let candidate = !inj.multiple && found.len() > 1;
+                for (path, bean) in found.iter().take(MAX_LINE_TARGETS) {
+                    let described = describe(bean);
+                    let tooltip = if candidate { format!("Candidate bean: {described}") } else { format!("Injected bean: {described}") };
+                    let target = Location { path: path.to_string(), range: bean.range };
+                    markers.push(LineMarker { line: inj.range.start.line, icon: Some(BEAN_MARKER.into()), tooltip, target: Some(target) });
+                }
+                bounded(&mut markers, found.len());
             }
             for bean in &model.beans {
                 let users = world.users(&doc.path, bean);
-                if users.len()>1 {chooser_lines.insert(bean.range.start.line);continue;}
-                let Some((first, _)) = users.first() else {
-                    continue;
-                };
-                let names: BTreeSet<&str> = users.iter().map(|(_, into)| into.as_str()).collect();
-                let names: Vec<&str> = names.into_iter().collect();
-                markers.push(LineMarker {
-                    line: bean.range.start.line,
-                    icon: Some(BEAN_MARKER.into()),
-                    tooltip: format!("Injected into {}", names.join(", ")),
-                    target: Some(first.clone()),
-                });
+                for (location, into) in users.iter().take(MAX_LINE_TARGETS) {
+                    markers.push(LineMarker {
+                        line: bean.range.start.line,
+                        icon: Some(BEAN_MARKER.into()),
+                        tooltip: format!("Injected into {into}"),
+                        target: Some(location.clone()),
+                    });
+                }
+                bounded(&mut markers, users.len());
             }
-            markers.retain(|marker|!chooser_lines.contains(&marker.line));
             markers
         })
     }
@@ -1552,7 +1548,6 @@ impl Plugin for Navigator {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
-            "choose-source-gutter-target"=>self.choose_source_gutter_target(ctx,_arg),
             "focus-in-graph" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
                 match _arg {
@@ -1590,7 +1585,7 @@ impl Plugin for Navigator {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(Navigator, providers, views, indexing, diagnostics, file_actions, hover, injections, syntax, language_features);
+openidea_plugin::register_plugin!(Navigator, providers, views, indexing, diagnostics, file_actions, hover, injections, syntax);
 
 #[cfg(test)]
 mod tests;

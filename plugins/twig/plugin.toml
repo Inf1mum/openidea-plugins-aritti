@@ -5,7 +5,7 @@ description = "Twig support for .twig files: highlighting of Twig and the HTML a
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: A quick fix inserts the missing end tag of an unclosed tag using the configured delimiters, and code lenses read 1 occurrence or N occurrences in this file; twig.paths and default_path resolve template names, including dev, prod and test overrides, templateNamespaces map @namespace/ names, and render() variables complete in expressions; faster editing: PHP files are no longer scanned while you type, and project filters, functions and controller variables refresh when PHP files change; injected JavaScript and CSS keep working after a stray <, and Twig no longer asks for write access to your project; block() jumps to its block, Preview Rename Macro Parameter, clearer setting descriptions and permission messages. \
+Next release: A quick fix inserts the missing end tag of an unclosed tag using the configured delimiters, and code lenses read 1 occurrence or N occurrences in this file; twig.paths and default_path resolve template names, including dev, prod and test overrides, templateNamespaces map @namespace/ names, and render() variables complete in expressions; faster editing: PHP files are no longer scanned while you type, and project filters, functions and controller variables refresh when PHP files change; injected JavaScript and CSS keep working after a stray <, and Twig no longer asks for write access to your project; block() jumps to its block, gutter icons link parent, child and including templates and overridden blocks, Preview Rename Macro Parameter, clearer setting descriptions and permission messages. \
 0.3.0: template and macro navigation. \
 0.2.0: plugin icon and tag completion."""
 categories = ["languages"]
@@ -26,8 +26,13 @@ schema = "settings.schema.json"
 title = "Twig"
 
 [[contributes.providers]]
-kinds = ["completion", "definition", "injections"]
+kinds = ["completion", "definition", "injections", "line-markers"]
 languages = ["twig"]
+
+# Gutter icon on the first (or extends) line listing parent, child and including templates.
+[[contributes.markerIcons]]
+id = "related"
+icon = "icons/twig-logo.svg"
 
 [[contributes.languages]]
 path = "languages/twig.toml"

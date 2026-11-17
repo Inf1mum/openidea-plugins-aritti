@@ -555,17 +555,17 @@ impl Providers for Integration {
                 _ => continue,
             };
             let (found, _) = contexts.scope(&doc.path, found);
-            let Some(&first) = found.first() else {
-                continue;
-            };
             let list: Vec<String> =
                 found.iter().map(|(p, x)| format!("{} ({}:{})", x.what, file_name(p), x.range.start.line + 1)).collect();
-            markers.push(LineMarker {
+            let shown = if found.len() > MAX_LINE_TARGETS { format!(" (first {MAX_LINE_TARGETS} of {})", found.len()) } else { String::new() };
+            let tooltip = format!("{title}: {}{shown}", list.join(", "));
+            // One marker per target: the IDE folds same-line, same-icon markers into one button with a chooser.
+            markers.extend(found.iter().take(MAX_LINE_TARGETS).map(|&f| LineMarker {
                 line: r.range.start.line,
                 icon: Some(CHANNEL_MARKER.into()),
-                tooltip: format!("{title}: {}", list.join(", ")),
-                target: Some(location(first)),
-            });
+                tooltip: tooltip.clone(),
+                target: Some(location(f)),
+            }));
         }
         markers
     }
@@ -668,6 +668,9 @@ pub(crate) fn refresh(_view: &str) {
 openidea_plugin::register_plugin!(structure::Structure, providers, views, diagnostics, file_actions, hover);
 
 pub(crate) const CHANNEL_MARKER: &str = "icons/marker-channel.svg";
+
+/// Most channel markers one line gets; the rest are named in the tooltip.
+const MAX_LINE_TARGETS: usize = 200;
 
 #[cfg(test)]
 mod tests {
@@ -863,6 +866,9 @@ interface OrderGateway {
         assert_eq!((found[0].path.as_str(), found[0].range.start.line), (BILLING_PATH, 5));
     }
 
+    const INVOICES: &str =
+        "'invoices' is consumed by: <int:service-activator> (integration.xml:6), <int:outbound-channel-adapter> (integration.xml:7)";
+
     #[test]
     fn marks_producers_and_consumers() {
         let _host = setup();
@@ -873,15 +879,15 @@ interface OrderGateway {
             tips,
             [
                 (6, "Sent to 'shipping' by: flow .channel (FlowConfig.java:14)"),
-                (
-                    6,
-                    "'invoices' is consumed by: <int:service-activator> (integration.xml:6), <int:outbound-channel-adapter> (integration.xml:7)"
-                ),
+                (6, INVOICES),
+                (6, INVOICES),
                 (16, "'orders' is consumed by: IntegrationFlow.from (FlowConfig.java:13)"),
                 (18, "'orders' is consumed by: IntegrationFlow.from (FlowConfig.java:13)"),
             ]
         );
-        assert_eq!(markers[1].target.as_ref().unwrap().path, XML_PATH);
+        let invoices: Vec<_> = markers[1..3].iter().map(|m| m.target.as_ref().unwrap()).map(|t| (t.path.as_str(), t.range.start.line)).collect();
+        assert_eq!(invoices, [(XML_PATH, 5), (XML_PATH, 6)], "each consumer is a target");
+        assert!(markers.iter().all(|m| m.icon.as_deref() == Some(CHANNEL_MARKER)));
     }
 
     #[test]

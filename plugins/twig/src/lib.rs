@@ -18,6 +18,7 @@ mod navigate;
 mod php_context;
 mod macro_arguments;
 mod hover;
+mod gutter;
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -40,6 +41,9 @@ const MAX_STRUCTURE_ITEMS: usize = 2048;
 
 const EXTENSION_GLOBS: &[&str] = &["src/**/*.php", "app/**/*.php", "lib/**/*.php"];
 const EXTENSION_FILES: u32 = 1500;
+const TEMPLATE_GLOBS: &[&str] = &["**/*.twig"];
+const TEMPLATE_FILES: u32 = 1000;
+const SCAN_FILES: u32 = EXTENSION_FILES + TEMPLATE_FILES;
 
 #[derive(Default)]
 pub struct Twig {
@@ -48,6 +52,8 @@ pub struct Twig {
     extensions: BTreeMap<String, Vec<Extension>>,
     /// Literal render-call and `#[Template]` variable sites in project PHP, by absolute file path.
     renders: BTreeMap<String, Vec<php_context::Site>>,
+    /// Template references and blocks of the project's Twig files, by absolute file path, for the gutter's reverse links.
+    templates: BTreeMap<String, gutter::Facts>,
     /// PHP files still to scan, scanned in short slices so no single call blocks.
     pending: Vec<String>,
     scanned_files: u32,
@@ -59,26 +65,33 @@ const MAX_RESCANNED_PHP: usize = 64;
 
 impl Twig {
     fn scan_extensions(&mut self) {
-        if !host::setting_bool("projectExtensions").unwrap_or(true) {return;}
         self.pending.clear();
         self.scanned_files=0;
         self.scanned_bytes=0;
+        let php=host::setting_bool("projectExtensions").unwrap_or(true);
+        let mut templates=Vec::new();
         for project in host::projects().unwrap_or_default() {
-            for glob in EXTENSION_GLOBS {
+            for glob in EXTENSION_GLOBS.iter().filter(|_|php) {
                 let room=EXTENSION_FILES.saturating_sub(self.pending.len() as u32);
-                if room==0 {return self.drain_pending();}
+                if room==0 {break;}
                 self.pending.extend(project.find_files(glob,room).unwrap_or_default());
             }
+            for glob in TEMPLATE_GLOBS {
+                let room=TEMPLATE_FILES.saturating_sub(templates.len() as u32);
+                templates.extend(project.find_files(glob,room).unwrap_or_default().into_iter().filter(|p|!p.contains("/vendor/")&&!p.contains("/node_modules/")));
+            }
         }
+        self.pending.extend(templates);
         self.pending.reverse();
         self.drain_pending();
     }
-    fn drain_pending(&mut self) {
-        let deadline=std::time::Instant::now()+SCAN_SLICE;
+    fn drain_pending(&mut self) {self.drain(SCAN_SLICE)}
+    fn drain(&mut self,slice:std::time::Duration) {
+        let deadline=std::time::Instant::now()+slice;
         while std::time::Instant::now()<deadline {
             let Some(path)=self.pending.pop() else {return};
-            if self.scanned_files>=EXTENSION_FILES||self.scanned_bytes+(128<<10)>(12<<20) {self.pending.clear();return;}
-            let Some(project)=project_of(&path) else {self.extensions.remove(&path);self.renders.remove(&path);continue};
+            if self.scanned_files>=SCAN_FILES||self.scanned_bytes+(128<<10)>(12<<20) {self.pending.clear();return;}
+            let Some(project)=project_of(&path) else {self.forget(&path);continue};
             self.scanned_files+=1;
             self.scanned_bytes+=self.scan_file(&project,&path);
         }
@@ -87,13 +100,24 @@ impl Twig {
     fn requeue(&mut self,paths:Vec<String>) {
         if paths.is_empty() {return;}
         if self.pending.is_empty() {self.scanned_files=0;self.scanned_bytes=0;}
-        let room=(EXTENSION_FILES as usize).saturating_sub(self.pending.len());
+        let room=(SCAN_FILES as usize).saturating_sub(self.pending.len());
         for path in paths.into_iter().take(room) {
             if !self.pending.contains(&path) {self.pending.push(path);}
         }
     }
+    fn forget(&mut self,path:&str) {self.extensions.remove(path);self.renders.remove(path);self.templates.remove(path);}
     fn scan_file(&mut self,project:&Project,path:&str)->usize {
         let root=project.root().unwrap_or_default();
+        if path.ends_with(".twig") {
+            let text=(same_owner(&root,path)&&project.stat(path).is_ok_and(|s|s.kind==openidea_plugin::FileKind::File&&s.size<=128<<10))
+                .then(||project.read_file(path).ok()).flatten();
+            let bytes=text.as_ref().map_or(0,String::len);
+            match text.zip(delimiters::Syntax::scope()).map(|(t,_syntax)|gutter::facts(&t)) {
+                Some(facts)=>{self.templates.insert(path.to_owned(),facts);}
+                None=>{self.templates.remove(path);}
+            }
+            return bytes;
+        }
         let source=if host::setting_bool("projectExtensions").unwrap_or(true)&&same_owner(&root,path)&&extension_source(&root,path)
             &&project.stat(path).is_ok_and(|s|s.kind==openidea_plugin::FileKind::File&&s.size<=128<<10){
             project.read_file(path).ok().filter(|s|s.len()<=128<<10)
@@ -408,7 +432,7 @@ impl Plugin for Twig {
             }
         }
 
-        if let Err(error)=host::subscribe_paths("files-changed", EXTENSION_GLOBS) {
+        if let Err(error)=host::subscribe_paths("files-changed", &[EXTENSION_GLOBS,TEMPLATE_GLOBS].concat()) {
             host::log(LogLevel::Warn,&format!("Twig extension cache notifications unavailable: {error}"));
         }
         php_context::refresh_project_lexer();
@@ -424,6 +448,7 @@ impl Plugin for Twig {
             Event::FilesChanged(batch)=>batch.created.iter().chain(&batch.modified).chain(&batch.removed).cloned().collect(),
             _=>Vec::new(),
         }).collect::<Vec<_>>();
+        let scanned=|p:&String|p.ends_with(".php")||p.ends_with(".twig");
         let php:Vec<String>=paths(events).into_iter().filter(|p|p.ends_with(".php")).collect();
         if php.len()>MAX_RESCANNED_PHP {php_context::refresh_project_lexer();}
         else {for path in &php {php_context::update_project_lexer(path);}}
@@ -435,21 +460,21 @@ impl Plugin for Twig {
             match event {
                 Event::FileSaved(path) => {
                     if path.ends_with("composer.json")||path.ends_with("symfony.lock")||path.ends_with("twig.yaml") {forget_project_facts();}
-                    if !path.ends_with(".php") {continue;}
+                    if !scanned(path) {continue;}
                     if let Some(project)=project_of(path) { self.scan_file(&project,path); }
-                    else {self.extensions.remove(path);self.renders.remove(path);}
+                    else {self.forget(path);}
                 }
                 Event::FilesChanged(batch) => {
-                    for path in batch.removed.iter().chain(batch.created.iter().chain(&batch.modified).filter(|p|!p.ends_with(".php"))) {
-                        self.extensions.remove(path);self.renders.remove(path);
+                    for path in batch.removed.iter().chain(batch.created.iter().chain(&batch.modified).filter(|p|!scanned(p))) {
+                        self.forget(path);
                     }
-                    let changed:Vec<String>=batch.created.iter().chain(&batch.modified).filter(|p|p.ends_with(".php")).cloned().collect();
+                    let changed:Vec<String>=batch.created.iter().chain(&batch.modified).filter(|p|scanned(p)).cloned().collect();
                     let room=MAX_RESCANNED_PHP.saturating_sub(rescanned).min(changed.len());
                     for path in &changed[..room] {
                         rescanned+=1;
                         match project_of(path) {
                             Some(project)=>{self.scan_file(&project,path);}
-                            None=>{self.extensions.remove(path);self.renders.remove(path);}
+                            None=>{self.forget(path);}
                         }
                     }
                     self.requeue(changed[room..].to_vec());
@@ -501,6 +526,11 @@ fn macro_locations(path: &str, text: &str, name: &str) -> Vec<Location> {
 }
 
 impl Providers for Twig {
+    fn line_markers(&mut self, doc: &Document) -> Vec<openidea_plugin::providers::LineMarker> {
+        self.drain(std::time::Duration::from_millis(10));
+        gutter::markers(&self.templates, doc)
+    }
+
     fn completion(&mut self, doc: &Document, at: openidea_plugin::Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         let Some(_syntax)=delimiters::Syntax::scope() else {return Vec::new();};
         if doc.language != "twig" || !doc.path.ends_with(".twig") || doc.text.len() > 128 << 10 {

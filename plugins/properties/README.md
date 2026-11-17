@@ -33,6 +33,7 @@ Quick fixes on ⌥⏎: remove the property, unescape, remove trailing spaces, re
 ### Navigate between locales and code
 
 - Go to Declaration on a key opens the same key in the parent locale (`messages_fr_CA` → `messages_fr` → `messages`) and in every other locale that declares it.
+- In a bundle with several locales, a gutter icon on each key lists the same key in the other locale files, base file first. Click it to pick one; with a single target it opens right away. A file without locale siblings, such as a lone `application.properties`, gets no icons.
 - In Java and Kotlin, Go to Declaration works on explicit JDK calls such as `ResourceBundle.getBundle("com.acme.messages").getString("app.title")`.
 - A `final` (Java) or `val` (Kotlin) local bundle variable also works: `bundle.getString("app.title")`.
 - In templates, navigation works on `#{a.b}` in `.html` (Thymeleaf), `.xhtml` and JSP, and on `<spring:message code>` / `<fmt:message key>`.
@@ -199,6 +200,10 @@ Java and Kotlin hovers require the explicit JDK context and filter candidates to
 - Automatic key usages and Rename are deliberately withheld: global decoded-key grouping and text heuristics don't prove bundle ownership. No synthetic, decoded, escaped, Boot relaxed-binding or global key-name anchors are published.
 - Source references, bundle-grid edits and cross-locale actions require a losslessly UTF-8-representable key. Malformed or unrepresentable keys refuse the action rather than preparing a partial or conflated edit.
 - The metadata-to-apply window at the host remains: no plugin-owned global transaction is claimed across external file-system changes.
+
+### Locale gutter icons
+
+One `line-markers` entry per locale file with the same icon on the key's line, which the IDE shows as one icon. Siblings are the `.properties` files of the same folder and base name. Targets come from the cached project key index, built when a `.properties` file is opened or saved, or a Java or Kotlin file is opened; before that, or when the key is in a file the index skipped, there is no icon. Unsaved edits of the other locales show after they are saved. At most 200 targets per key; the tooltip says how many were left out.
 
 ### Resource Bundle editor
 

@@ -1,5 +1,5 @@
 //! Source-only table navigation, deliberately separate from Rename identities.
-use openidea_plugin::{Location, Position, Project, Range, host, providers::Document, text::position};
+use openidea_plugin::{Location, Position, Project, Range, host, providers::{Document, LineMarker}, text::position};
 use std::{collections::{BTreeMap, BTreeSet}, time::{Duration, Instant}};
 #[derive(Clone)]
 struct Token { word: String, text: String, start: usize, end: usize, quote: Option<char> }
@@ -380,15 +380,35 @@ impl State {
             !(inside && relevant)
         });
     }
+    fn owner(&self, doc: &Document) -> Option<&Owner> {
+        if doc.language != "sql" { return None; }
+        let root = host::project_of(&doc.path).and_then(|p| p.root().ok())?;
+        self.owners.get(&root).filter(|owner| owner.at.elapsed() < TTL && owner.files.contains(&doc.path))
+    }
+    /// The `CREATE TABLE` migrations and mapped entities of `table`; nothing when more than 32 claim it.
+    fn targets(owner: &Owner, path: &str, table: &Table) -> Vec<Location> {
+        key(&table.parts, owner.dialect).and_then(|name| owner.definitions.get(&name)).filter(|locations| locations.len() <= 32).map(|locations| locations.iter()
+            .filter(|location| location.path.ends_with(".sql") || module(path).is_none() || module(path) == module(&location.path))
+            .cloned().collect()).unwrap_or_default()
+    }
     pub fn definition(&self, doc: &Document, at: Position) -> Vec<Location> {
-        if doc.language != "sql" { return vec![]; }
-        let Some(root) = host::project_of(&doc.path).and_then(|p| p.root().ok()) else { return vec![]; };
-        let Some(owner) = self.owners.get(&root).filter(|owner| owner.at.elapsed() < TTL && owner.files.contains(&doc.path)) else { return vec![]; };
+        let Some(owner) = self.owner(doc) else { return vec![]; };
         let Some(tables) = tables(&doc.text) else { return vec![]; };
         let Some(table) = tables.iter().find(|table| !table.definition && table.range.start <= at && at < table.range.end) else { return vec![]; };
-        key(&table.parts, owner.dialect).and_then(|name| owner.definitions.get(&name)).filter(|locations| locations.len() <= 32).map(|locations| locations.iter()
-            .filter(|location| location.path.ends_with(".sql") || module(&doc.path).is_none() || module(&doc.path) == module(&location.path))
-            .cloned().collect()).unwrap_or_default()
+        Self::targets(owner, &doc.path, table)
+    }
+    /// Gutter markers on table references: the same targets as Go to Definition, merged per line.
+    pub fn markers(&self, doc: &Document) -> Vec<LineMarker> {
+        let Some(owner) = self.owner(doc) else { return vec![]; };
+        let Some(tables) = tables(&doc.text) else { return vec![]; };
+        let mut lines: BTreeMap<u32, Vec<Location>> = BTreeMap::new();
+        for table in tables.iter().filter(|table| !table.definition) {
+            let targets = lines.entry(table.range.start.line).or_default();
+            for target in Self::targets(owner, &doc.path, table) {
+                if !targets.contains(&target) { targets.push(target); }
+            }
+        }
+        lines.into_iter().flat_map(|(line, targets)| crate::line_markers(line, crate::TABLE_MARKER, "Table's CREATE TABLE migrations and mapped entities", targets)).collect()
     }
 }
 #[cfg(test)]
@@ -429,6 +449,31 @@ mod tests {
         assert!(state.definition(&foreign, Position::new(0, 10)).is_empty());
         state.invalidate(create);
         assert!(state.definition(&doc, Position::new(0, 10)).is_empty());
+    }
+
+    #[test]
+    fn reference_lines_get_one_table_marker_per_create_table_and_entity() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("sql/V1__init.sql", "CREATE TABLE users(id int);\nCREATE TABLE orders(id int);");
+        host.add_file("sql/V2__query.sql", "SELECT * FROM users JOIN orders ON 1=1;\nUPDATE users SET id=1; UPDATE users SET id=2;\nCREATE TABLE audit(id int);");
+        host.add_file("src/main/java/User.java", "import jakarta.persistence.Entity; import jakarta.persistence.Table; @Entity @Table(name=\"users\") class User {}");
+        let files = vec!["/project/sql/V1__init.sql".to_string(), "/project/sql/V2__query.sql".to_string()];
+        let doc = Document { path: files[1].clone(), language: "sql".into(), version: 1, text: "SELECT * FROM users JOIN orders ON 1=1;\nUPDATE users SET id=1; UPDATE users SET id=2;\nCREATE TABLE audit(id int);".into() };
+        assert!(State::default().markers(&doc).is_empty(), "a cold cache gives no marker");
+        let mut state = State::default();
+        state.warm(&host.invocation().project().unwrap(), &files);
+        let markers = state.markers(&doc);
+        assert!(markers.iter().all(|m| m.icon.as_deref() == Some(crate::TABLE_MARKER) && m.line < 2));
+        let line = |n: u32| markers.iter().filter(|m| m.line == n).map(|m| m.target.clone().unwrap()).collect::<Vec<_>>();
+        let first = line(0);
+        assert_eq!(first.iter().map(|l| (l.path.as_str(), l.range.start)).collect::<Vec<_>>(), [
+            ("/project/sql/V1__init.sql", Position::new(0, 13)),
+            ("/project/src/main/java/User.java", Position::new(0, 104)),
+            ("/project/sql/V1__init.sql", Position::new(1, 13)),
+        ]);
+        assert!(first.iter().all(|l| l.range.start < l.range.end));
+        assert_eq!(line(1).len(), 2, "the same table twice on a line lists its targets once");
+        assert_eq!(first[..2], state.definition(&doc, Position::new(0, 15))[..]);
     }
 
     #[test]
