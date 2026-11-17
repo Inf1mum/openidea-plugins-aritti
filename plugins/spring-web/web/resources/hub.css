@@ -82,8 +82,17 @@ th .view-icon{width:12px;height:12px}
   table.resources th .ui-button{display:block;overflow:hidden;text-overflow:ellipsis}
 }
 .empty-title{display:flex;align-items:center;gap:var(--ui-space-2)}
-/* The workspace scrolls within the dock; keep the status line at its bottom
-   even in shallow panels rather than reserving a fixed content height. */
+/* Shallow docks (bottom panel at ~240 px): one compact filter row with scrolling facets,
+   a bounded table area that keeps rows visible, and the rest of main scrolls around it. */
+@media(max-height:420px){
+  main{overflow-y:auto}
+  .filters{flex-wrap:nowrap;padding-block:2px}
+  #facets{flex-wrap:nowrap;flex:0 1 auto;overflow-x:auto;overflow-y:hidden}
+  #facets label{flex:0 0 140px}
+  .search{min-width:110px}
+  .workspace{flex:1 0 0%;min-height:min(160px,60vh)}
+  footer{position:sticky;bottom:0;background:var(--ui-bg)}
+}
 
 .form .field-controls{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2);min-width:0}
 .form .field-controls>input{flex:1 1 100px;width:0;min-width:0}

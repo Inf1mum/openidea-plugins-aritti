@@ -338,7 +338,7 @@
       const label = element("label", null, "ui-field"); label.append(element("span", columnLabel(columns[column]), "ui-visually-hidden")); const select = element("select"); select.setAttribute("aria-label", columnLabel(columns[column]));
       const values = [...new Set(rows.map(r => r.cells[column]).filter(Boolean))].sort();
       const facetLabel=typeof body.facetLabels?.[column] === "string" ? tr(`facet.${state.activeView}.${column}`,body.facetLabels[column]) : `${columnLabel(columns[column])}: ${tr("shared.all","All")}`;
-      const all = element("option", `${facetLabel} (${values.length})`); all.value = ""; select.append(all);
+      const all = element("option", `${facetLabel} (${rows.length})`); all.value = ""; select.append(all);
       for (const value of values) { const option = element("option", value); option.value = value; select.append(option); }
       if (!values.includes(q.facets[column])) delete q.facets[column];
       select.value = q.facets[column] || ""; select.addEventListener("change", () => { q.facets[column] = select.value; q.page = 0; renderBody(); });
@@ -474,7 +474,14 @@
           const icon=viewIcon(row.icon)||element("span",null,"view-icon");icon.setAttribute("aria-hidden","true");
           line.append(toggle,icon,label);td.replaceChildren(line);
         }
-        if(body.editable) { td.contentEditable = "true"; td.addEventListener("blur",() => { if(td.textContent !== cell) rowEvent({kind:"cell",row:row.row,column:i,value:td.textContent}); }); }
+        if(body.editable) {
+          const original=td.cloneNode(true);td.contentEditable = "true";td.setAttribute("aria-label",columnLabel(columns[i]));
+          td.addEventListener("keydown",e => {
+            if(e.key === "Enter") {e.preventDefault();td.blur();}
+            else if(e.key === "Escape") {e.preventDefault();td.replaceChildren(...original.cloneNode(true).childNodes);td.blur();}
+          });
+          td.addEventListener("blur",() => { if(td.textContent !== String(cell)) rowEvent({kind:"cell",row:row.row,column:i,value:td.textContent}); });
+        }
         rowNode.append(td);
       });
       rowNode.addEventListener("click", () => { if(!current())return;selectVisible(row);rowEvent(body.kind === "table" ? {kind:"table-select",row:row.row} : {kind:"select",key:row.key}); });
@@ -502,7 +509,10 @@
     table.append(tbody); const content = $("content");
     if(visible.length) content.replaceChildren(table);
     else if(rows.length) content.replaceChildren(emptyState("no-match",tr("shared.noMatching","No matching resources"),tr("shared.trySearch","Try a different search or clear the filters."),tr("shared.resetFilters","Reset filters"),()=>$("clear").click()));
-    else content.replaceChildren(emptyState("empty",tr("shared.noResources","No resources found"),tr("shared.resourcesAppear","Resources appear here when available.")));
+    else {
+      const emptyAction=state.model.toolbar.find(button=>button.key === body.emptyAction && button.enabled);
+      content.replaceChildren(emptyState("empty",typeof body.emptyTitle === "string" ? body.emptyTitle : tr("shared.noResources","No resources found"),typeof body.emptyText === "string" ? body.emptyText : tr("shared.resourcesAppear","Resources appear here when available."),emptyAction?.label,emptyAction && (()=>rowEvent({kind:"button",key:emptyAction.key}))));
+    }
     if (pages > 1) { const pager=element("div",null,"pager"); const prev=element("button",tr("shared.previous","Previous")), next=element("button",tr("shared.next","Next")); prev.hidden=q.page===0;next.hidden=q.page===pages-1;prev.addEventListener("click",()=>{q.page--;renderBody();});next.addEventListener("click",()=>{q.page++;renderBody();});pager.append(prev,element("span",`${q.page+1} / ${pages}`),next);content.append(pager); }
     const selected = rows.find(r=>r.key===q.selected); if(selected) select(selected,body); else {$("details").close();q.selected=null;state.selected=null;}
     if(focusedKey) {
@@ -626,9 +636,9 @@
     state.cleanup?.();state.cleanup=null;state.generation++;state.listeners=[];state.loadFailed=true;
     $("filters").hidden=true;$("details").close();setStatus("");
     const retry=()=>send({op:"render"}),permission=typeof message.denied === "string" ? message.denied.trim() : null;
-    const capability=permission && /^[a-z][a-z0-9-]*(?:[.:][a-z0-9_-]+)+$/i.test(permission);
+    const capability=permission && /^[a-z][a-z0-9-]*(?:[.:][a-z0-9_-]+)+$/i.test(permission),plugin=String(message.plugin || state.model?.plugin || "");
     const empty=permission
-      ? emptyState("denied",tr("shared.permissionNeeded","Permission needed"),capability ? tr("shared.deniedCapability","This view needs the {permission} permission. Allow it in Settings › Plugins, then retry.",{permission}) : `${permission}\n${tr("shared.deniedHint","Review this plugin's permissions in Settings › Plugins, then retry.")}`,tr("shared.retry","Retry"),retry)
+      ? emptyState("denied",tr("shared.permissionNeeded","Permission needed"),capability ? tr("shared.deniedCapability","This view needs the {permission} permission. Allow it in Settings › Plugins › {plugin}, then retry.",{permission,plugin}) : `${permission}\n${tr("shared.deniedHint","Review this plugin's permissions in Settings › Plugins › {plugin}, then retry.",{plugin})}`,tr("shared.retry","Retry"),retry)
       : emptyState("error",tr("shared.loadFailed","Couldn't load this view"),String(message.error || ""),tr("shared.retry","Retry"),retry);
     $("content").replaceChildren(empty);$("content").dataset.ownerScope=contentScope();
   }

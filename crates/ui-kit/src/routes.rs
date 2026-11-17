@@ -291,11 +291,19 @@ fn ask_base(default_base: &str) -> Result<Option<String>, Error> {
     Ok(answer.map(|base| base.trim().to_owned()).filter(|base| !base.is_empty()))
 }
 
-pub fn copy_as_curl(route: &Route, default_base: &str) -> Result<(), Error> {
+/// Reports the outcome itself: a denied clipboard names the permission and `plugin`'s settings page.
+pub fn copy_as_curl(route: &Route, default_base: &str, plugin: &str) -> Result<(), Error> {
     let Some(base) = ask_base(default_base)? else {
         return Ok(());
     };
-    host::copy_to_clipboard(&curl(&route.method, &base, &route.path))
+    match host::copy_to_clipboard(&curl(&route.method, &base, &route.path)) {
+        Ok(()) => host::notify(NotificationLevel::Info, TITLE, "Copied as cURL."),
+        Err(Error::Denied(_)) => {
+            host::notify(NotificationLevel::Warning, TITLE, &crate::denied::message("Copy as cURL", "clipboard", plugin))
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(())
 }
 
 fn http_file_name(route: &Route) -> String {
@@ -544,7 +552,7 @@ mod tests {
         let host = write_host();
         let r = route("GET", "/users", "C");
         host.answer_next_prompt(None);
-        copy_as_curl(&r, "http://localhost:8080").unwrap();
+        copy_as_curl(&r, "http://localhost:8080", "P").unwrap();
         host.answer_next_prompt(None);
         create_http_file(&r, "http://localhost:8080", None, "P").unwrap();
         assert_eq!(host.clipboard(), None);
@@ -556,8 +564,18 @@ mod tests {
     fn copy_as_curl_copies_the_command() {
         let host = write_host();
         host.answer_next_prompt(Some(&["http://localhost:9000"]));
-        copy_as_curl(&route("GET", "/users", "C"), "http://localhost:8080").unwrap();
+        copy_as_curl(&route("GET", "/users", "C"), "http://localhost:8080", "P").unwrap();
         assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:9000/users'"));
+        assert_eq!(host.notifications().last().map(|n| n.body.as_str()), Some("Copied as cURL."));
+    }
+
+    #[test]
+    fn copy_as_curl_denied_names_the_permission() {
+        let host = MockHost::install().with_capabilities(&[]);
+        host.answer_next_prompt(Some(&["http://localhost:9000"]));
+        copy_as_curl(&route("GET", "/users", "C"), "http://localhost:8080", "Laravel").unwrap();
+        assert_eq!(host.clipboard(), None);
+        assert!(host.notifications().last().is_some_and(|n| n.body.contains("clipboard permission") && n.body.contains("Settings › Plugins › Laravel")));
     }
 
     #[test]

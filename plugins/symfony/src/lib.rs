@@ -1457,7 +1457,7 @@ impl Plugin for Main {
             "run-console-command" => self.run_console_command(ctx),
             "route-copy-curl" => {
                 if let Some(route) = self.selected_route_or_pick(ctx)? {
-                    routes::copy_as_curl(&concrete_method(&route), DEFAULT_BASE_URL)?;
+                    routes::copy_as_curl(&concrete_method(&route), DEFAULT_BASE_URL, "Symfony")?;
                 }
                 Ok(None)
             }
