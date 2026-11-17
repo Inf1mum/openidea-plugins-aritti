@@ -25,11 +25,11 @@ use std::ops::Range;
 use std::path::Path;
 
 use navigate::{Extension, ExtensionKind};
-use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, Providers};
+use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::syntax::{Fold, FoldKind, Highlight, Symbol, SymbolKind, SyntaxProvider, Token};
 use openidea_plugin::text::{offset, position};
 use openidea_plugin::{
-    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, LogLevel, Plugin, Project, Range as EditorRange, Severity, host,
+    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, LogLevel, Plugin, Project, Range as EditorRange, Severity, TextEdit, host,
 };
 
 const SOURCE: &str = "Twig";
@@ -546,6 +546,36 @@ impl Providers for Twig {
         };
 
         complete::items_with(&doc.text, offset, names, &extra)
+    }
+
+    /// Quick fixes for the unclosed-tag findings the diagnostics report on the selected lines.
+    fn code_actions(&mut self, doc: &Document, selection: EditorRange) -> Vec<CodeAction> {
+        let Some(_syntax) = delimiters::Syntax::scope() else { return Vec::new() };
+        if doc.language != "twig" || !doc.path.ends_with(".twig") || doc.text.len() > 128 << 10 || !host::setting_bool("diagnostics").unwrap_or(true) {
+            return Vec::new();
+        }
+        let text = doc.text.as_str();
+        let parsed = lex(text);
+        if parsed.tags.len() > MAX_STRUCTURE_TAGS || parsed.tokens.len() > MAX_SYNTAX_TOKENS {
+            return Vec::new();
+        }
+
+        checks::check(text)
+            .into_iter()
+            .filter_map(|finding| {
+                let fix = finding.fix?;
+                let touches = position(text, finding.range.start).line <= selection.end.line && position(text, finding.range.end).line >= selection.start.line;
+                let at = position(text, fix.at);
+
+                touches.then(|| CodeAction {
+                    title: fix.title,
+                    kind: Some("quickfix".into()),
+                    preferred: true,
+                    edits: vec![(doc.path.clone(), vec![TextEdit { range: EditorRange::new(at, at), text: fix.text }])],
+                    data: None,
+                })
+            })
+            .collect()
     }
 
     fn definition(&mut self, doc: &Document, at: openidea_plugin::Position) -> Vec<Location> {
@@ -1472,6 +1502,29 @@ mod tests {
         doc.language="twig".into();doc.text.push_str(&" ".repeat(128<<10));assert!(twig.diagnostics(&doc).is_empty());
         assert!(h.process_runs().is_empty());assert_eq!(h.fetches(),0);
     }
+    #[test]
+    fn unclosed_tag_offers_an_insert_end_tag_quick_fix_on_its_line_only() {
+        let h = openidea_plugin::mock::MockHost::install();
+        let doc = Document { path: "/project/page.twig".into(), language: "twig".into(), version: 3, text: "😀 {% endfor %}\n<div>\n  {% if a %}\n{{ (x }}\n</div>\n".into() };
+        let line = |n: u32| EditorRange::new(openidea_plugin::Position::new(n, 0), openidea_plugin::Position::new(n, 0));
+        let actions = Twig::default().code_actions(&doc, line(2));
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Insert {% endif %} at end of file");
+        let (path, edits) = &actions[0].edits[0];
+        assert_eq!(path, "/project/page.twig");
+        assert_eq!((edits[0].range.start, edits[0].text.as_str()), (openidea_plugin::Position::new(5, 0), "  {% endif %}\n"));
+        h.set_setting("expressionErrors", "true");
+        for n in [0, 1, 3] {
+            assert!(Twig::default().code_actions(&doc, line(n)).is_empty());
+        }
+        h.set_setting("tagOpen", r#""<%""#);
+        h.set_setting("tagClose", r#""%>""#);
+        let custom = Document { text: "<% if a %>\nx\n".into(), ..doc.clone() };
+        assert_eq!(Twig::default().code_actions(&custom, line(0))[0].edits[0].1[0].text, "<% endif %>\n");
+        h.set_setting("diagnostics", "false");
+        assert!(Twig::default().code_actions(&custom, line(0)).is_empty());
+    }
+
     #[test]
     fn diagnostics_can_be_switched_off() {
         let host = project(&[("/p/a.html.twig", "{% if a %}")]);
