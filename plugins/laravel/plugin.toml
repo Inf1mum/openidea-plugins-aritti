@@ -6,7 +6,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/laravel"
 license = "MIT"
 change-notes = """\
-Next release: Database tab in the hub with models, columns, indexes, a Compare view, a Schema sub-tab and a Tables tree with keyboard use and a right-click menu, and unreadable migrations are listed instead of breaking it; Send Request on routes shows the response, and Send Request, Rows and Compare handle large inputs; Choose Docker Target works again, accepts DDEV synced volumes and refreshes Artisan commands right after a pick; unknown enum values in where() get a quick fix, Windows PHP calls run without a console window, and indexing no longer slows the editor on large projects; row commands say what to select, setting titles are shorter, permission messages clearer, and database errors no longer show SQL or connection details. \
+Next release: Unreleased: Fresh Migration and Seed Database ask for confirmation naming the project and database, route commands run from the command palette ask which route to use, and Laravel commands only show in projects with an artisan file. Database tab in the hub with models, columns, indexes, a Compare view, a Schema sub-tab and a Tables tree with keyboard use and a right-click menu, and unreadable migrations are listed instead of breaking it; Send Request on routes shows the response, and Send Request, Rows and Compare handle large inputs; Choose Docker Target works again, accepts DDEV synced volumes and refreshes Artisan commands right after a pick; unknown enum values in where() get a quick fix, Windows PHP calls run without a console window, and indexing no longer slows the editor on large projects; row commands say what to select, setting titles are shorter, permission messages clearer, and database errors no longer show SQL or connection details. \
 0.3.0: broader Laravel navigation and the hub window. \
 0.2.0: plugin icon and window consolidation."""
 categories = ["frameworks"]
@@ -24,16 +24,19 @@ optional = ["project.write", "process:php", "process:php-win", "process:docker",
 id = "artisan-refresh-docker-metadata"
 title = "Laravel: Refresh Docker Artisan Metadata"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-browse-docker-metadata"
 title = "Laravel: Browse Cached Docker Artisan Metadata"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-refresh-metadata"
 title = "Laravel: Refresh Artisan Command Metadata"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.menus]]
 menu = "tools"
@@ -43,121 +46,145 @@ command = "artisan-refresh-metadata"
 id = "find-literal-source-matches"
 title = "Laravel: Find Source Matches…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "routes-runtime-refresh"
 title = "Laravel: Refresh Registered Routes"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "reindex"
 title = "Laravel: Reindex Project"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "optimize-clear"
 title = "Laravel: Clear All Caches"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "cache-clear"
 title = "Laravel: Clear Application Cache"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "config-clear"
 title = "Laravel: Clear Config Cache"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-clear"
 title = "Laravel: Clear Route Cache"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "view-clear"
 title = "Laravel: Clear Compiled Views"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "migrate"
 title = "Laravel: Run Migrations"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "storage-link"
 title = "Laravel: Link Storage"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-list"
 title = "Laravel: Show Route List"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "db-seed"
 title = "Laravel: Seed Database"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "migrate-fresh"
 title = "Laravel: Fresh Migration (drops all tables)"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-run-terminal"
 title = "Laravel: Run Artisan in Terminal…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-run"
 title = "Laravel: Run Artisan Command…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "make"
 title = "Laravel: Generate with Artisan make…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "new-model"
 title = "Laravel: New Eloquent Model…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "generate-for-model"
 title = "Laravel: Generate for Model…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "create-missing"
 title = "Laravel: Create Missing View, Component or Controller"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "unused-views"
 title = "Laravel: Find Unused Views"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "remove-phpdocs"
 title = "Laravel: Remove IDE Helper PHPDoc from Models"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-copy-curl"
-title = "Laravel: Copy as curl"
+title = "Laravel: Copy as cURL"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-send-request"
 title = "Laravel: Send Request"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-create-http"
 title = "Laravel: Create HTTP Request File"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "reveal"
@@ -615,21 +642,25 @@ destructive = false
 id = "artisan-choose-docker-target"
 title = "Laravel: Choose Docker Target…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-clear-docker-target"
 title = "Laravel: Use Configured Docker Target"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-retry-failed"
 title = "Laravel: Retry Selected Failed Job"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-inspect-queue"
 title = "Laravel: Inspect Queue…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.providers]]
 kinds = ["inlay-hints", "code-lenses", "gutter-actions", "signature-help"]
@@ -649,6 +680,7 @@ category = "Laravel"
 id = "runtime-open-frame"
 title = "Laravel: Open Error Stack Frame…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.providers]]
 kinds = ["diagnostics"]
@@ -658,11 +690,13 @@ languages = ["json"]
 id = "runtime-schema"
 title = "Laravel: Refresh Database Metadata"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-register-database"
 title = "Laravel: Add Application Database Connection…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-editor-action"
@@ -673,16 +707,19 @@ category = "Laravel"
 id = "model-from-database"
 title = "Laravel: New Model from Captured Database Table…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "model-open-source"
 title = "Laravel: Open Model Source"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "model-create-fields"
 title = "Laravel: Create Model Fields…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.providers]]
 kinds = ["code-actions"]
@@ -692,41 +729,49 @@ languages = ["json"]
 id = "search-names"
 title = "Laravel: Search Names…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "route-search"
 title = "Laravel: Search Routes…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-database-list"
 title = "Laravel: Database Connections…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-database-connect"
 title = "Laravel: Connect Database…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-database-remove"
 title = "Laravel: Remove Database Connection…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "console-command-open"
 title = "Laravel: Run Command From Class…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-parameters"
 title = "Laravel: Configure Model Helper Parameters…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "regenerate-model-helpers"
 title = "Laravel: Regenerate Model Helpers…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "project-installation-recovery"
@@ -737,31 +782,37 @@ category = "Laravel"
 id = "helper-source-automation"
 title = "Laravel: Configure Helper Source and Automation…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-automation-state"
 title = "Laravel: Helper Automation Status"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-automation-poll"
 title = "Laravel: Poll Helper Post-Generation Commands"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-automation-stop"
 title = "Laravel: Stop Helper Post-Generation Commands"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-model-connections"
 title = "Laravel: Refresh Model Connection Bindings…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-application-mcp"
 title = "Laravel: Connect Application MCP Server…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.secrets]]
 name = "application-mcp-token"
@@ -772,6 +823,7 @@ description = "Authenticate explicitly connected application MCP servers using s
 id = "index-issues"
 title = "Laravel: Show Index Issues"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.markerIcons]]
 id = "view"
