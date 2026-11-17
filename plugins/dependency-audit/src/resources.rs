@@ -147,7 +147,7 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
         "Dependency Audit setting ignoredAdvisories; {} configured IDs/aliases. Matching advisories are hidden from this report.",
         ignored.len()
     );
-    let ignore_scope = format!("{ignore_scope} Separate project-scoped ignores: {}. Review scoped ignores to inspect reasons and restore retained evidence.",crate::scoped::load(root).len());
+    let ignore_scope = format!("{ignore_scope} Ignored findings in this project: {}. Review Ignored Findings shows their reasons and restores them.",crate::scoped::load(root).len());
     let mut items = Vec::new();
     let mut bytes = 0;
     let total_rows: usize = report.rows.iter().map(|r| 1 + r.advisories.len()).sum();

@@ -5,7 +5,7 @@ description = "Checks Maven, Gradle, npm, yarn, pnpm, Composer, PyPI and Cargo d
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Files with findings show a vulnerability count in the project tree, vulnerable lines show the advisory and fixed version, and Preview Upgrade opens a diff first; Maven and Gradle versions come from the dependency graph the IDE already resolved, and mvn or gradle runs after a scan only when that setting is on and the IDE has none; findings show where a dependency is declared, with Go to declaration and the chain for indirect ones, and a project without dependency files lists the supported ones; scans pyproject.toml, pylock.toml, uv.lock and poetry.lock, PyPI and Maven results show whether your code imports the package, and private-registry packages are never sent to OSV.dev; version parsing fixes for Yarn, pnpm, npm, Gradle and PyPI, quick fixes ask you to save first, palette row commands let you pick a dependency, messages name the permission to allow, and the npm lockfile graph size limit is a setting. \
+Next release: Files with findings show a vulnerability count in the project tree, vulnerable lines show the advisory and fixed version, and Preview Upgrade opens a diff first; Maven and Gradle versions come from the dependency graph the IDE already resolved, and mvn or gradle runs after a scan only when that setting is on and the IDE has none, and says once why it could not run; findings show where a dependency is declared, with Go to declaration and the chain for indirect ones, and a project without dependency files lists the supported ones; scans pyproject.toml, pylock.toml, uv.lock and poetry.lock, PyPI and Maven results show whether your code imports the package, and private-registry packages are never sent to OSV.dev; version parsing fixes for Yarn, pnpm, npm, Gradle and PyPI, quick fixes ask you to save first, palette row commands let you pick a dependency, messages name the permission to allow, ignored findings and window tabs have plainer names, and the npm lockfile graph size limit is a setting. \
 0.3.0: new hub window, dependency resolution and import-level evidence. \
 0.2.0: plugin icon, audit rows, and quick fix that audits every library sharing the bumped version."""
 categories = ["linters", "tools"]
@@ -57,17 +57,17 @@ category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "review-ignores"
-title = "Dependency Audit: Review scoped ignores"
+title = "Dependency Audit: Review Ignored Findings…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "export-ignores"
-title = "Dependency Audit: Export scoped ignores to project file"
+title = "Dependency Audit: Export Ignored Findings to Project File…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "import-ignores"
-title = "Dependency Audit: Import scoped ignores from project file"
+title = "Dependency Audit: Import Ignored Findings from Project File…"
 category = "Dependency Audit"
 
 [[contributes.menus]]

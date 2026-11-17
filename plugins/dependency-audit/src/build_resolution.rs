@@ -153,6 +153,21 @@ fn version_matches(tool: Tool, output: &str) -> bool {
                 == Some(tool.version())
         })
 }
+fn version_mismatch(tool: Tool, output: &str) -> Error {
+    let (prefix, name) = match tool {
+        Tool::Maven => ("Apache Maven ", "Maven"),
+        Tool::Gradle => ("Gradle ", "Gradle"),
+    };
+    let found = output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(prefix)?.split_whitespace().next())
+        .filter(|found| found.len() <= 64);
+    let needed = tool.version();
+    Error::Invalid(match found {
+        Some(found) => format!("Found {name} {found}; needs {name} {needed}. Install that version and try again."),
+        None => format!("Couldn't read the {name} version; needs {name} {needed}. Check that {} runs from the project folder.", tool.program()),
+    })
+}
 fn clean(value: &str) -> bool {
     !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
 }
@@ -260,7 +275,7 @@ fn parse_maven(root: &str, text: &str) -> Result<Evidence, Error> {
                 name,
                 version,
                 &format!(
-                    "Resolved Maven3.9.16 dependency:tree3.8.1; module {module}; scope {}. Root POM location, not an exact declaration span.",
+                    "Resolved Maven 3.9.16 dependency:tree 3.8.1; module {module}; scope {}. Root POM location, not an exact declaration span.",
                     tree["scope"].as_str().unwrap_or("unspecified")
                 ),
             )?;
@@ -341,7 +356,7 @@ fn parse_gradle(root: &str, configuration: &str, text: &str) -> Result<Evidence,
                 dep["name"].as_str().ok_or("Missing module")?,
                 dep["version"].as_str().ok_or("Missing version")?,
                 &format!(
-                    "Resolved Gradle9.9.1 {module} / {configuration}. Build-file location, not an exact declaration span."
+                    "Resolved Gradle 9.9.1 {module} / {configuration}. Build-file location, not an exact declaration span."
                 ),
             )?;
         }
@@ -523,9 +538,11 @@ impl State {
             Tool::Gradle => vec!["--version".into()],
         };
         require_saved(&root)?;
-        let version = project.run_process(tool.program(), &args, None)?;
+        let version = project
+            .run_process(tool.program(), &args, None)
+            .map_err(|e| ui_kit::denied::map(e, "Build dependency resolution", &format!("process:{}", tool.program()), "Dependency Audit"))?;
         if version.status != Some(0) || !version_matches(tool, &version.stdout) {
-            return Err(format!("This reviewed profile requires {} {}. Approve that exact official tool version before retrying.",tool.program(),tool.version()).into());
+            return Err(version_mismatch(tool, &version.stdout));
         }
         if ctx.project().ok_or(Error::Stale)?.root()? != root
             || source_files(&project, &root)? != before
@@ -908,7 +925,7 @@ mod tests {
         assert!(
             report.rows[0].sources[0]
                 .evidence
-                .contains("Resolved Maven3.9.16")
+                .contains("Resolved Maven 3.9.16")
         );
         let original = host::storage::get(&rows_key(&project).unwrap()).unwrap();
         let mut evidence=parse_maven("/project",r#"{"groupId":"fixture","artifactId":"project","version":"1","children":[{"groupId":"org.example","artifactId":"offline","version":"1"}]}"#).unwrap();
@@ -1034,6 +1051,21 @@ mod tests {
         assert!(version_matches(Tool::Gradle, "\nGradle 9.9.1\n"));
         assert!(!version_matches(Tool::Maven, "Apache Maven 4.0.0"));
         assert!(!version_matches(Tool::Gradle, "Gradle 9.0.0"));
+    }
+    #[test]
+    fn a_wrong_tool_version_says_what_was_found() {
+        let found = version_mismatch(Tool::Maven, "Apache Maven 3.8.1 (hash)").to_string();
+        assert!(found.contains("Found Maven 3.8.1; needs Maven 3.9.16"), "{found}");
+        let unreadable = version_mismatch(Tool::Gradle, "").to_string();
+        assert!(unreadable.contains("needs Gradle 9.9.1"), "{unreadable}");
+    }
+    #[test]
+    fn a_denied_build_tool_names_the_permission() {
+        let h = openidea_plugin::mock::MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read"]);
+        h.add_file("/project/pom.xml", "<project/> ");
+        h.answer_next_prompt(Some(&[]));
+        let error = State::default().start(&h.invocation(), false).unwrap_err().to_string();
+        assert!(error.contains("process:mvn permission"), "{error}");
     }
     fn resolver_host(extra: &[&str]) -> openidea_plugin::mock::MockHost {
         use openidea_plugin::{ProcessOutput, mock::MockHost};
