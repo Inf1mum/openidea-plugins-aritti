@@ -86,7 +86,8 @@ Each group can be turned off in [Settings](#settings).
 
 ### Navigate
 
-- **Go to Definition** links a config key with its `@ConfigProperty(name = "…")` injection, both ways.
+- **Go to Definition** links a config key with its `@ConfigProperty(name = "…")` injection, both ways. When several files match, all of them are listed.
+- A gutter icon on `@ConfigProperty(name = "…")` opens the key in the module's `application*.properties|yaml` files, profile files such as `application-dev.properties` included. On `@ConfigMapping(prefix = "…")` it lists every key below the prefix. On a config key it opens the `@ConfigProperty` injections of that key. With several targets the icon shows a list to pick from; with one it jumps straight there.
 - **Go to Definition** on `@Location("pages/home.html")` of a `Template` field opens that template.
 - Java code lenses and document symbols show JAX-RS mappings and scheduler triggers. Click a lens to see the full effective path, built from `quarkus.http.root-path`, `@ApplicationPath` or `quarkus.rest.path`, and the class and method `@Path`.
 
@@ -202,7 +203,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - No full dependency metadata; keys from extensions outside the bundled and selected set are unknown.
 - Only part of the MicroProfile/Quarkus language-server feature set: no code lens beyond literal mappings, broader Java definition or diagnostics, or JAX-RS symbols.
 - No in-IDE project wizard (use code.quarkus.io), debugger auto-attach to Dev Mode or run dashboard.
-- No scoped usages or Rename, and no `@ConfigMapping` or profile gutter associations.
+- No scoped usages or Rename. Keys with a `%profile.` prefix and `@ConfigMapping` members get no gutter icon.
 - `@ConfigMapping` navigation is limited to same-file groups.
 - Nonstandard, generated or test layouts aren't supported.
 - No complete Qute type/member resolution and no template Rename.
@@ -232,7 +233,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **Quick fixes.** **Add @RegisterRestClient** adds the import, writes the annotation fully qualified at the declaration, preserves imports and rechecks the unique fresh target. **Add key to application.properties** re-reads bounded target keys and refuses unsupported spellings or existing keys.
 
-**Config key ↔ `@ConfigProperty` navigation.** Links a plain config leaf key with its one exact literal Java `@ConfigProperty(name = "…")` injection name. Annotation ownership needs the explicit MicroProfile import with no conflicting import or local type; dynamic, escaped, concatenated, generic-shadowed and unknown names stay quiet. Parent YAML nodes, profiles, named instances, derived `@ConfigMapping` member associations and placeholders are excluded. No anchors are registered for the host's automatic Rename. Source facts live 120 seconds. Bounds: 128 KiB input, 64 Java types, 128 bracket nesting, 512 declarations per file, 512 cached files and 4,096 candidate records per lookup. Duplicate targets yield no result.
+**Config key ↔ `@ConfigProperty` navigation.** Links a plain config leaf key with its one exact literal Java `@ConfigProperty(name = "…")` injection name. Annotation ownership needs the explicit MicroProfile import with no conflicting import or local type; dynamic, escaped, concatenated, generic-shadowed and unknown names stay quiet. Parent YAML nodes, profiles, named instances, derived `@ConfigMapping` member associations and placeholders are excluded. No anchors are registered for the host's automatic Rename. Source facts live 120 seconds. Bounds: 128 KiB input, 64 Java types, 128 bracket nesting, 512 declarations per file, 512 cached files and 4,096 candidate records per lookup. Every exact match in the module is returned, so a key injected in several places lists all of them. Gutter icons use the same cached facts: one marker per target on the key's line, at most 200 per line, and nothing while the cache is cold. A `@ConfigMapping` prefix links to cached keys that start with `prefix.`, never to derived member names.
 
 **`@Location` navigation.** Works on the exact unescaped `@Location` value of a non-static, source-proved Quarkus `Template` field. Only explicit portable ASCII `.html`/`.txt` paths below conventional `src/main/resources/templates` are linked: no suffix guessing, fragments, custom roots, implicit field naming or CheckedTemplate lookup. At most 256 template paths and 16 module inventories are warmed by events; inventories expire after 30 seconds. Provider requests perform no file discovery or reads.
 
