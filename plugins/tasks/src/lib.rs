@@ -1014,7 +1014,12 @@ fn add_repository(project: &Project) -> Result<(), Error> {
         return Ok(());
     };
 
-    if !repository.contains('/') {
+    let valid = match kind.as_str() {
+        "gitlab" => repository.contains('/'),
+        _ => trackers::valid_repo(&repository),
+    };
+
+    if !valid {
         return Err("Enter the repository as owner/name.".into());
     }
 

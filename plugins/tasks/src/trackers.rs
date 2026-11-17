@@ -188,7 +188,33 @@ fn issue_api(task: &Task) -> Result<(&'static Tracker, &str), Error> {
     let tracker = TRACKERS.iter().find(|t| Some(t.id) == task.tracker.as_deref()).ok_or("The task isn't a tracker issue.")?;
     let api = task.api.as_deref().ok_or("The issue has no API address. Update issues and try again.")?;
 
+    if expected_origin(tracker).as_deref() != Some(origin(api)) {
+        return Err(format!("The issue's API address isn't on the configured {} server. Update issues and try again.", tracker.name).into());
+    }
+
     Ok((tracker, api))
+}
+
+/// Where a tracker's credentials may be sent; `None` when the tracker has no such server.
+pub fn expected_origin(tracker: &Tracker) -> Option<String> {
+    match tracker.id {
+        "github" => Some("https://api.github.com".into()),
+        "gitlab" => Some("https://gitlab.com".into()),
+        "forgejo" => Some("https://codeberg.org".into()),
+        "trello" => Some("https://api.trello.com".into()),
+        "youtrack" => site("youtrackHost", "YouTrack").ok().map(|s| format!("https://{s}")),
+        "jira" => site("jiraHost", "Jira").ok().map(|s| format!("https://{s}")),
+        "lighthouse" => site("lighthouseHost", "Lighthouse").ok().map(|s| format!("https://{s}")),
+        _ => None,
+    }
+}
+
+/// `owner/name`: exactly two segments of `[A-Za-z0-9._-]+`, neither `.` nor `..`.
+pub fn valid_repo(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('/').collect();
+
+    parts.len() == 2
+        && parts.iter().all(|p| !p.is_empty() && !matches!(*p, "." | "..") && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)))
 }
 
 /// The repositories added in the Tasks view, else the setting, else the remote's.
@@ -289,6 +315,10 @@ fn forgejo(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
         return Err("No codeberg.org remote. Set the repository in Settings › Plugins › Tasks.".into());
     }
 
+    if let Some(bad) = repos.iter().find(|r| !valid_repo(r)) {
+        return Err(format!("\"{bad}\" isn't a Codeberg repository. Use owner/name.").into());
+    }
+
     let search = scope.query.map(|q| format!("&q={}", encode(q))).unwrap_or_default();
     let mut found = Vec::new();
 
@@ -330,8 +360,8 @@ fn youtrack(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
             "youtrack",
             id,
             issue["summary"].as_str()?,
-            &format!("https://{site}/issue/{id}"),
-            &format!("https://{site}/api/issues/{id}"),
+            &format!("https://{site}/issue/{}", encode(id)),
+            &format!("https://{site}/api/issues/{}", encode(id)),
         ))
     }))
 }
@@ -478,8 +508,8 @@ fn jira_page(tracker: &Tracker, scope: &Scope, cursor: Option<&str>) -> Result<S
             "jira",
             key,
             issue["fields"]["summary"].as_str()?,
-            &format!("https://{site}/browse/{key}"),
-            &format!("https://{site}/rest/api/3/issue/{key}"),
+            &format!("https://{site}/browse/{}", encode(key)),
+            &format!("https://{site}/rest/api/3/issue/{}", encode(key)),
         ))
     });
     if issues.len() != raw.len() {
@@ -604,7 +634,18 @@ fn site(key: &str, tracker: &str) -> Result<String, Error> {
     let value = setting(key).ok_or_else(|| format!("Set the {tracker} host in Settings › Plugins › Tasks."))?;
     let value = value.split_once("://").map_or(value.as_str(), |(_, rest)| rest);
 
-    Ok(value.split('/').next().unwrap_or_default().to_ascii_lowercase())
+    let host = value.split('/').next().unwrap_or_default().to_ascii_lowercase();
+    let allowed = match key {
+        "youtrackHost" => cloud_host(&host, ".youtrack.cloud") || self_hosted_host(&host),
+        "jiraHost" => cloud_host(&host, ".atlassian.net"),
+        _ => true,
+    };
+
+    if !allowed {
+        return Err(format!("The {tracker} host in the {key} setting isn't a valid {tracker} host. Fix it in Settings › Plugins › Tasks.").into());
+    }
+
+    Ok(host)
 }
 
 /// `https://host` of an API address.
@@ -938,6 +979,7 @@ mod tests {
     fn closes_a_jira_issue_through_its_done_transition() {
         let host = MockHost::install().with_capabilities(&["secrets", "net:acme.atlassian.net"]);
         host.set_secret("jira-token", "Zm9v");
+        host.set_setting("jiraHost", "\"acme.atlassian.net\"");
         respond(
             &host,
             r#"{"transitions":[{"id":"11","to":{"statusCategory":{"key":"indeterminate"}}},{"id":"31","to":{"statusCategory":{"key":"done"}}}]}"#,
@@ -959,10 +1001,66 @@ mod tests {
         assert!(requests[1].headers.contains(&("Authorization".into(), "Basic Zm9v".into())));
     }
 
+    fn no_repositories() -> BTreeMap<String, Vec<String>> {
+        BTreeMap::new()
+    }
+
+    #[test]
+    fn update_issues_refuses_non_atlassian_jira_host() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        host.set_secret("jira-token", "Zm9v");
+        host.set_setting("jiraHost", "\"evil.test\"");
+        respond(&host, r#"{"issues":[]}"#);
+
+        let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &no_repositories() });
+
+        assert!(host.requests().is_empty());
+        assert!(fetched.errors[0].contains("jiraHost"), "{:?}", fetched.errors);
+    }
+
+    #[test]
+    fn close_issue_refuses_foreign_api_origin() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        host.set_secret("github-token", "t");
+        respond(&host, "{}");
+        let task = Task::issue("github", "r-1", "Bug", "https://github.com/a/r/issues/1", "https://evil.test/repos/a/r/issues/1");
+
+        assert!(close_issue(&task).is_err());
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn forgejo_repo_must_be_owner_slash_name() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        host.set_secret("forgejo-token", "t");
+        host.set_setting("forgejoRepository", "\"a/b/../../x\"");
+        respond(&host, "[]");
+
+        let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &no_repositories() });
+
+        assert!(host.requests().is_empty());
+        assert_eq!(fetched.errors.len(), 1);
+        assert!(valid_repo("acme/tool.rs"));
+        assert!(!valid_repo("a/b/c") && !valid_repo("../x") && !valid_repo("a/b?x"));
+    }
+
+    #[test]
+    fn jira_key_encoded_in_path() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        host.set_secret("jira-token", "Zm9v");
+        host.set_setting("jiraHost", "\"acme.atlassian.net\"");
+        respond(&host, r#"{"issues":[{"key":"A-1/../x","fields":{"summary":"s"}}]}"#);
+
+        let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &no_repositories() });
+
+        assert_eq!(fetched.issues[0].api.as_deref(), Some("https://acme.atlassian.net/rest/api/3/issue/A-1%2F..%2Fx"));
+    }
+
     #[test]
     fn posts_youtrack_work_items_in_minutes() {
         let host = MockHost::install().with_capabilities(&["secrets", "net:acme.youtrack.cloud"]);
         host.set_secret("youtrack-token", "perm:x");
+        host.set_setting("youtrackHost", "\"acme.youtrack.cloud\"");
         respond(&host, "");
         let task =
             Task::issue("youtrack", "X-1", "Crash", "https://acme.youtrack.cloud/issue/X-1", "https://acme.youtrack.cloud/api/issues/X-1");
