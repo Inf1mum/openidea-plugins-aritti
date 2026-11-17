@@ -2420,7 +2420,7 @@ fn generators_without_write_access_show_a_notice() {
     host.open_editor("/project/src/main/java/com/acme/Orders.java", "java", ORDERS, &[(3, 0, 3, 0)]);
     run(&host, "generate-autowired-dependency", &[&["0"], &["ok"]]).unwrap();
     assert_eq!(host.editor_text(), ORDERS);
-    assert!(host.notifications()[0].body.contains("Allow editor changes"));
+    assert!(host.notifications()[0].body.contains("editor.write permission"));
 }
 
 #[test]

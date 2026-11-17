@@ -68,7 +68,7 @@ impl KubeExplorer {
         match editor.apply_edits(document.version, &edits) {
             Ok(_) => {}
             Err(Error::Denied(_)) => {
-                host::notify(NotificationLevel::Warning, "Reload from cluster", "Allow editor changes for Kube Explorer in Settings › Plugins to reload a manifest.");
+                host::notify(NotificationLevel::Warning, "Reload from cluster", &ui_kit::denied::message("Reloading a manifest", "editor.write", "Kube Explorer"));
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -142,6 +142,6 @@ mod tests {
         host.open_editor("/p/web.yaml", "yaml", FILE, &[(0, 0, 0, 0)]);
         KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap();
         assert_eq!(host.editor_text(), FILE);
-        assert!(host.notifications()[0].body.contains("Allow editor changes"));
+        assert!(host.notifications()[0].body.contains("editor.write permission"));
     }
 }

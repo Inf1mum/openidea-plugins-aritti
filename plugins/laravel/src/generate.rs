@@ -324,10 +324,10 @@ pub(super) fn run_with(
             state.pending.borrow_mut().push((id, key, root, full));
             Ok(())
         }
-        Err(Error::Denied(_)) => Err(crate::ui_text::format(
-            "generator.legacy.allowProcess",
-            "Allow the process:{program} capability in Settings › Plugins.",
-            &[("program", runner.name())],
+        Err(Error::Denied(_)) => Err(ui_kit::denied::message(
+            "Running artisan",
+            &format!("process:{}", runner.name()),
+            "Laravel",
         )
         .into()),
         Err(error) => Err(error),

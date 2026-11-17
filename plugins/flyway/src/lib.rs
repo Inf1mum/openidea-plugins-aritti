@@ -34,6 +34,7 @@ use config::{Config, is_flyway_config, load, location_glob, migration_files, ven
 use naming::{Kind, Name, next_version, parse, version_key};
 
 const TITLE: &str = "Flyway";
+const PLUGIN: &str = "Flyway Migrations";
 
 #[derive(Default)]
 pub struct Flyway {
@@ -198,7 +199,8 @@ impl Flyway {
                 NotificationLevel::Warning,
                 TITLE,
                 &format!(
-                    "Next migration: {next}<description>{suffix} in {directory}. Allow the clipboard for Flyway Migrations in Settings › Plugins to copy it."
+                    "Next migration: {next}<description>{suffix} in {directory}. {}",
+                    ui_kit::denied::message("Copying it", "clipboard", PLUGIN)
                 ),
             ),
             Err(e) => return Err(e),
@@ -214,7 +216,7 @@ impl Flyway {
                 host::notify(
                     NotificationLevel::Warning,
                     TITLE,
-                    &format!("Allow running {program} for Flyway Migrations in Settings › Plugins."),
+                    &ui_kit::denied::message("Running Flyway", &format!("process:{program}"), PLUGIN),
                 );
             }
             Err(error) => return Err(error),
@@ -692,7 +694,7 @@ mod tests {
         assert_eq!(Flyway::default().run_command("copy-next-version", &host.invocation(), None).unwrap(), None);
         assert_eq!(
             host.notifications()[0].body,
-            "Next migration: V8__<description>.sql in src/main/resources/db/migration. Allow the clipboard for Flyway Migrations in Settings › Plugins to copy it."
+            "Next migration: V8__<description>.sql in src/main/resources/db/migration. Copying it needs the clipboard permission. Allow it in Settings › Plugins › Flyway Migrations."
         );
     }
 
@@ -745,7 +747,7 @@ mod tests {
         let host = MockHost::install().with_capabilities(&["project.read", "events"]);
         host.answer_next_prompt(Some(&["yes"]));
         assert_eq!(Flyway::default().run_command("validate", &host.invocation(), None).unwrap(), None);
-        assert_eq!(host.notifications()[0].body, "Allow running flyway for Flyway Migrations in Settings › Plugins.");
+        assert_eq!(host.notifications()[0].body, "Running Flyway needs the process:flyway permission. Allow it in Settings › Plugins › Flyway Migrations.");
     }
 
     #[test]
@@ -804,7 +806,7 @@ mod tests {
         match project.run_process(runner, &args, None) {
             Ok(output) => flyway.accept_info(&project, output, &execution::Redactor::default()),
             Err(Error::Denied(_)) => {
-                View::message(&format!("Allow running {runner} for Flyway Migrations in Settings › Plugins to list migrations."))
+                View::message(&ui_kit::denied::message("Listing migrations", &format!("process:{runner}"), PLUGIN))
             }
             Err(error) => View::message(&format!("Could not run {runner}: {error}")),
         }
@@ -874,7 +876,7 @@ mod tests {
         assert!(message(&host).contains("flyway"));
 
         let denied = MockHost::install().with_capabilities(&["project.read", "events"]);
-        assert_eq!(message(&denied), "Allow running flyway for Flyway Migrations in Settings › Plugins to list migrations.");
+        assert_eq!(message(&denied), "Listing migrations needs the process:flyway permission. Allow it in Settings › Plugins › Flyway Migrations.");
     }
 
     #[test]

@@ -339,7 +339,7 @@ impl Main {
                 "binary-help",
                 "DDEV executable",
                 FieldValue::readonly_text(
-                    "Settings > Plugins > DDEV Integration > process:ddev lets you choose and approve the executable globally or for this project. All DDEV commands, logs and execution targets use that host-approved choice.",
+                    "Settings › Plugins › DDEV Integration › process:ddev lets you choose and approve the executable globally or for this project. All DDEV commands, logs and execution targets use that host-approved choice.",
                     true,
                 ),
             ),
@@ -520,7 +520,8 @@ impl Main {
                 lines.join("\n")
             }
             Err(error) => format!(
-                "Cannot run the DDEV environment check: {error}\nAllow process:ddev in Settings > Plugins and verify that DDEV is installed."
+                "Cannot run the DDEV environment check: {error}\n{} Also verify that DDEV is installed.",
+                ui_kit::denied::message("The DDEV environment check", "process:ddev", "DDEV Integration")
             ),
         };
         self.diagnostics = Some((project.root()?, text));

@@ -1210,7 +1210,7 @@ impl GitLab {
             "checkout" => {
                 let project = ctx.project().ok_or("No project is open.")?;
                 branch::checkout(&project, &repo.remote, mr).map_err(|e| match e {
-                    Error::Denied(_) => "Allow git for GitLab in Settings › Plugins to check out branches.".into(),
+                    Error::Denied(_) => ui_kit::denied::message("Checking out a branch", "process:git", "GitLab").into(),
                     e => e,
                 })
             }
@@ -1728,7 +1728,7 @@ impl GitLab {
             Err(Error::Denied(_)) => host::notify(
                 NotificationLevel::Warning,
                 "Worktree not added",
-                "Allow git for GitLab in Settings › Plugins to add worktrees.",
+                &ui_kit::denied::message("Adding a worktree", "process:git", "GitLab"),
             ),
             Err(e) => return Err(e),
         }

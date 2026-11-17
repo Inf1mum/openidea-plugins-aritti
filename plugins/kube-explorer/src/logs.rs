@@ -445,7 +445,7 @@ impl KubeExplorer {
                     Err(Error::Denied(_)) => host::notify(
                         NotificationLevel::Info,
                         "Copy logs",
-                        "Allow the optional clipboard capability to copy the shown lines.",
+                        &ui_kit::denied::message("Copying the shown lines", "clipboard", "Kube Explorer"),
                     ),
                     Err(error) => return Err(error),
                 }

@@ -63,7 +63,7 @@ impl Views for Main {
                     self.selected = None;
                     self.running.clear();
                     return Ok(status_view(&match error {
-                        Error::Denied(_) => "Allow the docker permission in Settings > Plugins to list the containers.".into(),
+                        Error::Denied(_) => ui_kit::denied::message("Listing containers", "process:docker", "Dev Container CLI"),
                         error => format!("Cannot list containers: {error}"),
                     }).button(Button::new("refresh", "Refresh").icon("refresh")));
                 }
@@ -254,7 +254,7 @@ impl openidea_plugin::details::Details for Main {
         }
         if key == STATUS_KEY {
             return Ok(vec![Tab::new("status", "Dev Containers", Pane::Message(
-                "This is an inventory status row, not a container. Open the owning project and allow Docker in Settings › Plugins, then Refresh. If the inventory is empty, use Dev Container: Start Container or choose a configuration.".into(),
+                "This is an inventory status row, not a container. Open the owning project and allow process:docker in Settings › Plugins › Dev Container CLI, then Refresh. If the inventory is empty, use Dev Container: Start Container or choose a configuration.".into(),
             ))]);
         }
         let project = self.bind_project(ctx)?;

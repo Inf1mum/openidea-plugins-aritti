@@ -199,7 +199,7 @@ pub fn generate(nav: &mut Navigator, ctx: &Invocation, kind: Generate) -> Result
     match editor.apply_edits(version, &edits) {
         Ok(_) => {}
         Err(Error::Denied(_)) => {
-            host::notify(NotificationLevel::Warning, TITLE, "Allow editor changes for Spring Beans in Settings › Plugins to add code.")
+            host::notify(NotificationLevel::Warning, TITLE, &ui_kit::denied::message("Adding code", "editor.write", "Spring Beans Navigator"))
         }
         Err(e) => return Err(e),
     }

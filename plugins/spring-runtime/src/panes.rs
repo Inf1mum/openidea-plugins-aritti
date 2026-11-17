@@ -426,7 +426,7 @@ impl Runtime {
         let task=host::begin_task("Sending local runtime mapping request",true);
         if task.is_cancelled(){return Err(Error::Cancelled)}
         let request=HttpRequest{method:method.clone(),url:url.clone(),headers,body:(!body.is_empty()).then(||body.into_bytes()),timeout_ms:Some(controls::timeout())};
-        let response=host::fetch(&request).map_err(|error|match error {Error::Denied(_)=>Error::Failed("Allow the declared local network capability to send this request.".into()),Error::Cancelled=>Error::Cancelled,_=>Error::Failed("The local request failed; no response was adopted.".into())})?;
+        let response=host::fetch(&request).map_err(|error|match error {Error::Denied(_)=>Error::Failed(ui_kit::denied::message("Sending this request","net:localhost","Spring Runtime Insight")),Error::Cancelled=>Error::Cancelled,_=>Error::Failed("The local request failed; no response was adopted.".into())})?;
         if task.is_cancelled(){return Err(Error::Cancelled)}
         controls::verify(&project,&scope)?;
         if Scope::current(&project)?!=scope {return Err(Error::Stale)}

@@ -110,7 +110,7 @@ impl KubeExplorer {
                 host::notify(
                     NotificationLevel::Info,
                     "Telepresence",
-                    "Allow the optional process:telepresence capability to run telepresence from here.",
+                    &ui_kit::denied::message("Running Telepresence", "process:telepresence", "Kube Explorer"),
                 );
                 Ok(())
             }

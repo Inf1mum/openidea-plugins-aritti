@@ -765,7 +765,7 @@ fn check_out_without_git_says_so() {
 
     plugin.handle(DETAILS, ViewEvent::Button("checkout".into()), &host.invocation()).unwrap();
 
-    assert_eq!(plugin.status.as_deref(), Some("Allow git for GitLab in Settings › Plugins to check out branches."));
+    assert_eq!(plugin.status.as_deref(), Some("Checking out a branch needs the process:git permission. Allow it in Settings › Plugins › GitLab."));
 }
 
 #[test]
@@ -1700,7 +1700,7 @@ mod worktree_tests {
 
         GitLab::default().run_command("open-merge-request-in-worktree", &host.invocation(), None).unwrap();
 
-        assert!(host.notifications()[0].body.contains("Allow git"));
+        assert!(host.notifications()[0].body.contains("process:git permission"));
     }
 
     #[test]

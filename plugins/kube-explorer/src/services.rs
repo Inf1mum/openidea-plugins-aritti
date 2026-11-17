@@ -226,7 +226,7 @@ impl KubeExplorer {
         let normalized = self.checked_tree_key(key)?;
         let key = normalized.as_str();
         if key == "kube:status" {
-            return Ok(vec![Tab::new("status","Kubernetes",Pane::Message("Allow kubectl in Settings › Plugins › Kube Explorer to browse clusters. Private kubeconfig import/review needs no connection; imported profiles are not activated automatically.".into()))]);
+            return Ok(vec![Tab::new("status","Kubernetes",Pane::Message(format!("{} Private kubeconfig import/review needs no connection; imported profiles are not activated automatically.", ui_kit::denied::message("Browsing clusters", "process:kubectl", "Kube Explorer"))))]);
         }
         let Some((kind, row)) = self.checked_resource(key)? else {
             let context = self

@@ -242,17 +242,18 @@ fn fetch_snapshot_guarded(url:&str,auth:&str,mut guard:impl FnMut()->Result<(),E
             Ok(r) => r,
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(Error::Denied(cap)) if cap == "secrets" => {
-                return Err(
-                    "The actuator-token secret needs the secrets permission. Allow it in Settings › Plugins, or set actuatorAuth to none."
-                        .into(),
-                );
+                return Err(format!(
+                    "{} Or set actuatorAuth to none.",
+                    ui_kit::denied::message("The actuator-token secret", "secrets", "Spring Runtime Insight")
+                )
+                .into());
             }
             Err(Error::Denied(cap)) => {
                 let cap=if matches!(cap.as_str(),"net:localhost"|"net:127.0.0.1"){cap.as_str()}else{"net:localhost"};
                 return Err(ui_kit::denied::message("Refreshing the runtime snapshot",cap,"Spring Runtime Insight").into());
             }
             Err(Error::NotFound(_)) if i == 0 && matches!(auth, "bearer" | "basic") && !host::secret_is_set("actuator-token") => {
-                return Err("Set the actuator-token secret in Settings › Plugins, or set actuatorAuth to none.".into());
+                return Err("Set the actuator-token secret in Settings › Plugins › Spring Runtime Insight, or set actuatorAuth to none.".into());
             }
             // The application isn't up: don't wait for every endpoint to time out.
             Err(_) if i == 0 => {

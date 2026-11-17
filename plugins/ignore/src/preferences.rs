@@ -134,7 +134,7 @@ impl State {
             "scope",
             "Scope and ownership",
             FieldValue::readonly_text(
-                "Application-global Ignore plugin preferences. Inherit uses Settings > Plugins scalar values. Explicit On/Off overrides them. This form changes Ignore's own behaviour. Built-in colouring, file types and the IDE's static New menu stay unchanged.",
+                "Application-global Ignore plugin preferences. Inherit uses Settings › Plugins › .ignore scalar values. Explicit On/Off overrides them. This form changes Ignore's own behaviour. Built-in colouring, file types and the IDE's static New menu stay unchanged.",
                 true,
             ),
         )];

@@ -729,7 +729,7 @@ impl KubeExplorer {
                     return Ok(View::new(Body::Tree(vec![
                         TreeItem::new("kube:status", "Kubernetes — permission required")
                             .icon(k8s!("cluster"))
-                            .detail("Allow kubectl in Settings › Plugins to browse. Private import/review needs no connection."),
+                            .detail(&format!("{} Private import/review needs no connection.", ui_kit::denied::message("Browsing Kubernetes", "process:kubectl", "Kube Explorer"))),
                     ])));
                 }
                 Err(_) => {
@@ -1200,7 +1200,7 @@ fn helm_repo_update() -> Result<(), Error> {
             host::notify(
                 NotificationLevel::Warning,
                 "Helm repositories not updated",
-                "Kube Explorer is not allowed to run helm. Allow it in Settings › Plugins.",
+                &ui_kit::denied::message("Updating Helm repositories", "process:helm", "Kube Explorer"),
             );
             return Ok(());
         }
@@ -1737,7 +1737,7 @@ impl Views for KubeExplorer {
                 // global CLI execution when its optional read grant is absent.
                 // Rendering remains usable as an inert explanation; events and
                 // commands retain their existing strict ownership checks.
-                Ok(View::message("Project access is unavailable. Allow the optional project.read permission in plugin settings to use Kubernetes for this project. Kubernetes can also run in a window with no open project.")
+                Ok(View::message(&format!("{} Kubernetes can also run in a window with no open project.", ui_kit::denied::message("Kubernetes for this project", "project.read", "Kube Explorer")))
                     .status("Project access unavailable"))
             }
             error => Err(error),

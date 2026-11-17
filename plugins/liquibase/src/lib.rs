@@ -142,7 +142,7 @@ fn run_liquibase(args: Vec<String>) -> Result<(), Error> {
     let title = format!("Liquibase {}", args.join(" "));
     match host::open_terminal(&title, "liquibase", &args) {
         Err(Error::Denied(_)) => {
-            host::notify(NotificationLevel::Warning, TITLE, "Allow running liquibase for Liquibase Changelogs in Settings › Plugins.");
+            host::notify(NotificationLevel::Warning, TITLE, &ui_kit::denied::message("Running Liquibase", "process:liquibase", TITLE));
             Ok(())
         }
         other => other,

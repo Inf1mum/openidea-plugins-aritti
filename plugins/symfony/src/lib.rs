@@ -1293,7 +1293,7 @@ impl Main {
             }
         }
         if descriptions.is_empty() {
-            return Err("No console commands found. Allow process:php in Settings › Plugins or define a command in the project.".into());
+            return Err("No console commands found. Allow process:php in Settings › Plugins › Symfony or define a command in the project.".into());
         }
 
         let items: Vec<PickItem> = descriptions

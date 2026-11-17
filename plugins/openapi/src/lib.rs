@@ -324,7 +324,7 @@ fn save_or_copy(target: &str, text: &str, what: &str) -> Result<Option<String>, 
         Err(Error::Denied(_)) => copy_or_explain(
             text,
             &format!("{what} copied to the clipboard."),
-            "Allow project file writing or the clipboard for OpenAPI in Settings › Plugins.",
+            &ui_kit::denied::message("Writing the file", "project.write", "OpenAPI"),
         ),
         Err(error) => Err(error),
     }
@@ -489,7 +489,7 @@ impl OpenApi {
         copy_or_explain(
             &reference,
             &format!("Copied {reference}"),
-            "Allow the clipboard for OpenAPI in Settings › Plugins to copy the reference.",
+            &ui_kit::denied::message("Copying the reference", "clipboard", "OpenAPI"),
         )
     }
 
