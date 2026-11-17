@@ -5,11 +5,11 @@
 
 use crate::{code, docker, ownership, parse};
 use openidea_plugin::{Error, Location, Project, Range, text};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::time::Instant;
 
-/// Env files read in each folder that looks like a project: the walk
-/// discovers hidden paths in API 1.3, but normal ignore rules still apply.
+/// Env files read in each folder that looks like a project. They are read
+/// directly, because the walk may skip gitignored files and `.env` usually is.
 pub const ENV_FILES: &[&str] = &[
     ".env",
     ".env.local",
@@ -34,7 +34,6 @@ pub const ENV_FILES: &[&str] = &[
 ];
 
 /// Files whose folder gets [`ENV_FILES`] looked up, besides the root.
-// Ignored, nonstandard env files elsewhere may remain unknown until opened or explicitly referenced.
 const MARKERS: &[&str] = &[
     "package.json",
     "composer.json",
@@ -55,7 +54,7 @@ const MARKERS: &[&str] = &[
     "compose.yaml",
 ];
 
-const CODE: &[&str] = &[
+pub(crate) const CODE: &[&str] = &[
     "php", "py", "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "svelte", "go", "rb", "rake", "rs", "java", "kt", "kts",
     "scala", "groovy", "cs",
 ];
@@ -83,7 +82,9 @@ pub struct Usage {
 
 #[derive(Default)]
 pub struct Index {
-    /// Built from the whole project, not just the root's env files.
+    /// The project was walked once; events only update single files after that.
+    pub walked: bool,
+    /// The walk saw everything: no cut-off, unreadable file or unresolved reference.
     pub complete: bool,
     pub declarations: Vec<Declaration>,
     pub usages: Vec<Usage>,
@@ -130,6 +131,19 @@ enum Source {
 
 pub fn folder_of(path: &str) -> &str {
     path.rsplit_once(['/', '\\']).map_or("", |(folder, _)| folder)
+}
+
+/// The value as completion and hover show it: keys that look like secrets are masked.
+pub fn shown_value<'a>(key: &str, value: &'a str) -> &'a str {
+    let key = key.to_ascii_uppercase();
+    match ["PASS", "SECRET", "TOKEN", "KEY", "CREDENTIAL"].iter().any(|word| key.contains(word)) {
+        true => "••••",
+        false => value,
+    }
+}
+
+pub fn is_secret_like(key: &str, value: &str) -> bool {
+    shown_value(key, value) != value
 }
 
 pub fn is_compose_file(path: &str) -> bool {
@@ -346,6 +360,7 @@ impl Index {
 
     fn add_ownership(&mut self, project: &Project, root: &str, compose_path: &str, text: &str) {
         let folder = folder_of(compose_path);
+        let mut seen_usages: Option<HashSet<(String, String, Range)>> = None;
         for service in ownership::compose_services(text) {
             for (file, line) in &service.env_files {
                 let Some(env_path) = confined_path(root, folder, file).filter(|_| !file.contains('$')) else { continue };
@@ -392,9 +407,9 @@ impl Index {
                                 self.arg_links.push(link);
                             }
                         }
-                        let usage = Usage { key: env_key.clone(), location };
-                        if !self.usages.contains(&usage) {
-                            self.usages.push(usage);
+                        let seen = seen_usages.get_or_insert_with(|| self.usages.iter().map(|u| (u.location.path.clone(), u.key.clone(), u.location.range)).collect());
+                        if seen.insert((location.path.clone(), env_key.clone(), location.range)) {
+                            self.usages.push(Usage { key: env_key.clone(), location });
                         }
                     }
                 }
@@ -451,27 +466,6 @@ impl Index {
         let discovery_complete = files.len() <= MAX_FILES as usize;
         files.truncate(MAX_FILES as usize);
         let discovered: BTreeSet<_> = files.iter().cloned().collect();
-        // Inventory obeys ignore rules. A configured ignore file means an
-        // unlisted nonstandard env source may exist, so absence is unknown.
-        // These probes run only during the warm project scan, never diagnostics.
-        let mut ignore_unknown = files.iter().any(|file| matches!(file_name(file), ".gitignore" | ".ignore"));
-        for name in [".gitignore", ".ignore", ".git/info/exclude"] {
-            if Instant::now() >= deadline {
-                return Self::default();
-            }
-            let path = format!("{}/{name}", root.trim_end_matches(['/', '\\']));
-            match project.read_file(&path) {
-                Ok(text) => {
-                    if text.len() > MAX_SOURCE_BYTES
-                        || text.lines().any(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
-                    {
-                        ignore_unknown = true;
-                    }
-                }
-                Err(Error::NotFound(_)) => {}
-                Err(_) => ignore_unknown = true,
-            }
-        }
         let mut folders = BTreeSet::from([root.trim_end_matches(['/', '\\']).to_owned()]);
         for file in &files {
             if MARKERS.contains(&file_name(file)) {
@@ -489,7 +483,7 @@ impl Index {
             .collect();
         paths.sort();
         paths.dedup();
-        let mut index = Self { complete: discovery_complete && !ignore_unknown, ..Self::default() };
+        let mut index = Self { walked: true, complete: discovery_complete, ..Self::default() };
         for (_, path) in paths {
             if Instant::now() >= deadline {
                 index.complete = false;
@@ -574,14 +568,14 @@ mod tests {
     }
 
     #[test]
-    fn ignored_inventory_does_not_prove_absence_but_keeps_known_declarations() {
+    fn ignore_files_do_not_imply_incompleteness() {
         let host = MockHost::install();
         host.set_project_root(Some("/p"));
         host.add_file(".env", "A=1\n");
         host.add_file(".gitignore", "*.env\n");
         let project = host.invocation().project().unwrap();
         let index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(5));
-        assert!(!index.complete);
+        assert!(index.complete && index.walked);
         assert!(index.declarations.iter().any(|d| d.key == "A"));
     }
 
