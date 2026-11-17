@@ -37,7 +37,7 @@ Each diagram can zoom (50–200%), highlight the selected node and show its sour
 - **Go to Definition** on a channel name opens its declarations. If nothing declares it, it opens the endpoints that consume it, because Spring Integration creates input channels on demand.
 - Go to Definition on an XML `ref` opens the bean (XML `<bean id>` or a Java/Kotlin bean name).
 - **Completion** of known channel names, and of bean names in `ref`.
-- **Gutter arrows**: a consuming endpoint points to the producers that send to its channel. A producing endpoint points to its consumers.
+- **Gutter arrows**: a consuming endpoint points to the producers that send to its channel. A producing endpoint points to its consumers. With several, the arrow opens a chooser.
 - **Hover** on an XML channel ID or reference, or on a Java `MessageChannel` `@Bean` method, shows where it's declared and how often the file uses it.
 - **Warnings** for an output channel that nothing consumes or declares, and for a `ref` to a bean the project doesn't declare.
 - **SpEL and XPath syntax checks** on literal expressions in Integration XML (`expression`, `value-expression`, `selector-expression` and the other `*-expression` attributes), in Java DSL filter/route/transform/split strings, and in `int-xml` XPath expressions. `@bean` references in SpEL navigate to the bean.
