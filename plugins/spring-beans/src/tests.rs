@@ -263,29 +263,73 @@ fn primary_wins_between_candidates() {
 
 #[test]
 fn beans_show_where_they_are_injected() {
-    use openidea_plugin::language_features::LanguageFeatures;
-    let host = setup();
+    let _host = setup();
     let mut n = warmed_navigator();
-    let path = java("AppConfig.java", CONFIG).path;
-    host.open_editor(&path, "java", CONFIG, &[(5, 0, 5, 0)]);
-    let editor = host.invocation().editor().unwrap();
-    let current = editor.document().unwrap();
-    let doc = Document {path, language: "java".into(), text: current.text, version: current.version};
-    let action = n.gutter_actions(&doc).into_iter().find(|a| a.line == 5).unwrap();
-    assert!(action.tooltip.contains("7 cached Spring source targets"), "{}", action.tooltip);
-    assert!(n.checked_markers(&doc).iter().all(|m| m.line != 5 || m.icon.as_deref() != Some(BEAN_MARKER)));
-    let selected = n.with_doc(&doc, |world, model| {
-        let bean = model.beans.iter().find(|b| b.range.start.line == 5).unwrap();
-        let users = world.users(&doc.path, bean);
-        let names: BTreeSet<_> = users.iter().map(|(_, name)| name.as_str()).collect();
-        assert_eq!(names, BTreeSet::from(["legacy", "mail", "reportService", "sms", "userController"]));
-        users.iter().position(|(location, _)| location.path.ends_with("/UserController.java")).unwrap().to_string()
-    });
-    host.answer_next_prompt(Some(&[&selected]));
-    n.run_command(&action.command, &host.invocation(), action.argument.as_deref()).unwrap();
-    let opened = host.opened_locations();
-    assert_eq!(opened.len(), 1);
-    assert!(opened[0].0.ends_with("/UserController.java"));
+    let doc = java("AppConfig.java", CONFIG);
+    let on_bean: Vec<_> = n.checked_markers(&doc).into_iter().filter(|m| m.line == 5 && m.icon.as_deref() == Some(BEAN_MARKER)).collect();
+    let into: BTreeSet<_> = on_bean.iter().map(|m| m.tooltip.as_str()).collect();
+    assert_eq!(
+        into,
+        BTreeSet::from(["Injected into legacy", "Injected into mail", "Injected into reportService", "Injected into sms", "Injected into userController"])
+    );
+    assert_eq!(on_bean.len(), 6, "one marker per injection point, joined by the IDE into one popup");
+    assert!(on_bean.iter().any(|m| m.target.as_ref().is_some_and(|t| t.path.ends_with("/UserController.java"))));
+}
+
+const CONSUMER: &str = "package shop;\n@org.springframework.stereotype.Service class Consumer {\n @org.springframework.beans.factory.annotation.Autowired ServiceType service;\n @org.springframework.beans.factory.annotation.Autowired Only only;\n}";
+
+fn ambiguous_setup() -> (MockHost, Navigator, Document) {
+    let host = MockHost::install();
+    host.add_file("src/main/java/shop/Consumer.java", CONSUMER);
+    host.add_file("src/main/java/shop/ServiceType.java", "package shop; interface ServiceType {}");
+    host.add_file("src/main/java/shop/First.java", "package shop; @org.springframework.stereotype.Service(\"first\") class First implements ServiceType {}");
+    host.add_file("src/main/java/shop/Second.java", "package shop; @org.springframework.stereotype.Service(\"second\") class Second implements ServiceType {}");
+    host.add_file("src/main/java/shop/Only.java", "package shop; @org.springframework.stereotype.Service class Only {}");
+    let navigator = warmed_navigator();
+    (host, navigator, doc("/project/src/main/java/shop/Consumer.java", CONSUMER))
+}
+
+/// The text a marker's target covers in the project file it points to.
+fn covered(host: &MockHost, marker: &LineMarker) -> String {
+    let target = marker.target.as_ref().unwrap();
+    let text = host.invocation().project().unwrap().read_file(&target.path).unwrap();
+    let (from, to) = (offset(&text, target.range.start).unwrap(), offset(&text, target.range.end).unwrap());
+    text[from..to].to_owned()
+}
+
+#[test]
+fn ambiguous_injection_marks_every_candidate_on_its_line() {
+    let (host, mut navigator, doc) = ambiguous_setup();
+    let markers = navigator.line_markers(&doc);
+    let line: Vec<_> = markers.iter().filter(|m| m.line == 2).collect();
+    assert!(line.iter().all(|m| m.icon.as_deref() == Some(BEAN_MARKER)), "one icon, so the IDE joins them into one popup");
+    let mut tips: Vec<_> = line.iter().map(|m| m.tooltip.as_str()).collect();
+    tips.sort();
+    assert_eq!(tips, ["Candidate bean: first (@Service)", "Candidate bean: second (@Service)"]);
+    let mut targets: Vec<_> = line.iter().map(|m| covered(&host, m)).collect();
+    targets.sort();
+    assert_eq!(targets, ["First", "Second"], "targets sit on the bean's class name, never an empty range");
+    assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn single_candidate_keeps_one_direct_marker() {
+    let (host, mut navigator, doc) = ambiguous_setup();
+    let markers = navigator.line_markers(&doc);
+    let line: Vec<_> = markers.iter().filter(|m| m.line == 3).collect();
+    assert_eq!(line.len(), 1);
+    assert_eq!(line[0].tooltip, "Injected bean: only (@Service)");
+    assert_eq!(covered(&host, line[0]), "Only");
+}
+
+#[test]
+fn line_targets_are_bounded_and_say_so() {
+    let marker = |n: usize| LineMarker { line: 0, icon: None, tooltip: format!("t{n}"), target: None };
+    let mut markers: Vec<_> = (0..MAX_LINE_TARGETS + 1).map(marker).collect();
+    bounded(&mut markers[..], MAX_LINE_TARGETS);
+    assert_eq!(markers[1].tooltip, "t1");
+    bounded(&mut markers[..], MAX_LINE_TARGETS + 5);
+    assert_eq!(markers[1].tooltip, "t1 (1000 of 1005 shown)");
 }
 
 #[test]
