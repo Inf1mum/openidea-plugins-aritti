@@ -146,9 +146,10 @@ pub fn lenses(state: &mut State, doc: &Document) -> Vec<CodeLens> {
     }
     for a in edges.definitions.iter().take(64) {
         if let Some(token) = lease(state, doc, &a.key, a.range) {
+            let count = spans(&edges, &a.key).len();
             out.push(CodeLens {
                 range: a.range,
-                title: format!("{} local source occurrences", spans(&edges, &a.key).len()),
+                title: if count == 1 { "1 occurrence in this file".into() } else { format!("{count} occurrences in this file") },
                 command: "source-symbol-occurrences".into(),
                 argument: Some(token),
             });
@@ -652,6 +653,7 @@ mod tests {
         );
         assert_eq!(plugin.document_highlights(&d, at).len(), 2);
         let lens = plugin.code_lenses(&d).remove(0);
+        assert_eq!(lens.title, "2 occurrences in this file");
         host.answer_next_prompt(Some(&["1"]));
         plugin
             .run_command(
