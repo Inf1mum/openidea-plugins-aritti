@@ -599,17 +599,28 @@ impl KubeExplorer {
             };
         }
         let live = self.kubectl(&["get", "-f", "-", "-o", "yaml", "--ignore-not-found", REQUEST_TIMEOUT], Some(manifest))?;
+        let planned = self.process(KUBECTL, &self.args(&DIFF_DRY_RUN), Some(manifest))?;
         let name = path.rsplit('/').next().unwrap_or(path);
         let new = live.trim().is_empty();
+        let (right, right_label, fallback) = match planned.status {
+            Some(0) => (cluster_objects(&planned.stdout).unwrap_or(planned.stdout), format!("After apply, server dry run ({name})"), String::new()),
+            // Validation, an admission webhook or read-only RBAC can refuse the dry run; the file still compares.
+            _ => {
+                let local = convert::source_documents(manifest).and_then(normalized_objects).unwrap_or_else(|| manifest.to_owned());
+                let reason = planned.stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("no details").trim().to_owned();
+                (local, format!("Local ({name})"), format!(" The server dry run failed ({reason}), so the file is shown as written."))
+            }
+        };
         let diff = FileDiff {
-            left: (!new).then_some(live),
-            right: Some(manifest.to_owned()),
+            left: (!new).then(|| cluster_objects(&live).unwrap_or(live)),
+            right: Some(right),
             left_label: Some(format!("Cluster ({})", self.target())),
-            right_label: Some(format!("Local ({name})")),
+            right_label: Some(right_label),
             title: Some(format!("{name}: cluster and local")),
         };
         host::open_file_diff(&diff, Some(name))?;
-        Ok(if new { "These resources are not in the cluster yet." } else { "The diff with the cluster is open." }.into())
+        let opened = if new { "These resources are not in the cluster yet." } else { "The diff with the cluster is open." };
+        Ok(format!("{opened}{fallback}"))
     }
 
     /// `context/namespace` the cluster calls go to, for messages.
@@ -1400,6 +1411,84 @@ fn chart_dir(ctx: &Invocation, file: &str) -> Result<String, Error> {
 /// True when every document names a kind and none is a Secret or a List (which could hold one).
 fn secret_free(manifest: &str) -> bool {
     manifest::documents(manifest).iter().all(|doc| doc.kind.as_ref().is_some_and(|kind| kind.text != "Secret" && !kind.text.ends_with("List")))
+}
+
+/// What `kubectl apply` would store, computed by the server and never persisted.
+const DIFF_DRY_RUN: [&str; 7] = ["apply", "--dry-run=server", "-f", "-", "-o", "yaml", REQUEST_TIMEOUT];
+
+const SERVER_FIELDS: [&str; 6] = ["managedFields", "resourceVersion", "uid", "creationTimestamp", "generation", "selfLink"];
+
+/// kubectl `-o yaml` output (one object or a List) as [`normalized_objects`].
+fn cluster_objects(text: &str) -> Option<String> {
+    if text.len() > 16 * MAX_BYTES {
+        return None;
+    }
+
+    normalized_objects(yaml_rust2::YamlLoader::load_from_str(text).ok()?)
+}
+
+/// One document per object (List items flattened) ordered by kind, namespace and name, keys sorted,
+/// without status and server bookkeeping, so the cluster and the file line up field by field.
+fn normalized_objects(docs: Vec<yaml_rust2::Yaml>) -> Option<String> {
+    use yaml_rust2::Yaml;
+    let mut objects = Vec::new();
+    for doc in docs {
+        let list = doc["kind"].as_str().is_some_and(|kind| kind.ends_with("List"));
+        match doc {
+            Yaml::Null => {}
+            Yaml::Hash(mut fields) if list => objects.extend(fields.remove(&Yaml::String("items".into()))?.into_vec()?),
+            Yaml::Hash(_) => objects.push(doc),
+            _ => return None,
+        }
+    }
+    let sort_key = |object: &Yaml| [&object["kind"], &object["metadata"]["namespace"], &object["metadata"]["name"]].map(|v| v.as_str().unwrap_or_default().to_owned());
+    objects.sort_by_cached_key(sort_key);
+    let mut out = String::new();
+    for object in objects {
+        let mut emitter = yaml_rust2::YamlEmitter::new(&mut out);
+        emitter.multiline_strings(true);
+        emitter.dump(&sorted_keys(without_server_fields(object)?, 0)?).ok()?;
+        out.push('\n');
+    }
+    Some(out.strip_prefix("---\n").unwrap_or(&out).to_owned())
+}
+
+fn without_server_fields(object: yaml_rust2::Yaml) -> Option<yaml_rust2::Yaml> {
+    use yaml_rust2::Yaml;
+    let key = |name: &str| Yaml::String(name.into());
+    let Yaml::Hash(mut fields) = object else { return None };
+    fields.remove(&key("status"));
+    if let Some(Yaml::Hash(metadata)) = fields.get_mut(&key("metadata")) {
+        for field in SERVER_FIELDS {
+            metadata.remove(&key(field));
+        }
+        let mut no_annotations = false;
+        if let Some(Yaml::Hash(annotations)) = metadata.get_mut(&key("annotations")) {
+            annotations.remove(&key("kubectl.kubernetes.io/last-applied-configuration"));
+            no_annotations = annotations.is_empty();
+        }
+        if no_annotations {
+            metadata.remove(&key("annotations"));
+        }
+    }
+    Some(Yaml::Hash(fields))
+}
+
+fn sorted_keys(value: yaml_rust2::Yaml, depth: usize) -> Option<yaml_rust2::Yaml> {
+    use yaml_rust2::Yaml;
+    if depth > 64 {
+        return None;
+    }
+
+    Some(match value {
+        Yaml::Hash(fields) => {
+            let mut entries: Vec<_> = fields.into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Yaml::Hash(entries.into_iter().map(|(k, v)| Some((k, sorted_keys(v, depth + 1)?))).collect::<Option<_>>()?)
+        }
+        Yaml::Array(items) => Yaml::Array(items.into_iter().map(|v| sorted_keys(v, depth + 1)).collect::<Option<_>>()?),
+        other => other,
+    })
 }
 
 /// A terminal session key (at most 128 bytes) for an action, context and argv.
@@ -2886,7 +2975,7 @@ mod tests {
         host.answer_next_prompt(Some(&["diff"]));
         assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
 
-        assert!(!kubectl_calls(&host).iter().any(|args| args.contains(&"apply".to_owned())));
+        assert!(!kubectl_calls(&host).iter().any(|args| args.contains(&"apply".to_owned()) && !args.contains(&"--dry-run=server".to_owned())));
         let (diff, name) = &host.opened_diffs()[0];
         assert_eq!(diff.left.as_deref(), Some("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n"));
         assert_eq!(diff.left_label.as_deref(), Some("Cluster (minikube/(default))"));
@@ -2897,9 +2986,12 @@ mod tests {
     #[test]
     fn diff_shows_a_new_resource_alone_and_keeps_secrets_masked() {
         let host = host();
-        host.on_process(KUBECTL, |args, _| {
+        host.on_process(KUBECTL, |args, stdin| {
             if args.contains(&"diff".to_owned()) {
                 return Ok(ProcessOutput { status: Some(1), stdout: "+ data: ***\n".into(), stderr: String::new() });
+            }
+            if args.contains(&"--dry-run=server".to_owned()) {
+                return ok(stdin.unwrap_or_default());
             }
             ok(if args.contains(&"current-context".to_owned()) { "minikube\n" } else { "" })
         });
@@ -2909,9 +3001,70 @@ mod tests {
         assert!(diff.left.is_none() && diff.right.as_deref().is_some_and(|r| r.contains("ConfigMap")));
 
         host.open_editor("/project/secret.yaml", "yaml", "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n", &[]);
+        let before = kubectl_calls(&host).len();
         KubeExplorer::default().run_command("diff", &host.invocation(), None).unwrap();
         assert_eq!(host.opened_diffs().len(), 1);
-        assert!(kubectl_calls(&host).last().unwrap().contains(&"diff".to_owned()));
+        let secret_calls = kubectl_calls(&host).split_off(before);
+        assert_eq!(secret_calls.len(), 1, "{secret_calls:?}");
+        assert!(secret_calls[0].contains(&"diff".to_owned()));
+    }
+
+    const LIVE_LIST: &str = "apiVersion: v1\nkind: List\nitems:\n- apiVersion: v1\n  kind: Service\n  metadata:\n    name: web\n    namespace: shop\n    uid: 1\n    resourceVersion: \"9\"\n    creationTimestamp: \"2026-01-01T00:00:00Z\"\n    annotations:\n      kubectl.kubernetes.io/last-applied-configuration: '{}'\n    managedFields:\n    - manager: kubectl\n  spec:\n    ports:\n    - port: 80\n  status:\n    loadBalancer: {}\n- apiVersion: v1\n  kind: ConfigMap\n  metadata:\n    name: web\n    namespace: shop\n    generation: 2\n    annotations:\n      team: a\n      kubectl.kubernetes.io/last-applied-configuration: '{}'\n  data:\n    b: \"2\"\n    a: \"1\"\n";
+
+    #[test]
+    fn cluster_objects_drop_server_fields_and_order_documents_by_kind_namespace_and_name() {
+        let normalized = cluster_objects(LIVE_LIST).unwrap();
+
+        assert_eq!(
+            normalized,
+            "apiVersion: v1\ndata:\n  a: \"1\"\n  b: \"2\"\nkind: ConfigMap\nmetadata:\n  annotations:\n    team: a\n  name: web\n  namespace: shop\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: web\n  namespace: shop\nspec:\n  ports:\n    - port: 80\n"
+        );
+        let local = "kind: Service\napiVersion: v1\nmetadata:\n  namespace: shop\n  name: web\nspec:\n  ports:\n  - port: 80\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: web\n  namespace: shop\n  annotations:\n    team: a\ndata:\n  a: \"1\"\n  b: \"2\"\n";
+        assert_eq!(convert::source_documents(local).and_then(normalized_objects).unwrap(), normalized);
+        assert_eq!(cluster_objects("apiVersion: v1\nkind: List\nitems: []\n").as_deref(), Some(""));
+        assert!(cluster_objects("not: [valid").is_none());
+    }
+
+    #[test]
+    fn diff_compares_live_objects_with_the_server_dry_run_both_normalized() {
+        let host = host();
+        host.on_process(KUBECTL, |args, _| match args.iter().find(|a| !a.starts_with("--")).map(String::as_str) {
+            Some("config") => ok("minikube\n"),
+            Some("get") => ok(LIVE_LIST),
+            Some("apply") => ok(&LIVE_LIST.replace("port: 80", "port: 8080").replace("uid: 1", "uid: 2")),
+            _ => ok(""),
+        });
+        host.open_editor("/project/web.yaml", "yaml", "apiVersion: v1\nkind: Service\nmetadata:\n  name: web\n", &[]);
+        let mut kube = KubeExplorer { namespace: Some("shop".into()), ..Default::default() };
+
+        kube.run_command("diff", &host.invocation(), None).unwrap();
+
+        let calls = kubectl_calls(&host);
+        let dry_run = calls.iter().find(|args| args.contains(&"apply".to_owned())).unwrap();
+        assert_eq!(dry_run, &["--namespace=shop", "apply", "--dry-run=server", "-f", "-", "-o", "yaml", "--request-timeout=4s"]);
+        assert_eq!(calls.iter().filter(|args| args.contains(&"apply".to_owned())).count(), 1);
+        let (diff, _) = &host.opened_diffs()[0];
+        let (left, right) = (diff.left.as_deref().unwrap(), diff.right.as_deref().unwrap());
+        assert_eq!(left, cluster_objects(LIVE_LIST).unwrap());
+        assert_eq!(right, left.replace("port: 80", "port: 8080"));
+        assert_eq!(diff.right_label.as_deref(), Some("After apply, server dry run (web.yaml)"));
+    }
+
+    #[test]
+    fn a_refused_dry_run_compares_the_normalized_file_and_says_why() {
+        let host = host();
+        host.on_process(KUBECTL, |args, _| match args.iter().find(|a| !a.starts_with("--")).map(String::as_str) {
+            Some("config") => ok("minikube\n"),
+            Some("apply") => Ok(ProcessOutput { status: Some(1), stdout: String::new(), stderr: "\nError: forbidden: cannot patch\n".into() }),
+            _ => ok(""),
+        });
+        let shown = KubeExplorer::default().diff_manifest("metadata:\n  name: new\nkind: ConfigMap\napiVersion: v1\n", "/project/new.yaml").unwrap();
+
+        assert_eq!(shown, "These resources are not in the cluster yet. The server dry run failed (Error: forbidden: cannot patch), so the file is shown as written.");
+        let (diff, _) = &host.opened_diffs()[0];
+        assert!(diff.left.is_none());
+        assert_eq!(diff.right.as_deref(), Some("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: new\n"));
+        assert_eq!(diff.right_label.as_deref(), Some("Local (new.yaml)"));
     }
 
     #[test]
@@ -3582,8 +3735,8 @@ mod tests {
             all_mode().run_command(command, &host.invocation(), None).unwrap();
 
             let calls = kubectl_calls(&host);
-            assert_eq!(calls.len(), 1, "{command}");
-            assert!(!calls[0].iter().any(|a| a.starts_with("--namespace")), "{command}: {calls:?}");
+            assert_eq!(calls.len(), if command == "diff" { 2 } else { 1 }, "{command}");
+            assert!(!calls.iter().flatten().any(|a| a.starts_with("--namespace")), "{command}: {calls:?}");
         }
     }
 
