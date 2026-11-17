@@ -23,28 +23,8 @@ const TEMPLATE_GLOBS:&[&str]=&["**/*.html","**/*.jsp","**/*.ftlh","**/*.ftl","**
 fn bounded(path: &str, text: &str) -> Option<bool> {
     Some(
         text.len() <= MAX_TEXT
-            && (![".java", ".kt", ".graphql", ".graphqls"].iter().any(|extension| path.ends_with(extension)) || balanced(text)),
+            && (![".java", ".kt", ".graphql", ".graphqls"].iter().any(|extension| path.ends_with(extension)) || spring_text::text::balanced(text, path.ends_with(".kt"))),
     )
-}
-pub(super) fn balanced(text: &str) -> bool {
-    let mut stack = Vec::new();
-    for token in java::tokens(text) {
-        if token.s.starts_with('"') && (token.s.len() < 2 || !token.s.ends_with('"')) {
-            return false;
-        }
-        match token.s {
-            "(" => stack.push(")"),
-            "[" => stack.push("]"),
-            "{" => stack.push("}"),
-            ")" | "]" | "}" => {
-                if stack.pop() != Some(token.s) {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-    }
-    stack.is_empty()
 }
 const WEB: usize = 0;
 const WEBSOCKET: usize = 1;
@@ -223,7 +203,7 @@ impl Endpoints {
 }
 impl DiagnosticsProvider for Endpoints {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
-        if doc.text.len() > MAX_TEXT || matches!(doc.language.as_str(), "java" | "kotlin" | "graphql") && !balanced(&doc.text) {
+        if doc.text.len() > MAX_TEXT || matches!(doc.language.as_str(), "java" | "kotlin" | "graphql") && !spring_text::text::balanced(&doc.text, doc.language == "kotlin") {
             return Vec::new();
         }
         let applicable = self.cached_applies(doc);
@@ -386,7 +366,7 @@ fn path_hover(doc: &Document, at: Position) -> Option<Hover> {
 }
 impl HoverProvider for Endpoints {
     fn hover(&mut self, doc: &Document, at: Position) -> Option<Hover> {
-        if doc.text.len() > MAX_TEXT || matches!(doc.language.as_str(), "java" | "kotlin" | "graphql") && !balanced(&doc.text) {
+        if doc.text.len() > MAX_TEXT || matches!(doc.language.as_str(), "java" | "kotlin" | "graphql") && !spring_text::text::balanced(&doc.text, doc.language == "kotlin") {
             return None;
         }
         let applies = self.cached_applies(doc);

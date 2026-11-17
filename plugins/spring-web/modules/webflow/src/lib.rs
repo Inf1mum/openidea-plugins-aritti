@@ -594,16 +594,11 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
     PROBLEMS.take()
 }
 
-const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 7] = ["webflow", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 1] = ["webflow"];
 
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
+/// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    let Ok(root) = project.root() else { return true };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
+    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -941,7 +936,7 @@ mod tests {
     fn applies_follows_the_root_build_file() {
         let host = MockHost::install();
         let project = &host::projects().unwrap()[0];
-        assert!(!applies(project), "no build file");
+        assert!(applies(project), "unsure without a readable build file");
         host.add_file("pom.xml", "<project><artifactId>commons-lang3</artifactId></project>");
         assert!(!applies(project));
         host.add_file("pom.xml", "<project><artifactId>spring-webflow</artifactId></project>");
@@ -958,14 +953,8 @@ impl WebFlow {
         }
         self.indexes.get(project, budget / 1);
     }
-    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
-        self.indexes.update_existing(project, path, text);
-    }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.indexes.on_events(events, deadline);
-    }
-    pub fn live_reset(&mut self) {
-        self.indexes.reset();
     }
 }
 

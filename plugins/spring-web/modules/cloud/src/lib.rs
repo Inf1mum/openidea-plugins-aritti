@@ -722,22 +722,6 @@ impl Default for CloudTools {
     }
 }
 
-const SCANNING: &str = "scanning…";
-
-/// What an index covers, when it is not the whole project.
-fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
-    if index.scanning() {
-        return Some(SCANNING.to_owned());
-    }
-    if index.complete() {
-        return None;
-    }
-    Some(match index.unreadable() {
-        0 => "partial index".to_owned(),
-        unreadable => format!("partial index ({unreadable} unreadable)"),
-    })
-}
-
 impl CloudTools {
     /// Both indexes of the document's project, the document applied to its own.
     fn indexes(&mut self, doc: &Document) -> Option<(&mut Index<JavaFacts>, &mut Index<StreamConfig>)> {
@@ -971,7 +955,7 @@ impl Plugin for CloudTools {
 impl CloudTools {
     fn feign_view(&mut self, view: &str, project: &openidea_plugin::Project, budget: std::time::Duration) -> View {
         let index = self.java.get(project, budget);
-        let note = coverage_note(index);
+        let note = spring_text::index::coverage_note(index);
         if index.scanning() {
             refresh(view);
         }
@@ -982,11 +966,7 @@ impl CloudTools {
         let mut gateway_files: Vec<_> = index.iter().filter(|(_, f)| !f.gateway_routes.is_empty()).collect();
         gateway_files.sort_by_key(|(path, _)| *path);
         if files.is_empty() && gateway_files.is_empty() {
-            let text = match &note {
-                None => "No Feign clients or supported Java Gateway routes found.".to_owned(),
-                Some(note) if note == SCANNING => "Scanning…".to_owned(),
-                Some(note) => format!("No Feign clients or supported Java Gateway routes found · {note}"),
-            };
+            let text = spring_text::index::empty_message("No Feign clients or supported Java Gateway routes found", note.as_deref());
             return View::message(&text).button(refresh);
         }
         let mut items = Vec::new();
@@ -1095,27 +1075,11 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
     PROBLEMS.take()
 }
 
-const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 10] = [
-    "spring-cloud",
-    "springframework.cloud",
-    "springCloud",
-    "feign",
-    "<module>",
-    "include(",
-    "include '",
-    "include \"",
-    "(libs.",
-    " libs.",
-];
+const DEPENDENCY_MARKERS: [&str; 4] = ["spring-cloud", "springframework.cloud", "springCloud", "feign"];
 
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
+/// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    let Ok(root) = project.root() else { return true };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
+    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -1902,7 +1866,7 @@ class StreamFunctions {
         tools.handle("cloud", ViewEvent::Activate(items[1].key.clone()), &host.invocation()).unwrap();
         assert_eq!(host.opened_locations(), [("/project/src/main/java/Gateway.java".into(), at.line, at.character)]);
         // A changed DSL source is reparsed; the obsolete literal cannot survive the index update.
-        tools.live_update(&project, "/project/src/main/java/Gateway.java", Some(&text.replace("\"users\"", "id")));
+        tools.java.update_existing(&project, "/project/src/main/java/Gateway.java", Some(&text.replace("\"users\"", "id")));
         let updated = tools.feign_view("cloud", &project, std::time::Duration::from_secs(3));
         assert!(matches!(updated.body, Body::Message(_)));
     }
@@ -1919,7 +1883,7 @@ class StreamFunctions {
     fn applies_follows_the_root_build_file() {
         let host = MockHost::install();
         let project = &host::projects().unwrap()[0];
-        assert!(!applies(project), "no build file");
+        assert!(applies(project), "unsure without a readable build file");
         host.add_file("pom.xml", "<project><artifactId>commons-lang3</artifactId></project>");
         assert!(!applies(project));
         host.add_file("pom.xml", "<project><artifactId>spring-cloud-starter-openfeign</artifactId></project>");
@@ -1938,20 +1902,10 @@ impl CloudTools {
         self.config.get(project, budget / 3);
         self.builds.get(project, budget / 3);
     }
-    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
-        self.java.update_existing(project, path, text);
-        self.config.update_existing(project, path, text);
-        self.builds.update_existing(project, path, text);
-    }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.java.on_events(events, deadline);
         self.config.on_events(events, deadline);
         self.builds.on_events(events, deadline);
-    }
-    pub fn live_reset(&mut self) {
-        self.java.reset();
-        self.config.reset();
-        self.builds.reset();
     }
 }
 

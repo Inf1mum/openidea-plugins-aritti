@@ -680,22 +680,6 @@ fn title(e: &Endpoint) -> String {
 /// (name, space) → the endpoints of that destination with their files.
 type Destinations<'a> = BTreeMap<(&'a str, &'static str), Vec<(&'a str, &'a Endpoint)>>;
 
-const SCANNING: &str = "scanning…";
-
-/// What an index covers, when it is not the whole project.
-fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
-    if index.scanning() {
-        return Some(SCANNING.to_owned());
-    }
-    if index.complete() {
-        return None;
-    }
-    Some(match index.unreadable() {
-        0 => "partial index".to_owned(),
-        unreadable => format!("partial index ({unreadable} unreadable)"),
-    })
-}
-
 /// What one Java, Kotlin or XML file says to this module, read once.
 #[derive(Clone)]
 pub struct Facts {
@@ -872,7 +856,7 @@ impl Views for Messaging {
             let props = props_of(self.config.get(&project, COMMAND_BUDGET).iter());
             let index = self.index.get(&project, COMMAND_BUDGET);
             let constants = constant_values(index);
-            let note = coverage_note(index);
+            let note = spring_text::index::coverage_note(index);
             if index.scanning() {
                 refresh(view);
             }
@@ -886,11 +870,7 @@ impl Views for Messaging {
                 tree.entry(e.broker).or_default().entry((e.name.as_str(), e.space)).or_default().push((*path, e));
             }
             if tree.is_empty() {
-                let text = match &note {
-                    None => "No Kafka, RabbitMQ or JMS destinations found.".to_owned(),
-                    Some(note) if note == SCANNING => "Scanning…".to_owned(),
-                    Some(note) => format!("No Kafka, RabbitMQ or JMS destinations found · {note}"),
-                };
+                let text = spring_text::index::empty_message("No Kafka, RabbitMQ or JMS destinations found", note.as_deref());
                 return Ok(View::message(&text).button(refresh));
             }
             let mut items = Vec::new();
@@ -993,17 +973,11 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
     PROBLEMS.take()
 }
 
-const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 12] =
-    ["kafka", "rabbit", "amqp", "jms", "activemq", "artemis", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 6] = ["kafka", "rabbit", "amqp", "jms", "activemq", "artemis"];
 
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
+/// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    let Ok(root) = project.root() else { return true };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
+    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -1748,7 +1722,7 @@ class Sender {
     fn applies_follows_the_root_build_file() {
         let host = MockHost::install();
         let project = &host::projects().unwrap()[0];
-        assert!(!applies(project), "no build file");
+        assert!(applies(project), "unsure without a readable build file");
         host.add_file("pom.xml", "<project><artifactId>commons-lang3</artifactId></project>");
         assert!(!applies(project));
         host.add_file("pom.xml", "<project><artifactId>spring-kafka</artifactId></project>");
@@ -1766,17 +1740,9 @@ impl Messaging {
         self.index.get(project, budget / 2);
         self.config.get(project, budget / 2);
     }
-    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
-        self.index.update_existing(project, path, text);
-        self.config.update_existing(project, path, text);
-    }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.index.on_events(events, deadline);
         self.config.on_events(events, deadline);
-    }
-    pub fn live_reset(&mut self) {
-        self.index.reset();
-        self.config.reset();
     }
 }
 

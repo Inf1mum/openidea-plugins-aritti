@@ -205,6 +205,33 @@ impl<T: Clone> Index<T> {
     }
 }
 
+/// What an index covers when it is not the whole project: "scanning…" while
+/// reading, "partial index (N unreadable)" or "partial index" after a pass
+/// that skipped files or hit the discovery cap; `None` when whole.
+pub fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
+    if index.scanning() {
+        return Some(SCANNING_NOTE.to_owned());
+    }
+    if index.complete() {
+        return None;
+    }
+    Some(match index.unreadable() {
+        0 => "partial index".to_owned(),
+        unreadable => format!("partial index ({unreadable} unreadable)"),
+    })
+}
+
+pub const SCANNING_NOTE: &str = "scanning…";
+
+/// The message of a view with nothing to list: `none_found` is e.g. "No STOMP destinations found".
+pub fn empty_message(none_found: &str, note: Option<&str>) -> String {
+    match note {
+        None => format!("{none_found}."),
+        Some(SCANNING_NOTE) => "Scanning…".to_owned(),
+        Some(note) => format!("{none_found} · {note}"),
+    }
+}
+
 /// What [`Indexes::on_events`] did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EventOutcome {
@@ -500,6 +527,28 @@ mod tests {
     fn changed(created: &[&str], modified: &[&str], removed: &[&str]) -> Vec<Event> {
         let owned = |paths: &[&str]| paths.iter().map(|p| (*p).to_owned()).collect();
         vec![Event::FilesChanged(FilesChanged { created: owned(created), modified: owned(modified), removed: owned(removed) })]
+    }
+
+    #[test]
+    fn coverage_note_and_empty_message() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java"], words);
+        index.scan(&project, Duration::ZERO);
+        assert_eq!(coverage_note(&index).as_deref(), Some("scanning…"));
+        assert_eq!(empty_message("None found", coverage_note(&index).as_deref()), "Scanning…");
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(coverage_note(&index), None);
+        assert_eq!(empty_message("None found", None), "None found.");
+        host.add_file_bytes("src/Latin.java", b"caf\xe9");
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        indexes.get(&project, COMMAND_BUDGET);
+        indexes.on_events(&changed(&["/project/src/Latin.java"], &[], &[]), Instant::now() + COMMAND_BUDGET);
+        let index = indexes.get(&project, Duration::ZERO);
+        let note = coverage_note(index);
+        assert_eq!(note.as_deref(), Some("partial index (1 unreadable)"));
+        assert_eq!(empty_message("None found", note.as_deref()), "None found · partial index (1 unreadable)");
     }
 
     #[test]

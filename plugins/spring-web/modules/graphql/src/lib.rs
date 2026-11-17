@@ -582,22 +582,6 @@ fn handler_files_exist(java: &Index<JavaFacts>) -> bool {
     java.iter().any(|(_, f)| !f.handlers.is_empty())
 }
 
-const SCANNING: &str = "scanning…";
-
-/// What an index covers, when it is not the whole project.
-fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
-    if index.scanning() {
-        return Some(SCANNING.to_owned());
-    }
-    if index.complete() {
-        return None;
-    }
-    Some(match index.unreadable() {
-        0 => "partial index".to_owned(),
-        unreadable => format!("partial index ({unreadable} unreadable)"),
-    })
-}
-
 pub struct GraphQlTools {
     schemas: Indexes<Schema>,
     java: Indexes<JavaFacts>,
@@ -1058,7 +1042,7 @@ impl GraphQlTools {
 impl GraphQlTools {
     fn endpoints_view(&mut self, view: &str, project: &Project, budget: Duration) -> View {
         let settings_index = self.settings.get(project, budget / 2);
-        let settings_note = coverage_note(settings_index);
+        let settings_note = spring_text::index::coverage_note(settings_index);
         let mut settings: Vec<Setting> = Vec::new();
         let mut files: BTreeMap<String, String> = BTreeMap::new();
         for (path, found) in settings_index.iter() {
@@ -1070,7 +1054,7 @@ impl GraphQlTools {
             }
         }
         let schemas = self.schemas.get(project, budget / 2);
-        let schemas_note = coverage_note(schemas);
+        let schemas_note = spring_text::index::coverage_note(schemas);
         if settings_index.scanning() || schemas.scanning() {
             refresh(view);
         }
@@ -1093,7 +1077,7 @@ impl GraphQlTools {
             items.push(TreeItem::new(&format!("c:0:0:{path}"), &name).parent("schemas").detail(&format!("{types} types")).icon("file-graphql"));
         }
         self.expansion.apply(&mut items);
-        let status = match settings_note.into_iter().chain(schemas_note).min_by_key(|note| note != SCANNING) {
+        let status = match settings_note.into_iter().chain(schemas_note).min_by_key(|note| note != spring_text::index::SCANNING_NOTE) {
             None => "GraphQL endpoints".to_owned(),
             Some(note) => format!("GraphQL endpoints · {note}"),
         };
@@ -1176,16 +1160,11 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
     PROBLEMS.take()
 }
 
-const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 7] = ["graphql", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 1] = ["graphql"];
 
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
+/// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    let Ok(root) = project.root() else { return true };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
+    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -1946,7 +1925,7 @@ class BookController {
     fn applies_follows_the_root_build_file() {
         let host = MockHost::install();
         let project = &host::projects().unwrap()[0];
-        assert!(!applies(project), "no build file");
+        assert!(applies(project), "unsure without a readable build file");
         host.add_file("pom.xml", "<project><artifactId>commons-lang3</artifactId></project>");
         assert!(!applies(project));
         host.add_file("pom.xml", "<project><artifactId>spring-boot-starter-graphql</artifactId></project>");
@@ -1965,20 +1944,10 @@ impl GraphQlTools {
         self.java.get(project, budget / 3);
         self.settings.get(project, budget / 3);
     }
-    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
-        self.schemas.update_existing(project, path, text);
-        self.java.update_existing(project, path, text);
-        self.settings.update_existing(project, path, text);
-    }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.schemas.on_events(events, deadline);
         self.java.on_events(events, deadline);
         self.settings.on_events(events, deadline);
-    }
-    pub fn live_reset(&mut self) {
-        self.schemas.reset();
-        self.java.reset();
-        self.settings.reset();
     }
 }
 

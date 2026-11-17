@@ -468,7 +468,7 @@ impl WebTools {
         let Some(index) = self.endpoints.for_cached_document(&doc.path, &doc.text) else {
             return Vec::new();
         };
-        if !index.complete() {
+        if !index.walked() {
             return Vec::new();
         }
         let index = &*index;
@@ -977,20 +977,6 @@ struct Routes {
     note: Option<String>,
 }
 
-/// What an index covers, when it is not the whole project.
-fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
-    if index.scanning() {
-        return Some("scanning…".to_owned());
-    }
-    if index.complete() {
-        return None;
-    }
-    Some(match index.unreadable() {
-        0 => "partial index".to_owned(),
-        unreadable => format!("partial index ({unreadable} unreadable)"),
-    })
-}
-
 impl WebTools {
     fn route_list(&mut self) -> &mut RouteList {
         self.routes.get_or_insert_with(|| RouteList::new("spring.routes", "aritti.spring-web"))
@@ -998,7 +984,7 @@ impl WebTools {
 
     fn routes(&mut self, project: &Project, budget: Duration) -> Routes {
         let index = self.endpoints.get(project, budget);
-        let (scanning, walked, note) = (index.scanning(), index.walked(), coverage_note(index));
+        let (scanning, walked, note) = (index.scanning(), index.walked(), spring_text::index::coverage_note(index));
         let mut routes = Vec::new();
         for (path, info) in index.iter() {
             for e in &info.endpoints {
@@ -1035,11 +1021,7 @@ impl WebTools {
 
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if routes.is_empty() {
-            let text = match (scanning, note) {
-                (true, _) => "Scanning…".to_owned(),
-                (false, Some(note)) => format!("No Spring endpoints found · {note}"),
-                (false, None) => "No Spring endpoints found.".to_owned(),
-            };
+            let text = spring_text::index::empty_message("No Spring endpoints found", note.as_deref());
             return View::message(&text).button(refresh);
         }
 
@@ -1178,18 +1160,11 @@ pub fn take_problems() -> Vec<Diagnostic> {
     PROBLEMS.take()
 }
 
-const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 7] = ["spring", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 1] = ["spring"];
 
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
+/// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    let Ok(root) = project.root() else {
-        return true;
-    };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
+    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
 }
 
 openidea_plugin::register_plugin!(window::Endpoints, providers, views, endpoints, diagnostics, hover, file_actions, language_features, injections);

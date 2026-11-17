@@ -7,7 +7,7 @@ use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineM
 use openidea_plugin::text::offset;
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
-use spring_text::index::{COMMAND_BUDGET, Index, Indexes, project_of};
+use spring_text::index::{COMMAND_BUDGET, Indexes, project_of};
 use spring_text::tree::Expansion;
 use spring_text::{parse_source, range, source_calls};
 use std::collections::{BTreeMap, BTreeSet};
@@ -344,22 +344,6 @@ impl Default for WebSocketTools {
     }
 }
 
-const SCANNING: &str = "scanning…";
-
-/// What an index covers, when it is not the whole project.
-fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
-    if index.scanning() {
-        return Some(SCANNING.to_owned());
-    }
-    if index.complete() {
-        return None;
-    }
-    Some(match index.unreadable() {
-        0 => "partial index".to_owned(),
-        unreadable => format!("partial index ({unreadable} unreadable)"),
-    })
-}
-
 impl WebSocketTools {
     /// Scripts are only read in projects whose root build file names a Spring messaging dependency,
     /// or after a Java/Kotlin document of the project was opened (multi-module layouts).
@@ -430,7 +414,7 @@ impl WebSocketTools {
         let snapshot = self.project_snapshot(project, budget);
 
         let index = self.index.get(project, Duration::ZERO);
-        let note = coverage_note(index);
+        let note = spring_text::index::coverage_note(index);
         if index.scanning() {
             refresh(view);
         }
@@ -444,11 +428,7 @@ impl WebSocketTools {
         }
 
         if destinations.is_empty() {
-            let text = match &note {
-                None => "No STOMP destinations found.".to_owned(),
-                Some(note) if note == SCANNING => "Scanning…".to_owned(),
-                Some(note) => format!("No STOMP destinations found · {note}"),
-            };
+            let text = spring_text::index::empty_message("No STOMP destinations found", note.as_deref());
             return View::message(&text).button(refresh);
         }
 
@@ -662,25 +642,11 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
     PROBLEMS.take()
 }
 
-const DEPENDENCY_MARKERS: [&str; 9] = [
-    "spring-boot-starter-websocket",
-    "spring-messaging",
-    "spring-websocket",
-    "<module>",
-    "include(",
-    "include '",
-    "include \"",
-    "(libs.",
-    " libs.",
-];
+const DEPENDENCY_MARKERS: [&str; 3] = ["spring-boot-starter-websocket", "spring-messaging", "spring-websocket"];
 
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
+/// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    let Ok(root) = project.root() else { return true };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
+    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -1266,7 +1232,7 @@ client.onConnect = () => {
     fn applies_follows_the_root_build_file() {
         let host = MockHost::install();
         let project = &host::projects().unwrap()[0];
-        assert!(!applies(project), "no build file");
+        assert!(applies(project), "unsure without a readable build file");
         host.add_file("pom.xml", "<project><artifactId>commons-lang3</artifactId></project>");
         assert!(!applies(project));
         host.add_file("pom.xml", "<project><artifactId>spring-boot-starter-websocket</artifactId></project>");
@@ -1284,17 +1250,9 @@ impl WebSocketTools {
         self.index.get(project, budget / 2);
         self.beans.get(project, budget / 2);
     }
-    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
-        self.index.update_existing(project, path, text);
-        self.beans.update_existing(project, path, text);
-    }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.index.on_events(events, deadline);
         self.beans.on_events(events, deadline);
-    }
-    pub fn live_reset(&mut self) {
-        self.index.reset();
-        self.beans.reset();
     }
 }
 
