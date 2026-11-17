@@ -352,6 +352,13 @@ fn stop(project: &Project, root: &str) -> Result<Option<String>, Error> {
 }
 
 impl Providers for Main {
+    fn line_markers(&mut self, doc: &Document) -> Vec<openidea_plugin::providers::LineMarker> {
+        if !is_devcontainer_file(&doc.path) || doc.text.len() > MAX_BYTES {
+            return vec![];
+        }
+        compose::file_markers(&doc.path, &doc.text)
+    }
+
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         if !is_devcontainer_file(&doc.path) || doc.text.len() > MAX_BYTES || !host::setting_bool("completeProperties").unwrap_or(true) {
             return vec![];
@@ -1314,10 +1321,10 @@ mod tests {
     }
 
     #[test]
-    fn manifest_registers_the_completion_provider() {
+    fn manifest_registers_the_completion_and_line_marker_provider() {
         let manifest = include_str!("../plugin.toml");
 
-        assert!(manifest.contains("kinds = [\"completion\", \"code-actions\"]"));
+        assert!(manifest.contains("kinds = [\"completion\", \"code-actions\", \"line-markers\"]"));
         assert!(manifest.contains("languages = [\"json\", \"jsonc\"]"));
     }
 

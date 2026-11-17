@@ -108,6 +108,10 @@ Checks run when a `devcontainer.json` changes in the editor. Comments and traili
 
 Feature completion needs the feature list. Allow `storage` and `net:containers.dev`, then run **Dev Container: Refresh Feature List** once. The list is not updated automatically.
 
+### Open referenced files from the gutter
+
+A gutter icon next to each `dockerComposeFile` entry, `build.dockerfile` and the older `dockerFile` opens that file. Paths are read relative to devcontainer.json. When one line names several Compose files, the icon lists them so you can pick one. Missing files, folders, empty files, paths outside the project and paths with `${…}` variables get no icon.
+
 ### Run code in the container (experimental)
 
 The Tools menu can register a Run Target, so a run configuration can run inside the dev container.

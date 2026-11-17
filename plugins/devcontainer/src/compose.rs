@@ -230,6 +230,57 @@ pub(crate) fn resolve(folder: &str, rel: &str, prefix: &str) -> Option<String> {
     absolute.starts_with(prefix).then_some(absolute)
 }
 
+const MAX_LINE_TARGETS: usize = 200;
+/// One marker per existing Compose file or Dockerfile a devcontainer.json names, on the line of its entry.
+pub(crate) fn file_markers(doc_path: &str, text: &str) -> Vec<openidea_plugin::providers::LineMarker> {
+    let Some(project) = host::project_of(doc_path) else { return vec![] };
+    let Ok(root) = project.root() else { return vec![] };
+    let prefix = format!("{}/", root.replace('\\', "/").trim_end_matches('/'));
+    let doc_path = doc_path.replace('\\', "/");
+    let Some(folder) = doc_path.rsplit_once('/').map(|(folder, _)| folder) else { return vec![] };
+    let references = crate::checks::file_references(text);
+    let truncated = references.len() > MAX_LINE_TARGETS;
+    let mut markers = vec![];
+    for (file, range) in references.into_iter().take(MAX_LINE_TARGETS) {
+        let Some(absolute) = resolve(folder, &file, &prefix) else { continue };
+        if !project.stat(&absolute).is_ok_and(|stat| stat.kind == FileKind::File) {
+            continue;
+        }
+        let Ok(target) = project.read_file(&absolute) else { continue };
+        let Some(token) = first_token(&target) else { continue };
+        let at = |byte| openidea_plugin::text::position(&target, byte);
+        markers.push(openidea_plugin::providers::LineMarker {
+            line: openidea_plugin::text::position(text, range.start).line,
+            icon: Some("navigate".into()),
+            tooltip: format!("Open {file}"),
+            target: Some(openidea_plugin::Location { path: absolute, range: openidea_plugin::Range::new(at(token.start), at(token.end)) }),
+        });
+    }
+    // Markers sharing a line become one chooser button, so they share one tooltip.
+    let lines: Vec<u32> = markers.iter().map(|marker| marker.line).collect();
+    for marker in &mut markers {
+        if lines.iter().filter(|line| **line == marker.line).count() > 1 {
+            marker.tooltip = "Open referenced files".into();
+        }
+        if truncated {
+            marker.tooltip.push_str(&format!(" (first {MAX_LINE_TARGETS} references)"));
+        }
+    }
+    markers
+}
+/// The first word outside blank and `#` comment lines: a real token of a Compose file or Dockerfile.
+fn first_token(text: &str) -> Option<std::ops::Range<usize>> {
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if !trimmed.trim_end().is_empty() && !trimmed.starts_with('#') {
+            let start = at + line.len() - trimmed.len();
+            return Some(start..start + trimmed.find(char::is_whitespace).unwrap_or(trimmed.len()));
+        }
+        at += line.len();
+    }
+    None
+}
 const MAX_BYTES: usize = 8 * 1024;
 pub(crate) struct Snapshot {
     root: String,
@@ -391,6 +442,40 @@ mod tests {
         assert!(messages.iter().any(|m| m.contains("missing.env")));
         assert!(messages.iter().any(|m| m.contains("base.yml")));
         assert!(messages.iter().any(|m| m.contains("depends_on `db`")));
+    }
+    fn marked(markers: &[openidea_plugin::providers::LineMarker]) -> Vec<(u32, String, openidea_plugin::Range)> {
+        markers.iter().map(|m| { let t = m.target.clone().unwrap(); (m.line, t.path, t.range) }).collect()
+    }
+    #[test]
+    fn file_markers_open_each_existing_compose_file_and_dockerfile() {
+        let host = MockHost::install();
+        host.add_file(".devcontainer/compose.yml", "# base\n\nservices:\n  app: {}\n");
+        host.add_file("compose.override.yml", "services: {}\n");
+        host.add_file(".devcontainer/Dockerfile", "FROM debian\n");
+        host.add_file("legacy/Dockerfile.dev", "  FROM alpine\n");
+        let path = "/project/.devcontainer/devcontainer.json";
+        let text = "{\n  // two files\n  \"dockerComposeFile\": [\"compose.yml\", \"../compose.override.yml\", \"missing.yml\", \"${env}.yml\"],\n  \"build\": {\n    \"dockerfile\": \"Dockerfile\"\n  },\n  \"dockerFile\": \"../legacy/Dockerfile.dev\",\n}";
+        let markers = file_markers(path, text);
+        let r = |line, start, end| openidea_plugin::Range::new(openidea_plugin::Position::new(line, start), openidea_plugin::Position::new(line, end));
+        assert_eq!(marked(&markers), [
+            (2, "/project/.devcontainer/compose.yml".into(), r(2, 0, 9)),
+            (2, "/project/compose.override.yml".into(), r(0, 0, 9)),
+            (4, "/project/.devcontainer/Dockerfile".into(), r(0, 0, 4)),
+            (6, "/project/legacy/Dockerfile.dev".into(), r(0, 2, 6)),
+        ]);
+        assert!(markers.iter().all(|m| m.icon.as_deref() == Some("navigate")));
+        assert_eq!(markers[0].tooltip, markers[1].tooltip);
+        assert_eq!(markers[2].tooltip, "Open Dockerfile");
+    }
+    #[test]
+    fn file_markers_skip_missing_outside_and_folder_targets() {
+        let host = MockHost::install();
+        host.add_file(".devcontainer/sub/x", "");
+        host.add_file(".devcontainer/empty.yml", "# nothing\n");
+        let path = "/project/.devcontainer/devcontainer.json";
+        for text in [r#"{"dockerComposeFile":"compose.yml"}"#, r#"{"dockerComposeFile":"../../outside.yml"}"#, r#"{"build":{"dockerfile":"sub"}}"#, r#"{"dockerFile":"empty.yml"}"#, r#"{"image":"Dockerfile"}"#] {
+            assert!(file_markers(path, text).is_empty(), "{text}");
+        }
     }
     fn setup(text: &str) -> (MockHost, Project) {
         let host = MockHost::install();
