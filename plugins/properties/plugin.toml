@@ -5,7 +5,7 @@ description = "Inspections and editing tools for .properties files. Reports dupl
 authors = ["Arnaud Ritti"]
 license = "MIT"
 change-notes = """\
-Next release: Copy Property Key, Copy Property Value and Reformat File are in the editor context menu of .properties files; Kotlin and Java @PropertyKey keys resolve to bundle entries, and a gutter icon on bundle keys lists the same key in the other locales; edit several locales in one grid and create up to 32 locale files at once; keys continued over a line break and form feeds around separators are read the way Java reads them, and the plugin starts only for .properties, Java, Kotlin, HTML and JSP files; one name per action and clearer messages. \
+Next release: Copy Property Key, Copy Property Value and Reformat File are in the editor context menu of .properties files only, and a denied clipboard says how to allow it; Kotlin and Java @PropertyKey keys resolve to bundle entries, and a gutter icon on bundle keys lists the same key in the other locales; edit several locales in one grid and create up to 32 locale files at once; keys continued over a line break and form feeds around separators are read the way Java reads them, and the plugin starts only for .properties, Java, Kotlin, HTML and JSP files; one name per action (Edit All Locales, Apply Locale Edits, Discard Locale Edits, Find Bundle Key Usages), a shorter bundle toolbar with row actions under More, and clearer messages. \
 0.3.0: locale file Rename and Remove, native source conversion. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "linters"]
@@ -59,16 +59,19 @@ priority = "option"
 id = "copy-key"
 title = "Properties: Copy Property Key"
 category = "Properties"
+when = "editorLangId == properties"
 
 [[contributes.commands]]
 id = "copy-value"
 title = "Properties: Copy Property Value"
 category = "Properties"
+when = "editorLangId == properties"
 
 [[contributes.commands]]
 id = "reformat"
 title = "Properties: Reformat File"
 category = "Properties"
+when = "editorLangId == properties"
 
 [[contributes.menus]]
 menu = "editor.context"
@@ -82,16 +85,19 @@ category = "Properties"
 
 [[contributes.commands]]
 id = "find-owned-usages"
-title = "Properties: Find Explicit Bundle Key Usages"
+title = "Properties: Find Bundle Key Usages"
 category = "Properties"
+when = "editorLangId == properties"
 
 [[contributes.menus]]
 menu = "editor.context"
 command = "copy-value"
+when = "editorLangId == properties"
 
 [[contributes.menus]]
 menu = "editor.context"
 command = "copy-key"
+when = "editorLangId == properties"
 
 [contributes.settings]
 schema = "settings.schema.json"
@@ -111,10 +117,11 @@ path = "templates/properties.properties"
 
 [[contributes.commands]]
 id = "discard-staged-grid"
-title = "Properties: Discard Staged Locale Grid…"
+title = "Properties: Discard Locale Edits…"
 category = "Properties"
 
 [[contributes.commands]]
 id = "inspect-java-contracts"
-title = "Properties: Inspect Compiler-Proved Java Bundle Usages…"
+title = "Properties: Find Java Bundle Usages with the Compiler…"
 category = "Properties"
+when = "editorLangId == properties"

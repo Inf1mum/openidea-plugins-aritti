@@ -433,7 +433,7 @@ fn plan(
         .cloned()
         .collect();
     if actual != expected.into_iter().collect() {
-        return Err("Physical bundle inventory differs from admitted locale documents; no partial rename prepared.".into());
+        return Err("The locale files on disk differ from the ones the IDE shows (a file was added or removed). Save or reload them, then try again.".into());
     }
     let default_name = split_locale(stem(&doc.path)).0;
     if !before.iter().any(|(p, _)| stem(p) == default_name) {
@@ -508,7 +508,7 @@ fn plan(
         }
     }
     if references == 0 {
-        return Err("No compiler-proved JDK or @PropertyKey literals for this bundle/key. Use the bundle-only action if intended.".into());
+        return Err("The compiler found no Java code that reads this key. To change it in the bundle only, use Change key in this bundle only….".into());
     }
     edits.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(edits)
@@ -521,16 +521,16 @@ pub(crate) fn resolve(
     key: &str,
 ) -> Result<FileAction, Error> {
     if !ui_kit::prompts::confirm_exact(
-        "Analyze Java property contracts?",
+        "Analyze Java sources with the compiler?",
         &format!(
-            "Approved Java 17+ JDK compiler only; no application bootstrap, annotation processing or class generation.\nProject: {root}\nOptional compilerClasspathProfile explicitly selects dependency JARs; exact content hashes are included in the final review and checked before/after analysis.\nOnly complete conventional Java and physical locale inventories can produce edits. Kotlin, unresolved dependencies/dynamic bundle/key contracts refuse this action. Sources stay unchanged until the final exact edit review."
+            "Project: {root}\nRuns the Java compiler (Java 17 or later) on your sources to find the code that reads this key. Your application doesn't run. Dependency JARs come from the Optional compiler dependency JAR profile setting.\nKotlin sources and keys built at runtime aren't supported. Nothing changes until you confirm the edit."
         ),
     )? {
         return Err(Error::Cancelled);
     }
     let (graph, sources) = analyze(doc, root)?;
     let new = host::input(
-        "New decoded key for compiler-proved Java contracts",
+        "New key",
         Some(key),
     )?
     .ok_or(Error::Cancelled)?;
@@ -585,7 +585,7 @@ pub(crate) fn resolve(
     }
     ensure_same(doc, root, &graph, &sources)?;
     if !ui_kit::prompts::confirm_exact(
-        "Rename bundle key and compiler-proved Java literals?",
+        "Rename the key in the bundle and in Java code?",
         &preview,
     )? {
         return Err(Error::Cancelled);
