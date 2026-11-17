@@ -393,7 +393,9 @@ impl State {
         {
             return Err(Error::Stale);
         }
-        if !focus && !approved(&root, tool)? {
+        if focus {
+            let _ = host::storage::set(&format!("resolve-approved:{root}"), "yes");
+        } else if !approved(&root, tool)? {
             return Ok(());
         }
         let args = match tool {
@@ -869,11 +871,16 @@ mod tests {
         assert_eq!(h.process_runs().len(), runs, "no remembered answer, so it asked and was declined");
     }
     #[test]
-    fn explicit_resolve_does_not_ask() {
+    fn explicit_resolve_does_not_ask_and_undoes_a_stored_no() {
         let h = resolver_host(&["storage"]);
+        State::default().start(&h.invocation(), false).unwrap();
+        assert!(h.process_runs().is_empty());
         let mut state = State::default();
         state.start(&h.invocation(), true).unwrap();
         assert!(state.run.is_some());
+        let mut auto = State::default();
+        auto.start(&h.invocation(), false).unwrap();
+        assert!(auto.run.is_some(), "the explicit resolve approved the project");
     }
     #[test]
     fn resolve_dir_is_reused_and_never_accumulates() {
