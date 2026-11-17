@@ -86,6 +86,7 @@ pub struct Fetched {
     pub issues: Vec<Task>,
     pub errors: Vec<String>,
     pub trackers: usize,
+    pub failed_trackers: Vec<String>,
 }
 
 /// Open issues (or the search hits) of every configured tracker; one failing doesn't stop the others.
@@ -103,11 +104,26 @@ pub fn fetch_all(scope: &Scope) -> Fetched {
 
         match (tracker.fetch)(tracker, scope) {
             Ok(issues) => fetched.issues.extend(issues),
-            Err(e) => fetched.errors.push(format!("{}: {e}", tracker.name)),
+            Err(e) => {
+                fetched.errors.push(format!("{}: {e}", tracker.name));
+                fetched.failed_trackers.push(tracker.id.to_owned());
+            }
         }
     }
 
     fetched
+}
+
+/// A fetched issue is the stored task's issue; GitHub tasks stored before ids
+/// carried the owner (`repo-5`) still match their `owner/repo-5` issue.
+pub fn same_issue(issue: &Task, task: &Task) -> bool {
+    if issue.id == task.id {
+        return true;
+    }
+
+    issue.tracker.as_deref() == Some("github")
+        && issue.api == task.api
+        && issue.id.split_once('/').is_some_and(|(_, legacy)| legacy == task.id)
 }
 
 pub fn is_repository_tracker(id: &str) -> bool {
@@ -266,14 +282,21 @@ fn github(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     }
 
     let url = format!("https://api.github.com/search/issues?q={}&sort=updated&per_page={LIMIT}&page={}", encode(&query), scope.page);
-    let first_name = repos[0].rsplit('/').next().unwrap_or(&repos[0]).to_owned();
+    let several = repos.len() > 1;
 
     Ok(issue_items(&send(tracker, "GET", &url, None)?["items"], |issue| {
-        let repo_name = issue["repository_url"].as_str().and_then(|u| u.rsplit('/').next()).unwrap_or(&first_name);
+        let mut segments = issue["repository_url"].as_str().map(|u| u.rsplit('/')).into_iter().flatten();
+        let repo_name = segments.next();
+        let owner = segments.next();
+        let name = match (several, owner, repo_name) {
+            (true, Some(owner), Some(repo)) => format!("{owner}/{repo}"),
+            (_, _, Some(repo)) => repo.to_owned(),
+            _ => repos[0].rsplit('/').next().unwrap_or(&repos[0]).to_owned(),
+        };
 
         Some(Task::issue(
             "github",
-            &format!("{repo_name}-{}", issue["number"].as_u64()?),
+            &format!("{name}-{}", issue["number"].as_u64()?),
             issue["title"].as_str()?,
             issue["html_url"].as_str()?,
             issue["url"].as_str()?,
@@ -1097,6 +1120,35 @@ mod tests {
         assert_eq!(request.url, "https://acme.youtrack.cloud/api/issues/X-1/timeTracking/workItems");
         let body: Value = serde_json::from_slice(request.body.as_deref().unwrap()).unwrap();
         assert_eq!(body["duration"]["minutes"], 61);
+    }
+
+    #[test]
+    fn two_repos_same_name_distinct_ids() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:api.github.com"]);
+        host.set_secret("github-token", "t");
+        host.on_fetch(|_| {
+            let body = r#"{"items":[
+                {"number":5,"title":"A","html_url":"https://github.com/alice/app/issues/5","url":"https://api.github.com/repos/alice/app/issues/5","repository_url":"https://api.github.com/repos/alice/app"},
+                {"number":5,"title":"B","html_url":"https://github.com/bob/app/issues/5","url":"https://api.github.com/repos/bob/app/issues/5","repository_url":"https://api.github.com/repos/bob/app"}]}"#;
+            Ok(HttpResponse { status: 200, headers: vec![], body: body.into() })
+        });
+        let repositories = BTreeMap::from([("github".to_owned(), vec!["alice/app".to_owned(), "bob/app".to_owned()])]);
+
+        let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &repositories });
+
+        let ids: Vec<_> = fetched.issues.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["alice/app-5", "bob/app-5"]);
+    }
+
+    #[test]
+    fn tasks_stored_with_the_old_github_id_still_match() {
+        let api = "https://api.github.com/repos/alice/app/issues/5";
+        let issue = Task::issue("github", "alice/app-5", "A", "https://github.com/alice/app/issues/5", api);
+        let old = Task::issue("github", "app-5", "A", "https://github.com/alice/app/issues/5", api);
+        let other = Task::issue("github", "app-5", "B", "https://github.com/bob/app/issues/5", "https://api.github.com/repos/bob/app/issues/5");
+
+        assert!(same_issue(&issue, &old));
+        assert!(!same_issue(&issue, &other));
     }
 
     #[test]

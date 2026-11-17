@@ -1102,7 +1102,7 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
     update(&root, |tasks, _| {
         // Tasks follow their issue's summary.
         for task in &mut tasks.tasks {
-            if let Some(issue) = fetched.issues.iter().find(|i| i.id == task.id && i.tracker == task.tracker) {
+            if let Some(issue) = fetched.issues.iter().find(|i| i.tracker == task.tracker && trackers::same_issue(i, task)) {
                 task.summary = issue.summary.clone();
                 task.description = issue.description.clone();
                 task.url = issue.url.clone();
@@ -1110,9 +1110,17 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
             }
         }
 
-        let retained_bridge: Vec<_> = tasks.issues.iter().filter(|t| matches!(t.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis"|"generic"))).cloned().collect();
+        let retained: Vec<_> = tasks
+            .issues
+            .iter()
+            .filter(|t| {
+                let tracker = t.tracker.as_deref().unwrap_or_default();
+                matches!(tracker, "fogbugz" | "redmine" | "mantis" | "generic") || fetched.failed_trackers.iter().any(|f| f == tracker)
+            })
+            .cloned()
+            .collect();
         tasks.issues = fetched.issues;
-        tasks.issues.extend(retained_bridge);
+        tasks.issues.extend(retained);
         Ok(())
     })
 }
@@ -1466,6 +1474,36 @@ mod tests {
     }
 
     #[test]
+    fn partial_refresh_keeps_failed_tracker_issues() {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "vcs.read", "secrets", "net:api.github.com", "net:api.trello.com"]);
+        host.set_secret("github-token", "t0ken");
+        host.set_secret("trello-key", "k");
+        host.set_secret("trello-token", "t");
+        host.set_vcs_remotes(&[("origin", "git@github.com:acme/tool.git")]);
+        host.on_fetch(|request| {
+            if request.url.contains("trello") {
+                return Err(Error::Invalid("offline".into()));
+            }
+            let body = r#"{"items":[{"number":7,"title":"Crash","html_url":"https://github.com/acme/tool/issues/7","url":"https://api.github.com/repos/acme/tool/issues/7","repository_url":"https://api.github.com/repos/acme/tool"}]}"#;
+            Ok(HttpResponse { status: 200, headers: vec![], body: body.into() })
+        });
+        update("/project", |tasks, _| {
+            tasks.issues = vec![
+                Task::issue("trello", "5f3a", "Cached card", "https://trello.com/c/abc", "https://api.trello.com/1/cards/5f3a"),
+                Task::issue("github", "old-1", "Gone", "https://github.com/acme/tool/issues/1", "https://api.github.com/repos/acme/tool/issues/1"),
+            ];
+            Ok(())
+        })
+        .unwrap();
+        let project = host::project_of("/project").unwrap();
+
+        refresh_issues(&project, true).unwrap();
+
+        let ids: Vec<_> = load("/project").unwrap().issues.into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, ["tool-7", "5f3a"]);
+    }
+
+    #[test]
     fn opening_an_issue_with_the_commit_template_on_writes_its_message() {
         let host = MockHost::install().with_capabilities(ALL);
         host.set_setting("fillCommitTemplate", "true");
@@ -1484,6 +1522,43 @@ mod tests {
         assert_eq!(load("/project").unwrap().active, "tool-12");
         assert!(git.borrow().iter().any(|c| c.starts_with("log -1 --format=tool-12 100%% crash --output=")));
         assert!(!git.borrow().iter().any(|c| c.starts_with("switch -c")));
+    }
+
+    #[test]
+    fn commit_template_set_in_empty_repo() {
+        let host = MockHost::install().with_capabilities(&["project.read", "project.write", "storage", "process:git"]);
+        host.set_setting("fillCommitTemplate", "true");
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let seen = calls.clone();
+        host.on_process("git", move |args, _| {
+            let command = args.join(" ");
+            seen.borrow_mut().push(command.clone());
+            Ok(match command.as_str() {
+                "rev-parse --abbrev-ref HEAD" => ProcessOutput { status: Some(0), stdout: "main\n".into(), stderr: String::new() },
+                c if c.starts_with("rev-parse --path-format") => {
+                    ProcessOutput { status: Some(0), stdout: "/project/.git/openidea-task-message\n".into(), stderr: String::new() }
+                }
+                c if c.starts_with("log ") => ProcessOutput { status: Some(128), stdout: String::new(), stderr: "no commits".into() },
+                c if c.starts_with("config --local --get") => ProcessOutput { status: Some(1), stdout: String::new(), stderr: String::new() },
+                _ => ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() },
+            })
+        });
+        let mut plugin = plugin(&host);
+        update("/project", |tasks, _| {
+            tasks.issues = vec![Task::issue("github", "tool-12", "Crash", "https://github.com/x", "https://api.github.com/x")];
+            Ok(())
+        })
+        .unwrap();
+
+        press(&mut plugin, &host, ViewEvent::Activate("issue:tool-12".into()));
+        press(&mut plugin, &host, ViewEvent::Field("create_branch".into(), "false".into()));
+        press(&mut plugin, &host, ViewEvent::Button("ok".into()));
+
+        assert!(host.notifications().is_empty(), "{:?}", host.notifications());
+        assert!(!calls.borrow().iter().any(|c| c.starts_with("log ")));
+        assert!(calls.borrow().iter().any(|c| c == "config --local commit.template /project/.git/openidea-task-message"));
+        let written = host::project_of("/project").unwrap().read_file(".git/openidea-task-message").unwrap();
+        assert!(written.starts_with("tool-12 Crash"), "{written}");
     }
 
     fn github_hit(host: &MockHost) {

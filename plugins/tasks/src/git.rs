@@ -3,7 +3,7 @@
 //! and the commit message as `commit.template`, which the IDE's commit field
 //! starts from. Needs `process:git`; without it tasks have no branches.
 
-use openidea_plugin::{Error, Project};
+use openidea_plugin::{host, Error, NotificationLevel, Project};
 
 use crate::model::Task;
 
@@ -95,8 +95,21 @@ impl<'a> Git<'a> {
             return Ok(());
         };
 
-        // The plugin can't write files; git can, with log's --output.
-        self.run(&["log", "-1", &format!("--format={}", message.replace('%', "%%")), &format!("--output={path}")])?;
+        match self.project.write_file(&path, &format!("{message}\n")) {
+            Ok(()) => {}
+            Err(denied) => {
+                if matches!(denied, Error::Denied(_)) {
+                    host::notify(
+                        NotificationLevel::Info,
+                        "Commit template",
+                        "Allow project.write for Tasks in Settings › Plugins to set it in a repository without commits.",
+                    );
+                }
+
+                // A repository without commits makes this fail; the write above has no such limit.
+                self.run(&["log", "-1", &format!("--format={}", message.replace('%', "%%")), &format!("--output={path}")])?;
+            }
+        }
         self.run(&["config", "--local", "commit.template", &path]).map(drop)
     }
 }

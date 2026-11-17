@@ -5,7 +5,7 @@ description = """Work on one task at a time. Create local tasks or pick issues f
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/tasks"
 license = "MIT"
-change-notes = """Tracker credentials are now sent only to the configured tracker server: Jira and YouTrack hosts are validated on every refresh, issue addresses from the server are checked before closing or logging time, and Codeberg repositories must be owner/name. Issue keys are URL-encoded."""
+change-notes = """Tracker credentials are now sent only to the configured tracker server: Jira and YouTrack hosts are validated on every refresh, issue addresses from the server are checked before closing or logging time, and Codeberg repositories must be owner/name. Issue keys are URL-encoded. An update where one tracker fails keeps that tracker's issues. GitHub issues from several repositories get distinct ids. The commit template now works in a repository with no commits when writing project files is allowed."""
 categories = ["tools", "vcs"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
@@ -15,13 +15,14 @@ activation = ["on-view:tasks", "on-startup-finished", "on-schedule:1200", "on-ev
 [capabilities]
 required = ["project.read", "storage"]
 # vcs.read: tracker remotes/current commit draft. vcs.write: explicit reviewed commit-message replacement.
-# clipboard: Copy Commit Message.
+# clipboard: Copy Commit Message. project.write: the commit template file.
 # process:git: a branch per task, shelving, merge on close, commit.template. events: the files of each task.
 # net + secrets: issue trackers, each one works on its own. net:ask: a self-hosted YouTrack host you configure, approved by you at first use.
 optional = [
     "editor.read",
     "vcs.read",
     "vcs.write",
+    "project.write",
     "process:git",
     "process:python3",
     "events",
