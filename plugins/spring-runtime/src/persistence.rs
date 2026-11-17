@@ -64,11 +64,8 @@ fn decode(value: &str, scope: &Scope) -> Result<(Snapshot, bool), Error> {
         }
     }
     if stored.schema < 5 {
-        let props = snapshot.sources.iter_mut().map(|s| &mut s.props).chain(snapshot.configprops.iter_mut().map(|b| &mut b.props));
-        for (key, value) in props.flatten() {
-            if crate::snapshot::sensitive_key(key) {
-                *value = crate::snapshot::MASK.to_owned();
-            }
+        for props in snapshot.sources.iter_mut().map(|s| &mut s.props).chain(snapshot.configprops.iter_mut().map(|b| &mut b.props)) {
+            crate::snapshot::mask_props(props);
         }
     }
     Ok((snapshot, stored.schema < SCHEMA))
@@ -255,12 +252,15 @@ mod tests {
         let s = scope();
         for schema in [3, 4] {
             let mut snap = snapshot();
-            snap.sources.push(Source { name: "env".into(), props: vec![("APIKEY".into(), "hunter2".into()), ("app.name".into(), "demo".into())] });
+            snap.sources.push(Source { name: "env".into(), props: vec![("APIKEY".into(), "hunter2".into()), ("app.name".into(), "demo".into()),
+                ("spring.datasource.url".into(), "jdbc:postgresql://u:p/ss?w@db/x".into()),
+                ("sun.java.command".into(), "app.jar --x.password=hunter3 --keep=1".into())] });
             host::storage::set(&s.key(), &serde_json::to_string(&Envelope { schema, scope: s.clone(), snapshot: snap }).unwrap()).unwrap();
             let restored = read(&s).unwrap().unwrap();
             assert_eq!(restored.sources[0].props[0].1, crate::snapshot::MASK);
             let stored = &host.storage()[&s.key()];
-            assert!(!stored.contains("hunter2"), "schema {schema} cache kept the raw secret");
+            assert!(!stored.contains("hunter2") && !stored.contains("hunter3") && !stored.contains("p/ss"), "schema {schema} cache kept a raw secret");
+            assert!(restored.sources[0].props[3].1.contains("--keep=1"));
             assert!(stored.starts_with(r#"{"schema":5"#));
         }
     }
