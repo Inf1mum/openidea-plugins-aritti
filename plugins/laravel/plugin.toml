@@ -6,7 +6,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/laravel"
 license = "MIT"
 change-notes = """\
-Next release: Fresh Migration and Seed Database confirm with the project and database, route commands from the palette ask which route, commands show only in projects with an artisan file, the hub groups its tabs into sections and a controller method's Laravel gutter icon lists all its routes in the IDE's target chooser; Database tab with models, columns, indexes, a Compare view, a Schema sub-tab and a Tables tree, and unreadable migrations are listed instead of breaking it; Send Request shows the response and handles large inputs; Choose Docker Target works again, accepts DDEV synced volumes and refreshes Artisan commands after a pick; enum quick fix in where(), Windows PHP calls without a console window, faster indexing on large projects, shorter setting titles and database errors without SQL or connection details. \
+Next release: Fresh Migration and Seed Database confirm with the project and database, palette commands ask which route, model, failed job or log entry, commands show only in projects with an artisan file, model helper commands, Create Missing View and the Generators tab write their files after one confirmation, the hub groups its tabs into sections and a controller method's Laravel gutter icon lists all its routes in the IDE's target chooser; Database tab with models, columns, indexes, a Compare view, a Schema sub-tab and a Tables tree, and unreadable migrations are listed instead of breaking it; Send Request shows the response and handles large inputs; Choose Docker Target works again, accepts DDEV synced volumes and refreshes Artisan commands after a pick; enum quick fix in where(), Windows PHP calls without a console window, faster indexing on large projects, shorter setting titles, plainer command names and messages, clear permission messages, shortcuts for Search Routes, Search Names and the tool window and database errors without SQL or connection details. \
 0.3.0: broader Laravel navigation and the hub window. \
 0.2.0: plugin icon and window consolidation."""
 categories = ["frameworks"]
@@ -22,13 +22,13 @@ optional = ["project.write", "process:php", "process:php-win", "process:docker",
 
 [[contributes.commands]]
 id = "artisan-refresh-docker-metadata"
-title = "Laravel: Refresh Docker Artisan Metadata"
+title = "Laravel: Refresh Docker Artisan Commands"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-browse-docker-metadata"
-title = "Laravel: Browse Cached Docker Artisan Metadata"
+title = "Laravel: Show Docker Artisan Commands"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
@@ -191,9 +191,22 @@ id = "reveal"
 title = "Laravel: Show Laravel Tool Window"
 category = "Laravel"
 
+[[contributes.keymaps]]
+command = "route-search"
+key = "Alt+Shift+U"
+
+[[contributes.keymaps]]
+command = "search-names"
+key = "Alt+Shift+K"
+
+[[contributes.keymaps]]
+command = "reveal"
+key = "Alt+Shift+Q"
+
 [[contributes.menus]]
 menu = "editor.context"
 command = "create-missing"
+when = "editorLangId == php || editorLangId == blade"
 
 [[contributes.menus]]
 menu = "projectView.context"
@@ -646,13 +659,13 @@ when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "artisan-clear-docker-target"
-title = "Laravel: Use Configured Docker Target"
+title = "Laravel: Clear Chosen Docker Target"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-retry-failed"
-title = "Laravel: Retry Selected Failed Job"
+title = "Laravel: Retry Failed Job…"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
@@ -670,6 +683,7 @@ languages = ["php"]
 id = "route-editor-open"
 title = "Laravel: Open Route Declaration"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "new-project"
@@ -702,10 +716,11 @@ when = "workspaceContains:artisan"
 id = "route-editor-action"
 title = "Laravel: Route Request Actions…"
 category = "Laravel"
+when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "model-from-database"
-title = "Laravel: New Model from Captured Database Table…"
+title = "Laravel: New Model from Database Table…"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
@@ -786,25 +801,25 @@ when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-automation-state"
-title = "Laravel: Helper Automation Status"
+title = "Laravel: Show Model Helper Command Status"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-automation-poll"
-title = "Laravel: Poll Helper Post-Generation Commands"
+title = "Laravel: Run Pending Model Helper Commands"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "helper-automation-stop"
-title = "Laravel: Stop Helper Post-Generation Commands"
+title = "Laravel: Stop Model Helper Commands"
 category = "Laravel"
 when = "workspaceContains:artisan"
 
 [[contributes.commands]]
 id = "runtime-model-connections"
-title = "Laravel: Refresh Model Connection Bindings…"
+title = "Laravel: Read Model Database Connections…"
 category = "Laravel"
 when = "workspaceContains:artisan"
 

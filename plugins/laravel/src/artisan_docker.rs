@@ -245,7 +245,7 @@ fn load(root: &str) -> Result<Option<Value>, Error> {
 }
 fn run(project: &Project, args: &[String]) -> Result<String, Error> {
     let task = host::begin_task(crate::ui_text::text("native.artisan_docker.e4cbafe8e6", "Inspect/discover Docker Artisan metadata"), true);
-    let child = host::start(&host::Command::new("docker").args(args), Some(project))?;
+    let child = host::start(&host::Command::new("docker").args(args), Some(project)).map_err(|error| ui_kit::denied::map(error, "Running Artisan in Docker", "process:docker", "Laravel"))?;
     if let Err(error) = child.close_stdin() {
         let _ = child.kill();
         return Err(error);
@@ -417,7 +417,7 @@ fn browse_inner(ctx: &Invocation) -> Result<Option<String>, Error> {
         .ok_or(crate::ui_text::text("native.artisan_docker.7b35695466", "Open the owning Laravel project first."))?;
     let owner = identity(&project)?;
     let value = load(owner["root"].as_str().ok_or(Error::Stale)?)?.filter(|v| v["identity"] == owner)
-        .ok_or(crate::ui_text::text("native.artisan_docker.458437fcc2", "No accepted Docker metadata for this project/endpoint/container/source identity. Use the explicit Docker metadata refresh command."))?;
+        .ok_or(crate::ui_text::text("native.artisan_docker.noSavedCommands", "No Artisan commands are saved for this Docker container yet. Run Laravel: Refresh Docker Artisan Commands first."))?;
     let commands = metadata::parse(&json!({"commands":value["commands"]}).to_string())?;
     let commands = commands.as_array().ok_or(crate::ui_text::text("native.artisan_docker.92654a4c9d", "Unsupported cached commands."))?;
     let choices: Vec<PickItem> = commands
@@ -849,7 +849,7 @@ mod tests {
     fn explicit_docker_grant_is_required_after_review_and_duplicate_json_is_refused() {
         let host = setup().with_capabilities(&["project.read", "storage"]);
         host.answer_next_prompt(Some(&["ok"]));
-        assert!(matches!(refresh(&host.invocation()), Err(Error::Denied(_))));
+        assert!(matches!(refresh(&host.invocation()), Err(Error::Invalid(message)) if message.contains("process:docker permission")));
         assert!(host.storage().is_empty());
         let owner = identity(&host.invocation().project().unwrap()).unwrap();
         let bad = proof()

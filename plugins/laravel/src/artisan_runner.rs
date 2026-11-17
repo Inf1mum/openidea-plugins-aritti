@@ -122,7 +122,10 @@ fn start_process(program: &str, args: &[String], project: &Project) -> Result<ho
             other => return other,
         }
     }
-    host::start(&host::Command::new(program).args(args), Some(project))
+    host::start(&host::Command::new(program).args(args), Some(project)).map_err(|error| {
+        let feature = if program == "docker" { "Running Artisan in Docker" } else { "Running PHP" };
+        ui_kit::denied::map(error, feature, &format!("process:{program}"), "Laravel")
+    })
 }
 
 #[cfg(test)]

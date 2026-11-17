@@ -910,7 +910,7 @@ mod tests {
         let mut state = State::default();
         assert!(matches!(
             state.capture(&host.invocation(), Runner::Php, "events"),
-            Err(Error::Denied(_))
+            Err(Error::Invalid(message)) if message.contains("process:php permission")
         ));
         assert!(state.snapshots.is_empty());
     }
