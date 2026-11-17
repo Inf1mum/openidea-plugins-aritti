@@ -109,7 +109,6 @@ name = "openidea-plugin-aritti-spring-osgi"
 version = "0.1.0"
 dependencies = [
  "openidea-plugin",
- "quick-xml",
  "spring-text",
  "ui-kit",
 ]
