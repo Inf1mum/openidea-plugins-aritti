@@ -6,14 +6,16 @@
       "default": "{id} {summary}"
     },
     "fillCommitTemplate": {
+      "title": "Pre-fill the commit message from the active task",
       "type": "boolean",
-      "title": "Write the active task's commit message to git's commit.template, which pre-fills the commit field (needs git; a template you set yourself is left alone)",
-      "default": false
+      "default": false,
+      "description": "Write the active task's commit message to git's commit.template, which pre-fills the commit field (needs git; a template you set yourself is left alone)"
     },
     "branchNameFormat": {
+      "title": "Branch name format",
       "type": "string",
-      "title": "Branch name format ({id} and {summary} are replaced; local tasks have no ID, so an empty name falls back to the first two words of the summary)",
-      "default": "{id}"
+      "default": "{id}",
+      "description": "Branch name format ({id} and {summary} are replaced; local tasks have no ID, so an empty name falls back to the first two words of the summary)"
     },
     "updateIssuesAutomatically": {
       "type": "boolean",
@@ -32,7 +34,7 @@
     },
     "githubQuery": {
       "type": "string",
-      "title": "GitHub: extra search qualifiers (label:bug, milestone:v2\u2026)",
+      "title": "GitHub: extra search qualifiers (label:bug, milestone:v2…)",
       "default": ""
     },
     "gitlabProject": {
@@ -91,9 +93,10 @@
       "default": ""
     },
     "fogbugzProfile": {
+      "title": "FogBugz credential profile path (mode 0600)",
       "type": "string",
-      "title": "Absolute path to externally provisioned 0600 FogBugz credential profile (token stays outside plugin)",
-      "default": ""
+      "default": "",
+      "description": "Absolute path to externally provisioned 0600 FogBugz credential profile (token stays outside plugin)"
     },
     "selfHostedProfiles": {
       "type": "array",

@@ -165,17 +165,17 @@ above keep working where shown.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
-| Warn about source declarations of removed or deprecated Security configuration APIs… | `springSecurity.checkMigration` | on | Spring Security 6 migration warnings. |
+| Warn about removed Spring Security 6 APIs | `springSecurity.checkMigration` | on | Spring Security 6 migration warnings. |
 | Warn about explicit ROLE_ prefixes in role-check literals… | `springSecurity.checkRolePrefixes` | on | `ROLE_` prefix checks. |
 | Warn about source declarations of NoOpPasswordEncoder and {noop} passwords | `springSecurity.checkPasswords` | on | Plain-text password checks. |
 | Warn about Java/Kotlin matcher ordering and duplicate/unreachable Security XML patterns | `springSecurity.checkMatchers` | on | Rule order checks in Java, Kotlin and XML. |
 | Check explicit PathPatternRequestMatcher factory path syntax… | `springSecurity.checkPathPatterns` | on | Path syntax checks and the leading `/` fix. |
 | Warn when security debug logging is enabled… | `springSecurity.checkDebug` | on | Debug logging warnings and their fixes. |
-| Report bean references … that no bean of the project answers (Info) | `springSecurity.checkBeanReferences` | on | Missing bean reference marks. |
-| Warn when a method protected by @PreAuthorize, @PostAuthorize, @PreFilter or @PostFilter is called from the same class… | `springSecurity.checkSelfInvocation` | off | Self-invocation warnings. Leave off if method security uses AspectJ mode. |
-| Check source-local Security XML access expression syntax and known function names… | `springSecurity.checkExpressions` | on | `<intercept-url access>` expression checks. |
+| Report bean references no bean answers | `springSecurity.checkBeanReferences` | on | Missing bean reference marks. |
+| Warn about calls to secured methods in the same class | `springSecurity.checkSelfInvocation` | off | Self-invocation warnings. Leave off if method security uses AspectJ mode. |
+| Check access expression syntax | `springSecurity.checkExpressions` | on | `<intercept-url access>` expression checks. |
 | Check supported Security XML required attributes and known enumerated values | `springSecurity.checkXmlAttributes` | on | XML attribute and value checks. |
-| Show source hover for explicit known matcher declarations | `springSecurity.matcherHover` | on | Matcher hover. |
+| Show hover for matcher declarations | `springSecurity.matcherHover` | on | Matcher hover. |
 | Show source inlays for explicit known matcher declarations | `springSecurity.matcherInlays` | on | Matcher inline hints. |
 
 Titles ending in "…" are shortened; the settings page shows them in full.

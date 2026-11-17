@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Copy consistency checks for plugin command titles and Rust message strings."""
+import json
 import re
 import sys
 import tomllib
@@ -62,6 +63,25 @@ for toml in sorted(ROOT.glob("plugins/*/plugin.toml")):
     if len(found) > 1:
         listing = "; ".join(f"{p}: {len(t)}" for p, t in prefixes.items())
         problems.append(f"{name}: multiple title prefixes ({listing})")
+
+MAX_SETTING_TITLE = 120
+
+
+def leaf_properties(properties: dict):
+    for key, value in properties.items():
+        if "properties" in value:
+            yield from leaf_properties(value["properties"])
+        else:
+            yield key, value
+
+
+for schema in sorted(ROOT.glob("plugins/*/settings*.schema.json")):
+    for key, value in leaf_properties(json.loads(schema.read_text()).get("properties", {})):
+        title = value.get("title")
+        if not title:
+            problems.append(f"{schema.parent.name}: setting {key!r} has no title")
+        elif len(title) > MAX_SETTING_TITLE:
+            problems.append(f"{schema.parent.name}: title of {key!r} is {len(title)} chars (max {MAX_SETTING_TITLE}); move detail to description")
 
 rust = list(ROOT.glob("plugins/*/src/**/*.rs")) + list(ROOT.glob("crates/ui-kit/src/**/*.rs"))
 for path in sorted(rust):

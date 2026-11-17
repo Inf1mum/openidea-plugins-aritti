@@ -141,8 +141,8 @@ Settings › Plugins › Tasks. The common ones:
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
 | Commit message format ({id} and {summary} are replaced; local tasks have no ID) | `commitMessageFormat` | `{id} {summary}` | `{id}` and `{summary}` are replaced. Local tasks have no ID. |
-| Branch name format ({id} and {summary} are replaced; local tasks have no ID, so an empty name falls back to the first two words of the summary) | `branchNameFormat` | `{id}` | Same placeholders. An empty name falls back to the first two words of the summary. |
-| Write the active task's commit message to git's commit.template, which pre-fills the commit field (needs git; a template you set yourself is left alone) | `fillCommitTemplate` | off | Pre-fills the commit field. A template you set yourself is left alone. |
+| Branch name format | `branchNameFormat` | `{id}` | Same placeholders. An empty name falls back to the first two words of the summary. |
+| Pre-fill the commit message from the active task | `fillCommitTemplate` | off | Pre-fills the commit field. A template you set yourself is left alone. |
 | Update issues every 20 minutes | `updateIssuesAutomatically` | on | Background issue refresh. |
 | Include closed GitHub, GitLab, Codeberg and Lighthouse issues in explicit Search Issues | `searchClosedIssues` | off | Adds closed issues to searches. |
 
@@ -163,7 +163,7 @@ Tracker settings:
 | Lighthouse Cloud tenant host, such as acme.lighthouseapp.com | `lighthouseHost` | empty |
 | Lighthouse project ID (positive numeric ID) | `lighthouseProject` | empty |
 | FogBugz exact tenant host, such as acme.fogbugz.com | `fogbugzHost` | empty |
-| Absolute path to externally provisioned 0600 FogBugz credential profile (token stays outside plugin) | `fogbugzProfile` | empty |
+| FogBugz credential profile path (mode 0600) | `fogbugzProfile` | empty |
 | Approved self-hosted tracker credential profiles | `selfHostedProfiles` | none |
 
 Secrets (set in the same page): **GitHub token**, **GitLab token**, **Codeberg token**, **YouTrack token**, **Jira credentials**, **Trello API key**, **Trello token**, **Lighthouse API Token**. Each one's description says which scopes it needs.

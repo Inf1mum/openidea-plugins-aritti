@@ -16,9 +16,10 @@
       "default": true
     },
     "springWeb.reportUnresolvedViews": {
+      "title": "Hint at view names with no template",
       "type": "boolean",
-      "title": "Hint when a returned view name matches no template in the known template folders; quiet when a source defines its own ViewResolver",
-      "default": true
+      "default": true,
+      "description": "Hint when a returned view name matches no template in the known template folders; quiet when a source defines its own ViewResolver"
     },
     "springWeb.showUrlMarkers": {
       "type": "boolean",

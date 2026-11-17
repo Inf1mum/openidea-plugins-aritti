@@ -122,9 +122,9 @@ Settings › Plugins › *Twig*.
 |---|---|---|---|
 | Report unclosed tags, unexpected end tags and unterminated delimiters | `diagnostics` | on | Turns the main checks on or off. |
 | Also report brackets that do not pair inside {{ }} and {% %} (off by default) | `expressionErrors` | off | Adds the `unbalanced-bracket` check. |
-| Show Twig language and unique current-template macro source documentation | `hover` | on | Turns hover on or off. |
-| Complete and navigate to the filters, functions and tests the project registers in src/, app/ and lib/ (outside Symfony projects) | `projectExtensions` | on | Reads `new TwigFilter('x'`, `new TwigFunction('x'` and `new TwigTest('x'` from project PHP. |
-| Build exact static macro/block/import models for navigation, highlights and reviewed Rename (no unchecked native indexed edits) | `staticTemplateReferences` | on | Turns occurrence highlights, lenses and reviewed renames on or off. |
+| Hover documentation | `hover` | on | Turns hover on or off. |
+| Complete project filters, functions and tests | `projectExtensions` | on | Reads `new TwigFilter('x'`, `new TwigFunction('x'` and `new TwigTest('x'` from project PHP. |
+| Occurrence highlights and rename | `staticTemplateReferences` | on | Turns occurrence highlights, lenses and reviewed renames on or off. |
 | Twig loader namespaces | `templateNamespaces` | empty | Maps `@namespace` to a project-relative directory (up to 32 entries). |
 | Tag opening / closing delimiter | `tagOpen` / `tagClose` | `{%` / `%}` | Custom tag delimiters. |
 | Variable opening / closing delimiter | `variableOpen` / `variableClose` | `{{` / `}}` | Custom print delimiters. |

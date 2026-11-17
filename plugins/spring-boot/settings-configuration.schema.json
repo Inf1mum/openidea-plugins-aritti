@@ -1,8 +1,8 @@
 {
   "properties": {
     "springBoot.checkPropertyValues": {
+      "title": "Warn about values that do not match the key type",
       "type": "boolean",
-      "title": "Warn when a configuration value cannot convert to its key's type (number, boolean, duration, data size, enum, project class, list items)",
       "default": true,
       "group": "Configuration files",
       "description": "Validates literal configuration values against declared metadata types; environment/profile/import precedence and runtime values are unresolved."

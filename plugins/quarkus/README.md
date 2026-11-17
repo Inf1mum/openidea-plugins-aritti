@@ -154,7 +154,7 @@ Settings › Plugins › Quarkus Tools.
 |---|---|---|---|
 | Warn about duplicate keys, lines without a separator and empty values | `quarkus.checkSyntax` | on | Syntax checks in config files. |
 | Warn about values that do not fit the property's type (number, boolean, enum, duration, memory size) | `quarkus.checkValues` | on | Value checks in config files. |
-| Warn about ${...} expressions naming nothing defined in the file, the environment or the system properties | `quarkus.checkExpressions` | on | Expression typo checks. |
+| Check property names in expressions (same file) | `quarkus.checkExpressions` | on | Expression typo checks. |
 | Note required keys (no default, not Optional) that no application file or .env sets while a sibling key is set | `quarkus.checkRequired` | off | Required-key notes. |
 | Warn about @ConfigProperty keys without a default that no application file or .env sets | `quarkus.checkUnassigned` | off | Unassigned-key checks in Java. |
 | Check health checks (@Liveness/@Readiness without HealthCheck and the reverse) and @Gauge beans | `quarkus.checkHealthMetrics` | on | Health and metrics checks. |

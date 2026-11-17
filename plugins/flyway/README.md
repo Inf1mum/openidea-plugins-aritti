@@ -166,10 +166,10 @@ Settings › Plugins › Flyway Migrations.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
-| Migration locations, comma-separated | `locations` | empty | Where to look for migrations. Empty: read `flyway.toml`, `flyway.conf` and `spring.flyway.locations`. |
+| Migration locations (comma-separated) | `locations` | empty | Where to look for migrations. Empty: read `flyway.toml`, `flyway.conf` and `spring.flyway.locations`. |
 | Run Flyway commands with | `runner` | `flyway` | `flyway` (CLI) or `mvn` (Maven plugin). |
 | Extra arguments for Flyway commands | `arguments` | empty | Added after the goal, for example `-environment=dev` or `-Dflyway.user=…`. |
-| CLI command output ownership | `executionMode` | `terminal` | `terminal` uses the IDE's terminal and Run. `managed` shows output in the **Command Output** tab. |
+| Show command output in | `executionMode` | `terminal` | `terminal` uses the IDE's terminal and Run. `managed` shows output in the **Command Output** tab. |
 
 ## Permissions
 

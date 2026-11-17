@@ -154,7 +154,7 @@ Settings › Plugins › DDEV Integration. The **DDEV Setup** panel edits the sa
 |---|---|---|---|
 | Refresh DDEV status every minute | `watchDdev` | on | Periodic status refresh. |
 | Check for DDEV updates automatically | `checkForUpdates` | on | Daily update check. |
-| Maintain a DDEV database connection | `autoConfigureDataSource` | on | Automatic database connection. |
+| Keep a Database connection for the DDEV database | `autoConfigureDataSource` | on | Automatic database connection. |
 | PHP version for Configure Project (optional) | `phpVersion` | empty | PHP version for **DDEV: Configure Project**. Format: major.minor. |
 | Offer DDEV for PHP, Node.js, Composer and project runs | `autoConfigureRunTarget` | on | The **DDEV: &lt;project&gt;** run target. |
 | Project path inside the web container | `containerRoot` | `/var/www/html` | Where project paths map in the container. Must be absolute. |

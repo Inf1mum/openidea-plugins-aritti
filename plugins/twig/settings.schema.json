@@ -6,9 +6,10 @@
       "default": false
     },
     "projectExtensions": {
+      "title": "Complete project filters, functions and tests",
       "type": "boolean",
-      "title": "Complete and navigate to the filters, functions and tests the project registers in src/, app/ and lib/ (outside Symfony projects)",
-      "default": true
+      "default": true,
+      "description": "Complete and navigate to the filters, functions and tests the project registers in src/, app/ and lib/ (outside Symfony projects)"
     },
     "diagnostics": {
       "type": "boolean",
@@ -16,9 +17,10 @@
       "default": true
     },
     "hover": {
+      "title": "Hover documentation",
       "type": "boolean",
-      "title": "Show Twig language and unique current-template macro source documentation",
-      "default": true
+      "default": true,
+      "description": "Show Twig language and unique current-template macro source documentation"
     },
     "tagOpen": {
       "type": "string",
@@ -73,9 +75,10 @@
       "default": ""
     },
     "staticTemplateReferences": {
+      "title": "Occurrence highlights and rename",
       "type": "boolean",
-      "title": "Build exact static macro/block/import models for navigation, highlights and reviewed Rename (no unchecked native indexed edits)",
-      "default": true
+      "default": true,
+      "description": "Build exact static macro/block/import models for navigation, highlights and reviewed Rename (no unchecked native indexed edits)"
     },
     "templateNamespaces": {
       "type": "array",
@@ -85,11 +88,24 @@
       "maxItems": 32,
       "items": {
         "type": "object",
-        "required": ["namespace", "path"],
+        "required": [
+          "namespace",
+          "path"
+        ],
         "additionalProperties": false,
         "properties": {
-          "namespace": { "type": "string", "title": "Namespace (without @)", "minLength": 1, "maxLength": 128 },
-          "path": { "type": "string", "title": "Project-relative directory", "minLength": 1, "maxLength": 128 }
+          "namespace": {
+            "type": "string",
+            "title": "Namespace (without @)",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "path": {
+            "type": "string",
+            "title": "Project-relative directory",
+            "minLength": 1,
+            "maxLength": 128
+          }
         }
       }
     }

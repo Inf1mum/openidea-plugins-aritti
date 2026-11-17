@@ -234,7 +234,7 @@ Each switch is on by default.
 | Extra service definition files outside config/ (project-relative, comma-separated YAML or XML) | `extraServiceFiles` | empty | More service files to index. |
 | Extra routing files outside config/ (project-relative, comma-separated YAML or XML) | `extraRoutingFiles` | empty | More routing files to index. |
 | Project-relative profiler CSV index (explicit refresh; empty uses default) | `profilerIndexPath` | `var/cache/dev/profiler/index.csv` | Which profiler index the **Profiler** tab reads. |
-| Legacy global Twig navigation hints: name=relative-directory pairs (prefer project Twig Namespace Paths command; not runtime configuration) | `twigNamespaces` | empty | Extra Twig namespaces. Prefer **Symfony: Configure Twig Namespace Paths**. |
+| Extra Twig namespaces (legacy) | `twigNamespaces` | empty | Extra Twig namespaces. Prefer **Symfony: Configure Twig Namespace Paths**. |
 
 ## Permissions
 

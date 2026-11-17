@@ -127,7 +127,7 @@ Settings › Plugins › Spring Data. All are on by default.
 | Warn when a repository method returning Page has no Pageable parameter | `springData.checkPageable` | `true` | The `Page` without `Pageable` warning. |
 | Warn when an update or delete @Query is not marked @Modifying | `springData.checkModifying` | `true` | The missing `@Modifying` warning. |
 | Check Spring Data JDBC mappings (@Sequence, @MappedCollection) | `springData.checkJdbcMapping` | `true` | The JDBC mapping checks. |
-| Show cached repository/query hover and known source parameter hints | `springData.checkQueryTypes` | `true` | Derived query hover, `@Query` hover, identifier hover and parameter hints. |
+| Show query hovers and parameter hints | `springData.checkQueryTypes` | `true` | Derived query hover, `@Query` hover, identifier hover and parameter hints. |
 
 ## Permissions
 

@@ -125,7 +125,7 @@ Settings › Plugins › Spring Endpoints Tools (section **Spring Endpoints**). 
 | Warn when a request mapping uses the version attribute but the project configures no API versioning | `springWeb.checkApiVersioning` | on | API versioning warning and the `apiVersion(...)` test hint. |
 | Warn when the version attribute of a request mapping is not a major.minor.patch version | `springWeb.checkVersionFormat` | on | Version format check. |
 | Warn when an @InitBinder method returns a value or takes no WebDataBinder | `springWeb.checkInitBinder` | on | `@InitBinder` checks. |
-| Hint when a returned view name matches no template in the known template folders; quiet when a source defines its own ViewResolver | `springWeb.reportUnresolvedViews` | on | Unresolved view hint. |
+| Hint at view names with no template | `springWeb.reportUnresolvedViews` | on | Unresolved view hint. |
 | Show the URL of each request mapping in the gutter | `springWeb.showUrlMarkers` | on | URL gutter markers. |
 | Enable Thymeleaf SpringEL support (requires Spring Beans) | `springWeb.thymeleafSpelInjection` | off | SpEL in Thymeleaf `${…}`/`*{…}` and in `defaultValue` of request parameters. |
 | Warn when a @SendTo or messaging template destination is outside the configured broker prefixes | `springWebsocket.checkBrokerPrefixes` | on | STOMP broker prefix warning. |

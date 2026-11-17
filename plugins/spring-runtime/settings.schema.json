@@ -21,9 +21,10 @@
       "default": 2000
     },
     "autoRefresh": {
+      "title": "Allow polling",
       "type": "boolean",
-      "title": "Allow bounded minute polling after explicit scoped Start (instance only)",
-      "default": false
+      "default": false,
+      "description": "Allow bounded minute polling after explicit scoped Start (instance only)"
     },
     "snapshotInlays": {
       "type": "boolean",
@@ -32,13 +33,14 @@
     },
     "refreshBudgetMs": {
       "type": "integer",
-      "title": "Maximum cooperative refresh batch budget in ms (1,000\u201360,000)",
+      "title": "Maximum cooperative refresh batch budget in ms (1,000–60,000)",
       "default": 20000
     },
     "pollAttempts": {
+      "title": "Polls per start (1–10)",
       "type": "integer",
-      "title": "Maximum request batches per explicitly started polling lease (1\u201310; lease expires after 10 min)",
-      "default": 5
+      "default": 5,
+      "description": "Maximum request batches per explicitly started polling lease (1–10; lease expires after 10 min)"
     }
   }
 }

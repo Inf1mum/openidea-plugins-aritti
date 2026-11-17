@@ -11,8 +11,8 @@
       "default": true
     },
     "autoConfigureDataSource": {
+      "title": "Keep a Database connection for the DDEV database",
       "type": "boolean",
-      "title": "Maintain a DDEV database connection",
       "default": true
     },
     "phpVersion": {

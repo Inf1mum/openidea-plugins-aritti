@@ -81,9 +81,10 @@
       "default": ""
     },
     "twigNamespaces": {
+      "title": "Extra Twig namespaces (legacy)",
       "type": "string",
-      "title": "Legacy global Twig navigation hints: name=relative-directory pairs (prefer project Twig Namespace Paths command; not runtime configuration)",
-      "default": ""
+      "default": "",
+      "description": "Legacy global Twig navigation hints: name=relative-directory pairs (prefer project Twig Namespace Paths command; not runtime configuration)"
     },
     "profilerIndexPath": {
       "type": "string",

@@ -152,7 +152,7 @@ Settings › Plugins › *Spring Boot*. All are on/off switches.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
-| Warn when a configuration value cannot convert to its key's type (number, boolean, duration, data size, enum, project class, list items) | `springBoot.checkPropertyValues` | on | Value type check |
+| Warn about values that do not match the key type | `springBoot.checkPropertyValues` | on | Value type check |
 | Check (additional-)spring-configuration-metadata.json files (shape, defaults, deprecation, hints, project classes) | `springBoot.checkMetadataFiles` | on | Metadata file checks |
 | Hint when a spring.datasource.url names a JDBC driver the build files do not declare (transitive drivers are not seen) | `springBoot.checkDriverDependency` | off | JDBC driver hint |
 | Offer native Boot Maven/Gradle run profiles | `springBoot.nativeRunProfiles` | off | Adds Spring Boot entries to native Run |

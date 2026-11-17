@@ -167,7 +167,7 @@ Settings › Plugins › OpenAPI.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
-| Extra file name globs treated as OpenAPI files for completion, go to definition, problems and the endpoints view (comma separated, for example api/*.yaml) | `specGlobs` | empty | Adds more files to the editor features and the endpoints list. Not to the preview. |
+| Extra OpenAPI file globs (comma-separated) | `specGlobs` | empty | Adds more files to the editor features and the endpoints list. Not to the preview. |
 | Hint at a YAML or JSON file with an OpenAPI paths object but no openapi or swagger key | `checkSpecCandidates` | on | Shows the `missing-openapi-root` hint. |
 
 ## Permissions

@@ -123,8 +123,8 @@ Settings › Plugins › Spring Runtime Insight.
 | Actuator authentication (the token is the actuator-token secret) | `actuatorAuth` | `none` | `bearer` sends `Authorization: Bearer <token>`. `basic` sends `Authorization: Basic <token>` (`user:password` in Base64). |
 | Timeout per Actuator request (ms) | `timeoutMs` | `2000` | Per-endpoint timeout, 100–30000 ms. |
 | Maximum cooperative refresh batch budget in ms (1,000–60,000) | `refreshBudgetMs` | `20000` | Total time one refresh may take. |
-| Allow bounded minute polling after explicit scoped Start (instance only) | `autoRefresh` | off | Allows polling. You still have to start it; the setting alone never fetches. |
-| Maximum request batches per explicitly started polling lease (1–10; lease expires after 10 min) | `pollAttempts` | `5` | How many polls one Start allows. |
+| Allow polling | `autoRefresh` | off | Allows polling. You still have to start it; the setting alone never fetches. |
+| Polls per start (1–10) | `pollAttempts` | `5` | How many polls one Start allows. |
 | Show cached exact-key snapshot observations in configuration and @Value annotations | `snapshotInlays` | on | Shows the `snapshot:` inlays. |
 
 The **Actuator token** secret (`actuator-token`) holds the bearer token or Base64 `user:password`. Set it in Settings › Plugins › Spring Runtime Insight ([about secrets](../../README.md#tokens-and-secrets)).

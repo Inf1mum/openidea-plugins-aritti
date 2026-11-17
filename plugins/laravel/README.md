@@ -288,7 +288,7 @@ Settings › Plugins › *Laravel*.
 | Report controllers and controller methods named in routes/ that the project does not have | `reportUnknownRouteControllers` | on |
 | Report Inertia pages that have no file under resources/js/Pages | `reportUnknownInertiaPages` | on |
 | Report Model::factory() calls of models without a factory | `reportUnknownFactories` | on |
-| Report mass assignment of unguarded models, unscheduled prunable models and orderBy() on date columns that latest() or oldest() replace | `checkEloquent` | on |
+| Check Eloquent models and queries | `checkEloquent` | on |
 | Mass assignment inspection exceptions by model class | `massAssignmentExceptions` | `{}` |
 | Report env() calls outside the config directory (they return null once the configuration is cached) | `checkFunctions` | on |
 | Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL | `checkSecurity` | on |
@@ -313,8 +313,8 @@ Settings › Plugins › *Laravel*.
 
 | Setting | Key | Default |
 |---|---|---|
-| Show cached route and controller hints in the editor | `routeHints` | on |
-| Offer scope-to-attribute intentions when composer.lock establishes Laravel 12.6 or newer | `scopeAttributeIntentions` | on |
+| Show route and controller hints | `routeHints` | on |
+| Offer scope-to-attribute intentions | `scopeAttributeIntentions` | on |
 | Laravel interface language (`auto`, `en`, `ja`, `ko`, `zh-CN`) | `uiLanguage` | `auto` |
 
 **Docker Artisan**

@@ -355,7 +355,7 @@ impl Main {
             ),
             Field::new(
                 "autoConfigureDataSource",
-                "Maintain a DDEV database connection",
+                "Keep a Database connection for the DDEV database",
                 FieldValue::Checkbox(draft.database),
             ),
             Field::new(

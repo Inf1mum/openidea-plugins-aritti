@@ -189,17 +189,17 @@ Settings › Plugins › Spring Beans. Every setting is an on/off switch.
 | Warn when @Transactional, @Async, @Cacheable and similar annotations sit on private, final or static methods | `springBeans.checkProxyMethods` | on | Proxy pitfall warnings. |
 | Warn when a @Scheduled method declares parameters | `springBeans.checkScheduled` | on | `@Scheduled` check. |
 | Warn when two beans of the project share a name | `springBeans.checkDuplicateNames` | on | Duplicate bean name check. |
-| Warn about private or final @Bean methods in proxied @Configuration classes, … | `springBeans.checkConfiguration` | on | `@Configuration` and lifecycle method checks. |
+| Check @Configuration classes and @Bean methods | `springBeans.checkConfiguration` | on | `@Configuration` and lifecycle method checks. |
 | Hint when an explicit bean name starts with a capital letter | `springBeans.checkNaming` | on | Naming hint. |
-| Warn when a method calls a @Transactional, @Async or @Cacheable method of its own class … | `springBeans.checkSelfInvocation` | off | Self-invocation warning. Text-based, so it may miss or over-report. |
-| Warn about names and files no project source defines … | `springBeans.checkUnresolvedReferences` | off | Unresolved names and file paths. May over-report. |
-| Report incomplete AOP configuration … | `springBeans.checkAop` | on | AOP XML and pointcut checks. |
-| Report @Autowired, @Value, @Inject and @Resource on static members, … | `springBeans.checkInjectionAnnotations` | on | Injection annotation checks. |
+| Warn about calls to proxied methods in the same class | `springBeans.checkSelfInvocation` | off | Self-invocation warning. Text-based, so it may miss or over-report. |
+| Warn about names and files no project source defines | `springBeans.checkUnresolvedReferences` | off | Unresolved names and file paths. May over-report. |
+| Check AOP configuration | `springBeans.checkAop` | on | AOP XML and pointcut checks. |
+| Check injection annotations | `springBeans.checkInjectionAnnotations` | on | Injection annotation checks. |
 | Report malformed @Profile expressions | `springBeans.checkProfiles` | on | `@Profile` syntax check. |
 | Report @Async methods that return a value instead of void or a Future | `springBeans.checkAsync` | on | `@Async` return type check. |
-| Report cache annotations without a cache name, … | `springBeans.checkCache` | on | Cache annotation checks. |
-| Kotlin: missing kotlin-spring plugin, redundant open modifiers … | `springBeans.checkKotlinSpringPlugin` | on | Kotlin hints. |
-| Check Spring XML: bean attributes, values, scopes, … | `springBeans.checkXml` | on | Spring XML checks. |
+| Check cache annotations | `springBeans.checkCache` | on | Cache annotation checks. |
+| Check Kotlin Spring usage | `springBeans.checkKotlinSpringPlugin` | on | Kotlin hints. |
+| Check Spring XML | `springBeans.checkXml` | on | Spring XML checks. |
 
 Long titles are shortened here with "…"; the full text is in Settings and in `settings.schema.json`.
 

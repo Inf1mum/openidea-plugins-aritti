@@ -272,12 +272,15 @@ Settings › Plugins › Kube Explorer.
 | Kubeconfig file, or several separated by commas (Choose Kubeconfig picks one; empty: KUBECONFIG or ~/.kube/config) | `kubeconfig` | empty | Which kubeconfig files to use. |
 | Image of the ephemeral debug container (Debug button on a pod) | `debugImage` | `busybox:stable` | Image for **Debug…**. |
 | Allow Show Secret and YAML on a secret | `allowRevealSecrets` | off | Show, Edit and YAML on Secrets. |
-| Open supported built-in YAML in a private editor copy (off: panel; Save is local only, explicit review/apply commands required; never Secrets) | `yamlInEditor` | off | Panel or private editor for YAML. |
+| Open built-in YAML in a private editor copy | `yamlInEditor` | off | Panel or private editor for YAML. |
 | Lines per pod the Log Viewer reads (10 to 20000) | `logViewerLines` | 1000 | Log snapshot size. |
 | Show a notification when a command succeeds (errors are always shown) | `notifySuccess` | on | Success notifications. |
-| Globs of YAML files that are not Kubernetes, separated by commas (no problems are reported for them), e.g. *.compose.yaml, ci/*.yml | `nonKubernetesGlobs` | empty | Files with no manifest checks. |
+| YAML files that are not Kubernetes (globs, comma-separated) | `nonKubernetesGlobs` | empty | Files with no manifest checks. |
+| Report unknown top-level or spec keys | `checkKindSchema` | on | Unknown keys in built-in kinds (core, apps, batch, networking, rbac) and kinds their API group lacks. |
+| Hint at missing required keys | `checkRequiredKeys` | on | Keys the API requires, such as `spec.containers`, `spec.template` or `roleRef`. |
+| Hint at invalid field values | `checkFieldValues` | on | Values that are not one the field accepts, such as `restartPolicy` or Service `type`, or not an integer or boolean where one is required. |
 
-The other settings turn individual checks on or off; all default to on: `checkDeprecatedApiVersions`, `checkDuplicateEnvNames`, `checkMissingName`, `checkMissingSelector`, `checkKindSchema`, `checkReadOnlyFields`, `checkDeprecatedKeys`, `checkRequiredKeys`, `checkFieldValues`, `checkChartKeys`, `checkChartSchema`, `checkHelmWhitespaceTrim`, `checkHelmExcessiveTrim`, `checkHelmValues` and `checkHelmIncludes`.
+The other settings turn individual checks on or off; all default to on: `checkDeprecatedApiVersions`, `checkDuplicateEnvNames`, `checkMissingName`, `checkMissingSelector`, `checkReadOnlyFields`, `checkDeprecatedKeys`, `checkChartKeys`, `checkChartSchema`, `checkHelmWhitespaceTrim`, `checkHelmExcessiveTrim`, `checkHelmValues` and `checkHelmIncludes`.
 
 ## Permissions
 

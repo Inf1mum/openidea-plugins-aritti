@@ -16,19 +16,22 @@
       "default": true
     },
     "springSecurity.checkBeanReferences": {
+      "title": "Report bean references no bean answers",
       "type": "boolean",
-      "title": "Report bean references (userDetailsServiceBeanName, @bean in security expressions, ref attributes of the security namespace) that no bean of the project answers (Info)",
-      "default": true
+      "default": true,
+      "description": "Report bean references (userDetailsServiceBeanName, @bean in security expressions, ref attributes of the security namespace) that no bean of the project answers (Info)"
     },
     "springSecurity.checkSelfInvocation": {
+      "title": "Warn about calls to secured methods in the same class",
       "type": "boolean",
-      "title": "Warn when a method protected by @PreAuthorize, @PostAuthorize, @PreFilter or @PostFilter is called from the same class (skips the proxy; wrong when method security uses AspectJ mode)",
-      "default": false
+      "default": false,
+      "description": "Warn when a method protected by @PreAuthorize, @PostAuthorize, @PreFilter or @PostFilter is called from the same class (skips the proxy; wrong when method security uses AspectJ mode)"
     },
     "springSecurity.matcherHover": {
+      "title": "Show hover for matcher declarations",
       "type": "boolean",
-      "title": "Show source hover for explicit known matcher declarations",
-      "default": true
+      "default": true,
+      "description": "Show source hover for explicit known matcher declarations"
     },
     "springSecurity.matcherInlays": {
       "type": "boolean",
@@ -36,9 +39,10 @@
       "default": true
     },
     "springSecurity.checkMigration": {
+      "title": "Warn about removed Spring Security 6 APIs",
       "type": "boolean",
-      "title": "Warn about source declarations of removed or deprecated Security configuration APIs (source advisories, framework version unresolved)",
-      "default": true
+      "default": true,
+      "description": "Warn about source declarations of removed or deprecated Security configuration APIs (source advisories, framework version unresolved)"
     },
     "springSecurity.checkRolePrefixes": {
       "type": "boolean",
@@ -51,9 +55,10 @@
       "default": true
     },
     "springSecurity.checkExpressions": {
+      "title": "Check access expression syntax",
       "type": "boolean",
-      "title": "Check source-local Security XML access expression syntax and known function names (custom expression roots unresolved)",
-      "default": true
+      "default": true,
+      "description": "Check source-local Security XML access expression syntax and known function names (custom expression roots unresolved)"
     },
     "springSecurity.checkXmlAttributes": {
       "type": "boolean",

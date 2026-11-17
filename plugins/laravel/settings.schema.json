@@ -91,9 +91,10 @@
       "default": true
     },
     "checkEloquent": {
+      "title": "Check Eloquent models and queries",
       "type": "boolean",
-      "title": "Report mass assignment of unguarded models, unscheduled prunable models and orderBy() on date columns that latest() or oldest() replace",
-      "default": true
+      "default": true,
+      "description": "Report mass assignment of unguarded models, unscheduled prunable models and orderBy() on date columns that latest() or oldest() replace"
     },
     "checkFunctions": {
       "type": "boolean",
@@ -121,11 +122,13 @@
       "default": true
     },
     "routeHints": {
+      "title": "Show route and controller hints",
       "type": "boolean",
       "default": true,
       "description": "Show cached route and controller hints in the editor."
     },
     "scopeAttributeIntentions": {
+      "title": "Offer scope-to-attribute intentions",
       "type": "boolean",
       "default": true,
       "description": "Offer scope-to-attribute intentions when composer.lock establishes Laravel 12.6 or newer."
