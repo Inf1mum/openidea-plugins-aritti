@@ -1,7 +1,8 @@
 //! Applies a resolved `FileAction` from a command: new files go through the
 //! project, edits through the open editor. Not one undo step.
-use crate::denied;
-use openidea_plugin::file_actions::{FileAction, FileOperation};
+use crate::{denied, prompts};
+use openidea_plugin::file_actions::{FileAction, FileActions, FileOperation};
+use openidea_plugin::providers::Document;
 use openidea_plugin::{Error, Project, TextEdit, TextEditor, host, text};
 
 const ONLY_FROM_CODE_ACTIONS: &str = "This action can only be applied from ⌥⏎.";
@@ -57,6 +58,48 @@ pub fn apply(
     }
 
     Ok(())
+}
+
+/// Resolves and applies the active editor's ⌥⏎ action whose title starts with
+/// `prefix`. `Ok(false)` when the editor offers no such action; a cancelled
+/// prompt is `Ok(true)` with nothing written.
+pub fn run_titled(
+    provider: &mut impl FileActions,
+    project: &Project,
+    editor: &TextEditor,
+    prefix: &str,
+    plugin: &str,
+) -> Result<bool, Error> {
+    let read = |e| denied::map(e, "Reading the open file", "editor.read", plugin);
+    let document = editor.document().map_err(read)?;
+    let selection = editor.selections().map_err(read)?.first().copied().unwrap_or_default();
+    let doc = Document { path: editor.path(), language: editor.language(), version: document.version, text: document.text };
+    let Some(action) = provider.file_actions(&doc, selection).into_iter().find(|a| a.title.starts_with(prefix)) else {
+        return Ok(false);
+    };
+
+    match provider.resolve_file_action(&doc, action) {
+        Err(Error::Cancelled) => Ok(true),
+        resolved => apply(project, Some(editor), &resolved?, plugin).map(|()| true),
+    }
+}
+
+/// Creates the empty file `target` after an exact confirmation, then opens it.
+pub fn create_empty(project: &Project, target: &str, title: &str, plugin: &str) -> Result<(), Error> {
+    if project.exists(target)? {
+        return Err(Error::Invalid(format!("{target} already exists; nothing was written.")));
+    }
+
+    if !prompts::confirm_exact(title, &format!("{target}\n\n(empty file)"))? {
+        return Ok(());
+    }
+
+    let action = FileAction {
+        operations: vec![FileOperation::Create { path: target.into(), text: String::new(), overwrite: false }],
+        open: Some(target.into()),
+        ..FileAction::default()
+    };
+    apply(project, None, &action, plugin)
 }
 
 fn apply_to_text(text: &mut String, edits: &[TextEdit]) -> Result<(), Error> {
@@ -158,6 +201,87 @@ mod tests {
         let result = run(&host, &action);
 
         assert!(matches!(result, Err(Error::Invalid(m)) if m.contains("project.write") && m.contains("Settings › Plugins › P")));
+    }
+
+    struct Stub;
+
+    impl FileActions for Stub {
+        fn file_actions(&mut self, _doc: &Document, selection: Range) -> Vec<FileAction> {
+            ["Other", "Make note…"]
+                .map(|title| FileAction { title: title.into(), data: Some(format!("{}", selection.start.line)), ..FileAction::default() })
+                .into()
+        }
+
+        fn resolve_file_action(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
+            let text = format!("{} {} {}", doc.path, doc.version, action.data.unwrap_or_default());
+            Ok(FileAction { operations: vec![create("note.txt", &text)], ..FileAction::default() })
+        }
+    }
+
+    #[test]
+    fn run_titled_resolves_and_applies_the_matching_action() {
+        let host = writable();
+        host.open_editor("/project/a.txt", "text", "", &[(2, 0, 2, 0)]);
+        let invocation = host.invocation();
+
+        let found = run_titled(&mut Stub, &invocation.project().unwrap(), &invocation.editor().unwrap(), "Make note", "P").unwrap();
+
+        assert!(found);
+        assert_eq!(invocation.project().unwrap().read_file("note.txt").unwrap(), "/project/a.txt 1 2");
+    }
+
+    #[test]
+    fn run_titled_reports_a_missing_action() {
+        let host = writable();
+        host.open_editor("/project/a.txt", "text", "", &[]);
+        let invocation = host.invocation();
+
+        let found = run_titled(&mut Stub, &invocation.project().unwrap(), &invocation.editor().unwrap(), "Absent", "P").unwrap();
+
+        assert!(!found);
+    }
+
+    #[test]
+    fn run_titled_denied_editor_read_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.open_editor("/project/a.txt", "text", "", &[]);
+        let invocation = host.invocation();
+
+        let result = run_titled(&mut Stub, &invocation.project().unwrap(), &invocation.editor().unwrap(), "Make note", "P");
+
+        assert!(matches!(result, Err(Error::Invalid(m)) if m.contains("editor.read")));
+    }
+
+    #[test]
+    fn create_empty_writes_after_exact_confirmation() {
+        let host = writable();
+        host.answer_next_prompt(Some(&[]));
+
+        create_empty(&host.invocation().project().unwrap(), "/project/.gitignore", "Create?", "P").unwrap();
+
+        assert_eq!(host.invocation().project().unwrap().read_file(".gitignore").unwrap(), "");
+        assert_eq!(host.opened_locations(), vec![("/project/.gitignore".to_string(), 0, 0)]);
+    }
+
+    #[test]
+    fn create_empty_writes_nothing_when_cancelled() {
+        let host = writable();
+        host.answer_next_prompt(None);
+
+        create_empty(&host.invocation().project().unwrap(), "/project/.gitignore", "Create?", "P").unwrap();
+
+        assert!(!host.invocation().project().unwrap().exists(".gitignore").unwrap());
+    }
+
+    #[test]
+    fn create_empty_refuses_existing_before_confirming() {
+        let host = writable();
+        host.add_file(".gitignore", "old");
+
+        let result = create_empty(&host.invocation().project().unwrap(), "/project/.gitignore", "Create?", "P");
+
+        assert!(matches!(result, Err(Error::Invalid(m)) if m.contains("already exists")));
+        assert_eq!(host.invocation().project().unwrap().read_file(".gitignore").unwrap(), "old");
     }
 
     #[test]
