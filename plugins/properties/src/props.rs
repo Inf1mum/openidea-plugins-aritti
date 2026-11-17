@@ -479,4 +479,38 @@ mod tests {
             props.iter().map(|p| (p.unescaped_key(text), text[p.value.clone()].to_owned())).collect();
         assert_eq!(pairs, [("a".to_owned(), "b".to_owned()), ("c".to_owned(), "d".to_owned())]);
     }
+
+    fn pairs(text: &str) -> Vec<(String, String)> {
+        parse(text).iter().map(|p| (p.unescaped_key(text), unescape(&text[p.value.clone()]))).collect()
+    }
+
+    #[test]
+    fn trailing_backslash_at_eof_is_dropped() {
+        assert_eq!(pairs("k=v\\"), [("k".to_owned(), "v".to_owned())]);
+        assert_eq!(pairs("k\\"), [("k".to_owned(), String::new())]);
+    }
+
+    #[test]
+    fn double_backslash_before_newline_is_not_a_continuation() {
+        assert_eq!(
+            pairs("a=x\\\\\nb=y\n"),
+            [("a".to_owned(), "x\\".to_owned()), ("b".to_owned(), "y".to_owned())]
+        );
+    }
+
+    #[test]
+    fn crlf_continuation_with_indentation() {
+        assert_eq!(pairs("k=a\\\r\n   b\r\nke\\\r\n  y=v\r\n"), [
+            ("k".to_owned(), "ab".to_owned()),
+            ("key".to_owned(), "v".to_owned()),
+        ]);
+    }
+
+    #[test]
+    fn escaped_separators_stay_in_keys() {
+        assert_eq!(
+            pairs("a\\=b\\:c\\ d=v\n"),
+            [("a=b:c d".to_owned(), "v".to_owned())]
+        );
+    }
 }

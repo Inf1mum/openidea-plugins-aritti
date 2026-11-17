@@ -4,12 +4,12 @@ version = "0.3.0" # x-release-please-version
 description = "Inspections and editing tools for .properties files. Reports duplicate keys, broken \\u escapes, trailing spaces, delimiters that don't match the code style, known missing translations, with quick fixes; text search reports potential unused-key candidates. Also removes a key from every locale, sorts and reformats files, groups keys by prefix in a structure view, edits a resource bundle as a table (Open With › Resource Bundle), goes to declaration in the parent locale or from Java/Kotlin strings, completes keys in i18n calls and simplelogger.properties, and copies a property's key or value."
 authors = ["Arnaud Ritti"]
 license = "MIT"
-change-notes = "Narrower activation: the plugin now starts only for .properties, Java and Kotlin files. Keys continued over a line break, and form feeds around separators, are read the way Java reads them."
+change-notes = "Narrower activation: the plugin now starts only for .properties, Java, Kotlin, HTML and JSP files. Keys continued over a line break, and form feeds around separators, are read the way Java reads them."
 categories = ["languages", "linters"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
 wasm = "dist/plugin.wasm"
-activation = ["on-language:properties", "on-file:**/*.properties", "on-language:java", "on-language:kotlin"]
+activation = ["on-language:properties", "on-file:**/*.properties", "on-language:java", "on-language:kotlin", "on-language:html", "on-language:jsp"]
 
 [capabilities]
 required = ["project.read", "editor.read", "editor.write", "events"]

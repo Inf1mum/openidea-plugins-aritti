@@ -1194,4 +1194,29 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn html_and_jsp_key_definitions_work_on_a_fresh_instance() {
+        let host = MockHost::install();
+        host.add_file("src/main/resources/messages.properties", "a.b=Value\n");
+        for (language, path, text) in [
+            ("html", "/project/t.html", "<p th:text=\"#{a.b}\"></p>"),
+            ("jsp", "/project/t.jsp", "<fmt:message key=\"a.b\"/>"),
+        ] {
+            let mut plugin = Properties::default();
+            plugin.activate(&host.context("aritti.properties")).unwrap();
+            let at = Position::new(0, text.find("a.b").unwrap() as u32 + 1);
+            let found = plugin.definition(&doc(path, language, text), at);
+            assert_eq!(found.len(), 1, "{language}");
+            assert!(found[0].path.ends_with("messages.properties"));
+        }
+    }
+
+    #[test]
+    fn manifest_activates_for_every_provider_language() {
+        let manifest = include_str!("../plugin.toml");
+        for language in ["properties", "java", "kotlin", "html", "jsp"] {
+            assert!(manifest.contains(&format!("\"on-language:{language}\"")), "{language}");
+        }
+    }
 }
