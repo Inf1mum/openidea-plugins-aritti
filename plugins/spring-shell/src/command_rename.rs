@@ -397,7 +397,7 @@ impl ShellTools {
                 subclasses.push((path.to_owned(), class.qualified.clone()));
             }
         }
-        let derived = all_inherited(index);
+        let derived = derived(index);
         let inheriting: Vec<_> = derived.inherited.iter().filter(|(_, declaring, c)| *declaring == doc.path && c.key == command.name && subclasses.iter().any(|(_, q)| *q == c.class)).collect();
         let collides = all_commands(index).map(|(_, c)| c).chain(derived.inherited.iter().map(|(_, _, c)| c)).any(|c| c.key == new && subclasses.iter().any(|(_, q)| *q == c.class));
         if collides {

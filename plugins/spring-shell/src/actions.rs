@@ -63,7 +63,7 @@ impl FileActions for ShellTools {
             return Vec::new();
         };
         let cached = self.indexes.cached(&doc.path);
-        let candidates = candidates(doc, selection, &|qualified| cached.is_some_and(|index| extended(index, qualified)));
+        let candidates = candidates(doc, selection, &|qualified| cached.is_none_or(|index| may_be_extended(index, qualified)));
         if self.actions.pending.len() + candidates.len() > 8 {
             self.actions.pending.clear();
         }
@@ -99,7 +99,7 @@ impl FileActions for ShellTools {
         }
         let pos = position(&doc.text, p.class_at);
         let cached = self.indexes.cached(&doc.path);
-        let still_offered = candidates(doc, Range::new(pos, pos), &|qualified| cached.is_some_and(|index| extended(index, qualified)));
+        let still_offered = candidates(doc, Range::new(pos, pos), &|qualified| cached.is_none_or(|index| may_be_extended(index, qualified)));
         if !still_offered.contains(&(p.class_at, p.start)) {
             return Err(Error::Stale);
         }
@@ -149,6 +149,7 @@ mod tests {
     }
     fn action(tools: &mut ShellTools, d: &Document) -> FileAction {
         let p = position(&d.text, d.text.find("run(){}").unwrap());
+        tools.line_markers(d);
         tools.file_actions(d, Range::new(p, p)).remove(0)
     }
     #[test]
@@ -196,6 +197,7 @@ mod tests {
         ] {
             let (_host, mut tools, mut d) = setup();
             d.text = source;
+            tools.line_markers(&d);
             let p = position(&d.text, d.text.find("run(){}").unwrap());
             assert!(tools.file_actions(&d, Range::new(p, p)).is_empty(), "{}", d.text);
         }
@@ -207,6 +209,7 @@ mod tests {
         d.language = "kotlin".into();
         d.text = "import org.springframework.shell.standard.ShellMethod\n// 😀\nclass C { @ShellMethod(\"Run\") fun run(){} }".into();
         host.add_file("C.kt", &d.text);
+        tools.line_markers(&d);
         let p = position(&d.text, d.text.find("run(){}").unwrap());
         let pending = tools.file_actions(&d, Range::new(p, p)).remove(0);
         host.answer_next_prompt(Some(&["yes"]));
@@ -227,12 +230,20 @@ mod tests {
         assert!(matches!(&result, Err(Error::Invalid(m)) if m == "Save the file first"), "{result:?}");
     }
     #[test]
+    fn cold_index_offers_no_component_fix() {
+        let (_host, mut tools, d) = setup();
+        let p = position(&d.text, d.text.find("run(){}").unwrap());
+        assert!(tools.file_actions(&d, Range::new(p, p)).is_empty());
+    }
+    #[test]
     fn windows_root_fixes_available() {
         let host = MockHost::install();
         host.set_project_root(Some("C:/work/app"));
         host.add_file("C.java", SOURCE);
         let d = Document { path: "C:/work/app/C.java".into(), language: "java".into(), version: 5, text: SOURCE.into() };
         let mut tools = ShellTools::default();
-        assert!(!tools.file_actions(&d, Range::new(position(&d.text, d.text.find("run(){}").unwrap()), position(&d.text, d.text.find("run(){}").unwrap()))).is_empty());
+        tools.line_markers(&d);
+        let p = position(&d.text, d.text.find("run(){}").unwrap());
+        assert!(!tools.file_actions(&d, Range::new(p, p)).is_empty());
     }
 }

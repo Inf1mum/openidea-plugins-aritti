@@ -98,10 +98,7 @@ impl LanguageFeatures for ShellTools {
                     .count();
                 (count > 1).then(|| CodeLens {
                     range: *range,
-                    title: format!(
-                        "{count} local occurrence{}",
-                        if count == 1 { "" } else { "s" }
-                    ),
+                    title: format!("{count} local occurrences"),
                     command: "command-occurrences".into(),
                     argument: Some(format!("{token}:{i}")),
                 })

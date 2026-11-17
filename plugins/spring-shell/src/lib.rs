@@ -6,7 +6,7 @@
 use openidea_plugin::diagnostics::DiagnosticsProvider;
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::{offset, position};
-use openidea_plugin::{host, Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, register_plugin};
+use openidea_plugin::{host, Diagnostic, Error, Event, EventKind, Invocation, NotificationLevel, Location, Plugin, Position, Range, Severity, register_plugin};
 use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
@@ -300,6 +300,8 @@ type ClassMap = HashMap<String, Vec<(String, ClassInfo)>>;
 
 struct Derived {
     classes: ClassMap,
+    /// Qualified names some indexed class extends.
+    extended: std::collections::HashSet<String>,
     inherited: Vec<(String, String, Command)>,
 }
 
@@ -320,8 +322,16 @@ fn derived(index: &Index<Shell>) -> Rc<Derived> {
             classes.entry(class.qualified.clone()).or_default().push((path.to_owned(), class.clone()));
         }
     }
+    let extended = index
+        .iter()
+        .flat_map(|(_, shell)| &shell.classes)
+        .filter_map(|c| match &c.base {
+            Base::Named(q) => Some(q.clone()),
+            _ => None,
+        })
+        .collect();
     let inherited = index.iter().flat_map(|(p, s)| inherited_in(index, &classes, p, &s.classes, &s.commands)).collect();
-    let built = Rc::new(Derived { classes, inherited });
+    let built = Rc::new(Derived { classes, extended, inherited });
     DERIVED.with(|cell| *cell.borrow_mut() = Some((key, built.clone())));
     built
 }
@@ -406,19 +416,16 @@ fn inherited_in(index: &Index<Shell>, map: &ClassMap, path: &str, classes: &[Cla
     out
 }
 
-fn all_inherited(index: &Index<Shell>) -> Rc<Derived> {
-    derived(index)
-}
-
 /// Every file parsed, none cut short, and nothing left unread: only then does
 /// a missing command or class prove anything.
 fn trustworthy(index: &Index<Shell>) -> bool {
     index.complete() && !index.scanning() && index.iter().all(|(_, shell)| !shell.incomplete)
 }
 
-/// Whether an indexed class (other than `qualified` itself) extends it.
-fn extended(index: &Index<Shell>, qualified: &str) -> bool {
-    index.iter().any(|(_, shell)| shell.classes.iter().any(|c| c.base == Base::Named(qualified.to_owned())))
+/// Whether `qualified` may be a base class: an indexed class extends it, or
+/// the index is too incomplete to say it is not.
+fn may_be_extended(index: &Index<Shell>, qualified: &str) -> bool {
+    !trustworthy(index) || derived(index).extended.contains(qualified)
 }
 
 fn all_commands(index: &Index<Shell>) -> impl Iterator<Item = (&str, &Command)> {
@@ -451,7 +458,7 @@ fn problem(range: Range, severity: Severity, code: &str, message: String) -> Dia
 /// unrelated class's equal command name is not an availability target.
 fn named(index: &Index<Shell>, class: &str, key: &str) -> Vec<(String, Command)> {
     let own = all_commands(index).map(|(p, c)| (p.to_owned(), c.clone()));
-    let derived = all_inherited(index);
+    let derived = derived(index);
     let inherited = derived.inherited.iter().cloned().map(|(_, declaring, c)| (declaring, c));
     own.chain(inherited).filter(|(_, c)| c.class == class && c.key == key).collect()
 }
@@ -487,7 +494,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
     let local_inherited = inherited_commands(index, &doc.path, &local_infos, &mine);
     if !local_inherited.is_empty() {
         let siblings: Vec<_> = if index.fresh() {
-            all_inherited(index).inherited.iter().filter(|(owner, _, _)| *owner != doc.path).cloned().collect()
+            derived(index).inherited.iter().filter(|(owner, _, _)| *owner != doc.path).cloned().collect()
         } else {
             Vec::new()
         };
@@ -597,7 +604,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
             }
         }
     }
-    problems.extend(rules::check(doc, f, &|qualified| extended(index, qualified)));
+    problems.extend(rules::check(doc, f, &|qualified| may_be_extended(index, qualified)));
     (problems, markers)
 }
 
@@ -727,7 +734,7 @@ impl Providers for ShellTools {
         let mut out: Vec<CompletionItem> = match (a.name.as_str(), arg.name.as_str()) {
             ("ShellMethodAvailability", "value") => {
                 let class = class_at(&f, offset);
-                let derived = all_inherited(index);
+                let derived = derived(index);
                 let inherited = derived.inherited.iter().cloned().map(|(_, _, c)| c);
                 let mut out: Vec<_> = all_commands(index).map(|(_, c)| c.clone()).chain(inherited)
                     .filter(|c| c.class == class)
@@ -755,8 +762,14 @@ impl Providers for ShellTools {
 
 impl Plugin for ShellTools {
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
-        let _ = host::subscribe_paths("files-changed", SOURCE_GLOBS);
-        let _ = host::subscribe(EventKind::FileSaved);
+        let tracked = host::subscribe_paths("files-changed", SOURCE_GLOBS).and(host::subscribe(EventKind::FileSaved));
+        if let Err(Error::Denied(_)) = tracked {
+            host::notify(
+                NotificationLevel::Info,
+                "Spring Shell Tools",
+                "File tracking needs the optional events permission. Allow events for Spring Shell Tools in Settings › Plugins.",
+            );
+        }
         Ok(())
     }
 
@@ -892,19 +905,22 @@ class KtConfig {
     #[test]
     fn abstract_base_no_missing_component() {
         let host = setup();
-        let mut tools = ShellTools::default();
-        let imports = "import org.springframework.shell.standard.ShellMethod;";
-        let abstract_base = format!("{imports} abstract class Base {{ @ShellMethod(\"Run\") void run(){{}} }}");
-        let codes = |tools: &mut ShellTools, text: &str| tools.diagnostics(&doc("Base.java", text)).into_iter().filter_map(|d| d.code).collect::<Vec<_>>();
-        assert!(!codes(&mut tools, &abstract_base).contains(&"missing-shell-component".into()));
-        let concrete = abstract_base.replace("abstract ", "");
-        assert!(codes(&mut tools, &concrete).contains(&"missing-shell-component".into()));
-        host.add_file("src/main/java/com/acme/cli/Child.java", "package com.acme.cli; import org.springframework.shell.standard.ShellComponent; @ShellComponent class Child extends Base {}");
-        let package = "package com.acme.cli; ";
-        let mut tools = ShellTools::default();
-        tools.line_markers(&doc("Child.java", "package com.acme.cli; import org.springframework.shell.standard.ShellComponent; @ShellComponent class Child extends Base {}"));
-        let base = format!("{package}{concrete}");
-        assert!(!codes(&mut tools, &base).contains(&"missing-shell-component".into()));
+        let imports = "package com.acme.cli; import org.springframework.shell.standard.ShellMethod;";
+        let child = "package com.acme.cli; import org.springframework.shell.standard.ShellComponent; @ShellComponent class Child extends Base {}";
+        let concrete = format!("{imports} class Base {{ @ShellMethod(\"Run\") void run(){{}} }}");
+        let abstract_base = concrete.replace("class Base", "abstract class Base");
+        let warns = |tools: &mut ShellTools, text: &str, warm: bool| {
+            let d = doc("Base.java", text);
+            if warm {
+                tools.line_markers(&d);
+            }
+            tools.diagnostics(&d).into_iter().any(|d| d.code.as_deref() == Some("missing-shell-component"))
+        };
+        assert!(!warns(&mut ShellTools::default(), &concrete, false), "cold index stays quiet");
+        assert!(warns(&mut ShellTools::default(), &concrete, true), "trusted index without subclasses warns");
+        assert!(!warns(&mut ShellTools::default(), &abstract_base, true));
+        host.add_file("src/main/java/com/acme/cli/Child.java", child);
+        assert!(!warns(&mut ShellTools::default(), &concrete, true), "extended elsewhere");
     }
 
     #[test]

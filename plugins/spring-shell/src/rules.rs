@@ -416,7 +416,9 @@ mod tests {
     }
     fn codes(text: &str) -> Vec<String> {
         let doc = doc(text, false);
-        ShellTools::default()
+        let mut tools = ShellTools::default();
+        tools.line_markers(&doc);
+        tools
             .diagnostics(&doc)
             .into_iter()
             .map(|d| d.code.unwrap())
@@ -637,7 +639,7 @@ mod tests {
     }
     #[test]
     fn component_placement_warns_only_for_unannotated_closed_classes() {
-        let _host = MockHost::install().with_capabilities(&[]);
+        let _host = MockHost::install();
         let bare = "import org.springframework.shell.standard.ShellMethod; class C { @ShellMethod(\"Run\") void run(){} }";
         assert_eq!(codes(bare), ["missing-shell-component"]);
         for quiet in [
