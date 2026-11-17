@@ -773,8 +773,8 @@ impl GitLab {
                 let window_root = project.vcs_status()?.map(|status| status.root).unwrap_or_default();
                 if let Some(picked) = host::pick("Repository merge requests", &items)? {
                     match workspace::same_root(&picked, &window_root) {
-                        true => workspace::select(None)?,
-                        false => workspace::select(Some(&picked))?,
+                        true => workspace::select(&root, None)?,
+                        false => workspace::select(&root, Some(&picked))?,
                     }
                 }
 
@@ -1551,7 +1551,8 @@ impl Plugin for GitLab {
             "rerequest-review" => { self.rerequest_review(ctx)?; return Ok(None); },
             "show-branch-merge-request" => {
                 // The command is about the window's branch, so the panel follows the window's repository again.
-                workspace::select(None)?;
+                let project = ctx.project().ok_or("No project is open.")?;
+                workspace::select(&project.root()?, None)?;
                 self.ensure_view_owner(ctx)?;
                 self.update_branch(ctx, true)?;
                 let scope = selection_scope(&gitlab_project(ctx)?);

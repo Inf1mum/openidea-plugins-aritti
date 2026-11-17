@@ -5,6 +5,7 @@
 //! has no GitLab remote falls back to its only GitLab repository.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use openidea_plugin::host::storage;
 use openidea_plugin::{Error, PickItem, Project, RepositoryStatus};
@@ -13,7 +14,9 @@ use crate::api;
 use crate::branch;
 use crate::Repo;
 
-/// The stored pick: the absolute root of the workspace repository the merge request views show.
+/// The prefix of the stored picks: `workspace-repo:<workspace root>` is the absolute root of the
+/// workspace repository the merge request views show. One pick per workspace root, because the
+/// plugin's storage is shared by every window of the plugin instance.
 const SELECTED_KEY: &str = "workspace-repo";
 
 /// Child folders probed with `git` per discovery run; bigger workspaces keep one window per repository.
@@ -44,41 +47,45 @@ impl WorkspaceRepo {
     }
 }
 
-/// The picked repository root, or `None` for the window's own.
-pub fn selected() -> Option<String> {
-    storage::get(SELECTED_KEY).ok().flatten().filter(|root| !root.is_empty())
+/// The storage key of the workspace rooted at `workspace_root`'s pick.
+fn selected_key(workspace_root: &str) -> String {
+    format!("{SELECTED_KEY}:{}", workspace_root.trim_end_matches(['/', '\\']))
 }
 
-/// Stores the pick; `None` or an empty root clears it.
-pub fn select(root: Option<&str>) -> Result<(), Error> {
-    match root.filter(|root| !root.is_empty()) {
-        Some(root) => storage::set(SELECTED_KEY, root),
-        None => storage::delete(SELECTED_KEY),
+/// The picked repository root of the workspace rooted at `workspace_root`, or `None` for the window's own.
+pub fn selected(workspace_root: &str) -> Option<String> {
+    storage::get(&selected_key(workspace_root)).ok().flatten().filter(|root| !root.is_empty())
+}
+
+/// Stores the pick of the workspace rooted at `workspace_root`; `None` or an empty root clears it.
+pub fn select(workspace_root: &str, picked: Option<&str>) -> Result<(), Error> {
+    match picked.filter(|picked| !picked.is_empty()) {
+        Some(picked) => storage::set(&selected_key(workspace_root), picked),
+        None => storage::delete(&selected_key(workspace_root)),
     }
 }
 
 thread_local! {
-    /// The GitLab repositories found for a workspace root and server; dropped by [`forget`].
-    static CACHE: RefCell<Option<(String, String, Vec<WorkspaceRepo>)>> = const { RefCell::new(None) };
+    /// The GitLab repositories found, keyed by (workspace root, server); dropped by [`forget`].
+    static CACHE: RefCell<BTreeMap<(String, String), Vec<WorkspaceRepo>>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// Drops the discovery cache: the next use walks the workspace again.
 pub fn forget() {
-    CACHE.with(|cache| *cache.borrow_mut() = None);
+    CACHE.with(|cache| cache.borrow_mut().clear());
 }
 
-/// The GitLab repositories of the workspace, the window's own first. Cached until
-/// the workspace root or server changes or [`forget`] runs.
+/// The GitLab repositories of the workspace, the window's own first. Cached per workspace root and
+/// server until [`forget`] runs, so two windows of different workspaces keep their entries instead
+/// of evicting each other's.
 pub fn repositories(project: &Project, root: &str) -> Vec<WorkspaceRepo> {
-    let server = api::server();
-    if let Some((_, _, repos)) =
-        CACHE.with(|cache| cache.borrow().clone()).filter(|(cached, cached_server, _)| cached.as_str() == root && cached_server.as_str() == server)
-    {
+    let key = (root.to_owned(), api::server());
+    if let Some(repos) = CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
         return repos;
     }
 
     let repos = discover(project, root);
-    CACHE.with(|cache| *cache.borrow_mut() = Some((root.to_owned(), server, repos.clone())));
+    CACHE.with(|cache| cache.borrow_mut().insert(key, repos.clone()));
     repos
 }
 
@@ -91,12 +98,14 @@ pub fn resolve(project: &Project) -> Result<Repo, Error> {
     let status = project.vcs_status()?;
     let in_repository = status.is_some();
 
-    if let Some(picked) = selected() {
-        let picked = root.as_deref().and_then(|root| repositories(project, root).into_iter().find(|repo| same_root(&repo.root, &picked)));
+    if let Some(workspace) = root.as_deref()
+        && let Some(picked) = selected(workspace)
+    {
+        let picked = repositories(project, workspace).into_iter().find(|repo| same_root(&repo.root, &picked));
         match picked {
             Some(repo) => return Ok(repo.into_repo()),
             // The picked repository is gone or left the configured server: fall back to the default.
-            None => select(None)?,
+            None => select(workspace, None)?,
         }
     }
 
@@ -367,16 +376,55 @@ mod tests {
     fn the_pick_switches_the_views_and_a_stale_pick_falls_back() {
         let host = workspace();
         let project = project_of(&host);
-        select(Some("/work/svc-a")).unwrap();
+        select("/work", Some("/work/svc-a")).unwrap();
         let repo = resolve(&project).unwrap();
         assert_eq!(repo.path, "g/svc-a");
         assert_eq!(repo.status.root, "/work/svc-a");
         assert_eq!(repo.status.branch.as_deref(), Some("feature"));
 
-        select(Some("/work/gone")).unwrap();
+        select("/work", Some("/work/gone")).unwrap();
         let repo = resolve(&project).unwrap();
         assert_eq!(repo.path, "g/p", "a stale pick is cleared");
-        assert_eq!(selected(), None);
+        assert_eq!(selected("/work"), None);
+    }
+
+    #[test]
+    fn windows_of_different_roots_keep_their_own_picks_and_caches() {
+        let host = workspace();
+        let project = project_of(&host);
+        select("/work", Some("/work/svc-a")).unwrap();
+        assert_eq!(resolve(&project).unwrap().path, "g/svc-a");
+
+        // A second window over another workspace root resolves without a pick of
+        // its own — and must not touch /work's pick or evict its cache entry.
+        host.set_project_root(Some("/elsewhere"));
+        host.set_vcs_status(Some(root_status("/elsewhere")));
+        host.set_vcs_remotes(&[("origin", "https://gitlab.com/o/other.git")]);
+        host.add_dir("svc-x/.git");
+        host.add_file("svc-x/README.md", "x");
+        host.on_process("git", |args, _| match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["-C", "svc-x", "remote", "-v"] => git(Some(0), "origin\thttps://gitlab.com/o/svc-x.git (fetch)\n"),
+            _ => git(Some(128), ""),
+        });
+        let other = project_of(&host);
+        assert_eq!(resolve(&other).unwrap().path, "o/other", "the other window falls back to its own repository");
+        select("/elsewhere", Some("/elsewhere/svc-x")).unwrap();
+        assert_eq!(resolve(&other).unwrap().path, "o/svc-x");
+
+        // The first window again: its pick is intact and its repositories come
+        // from the cache (git answers nothing anymore).
+        host.set_project_root(Some("/work"));
+        host.set_vcs_status(Some(root_status("/work")));
+        host.set_vcs_remotes(&[("origin", "https://gitlab.com/g/p.git")]);
+        host.on_process("git", |_, _| git(Some(128), ""));
+        let again = project_of(&host);
+        assert_eq!(
+            resolve(&again).unwrap().path,
+            "g/svc-a",
+            "the first root's pick survives the other window"
+        );
+        assert_eq!(selected("/work").as_deref(), Some("/work/svc-a"));
+        assert_eq!(selected("/elsewhere").as_deref(), Some("/elsewhere/svc-x"));
     }
 
     #[test]
@@ -402,7 +450,7 @@ mod tests {
         assert!(error.contains("pick one with the Repository button"), "{error}");
         assert!(pickable(&project));
 
-        select(Some("/work/two")).unwrap();
+        select("/work", Some("/work/two")).unwrap();
         assert_eq!(resolve(&project).unwrap().path, "g/two");
     }
 
@@ -410,7 +458,7 @@ mod tests {
     fn files_follow_the_repository_containing_them() {
         let host = workspace();
         let project = project_of(&host);
-        select(Some("/work/svc-a")).unwrap();
+        select("/work", Some("/work/svc-a")).unwrap();
 
         assert_eq!(containing(&project, "/work/svc-a/src/lib.rs").unwrap().path, "g/svc-a");
         assert_eq!(containing(&project, "/work/README.md").unwrap().path, "g/p");

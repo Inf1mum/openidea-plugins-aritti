@@ -4619,20 +4619,20 @@ mod workspace_selector {
         let view = plugin.render(LIST, None, &host.invocation()).unwrap();
         assert_eq!(view.status.as_deref(), Some("g/svc-a · Assigned to me"));
         assert!(host.requests().iter().any(|request| request.url.contains("projects/g%2Fsvc-a/merge_requests")));
-        assert_eq!(workspace::selected().as_deref(), Some("/project/svc-a"));
+        assert_eq!(workspace::selected("/project").as_deref(), Some("/project/svc-a"));
     }
 
     #[test]
     fn picking_the_window_again_clears_the_pick() {
         let host = multi_repo();
-        workspace::select(Some("/project/svc-a")).unwrap();
+        workspace::select("/project", Some("/project/svc-a")).unwrap();
         let mut plugin = GitLab::default();
         plugin.render(LIST, None, &host.invocation()).unwrap();
 
         host.answer_next_prompt(Some(&["/project"]));
         plugin.handle(LIST, ViewEvent::Button("repo".into()), &host.invocation()).unwrap();
 
-        assert_eq!(workspace::selected(), None);
+        assert_eq!(workspace::selected("/project"), None);
         let view = plugin.render(LIST, None, &host.invocation()).unwrap();
         assert_eq!(view.status.as_deref(), Some("g/p · Assigned to me"));
     }
@@ -4646,13 +4646,13 @@ mod workspace_selector {
         let view = plugin.render(LIST, None, &host.invocation()).unwrap();
 
         assert_eq!(view.status.as_deref(), Some("g/svc-a · Assigned to me"));
-        assert_eq!(workspace::selected(), None, "the child is used without storing a pick");
+        assert_eq!(workspace::selected("/project"), None, "the child is used without storing a pick");
     }
 
     #[test]
     fn open_on_gitlab_follows_the_repository_containing_the_file() {
         let host = multi_repo();
-        workspace::select(Some("/project/svc-a")).unwrap();
+        workspace::select("/project", Some("/project/svc-a")).unwrap();
         host.open_editor("/project/svc-a/src/a.rs", "rust", "x", &[]);
         let mut plugin = GitLab::default();
 
@@ -4664,7 +4664,7 @@ mod workspace_selector {
     #[test]
     fn local_git_actions_ask_for_the_childs_own_window() {
         let host = multi_repo();
-        workspace::select(Some("/project/svc-a")).unwrap();
+        workspace::select("/project", Some("/project/svc-a")).unwrap();
         let mut plugin = selected(&host);
 
         let view = render_in(&mut plugin, Section::Overview, &host);
