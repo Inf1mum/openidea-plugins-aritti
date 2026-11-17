@@ -29,6 +29,7 @@ impl Injections for crate::Blade {
 
 #[path = "injection_declarations.rs"]
 mod declarations;
+#[cfg(test)]
 fn bodies(text: &str) -> Vec<(std::ops::Range<usize>, &'static str)> {
     bodies_with(text, &std::collections::BTreeSet::new())
 }
@@ -307,6 +308,12 @@ mod tests {
         ] {
             assert!(bodies(source).is_empty(), "{source}");
         }
+    }
+    #[test]
+    fn unquoted_lt_before_a_script_does_not_hide_it() {
+        let found = bodies("a < b <script>x</script>");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, "javascript");
     }
     #[test]
     fn closed_static_bodies_and_utf16() {
