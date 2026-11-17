@@ -570,7 +570,7 @@ impl Launcher {
             .plan
             .clone()
             .filter(|p| p.issued)
-            .ok_or("Nothing to open yet. Run Prepare Maven Project Import… first.")?;
+            .ok_or("Nothing to open yet. Run Import Maven Project… first.")?;
         let project = ctx.project().ok_or(Error::Stale)?;
         verify_visible(&project, &plan)?;
         host::open_project(&plan.target, true)?;

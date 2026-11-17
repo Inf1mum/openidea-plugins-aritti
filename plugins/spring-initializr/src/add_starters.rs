@@ -219,7 +219,7 @@ fn maven_proof(doc: &Document) -> Option<Proof> {
         (Some((parent,_)),None)=> {
             if nodes.iter().filter(|n|n.parent==Some(parent)).any(|n|!matches!(n.name.as_str(),"groupId"|"artifactId"|"version"|"relativePath")) {return None;}
             if value(&nodes,parent,"groupId")?!="org.springframework.boot"||value(&nodes,parent,"artifactId")?!="spring-boot-starter-parent"||value(&nodes,parent,"relativePath")?!="" {return None;}
-            (value(&nodes,parent,"version")?,"literal Spring Boot starter parent")
+            (value(&nodes,parent,"version")?,"the spring-boot-starter-parent POM")
         }
         (None,Some((managed,node)))=> {
             if !literal(&value(&nodes,0,"groupId")?)||!literal(&value(&nodes,0,"version")?)||!node.text.trim().is_empty() {return None;}
@@ -230,9 +230,9 @@ fn maven_proof(doc: &Document) -> Option<Proof> {
             let mut names=BTreeSet::new();
             if nodes.iter().filter(|n|n.parent==Some(dependency)).any(|n|!names.insert(&n.name)||!matches!(n.name.as_str(),"groupId"|"artifactId"|"version"|"type"|"scope")) {return None;}
             if value(&nodes,dependency,"groupId")?!="org.springframework.boot"||value(&nodes,dependency,"artifactId")?!="spring-boot-dependencies"||value(&nodes,dependency,"type")?!="pom"||value(&nodes,dependency,"scope")?!="import" {return None;}
-            (value(&nodes,dependency,"version")?,"sole literal imported Spring Boot dependency BOM (no parent)")
+            (value(&nodes,dependency,"version")?,"the imported spring-boot-dependencies BOM")
         }
-        (None,None)=>(String::new(),"no Boot management (explicit dependency versions only)"),
+        (None,None)=>(String::new(),"no Spring Boot version management"),
         _=>return None,
     };
     if !boot.is_empty()&&!ga_version(&boot) {
@@ -777,13 +777,13 @@ impl Launcher {
             (c.path.clone(), at, text, resulting)
         });
         let mut preview = format!(
-            "File: {}\nSource version: {}\nBoot dependency management: {} — {}\nMetadata: {START}, version-bound session cache (15 min maximum)\n{}\n\nChanged section of the resulting file (inserted text with 3 lines of context):\n{}",
-            doc.path, doc.version, p.management,cache.boot,
-            if p.boot.is_empty() { "Explicit <version> values come from the dependency's own start.spring.io metadata for the default Boot version; no repositories or BOMs added." } else { "No repositories, BOMs or explicit dependency versions added." },
+            "File: {}\nVersions come from {} (Spring Boot {}).\n{}\n\nChange, with 3 lines around it:\n{}",
+            doc.path, p.management, cache.boot,
+            if p.boot.is_empty() { "Each starter gets the version start.spring.io lists for this Spring Boot version. No repositories or BOMs are added." } else { "No repositories, BOMs or versions are added." },
             hunk(&after, p.at, p.at + insertion.len())
         );
         if let Some((path, at, text, resulting)) = &catalog_edit {
-            preview.push_str(&format!("\n\nVersion catalog {path}, changed section of the resulting file:\n{}", hunk(resulting, *at, at + text.len())));
+            preview.push_str(&format!("\n\nVersion catalog {path}, change:\n{}", hunk(resulting, *at, at + text.len())));
         }
         let title = format!("Add {} Spring Boot Starter{}", ids.len(), if ids.len() == 1 { "" } else { "s" });
         if !ui_kit::prompts::confirm_exact(&format!("{title} to {}?", doc.path.rsplit('/').next().unwrap_or_default()), &preview)? {
@@ -821,7 +821,7 @@ impl Launcher {
 
 pub(crate) fn generated_pom(text: &str, group: &str, artifact: &str, boot: &str, java: &str) -> bool {
     let doc = Document { path: "/project/pom.xml".into(), language: "xml".into(), version: 0, text: text.into() };
-    proof(&doc).is_some_and(|p| p.boot == boot && p.management == "literal Spring Boot starter parent")
+    proof(&doc).is_some_and(|p| p.boot == boot && p.management == "the spring-boot-starter-parent POM")
         && parse(text)
             .is_some_and(|n| {
                 value(&n, 0, "groupId").as_deref() == Some(group)

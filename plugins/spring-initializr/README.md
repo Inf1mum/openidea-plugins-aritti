@@ -80,7 +80,7 @@ Supported builds:
 
 For a small Maven/Java/Jar project created inside the current project:
 
-1. Run **Spring Initializr: Prepare Maven Project Import…** (also in the **Tools** menu).
+1. Run **Spring Initializr: Import Maven Project…** (also in the **Tools** menu).
 2. Choose a parent folder inside the project. The new project goes into a child folder named after the artifact.
 3. Confirm the folder and file list. The plugin creates the files; it never overwrites an existing file.
 4. Click **Open Folder** in the notification, or run **Spring Initializr: Open Source Folder** (in the **Tools** menu once the files exist), to open it in a new window.
@@ -96,7 +96,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Initializr**;
 | **Spring Initializr: Open start.spring.io** | Opens the start.spring.io site. |
 | **Spring Initializr: Generate and Open…** | Downloads, reviews, extracts and opens a complete project. |
 | **Spring Initializr: Add Spring Boot Starters…** | Picks starters for the open build file, shows the change and writes it after you confirm (without `project.write`: ⌥⏎ › **Add N Spring Boot Starters**). Also in **Tools** for Maven and Gradle projects. |
-| **Spring Initializr: Prepare Maven Project Import…** | Downloads a Maven project and creates its files in a new folder after you confirm (without `project.write`: ⌥⏎ › **Preview Import Maven Sources…**). Also in **Tools**. |
+| **Spring Initializr: Import Maven Project…** | Downloads a Maven project and creates its files in a new folder after you confirm (without `project.write`: ⌥⏎ › **Preview Import Maven Sources…**). Also in **Tools**. |
 | **Spring Initializr: Open Source Folder** | Checks the imported files and opens the folder in a new window. In **Tools** once an import created its files. |
 
 ## Permissions
@@ -137,8 +137,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Add Spring Boot Starters needs the project.write permission…" | Allow `project.write`, or press ⌥⏎ in the build file and choose **Add N Spring Boot Starters**. |
 | "pom.xml has unsaved changes, so it wasn't written…" | Save the file and run **Add Spring Boot Starters…** again, or press ⌥⏎ in it and choose **Add N Spring Boot Starters**. |
 | "Creating the files directly needs the project.write permission…" | Allow `project.write`, or press ⌥⏎ in any open project file › **Preview Import Maven Sources…**. |
-| "… already exists and wasn't overwritten" | Remove or rename the existing folder, then run **Prepare Maven Project Import…** again. |
-| "Nothing to open yet…" | Finish the import first with **Prepare Maven Project Import…**. |
+| "… already exists and wasn't overwritten" | Remove or rename the existing folder, then run **Import Maven Project…** again. |
+| "Nothing to open yet…" | Finish the import first with **Import Maven Project…**. |
 | "Saved form or server selection changed in another window; draft retained. Reload saved form to continue." | Choose **Reload saved form…** in **More Actions…**. |
 
 ## Limitations

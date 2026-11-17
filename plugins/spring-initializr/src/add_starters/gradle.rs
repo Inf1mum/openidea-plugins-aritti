@@ -352,12 +352,12 @@ pub(super) fn proof(doc: &Document) -> Option<Proof> {
         if platform.is_some() {
             return None;
         }
-        "literal Boot plugin plus dependency-management 1.1.7; source-declared management only"
+        "the Spring Boot and dependency-management plugins"
     } else {
         if platform.as_deref() != Some(&boot) {
             return None;
         }
-        "literal Boot plugin plus platform(spring-boot-dependencies) BOM of the same version"
+        "the Spring Boot plugin and the spring-boot-dependencies platform"
     };
     Some(Proof {
         boot,

@@ -552,7 +552,7 @@ impl Launcher {
             .button(generate(Button::new("generate", "Download ZIP").icon("export")))
             .button(generate(Button::new("cli", "Run Spring Boot CLI in Terminal").icon("terminal")))
             .button(generate(Button::new("explore", "Explore in Browser").icon("external-link")))
-            .button(Button::new("prepare-import", "Prepare Maven Project Import…").icon("import").enabled(_ctx.project().is_some()&&local_generation))
+            .button(Button::new("prepare-import", "Import Maven Project…").icon("import").enabled(_ctx.project().is_some()&&local_generation))
             .button(Button::new("open-reviewed-import", "Open Source Folder").icon("folder-open").enabled(_ctx.project().is_some()&&self.import_issued()));
         if self.sections.active() == PROJECT_SECTION {
             view = view
