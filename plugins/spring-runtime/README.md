@@ -43,7 +43,7 @@ Overview groups the data by endpoint:
 - **Loggers**: `ROOT` and each configured logger, with configured and effective level.
 - **Caches**: each cache as `manager / cache` with its target type.
 
-Right-click a row and choose **Show Details…** (or run **Spring Runtime: Inspect Cached Snapshot**) for a read-only detail pane with **Observation** and **Provenance** tabs.
+Right-click a row and choose **Show Details…** for a read-only detail pane with **Observation** and **Provenance** tabs. **Spring Runtime: Show Observations** opens the **Observations** tab.
 
 ### See runtime facts in the editor
 
@@ -54,21 +54,20 @@ Markers come from the last snapshot. The editor never calls the app.
 - **`@Value`**: the runtime value of each placeholder key and where it comes from.
 - **`@ConfigurationProperties`**: whether the prefix is bound, and each field's runtime value and source.
 - **Configuration files**: on each key, "Active (from file)" when this file's value wins. Otherwise, the winning value and its property source.
-- **Snapshot inlays** (setting **Show cached exact-key snapshot observations…**): `snapshot: observed` or `snapshot: redacted` labels on keys in properties/YAML files and on Java/Kotlin `@Value` placeholders. The tooltip names the property source. Values are never shown.
+- **Snapshot inlays** (setting **Show snapshot hints on configuration keys and @Value**): `snapshot: observed` or `snapshot: redacted` labels on keys in properties/YAML files and on Java/Kotlin `@Value` placeholders. The tooltip names the property source. Values are never shown.
 
 Keys use relaxed binding: `spring.jpa.show-sql` and `spring.jpa.showSql` are the same key, and the `SPRING_DATASOURCE_URL` environment variable is `spring.datasource.url`.
 
 ### Explore the bean graph
 
-Run **Spring Runtime: Cached Bean Dependency Graph** or open the **Bean Graph** tab. An arrow means the bean lists the other bean as a dependency in the same context. Cycles are highlighted.
+Run **Spring Runtime: Show Bean Graph** or open the **Bean Graph** tab. An arrow means the bean lists the other bean as a dependency in the same context. Cycles are highlighted.
 
 Click a node to see its details and compare its type with your project's sources. **Back to Graph** returns to the graph.
 
 ### Search mappings and send requests
 
-In **Observations**:
+In **Observations**, type in the search box to filter the rows. Right-click a row for its actions, or use the **Selected Row** menu in the toolbar:
 
-- **Search Observations…** filters the cached rows. **Clear Search** shows all again.
 - The **HTTP Method** picker shows only mappings with that method. **All observations** resets it.
 - **Copy HTTP Requests** copies an HTTP-client template for the selected mapping.
 - **Create HTTP Request File…** saves that template as a new `.http` file in the project root and opens it.
@@ -82,15 +81,14 @@ The request picker lists your last 10 method/path choices first.
 
 Refresh is manual by default. To refresh automatically for a short while:
 
-1. Turn on **Allow polling** in settings.
-2. Open **Refresh Controls** (or run **Spring Runtime: Refresh and Poll Controls**).
-3. Click **Start Auto-Refresh**, or run **Spring Runtime: Start Auto-Refresh**.
+1. Turn on **Allow auto-refresh** in settings.
+2. Run **Spring Runtime: Start Auto-Refresh**. It opens the **Refresh Controls** tab and starts. You can also click **Start** in that tab.
 
-Auto-refresh runs at most once a minute, for at most 5 attempts (setting **Polls per start**) and 10 minutes. It stops after two failures, when you leave the view, or on **Spring Runtime: Stop Auto-Refresh**. To stop a refresh in progress, use **Cancel** on the IDE background task. **Refresh Once** refreshes one time.
+Auto-refresh runs while **Refresh Controls** stays visible, at most once a minute, for at most 5 refreshes (setting **Auto-refresh attempts per start**) and 10 minutes. With the setting off, the tab tells you to turn it on. It stops after two failures, when you leave the view, or on **Spring Runtime: Stop Auto-Refresh**. To stop a refresh in progress, use **Cancel** on the IDE background task. **Refresh** refreshes one time.
 
 ### Read JMX from a local JVM
 
-**Spring Runtime: Read JMX (localhost)…** reads Runtime, Memory, Threading, OperatingSystem and Spring Boot Health/Info attributes from a JVM started with `-Dcom.sun.management.jmxremote.port=N` (with `authenticate=false` and `ssl=false`). Enter the port (1024–65535). The result appears as a JMX row in **Inspect Cached Snapshot**.
+**Spring Runtime: Read JMX (localhost)…** reads Runtime, Memory, Threading, OperatingSystem and Spring Boot Health/Info attributes from a JVM started with `-Dcom.sun.management.jmxremote.port=N` (with `authenticate=false` and `ssl=false`). Enter the port (1024–65535). The result appears as a JMX row in **Observations**.
 
 ### Set up a database connection from the snapshot
 
@@ -103,16 +101,16 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Runtime**; bi
 | Command | What it does |
 |---|---|
 | **Spring Runtime: Refresh from Actuator** | Reads the endpoints and reports bean and property source counts and missing endpoints. |
-| **Spring Runtime: Clear** | Deletes the snapshot for the current project/URL/auth mode and stops this instance's polling. |
-| **Spring Runtime: Inspect Cached Snapshot** | Opens the read-only Observation/Provenance details. |
-| **Spring Runtime: Cached Bean Dependency Graph** | Opens the bean graph from the cached snapshot. |
-| **Spring Runtime: Refresh and Poll Controls** | Opens the **Refresh Controls** tab. |
-| **Spring Runtime: Start Auto-Refresh** | Starts polling for the current project/URL/auth mode. |
-| **Spring Runtime: Stop Auto-Refresh** | Stops future poll attempts. |
+| **Spring Runtime: Clear Snapshot** | Asks first, then deletes the snapshot for the current project and Actuator URL and stops auto-refresh. |
+| **Spring Runtime: Show Observations** | Opens the **Observations** tab. |
+| **Spring Runtime: Show Bean Graph** | Opens the **Bean Graph** tab. |
+| **Spring Runtime: Show Refresh Controls** | Opens the **Refresh Controls** tab. |
+| **Spring Runtime: Start Auto-Refresh** | Opens **Refresh Controls** and starts auto-refresh for the current project. Needs **Allow auto-refresh**. |
+| **Spring Runtime: Stop Auto-Refresh** | Stops the next refreshes. |
 | **Spring Runtime: Read JMX (localhost)…** | Reads read-only JMX attributes from a local JVM. |
 | **Spring Runtime: Configure Database from Snapshot** | Creates a database connection from a captured datasource. Also in the **Tools** menu. |
 
-The tool window has the same **Refresh** and **Clear** buttons. While it is empty, **Clear Snapshot** shows only when the cache can't be read, and **Open Settings** opens Settings › Plugins › Spring Runtime Insight.
+The tool window has the same **Refresh** and **Clear Snapshot** buttons; **Observations** and **Bean Graph** show **Refresh** while they are empty. While Overview is empty, **Clear Snapshot** shows only when the cache can't be read, and **Open Settings** opens Settings › Plugins › Spring Runtime Insight.
 
 ## Settings
 
@@ -123,10 +121,10 @@ Settings › Plugins › Spring Runtime Insight.
 | Actuator base URL (localhost or 127.0.0.1 only) | `actuatorUrl` | `http://localhost:8080/actuator` | Where to read. Change the port or path if the app uses another `server.port`, `management.server.port` or `management.endpoints.web.base-path`. `http://` or `https://`. |
 | Actuator authentication (the token is the actuator-token secret) | `actuatorAuth` | `none` | `bearer` sends `Authorization: Bearer <token>`. `basic` sends `Authorization: Basic <token>` (`user:password` in Base64). |
 | Timeout per Actuator request (ms) | `timeoutMs` | `2000` | Per-endpoint timeout, 100–30000 ms. |
-| Maximum cooperative refresh batch budget in ms (1,000–60,000) | `refreshBudgetMs` | `20000` | Total time one refresh may take. |
-| Allow polling | `autoRefresh` | off | Allows polling. You still have to start it; the setting alone never fetches. |
-| Polls per start (1–10) | `pollAttempts` | `5` | How many polls one Start allows. |
-| Show cached exact-key snapshot observations in configuration and @Value annotations | `snapshotInlays` | on | Shows the `snapshot:` inlays. |
+| Time limit per refresh (ms, 1,000–60,000) | `refreshBudgetMs` | `20000` | Total time one refresh may take. |
+| Allow auto-refresh | `autoRefresh` | off | Allows **Start Auto-Refresh**. The setting alone never reads the Actuator. |
+| Auto-refresh attempts per start (1–10) | `pollAttempts` | `5` | How many refreshes one Start allows. |
+| Show snapshot hints on configuration keys and @Value | `snapshotInlays` | on | Shows the `snapshot:` inlays. |
 
 The **Actuator token** secret (`actuator-token`) holds the bearer token or Base64 `user:password`. Set it in Settings › Plugins › Spring Runtime Insight ([about secrets](../../README.md#tokens-and-secrets)).
 
@@ -136,7 +134,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `net:localhost`, `net:127.0.0.1` | Refreshing from Actuator, polling and **Send Local Request…**. | Refresh fails and the last snapshot stays. Cached views and markers still work. |
+| `net:localhost`, `net:127.0.0.1` | Refreshing from Actuator, auto-refresh and **Send Local Request…**. | Refresh fails and the last snapshot stays. Cached views and markers still work. |
 | `secrets` | Sending the `actuator-token` with `bearer` or `basic` auth. | Refresh with auth fails and asks you to allow it or set auth to `none`. |
 | `clipboard` | **Copy HTTP Requests**. | Copying fails. |
 | `project.write` | **Create HTTP Request File…**. | The file isn't created. |
@@ -160,10 +158,10 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Set the actuator-token secret in Settings › Plugins › Spring Runtime Insight, or set actuatorAuth to none." | Store the token, or switch auth to `none`. |
 | An endpoint is listed as not available | Add it to `management.endpoints.web.exposure.include`. The other endpoints are still read. |
 | "No supported Actuator endpoint payload at …" | Check exposure and that the app runs Spring Boot 2.x or 3.x. |
-| "Refresh lost previously available endpoints: … Previous snapshot retained; Clear first if endpoint removal was intentional." | If you removed an endpoint on purpose, run **Spring Runtime: Clear**, then refresh. |
-| "Actuator refresh deadline reached; previous snapshot retained." | Raise **Maximum cooperative refresh batch budget**, or check why the app is slow. |
-| "Enable bounded autoRefresh in Spring Runtime settings before explicitly starting polling." | Turn on **Allow polling**, then click **Start Auto-Refresh** again. |
-| "Polling lease expired/exhausted; explicitly Start again." | Click **Start Auto-Refresh** again. |
+| "Refresh lost previously available endpoints: … Previous snapshot retained; Clear first if endpoint removal was intentional." | If you removed an endpoint on purpose, run **Spring Runtime: Clear Snapshot**, then refresh. |
+| "Actuator refresh deadline reached; previous snapshot retained." | Raise **Time limit per refresh**, or check why the app is slow. |
+| "Auto-refresh is off. Turn on Allow auto-refresh…" | Turn on **Allow auto-refresh**, then run **Spring Runtime: Start Auto-Refresh** again. |
+| "Auto-refresh finished. Click Start to run it again." | Click **Start** in **Refresh Controls**, or run **Spring Runtime: Start Auto-Refresh**. |
 | "JMX helper failed …" or "JMX read timed out…" | Start the target JVM with the JMX flags above, check the port, and allow `process:java` with Java 17+. |
 | "No unique exact qualified source candidate; no file opened." | The class isn't in this project (library) or is declared more than once. |
 | Data from another app shows up | The same URL can serve another process. Refresh after restarting, and Clear after changing credentials. |
@@ -222,6 +220,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 ### Presentation
 
 - Bounded to 5,000 rows and a 3 MiB tree message. Limits are labelled partial and don't truncate saved evidence. Long labels/details/tooltips are marked truncated; unbounded source identities aren't kept as navigation targets.
+- Clear Snapshot asks for confirmation naming the project and Actuator URL.
 - Mounted Runtime and Bean Graph pages get a model-free invalidation after Refresh/Clear/error and polling changes. Each page re-reads its own scoped cached model; no snapshot or credential is broadcast. A missing/denied/invalid project scope returns an empty-state model.
 - Commands select their matching tab in the shared UI-kit window.
 
@@ -235,7 +234,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Cyclic edges (including self-edges) are highlighted using bounded reachability. This isn't cycle enumeration or a claim of runtime failure.
 - Node labels are escaped. Click keys carry epoch/fetch/record fingerprints with scope/membership checks.
 - Selecting a node compares its exact reported Java type against a bounded current-project source inventory. Source/runtime correspondence is UNKNOWN: the graph doesn't prove this project built the running app, that sources match, that a bean still exists, or how a dependency is injected. The result is the exact type in one source, ambiguous declarations, or **SOURCE INVENTORY DIFFERENCE** when the type wasn't found (it may be library/generated/Kotlin/excluded).
-- Selection reads at most 2,000 files, 512 KiB/file, 8 MiB total, within a three-second budget. Failure or any cap yields UNKNOWN, never an absence claim. No HTTP, source edit or navigation; select again to refresh. Back, Clear, scope changes and refresh expire it. **Inspect Snapshot List** returns to the endpoint detail view.
+- Selection reads at most 2,000 files, 512 KiB/file, 8 MiB total, within a three-second budget. Failure or any cap yields UNKNOWN, never an absence claim. No HTTP, source edit or navigation; select again to refresh. Back, Clear, scope changes and refresh expire it. **Show Observations** returns to the endpoint detail view.
 
 ### Snapshot details
 
@@ -253,7 +252,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 ### Polling
 
 - The controls view shows the owning project, requested URL, auth mode, request/batch limits, poll status and cancellation boundary. Rendering any view or provider starts no HTTP reads.
-- Polling needs both `autoRefresh=true` and **Start Auto-Refresh** for the current exact project/URL/auth-mode scope.
+- Polling needs both `autoRefresh=true` and **Start** for the current exact project/URL/auth-mode scope. **Spring Runtime: Start Auto-Refresh** reveals the controls page and asks it to send that Start (directly when it is mounted, else in the reply to its first hello); Rust validates it like a click.
 - A lease lives only in the current plugin instance, allows 1–10 attempts (default 5) at least one minute apart, and expires for new attempts after 10 minutes.
 - Two consecutive failures, native task cancellation, scope changes, Clear, Stop Auto-Refresh or disabling the setting disarm it. A foreign project can't stop another root's lease. Clear leaves the global `autoRefresh` setting unchanged.
 - A visible controls page drives a private 60-second timer. The driver validates frame/nonce, increasing sequence, root, current URL/auth mode and lease before any read. Hiding or leaving clears the timer and requests Stop. Reopening never transfers a lease to a new page. An instance accepts at most 64 distinct Start nonces before reclamation. All HTTP stays in Rust, which checks open-project membership before and during refresh.
@@ -263,7 +262,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 ### Requests and HTTP files
 
-- Search matches cached titles, endpoint categories and retained details without network access, shows visible/retained counts, keeps the query in the same scope and clears it on scope changes. Queries are at most 256 bytes.
+- In the tool window, the search box filters row titles and endpoint categories. The native fallback view's **Search Observations…** also matches retained details, keeps the query in the same scope and clears it on scope changes. Queries are at most 256 bytes.
 - The **HTTP Method** filter uses explicit methods in structured Actuator metadata only. It never searches predicate text. Mappings with missing or unrestricted method metadata don't match a specific method.
 - **Copy HTTP Requests** needs explicit `requestMappingConditions` methods and patterns. It lists each method/path pair, an editable application URL and reminders for path variables, headers, parameters and bodies. The app address isn't inferred from the Actuator address. No request is sent. Predicate-only, unrestricted, malformed and legacy mappings don't invent GET requests.
 - **Create HTTP Request File…** reviews the full template, then creates a new plain `.http` file (at most 128 bytes of filename) in the project root and opens it. Existing files are never replaced; cancel creates nothing.

@@ -106,7 +106,7 @@ impl Runtime {
         self.jmx = Some((root, format!("Endpoint: {}\nRead-only snapshot at Unix {}.\n\n{result}", jmx_url(port), now())));
         self.panes.retire_rows();
         invalidate_snapshot_views();
-        Ok("JMX read; see the JMX row in Inspect Cached Snapshot.".into())
+        Ok("JMX read; see the JMX row in Spring Runtime › Observations.".into())
     }
 }
 
