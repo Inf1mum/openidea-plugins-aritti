@@ -1,13 +1,10 @@
 //! Reviewed API1.4 Run Targets. Distinct root-relative and experimental mapped project-root modes.
-use openidea_plugin::{
-    Error, FileKind, FileStat, Invocation, PickItem, PluginRunTarget, Project, host,
-
-};
+use openidea_plugin::host::storage;
+use openidea_plugin::{Error, FileKind, FileStat, Invocation, PickItem, PluginRunTarget, Project, host};
 use serde::{
     Deserialize,
     de::{self, MapAccess, SeqAccess, Visitor},
 };
-use openidea_plugin::host::storage;
 use serde_json::Value;
 use std::{collections::BTreeSet, fmt};
 
@@ -376,6 +373,9 @@ impl State {
                 Mode::RootRelative => "Registered the Run target. Select it in Run on to use it; no container command has run.",
                 Mode::MappedProjectRoot => "Registered project-root tooling. Select it in the project's Language server targets to use it. Nothing was selected for you and no container command has run.",
             }
+            Err(Error::Invalid(message)) if message == STORAGE_DENIED => {
+                "Not registered: allow storage for Dev Container CLI in Settings › Plugins."
+            }
             Err(_) if withdrawn => {
                 "Registration failed after the previous target was removed. Prepare it again."
             }
@@ -464,9 +464,28 @@ impl Plan {
 fn registration_key(root: &str, target_id: &str) -> String {
     format!("run-target:{target_id}:{root}")
 }
+const STORAGE_DENIED: &str = "Allow storage for Dev Container CLI in Settings › Plugins";
 fn remember(plan: &Plan) -> Result<(), Error> {
-    let value = format!("{}\n{}\n{}", plan.identity.id, plan.endpoint, plan.config);
-    storage::set(&registration_key(&plan.root, plan.mode.id()), &value)
+    let value = serde_json::json!({"id": plan.identity.id, "endpoint": plan.endpoint, "config": plan.config}).to_string();
+    match storage::set(&registration_key(&plan.root, plan.mode.id()), &value) {
+        Err(Error::Denied(_)) => {
+            host::notify(openidea_plugin::NotificationLevel::Warning, "Dev Container", STORAGE_DENIED);
+            Err(Error::Invalid(STORAGE_DENIED.into()))
+        }
+        other => other,
+    }
+}
+fn stored_registration(saved: &str) -> Option<(String, String, String)> {
+    let value: Value = serde_json::from_str(saved).ok()?;
+    let id = value["id"].as_str()?;
+    let endpoint = value["endpoint"].as_str()?;
+    let config = value["config"].as_str()?;
+    let valid = full_id(id)
+        && endpoint.strip_prefix("unix://").is_some_and(absolute)
+        && absolute(config)
+        && !endpoint.starts_with('-')
+        && !config.starts_with('-');
+    valid.then(|| (id.into(), endpoint.into(), config.into()))
 }
 pub(crate) fn validate_running(root: &str, target_id: &str) -> Result<(), String> {
     let refuse = |why: &str| format!("{why} Start the container, then register the target again.");
@@ -477,14 +496,16 @@ pub(crate) fn validate_running(root: &str, target_id: &str) -> Result<(), String
     else {
         return Err(refuse("The project is not open."));
     };
-    let Ok(Some(saved)) = storage::get(&registration_key(root, target_id)) else {
-        return Err(refuse("No registered container was found."));
+    let saved = match storage::get(&registration_key(root, target_id)) {
+        Ok(Some(saved)) => saved,
+        Ok(None) => return Err("Register the target again.".into()),
+        Err(Error::Denied(_)) => return Err(STORAGE_DENIED.into()),
+        Err(_) => return Err(refuse("The registered container could not be read.")),
     };
-    let mut lines = saved.lines();
-    let (Some(id), Some(endpoint), Some(config)) = (lines.next(), lines.next(), lines.next()) else {
-        return Err(refuse("The registered container is unreadable."));
+    let Some((id, endpoint, config)) = stored_registration(&saved) else {
+        return Err("Register the target again.".into());
     };
-    inspect(&project, root, config, endpoint, id)
+    inspect(&project, root, &config, &endpoint, &id)
         .map(|_| ())
         .map_err(|_| refuse("The registered container is not running, or Docker is not reachable."))
 }
@@ -663,6 +684,31 @@ mod tests {
     fn validate_refuses_without_a_registration() {
         let host = setup();
         assert!(validate_running("/work/app", ID).is_err());
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn denied_storage_fails_registration_and_validation_clearly() {
+        let host = setup();
+        let mut main = crate::Main::default();
+        let key = draft(&host, &mut main);
+        let host = host.with_capabilities(&["project.read", "process:docker"]);
+        assert!(main.handle(REVIEW, ViewEvent::Button(key), &host.invocation()).is_err());
+        assert!(main.run_target.status.as_ref().unwrap().1.contains("allow storage"));
+        assert!(host.run_targets().is_empty());
+        assert!(host.notifications().iter().any(|n| n.body.contains("Allow storage for Dev Container CLI")));
+        assert!(validate_running("/work/app", ID).unwrap_err().contains("Allow storage"));
+    }
+    #[test]
+    fn validate_refuses_malformed_stored_registration() {
+        let host = setup();
+        for value in [
+            "{\"id\":\"-x\",\"endpoint\":\"unix:///var/run/docker.sock\",\"config\":\"/work/app/c.json\"}".to_string(),
+            format!("{{\"id\":\"{CID}\",\"endpoint\":\"unix:///a\\n--x\",\"config\":\"/work/app/c.json\"}}"),
+            "legacy".to_string(),
+        ] {
+            storage::set(&registration_key("/work/app", ID), &value).unwrap();
+            assert_eq!(validate_running("/work/app", ID).unwrap_err(), "Register the target again.");
+        }
         assert!(host.process_runs().is_empty());
     }
     #[test]

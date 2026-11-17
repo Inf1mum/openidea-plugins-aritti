@@ -4,7 +4,7 @@ version = "0.3.0" # x-release-please-version
 description = "Creates Dev Container configurations from bundled image templates with optional cached feature selection, without running a CLI. Starts, rebuilds and stops the project's Dev Container (containers.dev) and opens a shell in it, using the devcontainer CLI. Adds a devcontainer.json template to the New menu. Requires the devcontainer CLI (npm i -g @devcontainers/cli) and Docker. The IDE itself keeps running on the host."
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Run targets now check the exact container you registered and refuse to launch when it was rebuilt or Docker is not reachable. Extra volume mounts below the project folder (such as node_modules) no longer block registration. Clone Repository now runs git in a terminal so large repositories finish. Compose and feature checks are cached so typing stays fast. The plugin no longer loads on every file open and save. Clearer wording for the Services commands and the Run target review."
+change-notes = "Run targets now check the exact container you registered and refuse to launch when it was rebuilt or Docker is not reachable. Extra volume mounts below the project folder (such as node_modules) no longer block registration. Clone Repository and Start now runs git in a terminal so large repositories finish, then offers to start the container. Compose and feature checks are cached so typing stays fast. The plugin no longer loads on every file open and save. Clearer wording for the Services commands and the Run target review."
 categories = ["tools"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
@@ -13,7 +13,7 @@ activation = ["on-view:containers", "on-view:run-target-review"]
 
 [capabilities]
 required = ["project.read"]
-# git: Clone Repository. storage: per-project configuration choices and feature cache. net:containers.dev: Refresh Feature List.
+# git: Clone Repository and Start. storage: per-project configuration choices and feature cache. net:containers.dev: Refresh Feature List.
 optional = ["process:devcontainer", "process:docker", "process:git", "storage", "net:containers.dev"]
 
 [[contributes.commands]]
@@ -63,7 +63,12 @@ category = "Dev Container"
 
 [[contributes.commands]]
 id = "clone"
-title = "Dev Container: Clone Repository…"
+title = "Dev Container: Clone Repository and Start…"
+category = "Dev Container"
+
+[[contributes.commands]]
+id = "start-cloned"
+title = "Dev Container: Start Cloned Container…"
 category = "Dev Container"
 
 [[contributes.commands]]

@@ -74,7 +74,7 @@ Tools offers **Register Container as Run Target…** and **Prepare Project-root 
 | `project.read` (required) | Find and read `devcontainer.json` |
 | `process:devcontainer` (optional) | Run the devcontainer CLI: up, rebuild, exec (shell in the container) |
 | `process:docker` (optional) | List and stop containers labelled with the project folder (`docker ps`, `docker stop`) and open a shell in one (`docker exec`). Without it, Stop Container and the view are unavailable |
-| `process:git` (optional) | Clone Repository (runs `git clone` in a terminal) |
+| `process:git` (optional) | Clone Repository and Start (runs `git clone` in a terminal, then offers to start the container) |
 | `storage`, `net:containers.dev` (optional) | Remember project configuration choices; keep the feature id list and refresh it from containers.dev |
 
 ## Development

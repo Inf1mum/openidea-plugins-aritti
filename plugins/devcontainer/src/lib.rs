@@ -47,6 +47,9 @@ impl Plugin for Main {
             host::reveal_view(operations::VIEW)?;
             return Ok(None);
         }
+        if id == "start-cloned" {
+            return start_cloned(_arg);
+        }
         let project = ctx.project().ok_or("No project is open.")?;
         let root = project.root()?;
 
@@ -271,7 +274,20 @@ fn clone(root: &str) -> Result<Option<String>, Error> {
 
     let args = ["clone".to_owned(), "--".to_owned(), url.to_owned(), target.to_owned()];
     host::open_terminal("Dev Container: Clone Repository", "git", &args)?;
-    host::notify(NotificationLevel::Info, "Dev Container", "Cloning in a terminal. Open the new folder, then run Dev Container: Start Container.");
+    let start = openidea_plugin::NotificationAction::new("Start Container", "start-cloned").argument(target);
+    host::notify_with_actions(NotificationLevel::Info, "Dev Container", "Cloning in a terminal. When it finishes, start the container for the new folder.", &[start])?;
+
+    Ok(None)
+}
+
+fn start_cloned(target: Option<&str>) -> Result<Option<String>, Error> {
+    let target = target.map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('-')).ok_or("Choose a cloned folder to start.")?;
+    let args = ["up".to_owned(), "--workspace-folder".to_owned(), target.to_owned()];
+    let body = format!("Run devcontainer with arguments:\n{}", serde_json::to_string_pretty(&args).unwrap_or_default());
+    if !ui_kit::prompts::confirm_exact("Start cloned Dev Container", &body)? {
+        return Ok(None);
+    }
+    host::open_terminal("Dev Container: Start Cloned Container", "devcontainer", &args)?;
 
     Ok(None)
 }
@@ -583,6 +599,23 @@ mod tests {
         assert_eq!(terminals[0].program, "git");
         assert_eq!(terminals[0].args, ["clone", "--", "https://example.com/acme/tool.git", "/work/tool"]);
         assert!(host.process_runs().is_empty());
+
+        let action = &host.notifications_with_actions()[0].actions[0];
+        assert_eq!((action.command.as_str(), action.argument.as_deref()), ("start-cloned", Some("/work/tool")));
+    }
+
+    #[test]
+    fn start_cloned_confirms_then_opens_the_container_terminal() {
+        let host = host().with_capabilities(&["project.read", "process:devcontainer"]);
+
+        host.answer_next_prompt(Some(&["yes"]));
+        Main::default().run_command("start-cloned", &host.invocation(), Some("/work/tool")).unwrap();
+        assert_eq!(host.terminals()[0].program, "devcontainer");
+        assert_eq!(host.terminals()[0].args, ["up", "--workspace-folder", "/work/tool"]);
+
+        let before = host.terminals().len();
+        assert!(Main::default().run_command("start-cloned", &host.invocation(), Some("--x")).is_err());
+        assert_eq!(host.terminals().len(), before);
     }
 
     #[test]
