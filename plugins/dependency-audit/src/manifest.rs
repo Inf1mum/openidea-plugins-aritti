@@ -97,6 +97,7 @@ pub fn normalise_pypi(name: &str) -> String {
 
 pub const MARKER: &str = "Marker not evaluated";
 pub const LOCAL: &str = "Local workspace package";
+pub const PRIVATE: &str = "Private, not queried";
 
 /// A declaration shown in the report beside the audited coordinates: why it was not queried, or a caveat on a queried one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,8 +128,45 @@ pub fn notes(path: &str, text: &str, members: &HashSet<String>) -> Vec<Note> {
 
             notes
         }
+        Some(Kind::PackageLock) => private_notes(package_lock(path, text).1),
+        Some(Kind::YarnLock) => private_notes(yarn_lock(path, text).1),
+        Some(Kind::ComposerLock) => private_notes(composer_lock(path, text).1),
+        Some(Kind::CargoLock) => private_notes(toml_lock(path, text, Ecosystem::CratesIo).1),
         _ => Vec::new(),
     }
+}
+
+fn private_notes(skipped: Vec<Dep>) -> Vec<Note> {
+    skipped.into_iter().map(|dep| Note { path: dep.path, ecosystem: dep.ecosystem, name: dep.name, spec: dep.version, label: PRIVATE }).collect()
+}
+
+/// Registries whose packages are public identities for OSV; anything else is a private mirror and its names stay local.
+const NPM_HOSTS: &[&str] = &["registry.npmjs.org", "registry.yarnpkg.com"];
+const COMPOSER_HOSTS: &[&str] = &["api.github.com", "codeload.github.com", "gitlab.com", "bitbucket.org", "repo.packagist.org"];
+
+fn url_host(url: &str) -> Option<&str> {
+    let rest = url.split_once("://")?.1;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?;
+
+    host.split(':').next()
+}
+
+/// A resolved URL on a host outside `allowed`; paths and absent values are not hosted anywhere.
+fn private_url(url: Option<&str>, allowed: &[&str]) -> bool {
+    let Some(url) = url.filter(|url| url.contains("://")) else {
+        return false;
+    };
+
+    !url_host(url).is_some_and(|host| allowed.iter().any(|a| host.eq_ignore_ascii_case(a)))
+}
+
+fn private_npm(entry: &Value) -> bool {
+    private_url(entry.get("resolved").and_then(Value::as_str), NPM_HOSTS)
+}
+
+fn private_composer(entry: &Value) -> bool {
+    entry.get("dist").and_then(|dist| dist.get("url")).and_then(Value::as_str).is_some_and(|url| private_url(Some(url), COMPOSER_HOSTS) || !url.contains("://"))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,14 +222,14 @@ pub fn parse(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
         Some(Kind::Pom) => pom(path, text),
         Some(Kind::Gradle) => gradle(path, text),
         Some(Kind::PackageJson) => package_json(path, text, lock),
-        Some(Kind::PackageLock) => package_lock(path, text),
+        Some(Kind::PackageLock) => package_lock(path, text).0,
         Some(Kind::ComposerJson) => composer_json(path, text, lock),
-        Some(Kind::ComposerLock) => composer_lock(path, text),
+        Some(Kind::ComposerLock) => composer_lock(path, text).0,
         Some(Kind::VersionCatalog) => version_catalog(path, text),
-        Some(Kind::YarnLock) => yarn_lock(path, text),
+        Some(Kind::YarnLock) => yarn_lock(path, text).0,
         Some(Kind::PnpmLock) => pnpm_lock(path, text),
-        Some(Kind::CargoLock) => toml_lock(path, text, Ecosystem::CratesIo, true),
-        Some(Kind::PoetryLock) => toml_lock(path, text, Ecosystem::PyPI, false),
+        Some(Kind::CargoLock) => toml_lock(path, text, Ecosystem::CratesIo).0,
+        Some(Kind::PoetryLock) => toml_lock(path, text, Ecosystem::PyPI).0,
         Some(Kind::UvLock) => uv_lock(path, text),
         Some(Kind::PipfileLock) => pipfile_lock(path, text),
         Some(Kind::Requirements) => requirements(path, text),
@@ -449,7 +487,7 @@ fn package_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
                 continue;
             }
             let local = lock.as_ref().is_some_and(|l| {
-                l.get("packages").and_then(|p| p.get(format!("node_modules/{name}"))).is_some_and(|entry| entry.get("link").is_some())
+                l.get("packages").and_then(|p| p.get(format!("node_modules/{name}"))).is_some_and(|entry| entry.get("link").is_some() || private_npm(entry))
             });
             if local {
                 continue;
@@ -535,19 +573,21 @@ fn key_offsets(text: &str, from: usize) -> HashMap<&str, usize> {
     keys
 }
 
-fn package_lock(path: &str, text: &str) -> Vec<Dep> {
+/// Audited coordinates and those skipped because the lockfile resolved them from a private host.
+fn package_lock(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
     let Ok(root) = serde_json::from_str::<Value>(text) else {
-        return Vec::new();
+        return Default::default();
     };
     if root.get("lockfileVersion").and_then(Value::as_u64) == Some(1) {
-        return package_lock_v1(path, text);
+        return (package_lock_v1(path, text), Vec::new());
     }
     let (Some(packages), Some(base)) = (root.get("packages").and_then(Value::as_object), section_start(text, "packages")) else {
-        return Vec::new();
+        return Default::default();
     };
     let offsets = key_offsets(text, base);
 
     let mut deps = Vec::new();
+    let mut private = Vec::new();
     for (key, entry) in packages {
         let Some(installed) = key.rsplit("node_modules/").next().filter(|_| key.contains("node_modules/")) else {
             continue;
@@ -559,17 +599,21 @@ fn package_lock(path: &str, text: &str) -> Vec<Dep> {
             continue;
         };
 
-        deps.push(Dep {
+        let dep = Dep {
             path: path.to_owned(),
             ecosystem: Ecosystem::Npm,
             name: entry.get("name").and_then(Value::as_str).unwrap_or(installed).to_owned(),
             version: version.to_owned(),
             at: (start, start + key.len()),
             version_at: None,
-        });
+        };
+        match private_npm(entry) {
+            true => private.push(dep),
+            false => deps.push(dep),
+        }
     }
 
-    deps
+    (deps, private)
 }
 
 /// Object members with exact physical source ranges. The document is parsed
@@ -659,14 +703,13 @@ fn composer_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
         return Vec::new();
     };
     let lock: Option<Value> = lock.and_then(|l| serde_json::from_str(l).ok());
-    let locked = |name: &str| {
+    let locked_entry = |name: &str| {
         let lock = lock.as_ref()?;
         ["packages", "packages-dev"]
             .into_iter()
             .filter_map(|section| lock.get(section)?.as_array())
             .flatten()
             .find(|entry| entry.get("name").and_then(Value::as_str) == Some(name))
-            .and_then(locked_composer_version)
     };
 
     let mut deps = Vec::new();
@@ -675,7 +718,11 @@ fn composer_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
             if !name.contains('/') {
                 continue;
             }
-            let version = match locked(name) {
+            let entry = locked_entry(name);
+            if entry.is_some_and(private_composer) {
+                continue;
+            }
+            let version = match entry.and_then(locked_composer_version) {
                 Some(version) => version,
                 None if is_exact(spec) => spec,
                 None => continue,
@@ -698,12 +745,13 @@ fn composer_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
     deps
 }
 
-fn composer_lock(path: &str, text: &str) -> Vec<Dep> {
+fn composer_lock(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
     let Ok(root) = serde_json::from_str::<Value>(text) else {
-        return Vec::new();
+        return Default::default();
     };
 
     let mut deps = Vec::new();
+    let mut private = Vec::new();
     for section in ["packages", "packages-dev"] {
         let (Some(entries), Some(mut cursor)) = (root.get(section).and_then(Value::as_array), section_start(text, section)) else {
             continue;
@@ -719,18 +767,22 @@ fn composer_lock(path: &str, text: &str) -> Vec<Dep> {
             let at = shift(name_at, cursor);
             cursor = at.1;
 
-            deps.push(Dep {
+            let dep = Dep {
                 path: path.to_owned(),
                 ecosystem: Ecosystem::Packagist,
                 name: name.to_owned(),
                 version: version.to_owned(),
                 at,
                 version_at: None,
-            });
+            };
+            match private_composer(entry) {
+                true => private.push(dep),
+                false => deps.push(dep),
+            }
         }
     }
 
-    deps
+    (deps, private)
 }
 
 /// `(offset, line without its line break)` for every line.
@@ -790,6 +842,11 @@ fn toml_string<'a>(line: &'a str, line_at: usize, key: &str) -> Option<(&'a str,
     }
 
     None
+}
+
+/// `toml_string` for a key at the very start of the line, so rows of multi-line arrays and inline tables never match.
+fn toml_key<'a>(line: &'a str, line_at: usize, key: &str) -> Option<(&'a str, usize)> {
+    line.starts_with(key).then(|| toml_string(line, line_at, key)).flatten()
 }
 
 fn version_catalog(path: &str, text: &str) -> Vec<Dep> {
@@ -856,11 +913,14 @@ fn version_catalog(path: &str, text: &str) -> Vec<Dep> {
     deps
 }
 
-fn yarn_lock(path: &str, text: &str) -> Vec<Dep> {
+fn yarn_lock(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
     let mut deps = Vec::new();
+    let mut private = Vec::new();
     let mut header: Option<(&str, usize)> = None;
+    let mut pending: Option<Dep> = None;
     for (at, line) in lines(text) {
         if !line.starts_with([' ', '#']) && line.ends_with(':') {
+            deps.extend(pending.take());
             header = line.trim_end_matches(':').split(',').next().and_then(|first| {
                 let first = first.trim();
                 let (spec, inside) = quoted(first).unwrap_or((first.trim_start_matches('"'), usize::from(first.starts_with('"'))));
@@ -873,12 +933,20 @@ fn yarn_lock(path: &str, text: &str) -> Vec<Dep> {
                     return Some((name, at + inside));
                 };
 
-                Some((real, at + inside + spec.find(real)?))
+                Some((real, at + inside + spec.len() - alias.len()))
             });
 
             continue;
         }
 
+        if let Some(resolved) = line.strip_prefix("  resolved") {
+            let url = resolved.trim_start_matches(':').trim().trim_matches('"');
+            if private_url(Some(url), NPM_HOSTS) {
+                private.extend(pending.take());
+            }
+
+            continue;
+        }
         let Some(rest) = line.strip_prefix("  version") else {
             continue;
         };
@@ -887,11 +955,12 @@ fn yarn_lock(path: &str, text: &str) -> Vec<Dep> {
         };
         let version = rest.trim_start_matches(':').trim().trim_matches('"');
         if is_version(version) {
-            deps.push(lock_dep(path, Ecosystem::Npm, name, version, name_at));
+            deps.extend(pending.replace(lock_dep(path, Ecosystem::Npm, name, version, name_at)));
         }
     }
+    deps.extend(pending);
 
-    deps
+    (deps, private)
 }
 
 fn pnpm_lock(path: &str, text: &str) -> Vec<Dep> {
@@ -927,41 +996,69 @@ fn pnpm_lock(path: &str, text: &str) -> Vec<Dep> {
     deps
 }
 
-/// `[[package]]` tables of `Cargo.lock` and `poetry.lock`; Cargo members and path or git packages have no registry source.
-fn toml_lock(path: &str, text: &str, ecosystem: Ecosystem, registry_only: bool) -> Vec<Dep> {
+/// `[[package]]` tables of `Cargo.lock` and `poetry.lock`, with the packages skipped as private.
+/// Cargo members and path or git packages have no registry source; poetry packages with a `[package.source]` table come from outside PyPI.
+fn toml_lock(path: &str, text: &str, ecosystem: Ecosystem) -> (Vec<Dep>, Vec<Dep>) {
+    #[derive(Default)]
+    struct Record<'a> {
+        name: &'a str,
+        at: usize,
+        version: &'a str,
+        public: bool,
+        private: bool,
+    }
+
+    let cargo = ecosystem == Ecosystem::CratesIo;
     let mut deps = Vec::new();
-    let mut current: Option<(&str, usize, &str, bool)> = None;
-    let mut flush = |current: &mut Option<(&str, usize, &str, bool)>| {
-        if let Some((name, at, version, sourced)) = current.take()
-            && !name.is_empty()
-            && is_version(version)
-            && (sourced || !registry_only)
-        {
-            deps.push(lock_dep(path, ecosystem, name, version, at));
+    let mut private = Vec::new();
+    let mut current: Option<Record> = None;
+    let mut keys = false;
+    let mut flush = |current: &mut Option<Record>| {
+        let Some(record) = current.take().filter(|r| !r.name.is_empty() && is_version(r.version)) else {
+            return;
+        };
+        let dep = lock_dep(path, ecosystem, record.name, record.version, record.at);
+        match (record.private, record.public || !cargo) {
+            (true, _) => private.push(dep),
+            (false, true) => deps.push(dep),
+            (false, false) => {}
         }
     };
     for (at, line) in lines(text) {
-        if line.trim() == "[[package]]" {
-            flush(&mut current);
-            current = Some(("", 0, "", false));
+        if line.starts_with('[') {
+            let header = line.trim();
+            keys = false;
+            if header == "[[package]]" {
+                flush(&mut current);
+                current = Some(Record::default());
+                keys = true;
+            } else if header == "[package.source]" && !cargo {
+                current.iter_mut().for_each(|r| r.name = "");
+            } else if !header.starts_with("[package.") {
+                flush(&mut current);
+            }
 
             continue;
         }
-        let Some(package) = current.as_mut() else {
+        let Some(package) = current.as_mut().filter(|_| keys) else {
             continue;
         };
-        if let Some((name, name_at)) = toml_string(line, at, "name") {
-            (package.0, package.1) = (name, name_at);
-        } else if let Some((version, _)) = toml_string(line, at, "version") {
-            package.2 = version;
-        } else if let Some((source, _)) = toml_string(line, at, "source") {
-            package.3 = source.starts_with("registry+");
+        if let Some((name, name_at)) = toml_key(line, at, "name") {
+            (package.name, package.at) = (name, name_at);
+        } else if let Some((version, _)) = toml_key(line, at, "version") {
+            package.version = version;
+        } else if let Some((source, _)) = toml_key(line, at, "source") {
+            package.public = matches!(source, CRATES_IO_GIT | CRATES_IO_SPARSE);
+            package.private = !package.public && (source.starts_with("registry+") || source.starts_with("sparse+"));
         }
     }
     flush(&mut current);
 
-    deps
+    (deps, private)
 }
+
+const CRATES_IO_GIT: &str = "registry+https://github.com/rust-lang/crates.io-index";
+const CRATES_IO_SPARSE: &str = "sparse+https://index.crates.io/";
 
 /// uv's resolved package records. Only canonical PyPI registry identities are
 /// admitted: path, editable, Git and URL distributions are not OSV PyPI identities.
@@ -984,9 +1081,9 @@ fn uv_lock(path: &str, text: &str) -> Vec<Dep> {
             continue;
         }
         let Some(record) = package.as_mut() else { continue; };
-        if let Some((name, start)) = toml_string(line, at, "name") {
+        if let Some((name, start)) = toml_key(line, at, "name") {
             (record.0, record.1) = (name, start);
-        } else if let Some((version, _)) = toml_string(line, at, "version") {
+        } else if let Some((version, _)) = toml_key(line, at, "version") {
             record.2 = version;
         } else if let Some((key, value)) = line_trimmed.split_once('=')
             && key.trim() == "source"
@@ -1397,6 +1494,76 @@ source = { registry = "https://pypi.org/simple/" }
         assert_eq!(found(&deps), [("serde", "1.0.1")]);
         assert_eq!(deps[0].ecosystem, Ecosystem::CratesIo);
         assert_eq!(&text[deps[0].at.0..deps[0].at.1], "serde");
+    }
+
+    fn private_names(path: &str, text: &str) -> Vec<(String, String)> {
+        let mut names: Vec<_> = notes(path, text, &HashSet::new()).into_iter().filter(|n| n.label == PRIVATE).map(|n| (n.name, n.spec)).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn uv_lock_dependency_rows_do_not_rename_package() {
+        let deps = parse("/p/uv.lock", include_str!("../tests/fixtures/uv.lock"), None);
+
+        assert_eq!(found(&deps), [("certifi", "2024.8.30"), ("requests", "2.32.3"), ("urllib3", "2.2.3")]);
+    }
+
+    #[test]
+    fn poetry_inline_dependency_keeps_version() {
+        let deps = parse("/p/poetry.lock", include_str!("../tests/fixtures/poetry.lock"), None);
+
+        assert!(found(&deps).contains(&("click", "8.1.7")));
+        assert!(found(&deps).contains(&("colorama", "0.4.6")));
+    }
+
+    #[test]
+    fn poetry_package_with_source_table_skipped() {
+        let deps = parse("/p/poetry.lock", include_str!("../tests/fixtures/poetry.lock"), None);
+
+        assert_eq!(found(&deps), [("click", "8.1.7"), ("colorama", "0.4.6")]);
+    }
+
+    #[test]
+    fn cargo_alt_registry_not_queried() {
+        let text = include_str!("../tests/fixtures/Cargo.lock");
+
+        assert_eq!(found(&parse("/p/Cargo.lock", text, None)), [("serde", "1.0.210"), ("tokio", "1.40.0")]);
+        assert_eq!(private_names("/p/Cargo.lock", text), [("internal-crate".to_owned(), "0.3.1".to_owned())]);
+    }
+
+    #[test]
+    fn npm_private_resolved_not_queried() {
+        let lock = r#"{"lockfileVersion":3,"packages":{"":{},"node_modules/lodash":{"version":"4.17.21","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"},"node_modules/secret":{"version":"1.0.0","resolved":"https://npm.corp.example/secret/-/secret-1.0.0.tgz"}}}"#;
+        assert_eq!(found(&parse("/p/package-lock.json", lock, None)), [("lodash", "4.17.21")]);
+        assert_eq!(private_names("/p/package-lock.json", lock), [("secret".to_owned(), "1.0.0".to_owned())]);
+
+        let manifest = r#"{"dependencies":{"secret":"^1.0.0","lodash":"^4.0.0"}}"#;
+        assert_eq!(found(&parse("/p/package.json", manifest, Some(lock))), [("lodash", "4.17.21")]);
+
+        let yarn = "lodash@^4.17.15:\n  version \"4.17.15\"\n  resolved \"https://registry.yarnpkg.com/lodash/-/lodash-4.17.15.tgz#abc\"\n\nsecret@^1.0.0:\n  version \"1.0.0\"\n  resolved \"https://npm.corp.example/secret/-/secret-1.0.0.tgz#abc\"\n";
+        assert_eq!(found(&parse("/p/yarn.lock", yarn, None)), [("lodash", "4.17.15")]);
+        assert_eq!(private_names("/p/yarn.lock", yarn), [("secret".to_owned(), "1.0.0".to_owned())]);
+    }
+
+    #[test]
+    fn composer_private_dist_listed_not_queried() {
+        let lock = r#"{"packages":[{"name":"guzzlehttp/guzzle","version":"7.4.0","dist":{"type":"zip","url":"https://api.github.com/repos/guzzle/guzzle/zipball/abc"}},{"name":"acme/internal","version":"1.0.0","dist":{"type":"zip","url":"https://packages.acme.example/dist/internal.zip"}}],"packages-dev":[]}"#;
+        assert_eq!(found(&parse("/p/composer.lock", lock, None)), [("guzzlehttp/guzzle", "7.4.0")]);
+        assert_eq!(private_names("/p/composer.lock", lock), [("acme/internal".to_owned(), "1.0.0".to_owned())]);
+
+        let manifest = r#"{"require":{"acme/internal":"^1.0","guzzlehttp/guzzle":"^7.0"}}"#;
+        assert_eq!(found(&parse("/p/composer.json", manifest, Some(lock))), [("guzzlehttp/guzzle", "7.4.0")]);
+    }
+
+    #[test]
+    fn yarn_alias_range_points_at_real_name() {
+        let text = "\"string-width-cjs@npm:string-width@^4.2.0\":\n  version: 4.2.3\n";
+        let deps = parse("/p/yarn.lock", text, None);
+
+        assert_eq!(found(&deps), [("string-width", "4.2.3")]);
+        assert_eq!(&text[deps[0].at.0..deps[0].at.1], "string-width");
+        assert!(deps[0].at.0 > text.find("@npm:").unwrap());
     }
 
     #[test]
