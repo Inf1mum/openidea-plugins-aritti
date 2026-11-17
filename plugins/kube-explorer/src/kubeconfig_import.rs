@@ -1,6 +1,7 @@
 //! Explicit, disconnected import. Credentials live only in the SDK's owner-only
 //! private directory; generic plugin storage contains redacted metadata only.
 use openidea_plugin::{Error, FileKind, NotificationLevel, PickItem, host};
+use crate::KubeExplorer;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,6 +15,8 @@ const MAX_PROFILES: usize = 32;
 const MAX_METADATA: usize = 4096;
 const PREFIX: &str = "imported-kubeconfig-v1:";
 const FILE_PREFIX: &str = "imported-kubeconfig-";
+const SELECTED: &str = "imported-kubeconfig-selected";
+const ACTIVE_FILE: &str = "active-imported-kubeconfig.json";
 fn invalid(message: &str) -> Error {
     Error::Invalid(message.into())
 }
@@ -467,7 +470,10 @@ pub fn import() -> Result<(), Error> {
         if host::fs::stat(&path)?.kind != FileKind::File {
             return Err(invalid("Private import destination is not a plain file."));
         }
-        if host::fs::read_bytes(&path)? != payload.as_bytes() {
+        let existing = host::fs::read_bytes(&path)?;
+        if existing.is_empty() {
+            host::fs::write_bytes(&path, payload.as_bytes())?;
+        } else if existing != payload.as_bytes() {
             return Err(invalid("Private import destination already exists with different content."));
         }
     } else {
@@ -505,6 +511,91 @@ pub fn review() -> Result<(), Error> {
     Ok(())
 }
 
+
+/// The kubeconfig file of the imported profile in use, for `--kubeconfig`.
+pub fn selected_path() -> Option<String> {
+    host::storage::get(SELECTED).ok().flatten()?;
+    Some(format!("{}/{ACTIVE_FILE}", host::fs::plugin_dir().ok()?))
+}
+
+/// The label of the imported profile in use.
+pub fn selected_name() -> Option<String> {
+    let id = host::storage::get(SELECTED).ok().flatten()?;
+    let meta = host::storage::get(&format!("{PREFIX}{id}")).ok().flatten()?;
+    serde_json::from_str::<Value>(&meta).ok()?["name"].as_str().map(str::to_owned)
+}
+
+fn choose_profile(title: &str, extra: Option<PickItem>) -> Result<Option<(Vec<Value>, String)>, Error> {
+    let profiles = profiles()?;
+    if profiles.is_empty() {
+        return Err(invalid("Import a kubeconfig first."));
+    }
+    let mut choices: Vec<_> = profiles
+        .iter()
+        .map(|profile| PickItem::new(profile["id"].as_str().unwrap_or(""), profile["name"].as_str().unwrap_or("")))
+        .collect();
+    choices.extend(extra);
+    Ok(host::pick(title, &choices)?.map(|id| (profiles, id)))
+}
+
+fn clear_active_file() -> Result<(), Error> {
+    host::fs::write_bytes(&format!("{}/{ACTIVE_FILE}", host::fs::plugin_dir()?), b"")
+}
+
+impl KubeExplorer {
+    fn imported_selection_changed(&mut self) {
+        self.context = None;
+        self.namespace = None;
+        self.save();
+        self.reload();
+    }
+
+    pub fn use_imported_kubeconfig(&mut self) -> Result<(), Error> {
+        let stop = host::storage::get(SELECTED)?.map(|_| PickItem::new("", "Stop using an imported kubeconfig"));
+        let Some((profiles, id)) = choose_profile("Use an imported kubeconfig for kubectl", stop)? else {
+            return Ok(());
+        };
+        if id.is_empty() {
+            host::storage::delete(SELECTED)?;
+            clear_active_file()?;
+            self.imported_selection_changed();
+            return Ok(());
+        }
+        let profile = profiles.iter().find(|profile| profile["id"] == id).ok_or_else(|| invalid("Select a listed profile."))?;
+        let body = format!("{}\n\nEvery kubectl command in Kube Explorer uses this profile until you stop using it.", redacted(profile));
+        if !ui_kit::prompts::confirm_exact("Use this imported kubeconfig?", &body)? {
+            return Ok(());
+        }
+        let record: Value = serde_json::from_slice(&host::fs::read_bytes(profile["path"].as_str().unwrap_or(""))?)
+            .map_err(|_| invalid("Imported private profile is unreadable."))?;
+        let directory = host::fs::plugin_dir()?;
+        host::fs::write_bytes(&format!("{directory}/{ACTIVE_FILE}"), record["config"].to_string().as_bytes())?;
+        host::storage::set(SELECTED, &id)?;
+        self.imported_selection_changed();
+        crate::config::notify_success("Imported kubeconfig in use", profile["name"].as_str().unwrap_or(""));
+        Ok(())
+    }
+
+    pub fn delete_imported_kubeconfig(&mut self) -> Result<(), Error> {
+        let Some((profiles, id)) = choose_profile("Delete an imported kubeconfig", None)? else {
+            return Ok(());
+        };
+        let profile = profiles.iter().find(|profile| profile["id"] == id).ok_or_else(|| invalid("Select a listed profile."))?;
+        if !ui_kit::prompts::confirm_exact("Delete this imported kubeconfig?", &redacted(profile))? {
+            return Ok(());
+        }
+        let was_selected = host::storage::get(SELECTED)?.as_deref() == Some(id.as_str());
+        host::fs::write_bytes(profile["path"].as_str().unwrap_or(""), b"")?;
+        host::storage::delete(&format!("{PREFIX}{id}"))?;
+        if was_selected {
+            host::storage::delete(SELECTED)?;
+            clear_active_file()?;
+            self.imported_selection_changed();
+        }
+        crate::config::notify_success("Imported kubeconfig deleted", profile["name"].as_str().unwrap_or(""));
+        Ok(())
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,6 +619,67 @@ mod tests {
         queue(host, "development", &config().to_string(), true);
         import().unwrap();
     }
+    fn use_profile(host: &MockHost, kube: &mut crate::KubeExplorer, id: &str) {
+        host.answer_next_prompt(Some(&[id]));
+        host.answer_next_prompt(Some(&["ok"]));
+        kube.run_command("use-imported-kubeconfig", &host.invocation(), None).unwrap();
+    }
+
+    #[test]
+    fn imported_profile_used_in_kubectl_args() {
+        let host = host().with_capabilities(&["storage", "process:kubectl"]);
+        host.on_process(crate::KUBECTL, |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() }));
+        seed(&host);
+        let id = profiles().unwrap()[0]["id"].as_str().unwrap().to_owned();
+        let mut kube = crate::KubeExplorer { context: Some("stale".into()), ..Default::default() };
+        assert!(kube.args(&["get"]).iter().all(|arg| !arg.starts_with("--kubeconfig")));
+
+        use_profile(&host, &mut kube, &id);
+        let path = selected_path().unwrap();
+        assert_eq!(kube.args(&["get"])[0], format!("--kubeconfig={path}"));
+        assert!(kube.context.is_none(), "a context of the old kubeconfig is dropped");
+        kube.kubectl(&["get", "pods"], None).unwrap();
+        let run = host.process_runs().into_iter().last().unwrap();
+        assert_eq!(run.args[0], format!("--kubeconfig={path}"));
+        let written: Value = serde_json::from_str(&host::fs::read_file(&path).unwrap()).unwrap();
+        assert_eq!(written["current-context"], "dev");
+        assert_eq!(written["users"][0]["user"]["token"], SECRET);
+        assert_eq!(selected_name().as_deref(), Some("development"));
+        assert!(!format!("{:?}{:?}", host.logs(), host.notifications()).contains(SECRET));
+
+        host.answer_next_prompt(Some(&[""]));
+        kube.run_command("use-imported-kubeconfig", &host.invocation(), None).unwrap();
+        assert!(kube.args(&["get"]).iter().all(|arg| !arg.starts_with("--kubeconfig")));
+        assert!(host::fs::read_bytes(&path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn delete_imported_profile_removes_file() {
+        let host = host().with_capabilities(&["storage", "process:kubectl"]);
+        host.on_process(crate::KUBECTL, |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() }));
+        seed(&host);
+        let meta = profiles().unwrap().remove(0);
+        let id = meta["id"].as_str().unwrap().to_owned();
+        let record_path = meta["path"].as_str().unwrap().to_owned();
+        let mut kube = crate::KubeExplorer::default();
+        use_profile(&host, &mut kube, &id);
+        let active = selected_path().unwrap();
+
+        host.answer_next_prompt(Some(&[&id]));
+        host.answer_next_prompt(Some(&["ok"]));
+        kube.run_command("delete-imported-kubeconfig", &host.invocation(), None).unwrap();
+        assert!(profiles().unwrap().is_empty());
+        assert!(selected_path().is_none() && crate::config::kubeconfig().is_none());
+        for file in [&record_path, &active] {
+            assert!(!host::fs::read_file(file).unwrap().contains(SECRET), "{file}");
+        }
+        assert!(kube.args(&["get"]).iter().all(|arg| !arg.starts_with("--kubeconfig")));
+        assert!(!format!("{:?}{:?}", host.logs(), host.notifications()).contains(SECRET));
+
+        seed(&host);
+        assert_eq!(profiles().unwrap().len(), 1, "the same kubeconfig can be imported again");
+    }
+
     #[test]
     fn ipv6_private_import_and_review_keep_exact_selected_server_without_connection() {
         let host=host();let server="https://[2001:db8::433]:6443";let mut cfg=config();

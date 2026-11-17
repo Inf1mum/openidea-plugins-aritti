@@ -22,8 +22,11 @@ pub fn kubeconfigs() -> Vec<String> {
     setting_list("kubeconfig")
 }
 
-/// One file, never a merge: the stored choice while it is still listed, else the first.
+/// One file, never a merge: the imported profile in use, else the stored choice while it is still listed, else the first.
 pub fn kubeconfig() -> Option<String> {
+    if let Some(imported) = crate::kubeconfig_import::selected_path() {
+        return Some(imported);
+    }
     let files = kubeconfigs();
     let chosen = host::storage::get(CHOSEN_KUBECONFIG).ok().flatten();
     chosen.filter(|file| files.contains(file)).or_else(|| files.into_iter().next())

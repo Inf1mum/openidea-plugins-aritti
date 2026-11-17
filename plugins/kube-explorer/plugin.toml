@@ -4,7 +4,7 @@ version = "0.3.0" # x-release-please-version
 description = "Browse a Kubernetes cluster with kubectl. Switch context and namespace, list workloads, services, config, storage, events and nodes, then describe a resource, edit its YAML with schema completion and explicit reviewed apply, stream its logs, open a shell, attach, forward ports or delete it. Commands on the open file apply, validate (server dry run), diff or delete a manifest, render or apply a Kustomization, and run helm template, lint and dependency update. Never changes your kubeconfig."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Reload Manifest from Cluster leaves Secrets alone unless Allow Show Secret is on, and lists them as not reloaded. Manifest problems: unknown fields, Helm include and values navigation, Kustomize links and label rename. Secret YAML opens in the panel and is never written to a temp file. Log Viewer: until, time and source filters. Download Logs no longer suggests a path in /tmp."
+change-notes = "Manifest problems are reported once and stay in place while you type. Saving or checking out files no longer clears navigation, label and CRD completion. Kustomize checks run from saved facts instead of on every edit. Watch keeps going after a malformed or oversized event. Imported kubeconfigs can now be used and deleted. Port forward and watch start right after one confirmation, Apply asks which context and namespace it targets, and Reload stops after the first connection failure."
 categories = ["tools"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
@@ -41,6 +41,16 @@ id = "review-imported-kubeconfigs"
 title = "Kube Explorer: Review Imported Kubeconfigs (Redacted)"
 category = "Kube Explorer"
 
+[[contributes.commands]]
+id = "use-imported-kubeconfig"
+title = "Kube Explorer: Use Imported Kubeconfig"
+category = "Kube Explorer"
+
+[[contributes.commands]]
+id = "delete-imported-kubeconfig"
+title = "Kube Explorer: Delete Imported Kubeconfig"
+category = "Kube Explorer"
+
 [[contributes.menus]]
 menu = "tools"
 command = "import-pasted-kubeconfig"
@@ -48,6 +58,14 @@ command = "import-pasted-kubeconfig"
 [[contributes.menus]]
 menu = "tools"
 command = "review-imported-kubeconfigs"
+
+[[contributes.menus]]
+menu = "tools"
+command = "use-imported-kubeconfig"
+
+[[contributes.menus]]
+menu = "tools"
+command = "delete-imported-kubeconfig"
 
 [[contributes.commands]]
 id = "apply"

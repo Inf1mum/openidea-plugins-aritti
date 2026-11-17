@@ -336,6 +336,26 @@ mod tests {
         assert_eq!(left, ["/project/b.yaml"]);
     }
     #[test]
+    fn transformer_flag_cached_until_files_changed() {
+        let h = host();
+        let mut kube = KubeExplorer::default();
+        let isolated = |kube: &KubeExplorer, path: &str| kube.navigation.files.get(&("/project".to_owned(), format!("/project/{path}"))).map(|c| c.isolated);
+        h.add_file("a.yaml", SECRET);
+        warm(&mut kube, "a.yaml", SECRET);
+        assert_eq!(isolated(&kube, "a.yaml"), Some(false));
+
+        h.add_file("overlays/kustomization.yaml", "namespace: prod\n");
+        h.add_file("b.yaml", SECRET);
+        warm(&mut kube, "b.yaml", SECRET);
+        assert_eq!(isolated(&kube, "b.yaml"), Some(false), "the per-root flag is not searched again");
+
+        let changed = openidea_plugin::FilesChanged { created: vec!["/project/overlays/kustomization.yaml".into()], ..Default::default() };
+        kube.handle_events(&[Event::FilesChanged(changed)], &h.invocation());
+        h.add_file("c.yaml", SECRET);
+        warm(&mut kube, "c.yaml", SECRET);
+        assert_eq!(isolated(&kube, "c.yaml"), Some(true));
+    }
+    #[test]
     fn many_equal_source_candidates_do_not_turn_target_validation_into_an_unbounded_read() {
         let h = host();
         let mut kube = KubeExplorer::default();

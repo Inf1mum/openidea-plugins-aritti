@@ -763,7 +763,8 @@ impl KubeExplorer {
         };
 
         let mut items = Vec::new();
-        self.push_node(&mut items, "ctx", &format!("Context: {context}"), k8s!("cluster"), Some(&context));
+        let imported = kubeconfig_import::selected_name().map(|name| format!(" · imported kubeconfig {name}")).unwrap_or_default();
+        self.push_node(&mut items, "ctx", &format!("Context: {context}{imported}"), k8s!("cluster"), Some(&context));
         let at = items.len();
         self.push_node(&mut items, "ns", &format!("Namespace: {namespace}"), k8s!("ns"), self.namespace.as_ref());
         if self.expanded.contains("ns") {
@@ -1567,7 +1568,7 @@ impl Plugin for KubeExplorer {
         }
         // These explicit global/disconnected operations do not consume a project
         // process binding or require a usable source/workspace identity.
-        if matches!(id,"helm-repo-update"|"helm-repo-cache"|"import-pasted-kubeconfig"|"review-imported-kubeconfigs"|"how-to-install-kubectl"|"helm-parameters"|"edit-debug-images"|"telepresence-connect"|"telepresence-quit"|"open-resource-watch") {
+        if matches!(id,"helm-repo-update"|"helm-repo-cache"|"import-pasted-kubeconfig"|"review-imported-kubeconfigs"|"use-imported-kubeconfig"|"delete-imported-kubeconfig"|"how-to-install-kubectl"|"helm-parameters"|"edit-debug-images"|"telepresence-connect"|"telepresence-quit"|"open-resource-watch") {
             return self.with_global_process_scope(|this|this.run_command_in(id,ctx,arg));
         }
         self.with_process_scope(ctx,|this|this.run_command_in(id,ctx,arg))
@@ -1604,6 +1605,8 @@ impl KubeExplorer {
             }
             "import-pasted-kubeconfig" => return kubeconfig_import::import().map(|()| None),
             "review-imported-kubeconfigs" => return kubeconfig_import::review().map(|()| None),
+            "use-imported-kubeconfig" => return self.use_imported_kubeconfig().map(|()| None),
+            "delete-imported-kubeconfig" => return self.delete_imported_kubeconfig().map(|()| None),
             "choose-kubeconfig" => return self.choose_kubeconfig().map(|()| None),
             "telepresence-connect" => return self.telepresence("connect").map(|()| None),
             "telepresence-quit" => return self.telepresence("quit").map(|()| None),
@@ -1912,6 +1915,43 @@ mod tests {
 
     fn ok(stdout: &str) -> Result<ProcessOutput, Error> {
         Ok(ProcessOutput { status: Some(0), stdout: stdout.into(), stderr: String::new() })
+    }
+
+    #[test]
+    fn yaml_providers_do_not_panic_at_any_offset() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "process:kubectl"]);
+        host.set_project_root(Some("/p"));
+        let seeds = [
+            "{{ x }}{#}",
+            "café",
+            "<?php\nuse $😀",
+            "é::class",
+            "<!-- Paramètres --><a/>",
+            "apiVersion: v1\nkind: Pod\nmetadata:\n  name: café\n  namespace: app\n  labels: {app: 😀}\nspec:\n  containers:\n  - name: é\n    env:\n    - name: X\n      valueFrom:\n        configMapKeyRef: {name: 😀cfg, key: é}\n",
+            "key:  # c\n- 😀: é\n---\n--- !tag\nresources:\n- ../é\n",
+            "apiVersion: v1\nkind: Service\nmetadata: {name: web, namespace: app}\nspec:\n  selector: {app: é😀}\n",
+        ];
+        let mut kube = KubeExplorer::default();
+        for (n, seed) in seeds.iter().enumerate() {
+            let path = format!("/p/{n}.yaml");
+            host.add_file(&format!("{n}.yaml"), seed);
+            kube.warm_path(&path);
+            let kustomization = format!("/p/k{n}/kustomization.yaml");
+            host.add_file(&format!("k{n}/kustomization.yaml"), seed);
+            kube.warm_path(&kustomization);
+            for path in [path, kustomization] {
+                let doc = Document { path, language: "yaml".into(), version: 1, text: (*seed).into() };
+                for offset in (0..=seed.len()).filter(|at| seed.is_char_boundary(*at)) {
+                    let at = openidea_plugin::text::position(seed, offset);
+                    kube.definition(&doc, at);
+                    kube.completion(&doc, at, None);
+                    kube.code_actions(&doc, Range::new(at, at));
+                }
+                kube.line_markers(&doc);
+                kube.diagnostics(&doc);
+            }
+        }
     }
 
     #[test]
