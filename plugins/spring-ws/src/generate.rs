@@ -125,7 +125,7 @@ fn namespace(value: &str) -> bool {
 }
 /// One well-formed, namespace-valid root without a DOCTYPE, within the schema size bound.
 pub(super) fn xml_valid(text: &str) -> bool {
-    text.len() <= MAX_SCHEMA_BYTES && !text.contains("<!DOCTYPE") && spring_text::xml::analysis_valid(text)
+    text.len() <= MAX_SCHEMA_BYTES && !text.to_ascii_lowercase().contains("<!doctype") && spring_text::xml::analysis_valid(text)
 }
 fn decode(value: &str) -> Option<String> {
     quick_xml::escape::unescape(value).ok().map(|value| value.into_owned())
@@ -629,6 +629,7 @@ mod tests {
                 .replace("</xs:schema>", "</xs:sequence></xs:complexType></xs:schema>"),
             good.text.replace("targetNamespace=\"urn:acme\"", "targetNamespace=\"${dynamic}\""),
             format!("<!DOCTYPE xs:schema SYSTEM \"remote\">{}", good.text),
+            format!("<!doctype xs:schema SYSTEM \"remote\">{}", good.text),
         ] {
             let changed = Document { text, ..good.clone() };
             let at = changed.text.find("CreateRequest").unwrap() + 2;
