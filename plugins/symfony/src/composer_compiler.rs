@@ -41,7 +41,7 @@ pub(crate) fn actions(owner: &mut Main, doc: &Document) -> Vec<FileAction> {
         },
     );
     vec![FileAction {
-        title: "Create reviewed compiler-pass class from Composer PSR4…".into(),
+        title: "Create Compiler Pass Class…".into(),
         kind: Some("refactor.rewrite".into()),
         data: Some(key),
         ..FileAction::default()

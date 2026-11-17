@@ -322,7 +322,7 @@ pub(crate) fn source_route_deprecations(path: &str, language: &str, text: &str, 
     Some(findings.into_iter().filter(|finding| finding.code == "deprecated-route-setting").map(|mut finding| {
         if finding.message == ANNOTATION_MESSAGE {
             if let Some(evidence) = evidence {
-                finding.message.push_str(&format!(" [Advisory: cached composer.json requires symfony/framework-bundle {}; installed/runtime version is unknown.]", evidence.constraint));
+                finding.message.push_str(&format!(" (based on composer.json constraint {})", evidence.constraint));
             }
         }
         finding
