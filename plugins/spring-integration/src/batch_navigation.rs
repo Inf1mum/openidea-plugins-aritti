@@ -36,7 +36,7 @@ fn model(doc: &Document, at: Position) -> Option<Model> {
     }
     let unprefixed = doc.text.strip_prefix('\u{feff}').unwrap_or(&doc.text);
     let declaration_misplaced = unprefixed.contains("<?xml") && !unprefixed.starts_with("<?xml");
-    if !spring_text::xml::analysis_valid(&doc.text) || doc.text.contains("<!DOCTYPE") || declaration_misplaced {
+    if !spring_text::xml::analysis_valid(&doc.text) || doc.text.to_ascii_lowercase().contains("<!doctype") || declaration_misplaced {
         return Some(empty());
     }
     let elements = xml::elements(&doc.text);
@@ -270,6 +270,15 @@ mod tests {
         assert!(items.iter().all(
             |i| i.replace == Some(Range::new(pos, Position::new(pos.line, pos.character + 6)))
         ));
+    }
+    #[test]
+    fn lowercase_doctype_disables_navigation() {
+        let _h = MockHost::install();
+        let mut owner = structure::Structure::default();
+        let d = doc(
+            "<!doctype b:job []><b:job id='one'><b:step id='a' next='finish'/><b:step id='finish'/></b:job>",
+        );
+        assert!(owner.definition(&d, at(&d, "finish")).is_empty());
     }
     #[test]
     fn missing_target_never_falls_back_to_other_jobs_or_project_sources() {
