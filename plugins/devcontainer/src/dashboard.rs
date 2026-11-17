@@ -1,7 +1,7 @@
 //! The Dev Containers view: the containers of the project, found by the label the CLI puts on them.
 
 use openidea_plugin::views::{Body, Button, ListItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Error, Invocation, NotificationLevel, Project, host};
+use openidea_plugin::{Error, Invocation, NotificationAction, NotificationLevel, Project, host};
 
 use crate::{LOGIN_SHELL, Main, RUN_TARGET_REMOVED};
 use openidea_plugin::Plugin;
@@ -153,11 +153,7 @@ impl Views for Main {
             }
             ViewEvent::Button(button) if button == "shell" => {
                 if let Some(id) = self.selected.clone() {
-                    let (_, container) = self.container(ctx, &id)?;
-                    if !container.running {
-                        return Err("This container is stopped. Refresh Services before opening a shell.".into());
-                    }
-                    open_shell(&container.id)?;
+                    self.shell_into(ctx, &id)?;
                 }
             }
             ViewEvent::Button(button) if button == "start" => {
@@ -241,16 +237,29 @@ impl Main {
         if started.status != Some(0) {
             return Err(format!("docker start failed: {}", started.stderr.trim()).into());
         }
-        host::notify(NotificationLevel::Info, "Dev Container", "Started the container.");
+        let open_shell = NotificationAction::new("Open Shell", "shell").argument(id);
+        if host::notify_with_actions(NotificationLevel::Info, "Dev Container", "Started the container.", &[open_shell]).is_err() {
+            host::notify(NotificationLevel::Info, "Dev Container", "Started the container.");
+        }
         host::refresh_view(view);
         Ok(())
     }
+
+    /// Opens a shell in one of this project's running containers, rechecked by id.
+    pub(crate) fn shell_into(&mut self, ctx: &Invocation, id: &str) -> Result<(), Error> {
+        let (_, container) = self.container(ctx, id)?;
+        if !container.running {
+            return Err("This container is stopped. Refresh Services before opening a shell.".into());
+        }
+        open_shell(&container.id)
+    }
 }
 
+/// One terminal per container: opening it again focuses the running shell.
 fn open_shell(id: &str) -> Result<(), Error> {
-    let args = ["exec", "-it", id, "sh", "-c", LOGIN_SHELL].map(str::to_owned);
+    let command = host::Command::new("docker").args(["exec", "-it", id, "sh", "-c", LOGIN_SHELL]);
 
-    host::open_terminal("Dev Container: Shell", "docker", &args)
+    host::open_terminal_session(&format!("docker-shell-{id}"), "Dev Container: Shell", &command).map(drop)
 }
 
 impl openidea_plugin::details::Details for Main {
