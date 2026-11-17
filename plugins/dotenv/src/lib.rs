@@ -14,7 +14,7 @@ mod lint;
 mod parse;
 
 use index::{Declaration, Index, Usage, env_declarations, is_env_file, nested_usages, range};
-use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
+use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::syntax::{Highlight, SyntaxProvider, Token};
 use openidea_plugin::{
     Context, Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Project, Range, Severity, TextEdit, host, text,
@@ -25,6 +25,9 @@ use std::time::{Duration, Instant};
 
 /// What an activation or a batch of events may spend walking projects (of their 5 s).
 const SCAN_BUDGET: Duration = Duration::from_secs(3);
+const RELATED_MARKER: &str = "icons/marker-related.svg";
+/// Markers one gutter button lists at most; the IDE merges a line's same-icon markers into one chooser.
+const MAX_LINE_TARGETS: usize = 200;
 
 #[derive(Default)]
 pub struct DotEnv {
@@ -410,6 +413,33 @@ impl Providers for DotEnv {
         matching.into_iter().filter(|d| d.primary == primary).map(|d| d.location).collect()
     }
 
+    /// On each key of a `.env` file, one marker per usage and per declaration in another env file, from the
+    /// cached index only: the IDE merges them into one button (a chooser with several, a jump with one).
+    fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        if doc.language != "dotenv" || doc.text.len() > index::MAX_SOURCE_BYTES {
+            return Vec::new();
+        }
+        let Some(index) = project_of(&doc.path).and_then(|(root, _)| self.projects.get(&root)) else {
+            return Vec::new();
+        };
+        let tokens = parse::lex(&doc.text);
+        let keys: Vec<(String, u32)> =
+            parse::properties(&doc.text, &tokens).into_iter().map(|p| (p.name(&doc.text), text::position(&doc.text, p.key.start).line)).collect();
+        let mut targets: HashMap<&str, Vec<Location>> = keys.iter().map(|(key, _)| (key.as_str(), Vec::new())).collect();
+        let unsaved = nested_usages(&doc.path, &doc.text);
+        for usage in index.usages.iter().filter(|u| u.location.path != doc.path).chain(&unsaved) {
+            if let Some(found) = targets.get_mut(usage.key.as_str()) {
+                found.push(usage.location.clone());
+            }
+        }
+        for declaration in index.declarations.iter().filter(|d| d.location.path != doc.path && is_env_file(&d.location.path)) {
+            if let Some(found) = targets.get_mut(declaration.key.as_str()) {
+                found.push(declaration.location.clone());
+            }
+        }
+        keys.iter().flat_map(|(key, line)| related_markers(*line, targets[key.as_str()].clone())).collect()
+    }
+
     /// Quick fixes use the same findings as versioned diagnostics.
     // ponytail: with no language server for .env, an empty answer comes back as `unavailable` and the
     // editor stops asking for 15 s; the host should treat a plugin's answer as available (upstream fix).
@@ -433,6 +463,20 @@ impl Providers for DotEnv {
 
         actions
     }
+}
+
+/// One marker per target on `line`, at most [`MAX_LINE_TARGETS`]; the tooltip says when some were left out.
+fn related_markers(line: u32, targets: Vec<Location>) -> Vec<LineMarker> {
+    let targets: Vec<Location> = targets.into_iter().filter(|target| target.range.start != target.range.end).collect();
+    let tooltip = match targets.len() > MAX_LINE_TARGETS {
+        true => format!("Usages and other env files (first {MAX_LINE_TARGETS} of {})", targets.len()),
+        false => "Usages and other env files".to_owned(),
+    };
+    targets
+        .into_iter()
+        .take(MAX_LINE_TARGETS)
+        .map(|target| LineMarker { line, icon: Some(RELATED_MARKER.into()), tooltip: tooltip.clone(), target: Some(target) })
+        .collect()
 }
 
 // API 1.3 registers the optional exports on the same component.
@@ -539,6 +583,35 @@ mod tests {
         let env = doc("/p/.env", "dotenv", "DB_HOST=localhost\nURL=\"${DB_HOST}\"\n");
         let targets: Vec<_> = walked().definition(&env, Position::new(0, 3)).into_iter().map(|l| (l.path, l.range.start)).collect();
         assert_eq!(targets, [("/p/app.py".into(), Position::new(0, 19)), ("/p/.env".into(), Position::new(1, 7))]);
+    }
+
+    #[test]
+    fn key_lines_get_one_marker_per_usage_and_other_env_file() {
+        let _host = project();
+        let env = doc("/p/.env", "dotenv", "DB_HOST=localhost\nURL=\"${DB_HOST}\"\nNOWHERE=1\n");
+        assert!(DotEnv::default().line_markers(&env).is_empty(), "a cold cache gives no marker");
+
+        let markers = walked().line_markers(&env);
+        let targets: Vec<_> = markers.iter().map(|m| (m.line, m.target.clone().unwrap())).collect();
+        let at = |path: &str, line, start, end| Location { path: path.into(), range: Range::new(Position::new(line, start), Position::new(line, end)) };
+        assert_eq!(
+            targets,
+            [(0, at("/p/app.py", 0, 19, 26)), (0, at("/p/.env", 1, 7, 14)), (0, at("/p/.env.example", 0, 0, 7))],
+            "URL and NOWHERE have no usage or other declaration"
+        );
+        assert!(markers.iter().all(|m| m.icon.as_deref() == Some(RELATED_MARKER)));
+        assert!(include_str!("../plugin.toml").contains(&format!("icon = \"{RELATED_MARKER}\"")));
+        assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join(RELATED_MARKER).is_file());
+    }
+
+    #[test]
+    fn a_line_lists_at_most_200_targets_and_says_so() {
+        let many = (0..250).map(|n| Location { path: format!("/p/{n}.py"), range: Range::new(Position::new(0, 0), Position::new(0, 1)) }).collect();
+        let markers = related_markers(3, many);
+        assert_eq!(markers.len(), 200);
+        assert_eq!(markers[0].tooltip, "Usages and other env files (first 200 of 250)");
+        let empty = Location { path: "/p/x.py".into(), range: Range::new(Position::new(0, 1), Position::new(0, 1)) };
+        assert!(related_markers(0, vec![empty]).is_empty());
     }
 
     #[test]
