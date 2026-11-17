@@ -128,8 +128,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Boot**; bind 
 |---|---|---|
 | **Spring Boot: Show Configuration Problems** | Checks every configuration and metadata file and lists the problems, errors first. Pick one to open it. | — |
 | **Spring Boot: Read Metadata from Dependency JAR…** | Loads configuration metadata from one Maven or Gradle dependency JAR you choose. | — |
-| **Spring Boot: Find Property in File…** | Lists the key under the caret and its `${…}` uses in the current file. | — |
-| **Spring Boot: Find Property in Project…** | Lists the key under the caret across the project's `.properties` configuration files. | — |
+| **Spring Boot: Find Property in File…** | Lists the key under the caret and its `${…}` uses in the current file. Also in the editor context menu. | — |
+| **Spring Boot: Find Property in Project…** | Lists the key under the caret across the project's `.properties` configuration files. Also in the editor context menu. | — |
 | **Spring Boot: Run with Profiles/Arguments…** | Asks for profiles and arguments, shows the Maven or Gradle command, then runs it in a terminal. | — |
 | **Spring Boot: Configure Database from Current Source…** | Creates a native Database source from the datasource values in the current file. | — |
 

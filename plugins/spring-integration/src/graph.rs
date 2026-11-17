@@ -372,7 +372,7 @@ impl Integration {
             &root,
             (nodes, edges, sources, status),
             "",
-            "No message channels found.",
+            "No message channels found. Add spring-integration to the root build file to see channels.",
         ))
     }
 

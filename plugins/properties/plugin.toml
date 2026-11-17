@@ -73,6 +73,14 @@ id = "find-owned-usages"
 title = "Properties: Find Explicit Bundle Key Usages"
 category = "Properties"
 
+[[contributes.menus]]
+menu = "editor.context"
+command = "copy-value"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "copy-key"
+
 [contributes.settings]
 schema = "settings.schema.json"
 title = "Properties"

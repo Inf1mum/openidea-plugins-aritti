@@ -138,6 +138,14 @@ id = "configure-source-database"
 title = "Spring Boot: Configure Database from Current Source…"
 category = "Spring Boot"
 
+[[contributes.menus]]
+menu = "editor.context"
+command = "project-placeholder-occurrences"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "current-file-placeholder-occurrences"
+
 [[contributes.providers]]
 kinds = ["code-actions"]
 languages = ["kotlin"]

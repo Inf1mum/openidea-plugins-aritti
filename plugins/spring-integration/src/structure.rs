@@ -358,6 +358,7 @@ impl Plugin for Structure {
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id=="structure.refresh" {crate::refresh(OWNER_WINDOW);return Ok(None);}
         if id.starts_with("batch.runtime-") {return self.batch_runtime.run_command(id,ctx);}
         if id=="batch.launch-command" {let project=ctx.project().ok_or(Error::Stale)?;let jobs=self.batch.job_names(&project);return crate::batch_launch::run(ctx,&jobs);}
         if id=="integration.import-tree-occurrences" {return crate::import_tree::occurrences(ctx);}
@@ -940,6 +941,14 @@ mod tests {
         host.set_project_root(None);
         owner.handle("structure",ViewEvent::Button("refresh".into()),&host.invocation()).unwrap();
         assert!(owner.applies.is_empty());
+    }
+    #[test]
+    fn refresh_command_refreshes_the_structure_window() {
+        let host = setup(INTEGRATION_POM);
+        let mut structure = Structure::default();
+        host.refreshed_views();
+        structure.run_command("structure.refresh", &host.invocation(), None).unwrap();
+        assert!(host.refreshed_views().iter().any(|view| view == OWNER_WINDOW));
     }
     #[test]
     fn ids_are_unique_across_modules() {

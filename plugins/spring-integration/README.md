@@ -119,7 +119,7 @@ Cancel ends the local process only. It doesn't send a Batch stop. Running the co
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**, **Spring Batch** or **Spring Modulith**; bind keys in Settings › Keymap. None has a default shortcut.
+Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**, **Spring Batch**, **Spring Modulith** or **Spring Structure**; bind keys in Settings › Keymap. None has a default shortcut.
 
 | Command | What it does |
 |---|---|
@@ -133,6 +133,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**
 | **Spring Batch: Cancel CLI Process** | Ends one local CLI process. It doesn't send a Batch stop. |
 | **Spring Batch: Inspect Execution Repository State** | Looks up one execution ID through the configured context's repository. |
 | **Spring Modulith: Copy Module Diagram (PlantUML)** | Copies the module dependency diagram as PlantUML. |
+| **Spring Structure: Refresh** | Reloads the Spring Structure window. |
 
 ## Settings
 

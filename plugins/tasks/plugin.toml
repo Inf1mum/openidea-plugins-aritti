@@ -146,6 +146,20 @@ id = "remove-repository"
 title = "Tasks: Remove Added Repository"
 category = "Tasks"
 
+[[contributes.commands]]
+id = "new-task"
+title = "Tasks: New Task…"
+category = "Tasks"
+
+[[contributes.commands]]
+id = "open-task"
+title = "Tasks: Open Task…"
+category = "Tasks"
+
+[[contributes.keymaps]]
+command = "open-task"
+key = "Alt+Shift+N"
+
 [[contributes.keymaps]]
 command = "close"
 key = "Alt+Shift+W"

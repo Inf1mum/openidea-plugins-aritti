@@ -154,6 +154,14 @@ command = "create-snippet"
 menu = "tools"
 command = "create-merge-request"
 
+[[contributes.menus]]
+menu = "projectView.context"
+command = "copy-link"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "copy-link"
+
 [[contributes.fileIcons]]
 id = "gitlab-ci"
 patterns = [".gitlab-ci.yml", ".gitlab-ci.yaml", "*.gitlab-ci.yml", "*.gitlab-ci.yaml", "*.gitlab-ci.*.yml", "*.gitlab-ci.*.yaml"]

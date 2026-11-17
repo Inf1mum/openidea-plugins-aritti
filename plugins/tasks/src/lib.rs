@@ -161,6 +161,16 @@ impl Plugin for Tasks {
                 host::copy_to_clipboard(&message).map_err(|e| ui_kit::denied::map(e, "Copy Commit Message", "clipboard", "Tasks"))?;
                 host::notify(NotificationLevel::Info, "Commit message copied", &message);
             }
+            "new-task" => {
+                self.button("new", ctx)?;
+                refresh_tasks_view();
+                let _ = host::reveal_view(VIEW);
+            }
+            "open-task" => {
+                self.selected = None;
+                self.button("find", ctx)?;
+                refresh_tasks_view();
+            }
             "refresh" => refresh_issues(&project, false)?,
             "search-issues" => self.search_issues(&project, &tasks, ctx)?,
             "save-context" => save_context(&project, &tasks, ctx)?,
@@ -1298,6 +1308,20 @@ mod tests {
         plugin.run_command("close",&host.invocation(),None).unwrap();
         assert!(notified(&host,before));assert!(matches!(plugin.form,Some(Form::Close{..})));
         assert_eq!(load("/project").unwrap().active,"LOCAL-00001");assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn new_task_command_opens_the_new_task_form() {
+        let (host,mut plugin)=seeded();
+        plugin.run_command("new-task",&host.invocation(),None).unwrap();
+        assert!(matches!(plugin.form,Some(Form::New{..})));
+    }
+    #[test]
+    fn open_task_command_picks_and_activates_a_task() {
+        let (host,mut plugin)=seeded();
+        update("/project",|tasks,_| { tasks.add_local("Second task",""); Ok(()) }).unwrap();
+        host.answer_next_prompt(Some(&["task:LOCAL-00002"]));
+        plugin.run_command("open-task",&host.invocation(),None).unwrap();
+        assert_eq!(load("/project").unwrap().active,"LOCAL-00002");
     }
     #[test]
     fn external_switch_and_cancelled_switch_refresh_current_action_tokens() {

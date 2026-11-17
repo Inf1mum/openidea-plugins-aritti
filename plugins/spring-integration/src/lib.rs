@@ -1011,6 +1011,7 @@ interface OrderGateway {
         let view = Integration::default().render(VIEW, None, &host.invocation()).unwrap();
         let Body::Html(page) = view.body else { panic!("html expected") };
         assert!(page.contains("No message channels found."));
+        assert!(page.contains("Add spring-integration to the root build file to see channels."));
     }
 
     #[test]

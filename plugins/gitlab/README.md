@@ -183,7 +183,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **GitLab**; bind keys 
 | Command | What it does | Menus |
 |---|---|---|
 | **GitLab: Open on GitLab** | Opens the file at the current commit, with the selected lines (`#L3-L5`). In the Project view, the first selected file or folder. | Editor, editor tab and Project view context |
-| **GitLab: Copy Link** | Copies the same link. | — |
+| **GitLab: Copy Link** | Copies the same link. | Editor and Project view context |
 | **GitLab: Edit Merge Request** | Picks labels, assignees, reviewers, milestone and title from the project's lists. | Details button |
 | **GitLab: Create Snippet** | Creates a snippet from the selection, the file or the selected files. | Editor, editor tab and Project view context |
 | **GitLab: Create Merge Request** | Asks for branches, title, description and draft, then creates the merge request. | Tools |

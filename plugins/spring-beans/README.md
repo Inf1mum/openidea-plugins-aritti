@@ -177,7 +177,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 | **Spring Beans: Generate Autowired Dependency** | Adds an `@Autowired` dependency. | Java editor context menu |
 | **Spring Beans: Generate Event Listener** | Adds an event listener method. | Java editor context menu |
 | **Spring Beans: Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
-| **Spring Beans: Reindex Project Sources** | Starts a fresh scan of the project's sources. | Search Everywhere |
+| **Spring Beans: Reindex Project Sources** | Starts a fresh scan of the project's sources. | Tools menu, Search Everywhere |
 | **Spring Beans: Choose Source Gutter Target** | Opens the target picker. Used by gutter icons with several targets; not meant to be run by hand. | Gutter icons |
 
 ## Settings

@@ -205,6 +205,10 @@ id = "reindex"
 title = "Spring Beans: Reindex Project Sources"
 category = "Spring"
 
+[[contributes.menus]]
+menu = "tools"
+command = "reindex"
+
 [[contributes.providers]]
 kinds = ["hover"]
 languages = ["java"]

@@ -103,8 +103,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Properties**; bind k
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Properties: Copy Property Key** | Copies the decoded key at the caret. | none |
-| **Properties: Copy Property Value** | Copies the decoded value at the caret. | none |
+| **Properties: Copy Property Key** | Copies the decoded key at the caret. Also in the editor context menu. | none |
+| **Properties: Copy Property Value** | Copies the decoded value at the caret. Also in the editor context menu. | none |
 | **Properties: Reformat File** | Applies the code style settings to the file. | none |
 | **Properties: Find Unused Properties** | Counts keys a text search can't find in your sources. | none |
 | **Properties: Find Explicit Bundle Key Usages** | Lists Java/Kotlin JDK bundle calls that read the key at the caret. | none |

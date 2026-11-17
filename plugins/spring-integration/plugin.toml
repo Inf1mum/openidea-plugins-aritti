@@ -49,6 +49,11 @@ id = "modulith.copy-docs"
 title = "Spring Modulith: Copy Module Diagram (PlantUML)"
 category = "Spring Modulith"
 
+[[contributes.commands]]
+id = "structure.refresh"
+title = "Spring Structure: Refresh"
+category = "Spring Structure"
+
 [contributes.settings]
 schema = "settings.schema.json"
 title = "Spring Structure"

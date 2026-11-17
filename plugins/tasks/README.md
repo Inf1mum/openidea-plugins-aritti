@@ -117,6 +117,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Tasks**; bind keys i
 
 | Command | What it does | Shortcut |
 |---|---|---|
+| **Tasks: New Task…** | Opens the new task form in the Tasks tool window. | |
+| **Tasks: Open Task…** | Picks an open task or cached issue and opens it. | ⌥⇧N |
 | **Tasks: Switch Task** | Picks another task and switches to it. | |
 | **Tasks: Close Active Task** | Opens the close form with your last choices. Also in **Tools**. | ⌥⇧W |
 | **Tasks: Open Active Task in Browser** | Opens the active issue's page. Also in **Tools**. | ⌥⇧B |
