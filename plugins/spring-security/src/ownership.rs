@@ -42,7 +42,7 @@ fn candidate(doc: &Document, at: Position) -> Option<Candidate> {
                 if depth == 0 {
                     roots += 1;
                 }
-                if !crate::xml_namespaces::valid(&reader, &e) {
+                if !spring_text::xml::namespace_valid(&reader, &e) {
                     return None;
                 }
                 depth += 1;
@@ -51,7 +51,7 @@ fn candidate(doc: &Document, at: Position) -> Option<Candidate> {
                 if depth == 0 {
                     roots += 1;
                 }
-                if !crate::xml_namespaces::valid(&reader, &e) {
+                if !spring_text::xml::namespace_valid(&reader, &e) {
                     return None;
                 }
             }

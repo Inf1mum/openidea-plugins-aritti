@@ -84,7 +84,7 @@ fn wellformed(text: &str) -> bool {
         match reader.read_event() {
             Ok(Event::Start(e) | Event::Empty(e)) => {
                 nodes += 1;
-                if nodes > 2048 || depth >= 64 || !crate::xml_namespaces::valid(&reader, &e) {
+                if nodes > 2048 || depth >= 64 || !spring_text::xml::namespace_valid(&reader, &e) {
                     return false;
                 }
                 // Empty tags consume no depth; Reader's source position ends in '/>'.
