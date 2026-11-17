@@ -134,7 +134,7 @@ fn observed_edges(_nav:&mut WsTools,doc:&IndexedDocument)->Edges {
     edges
 }
 pub(crate) fn occurrences(nav:&mut WsTools,ctx: &Invocation) -> Result<Option<String>, Error> {
-    let project = ctx.project().ok_or(Error::Stale)?;
+    let project = ctx.project().ok_or("Open a project first.")?;
     let root = project.root()?;
     let editor = ctx
         .editor()

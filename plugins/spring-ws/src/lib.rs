@@ -632,6 +632,25 @@ impl Providers for WsTools {
 
 impl DiagnosticsProvider for WsTools {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        let mut found = self.all_diagnostics(doc);
+        found.retain(|d| setting_of(d.code.as_deref().unwrap_or_default()).is_none_or(|key| host::setting_bool(key).unwrap_or(true)));
+        found
+    }
+}
+
+fn setting_of(code: &str) -> Option<&'static str> {
+    match code {
+        "unknown-payload-element" => Some("checkUnknownElements"),
+        "missing-resource" => Some("checkMissingResources"),
+        "wsdl-unpaired-request" => Some("checkRequestResponsePairs"),
+        "unresolved-wsdl-reference" => Some("checkWsdlDefinitions"),
+        code if code.starts_with("wsdl-missing-") => Some("checkWsdlDefinitions"),
+        _ => None,
+    }
+}
+
+impl WsTools {
+    fn all_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
         if !self.spring_ws_document(&doc.path) {
             return Vec::new();
         }
@@ -799,11 +818,11 @@ impl Plugin for WsTools {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "refresh-models" {
-            let project=ctx.project().ok_or("Open a project to refresh source models.")?;
+            let project=ctx.project().ok_or("Open a project first.")?;
             if !self.watching {
                 match host::subscribe_paths("files-changed",WATCH_GLOBS) {
                     Ok(()) => self.watching=true,
-                    Err(Error::Denied(_)) => return Err(Error::Failed("Allow events for Spring Web Services Tools in Settings › Plugins to keep source models fresh.".into())),
+                    Err(Error::Denied(_)) => return Err(Error::Failed(ui_kit::denied::message("Refresh Schemas and Endpoints","events","Spring Web Services Tools"))),
                     Err(error) => return Err(error),
                 }
             }
@@ -817,7 +836,7 @@ impl Plugin for WsTools {
                 self.resource_paths.warm(&project,left());
                 ready&=project.root().is_ok_and(|root|self.resource_paths.ready(&root));
             }
-            return Ok(Some(if ready{"XML and XPath source models refreshed."}else{"Refresh incomplete. Run Spring WS: Refresh Source Models again to continue."}.into()));
+            return Ok(Some(if ready{"Schemas and endpoints refreshed."}else{"Refresh incomplete. Run Spring WS: Refresh Schemas and Endpoints again to continue."}.into()));
         }
         if id == "qname-occurrences" { return indexing::occurrences(self,ctx); }
         Err(Error::NotFound(format!("command {id}")))
@@ -1380,6 +1399,18 @@ class KtCountryEndpoint {
         let from_xml = ws.diagnostics(&xml_doc(text));
         assert_eq!(from_xml.len(), 1);
         assert_eq!(from_xml[0].severity, Severity::Info);
+        host.set_setting("checkMissingResources", "false");
+        assert!(ws.diagnostics(&java()).iter().all(|p| p.code.as_deref() != Some("missing-resource")));
+        assert!(ws.diagnostics(&xml_doc(text)).is_empty());
+    }
+
+    #[test]
+    fn every_setting_maps_to_a_declared_check() {
+        let schema = include_str!("../settings.schema.json");
+        for code in ["unknown-payload-element", "missing-resource", "wsdl-unpaired-request", "unresolved-wsdl-reference", "wsdl-missing-schema"] {
+            assert!(schema.contains(&format!("\"{}\": {{", setting_of(code).unwrap())), "{code}");
+        }
+        assert_eq!(setting_of("invalid-xpath"), None);
     }
 
     #[test]
@@ -1388,7 +1419,7 @@ class KtCountryEndpoint {
         let mut ws = WsTools::default();
         let error = ws.run_command("refresh-models", &host.invocation(), None).unwrap_err();
         let message = error.to_string();
-        assert!(message.contains("Allow events") && message.contains("Settings"), "{message}");
+        assert!(message.contains("needs the events permission") && message.contains("Settings › Plugins › Spring Web Services Tools"), "{message}");
         assert!(!message.contains("permission denied"), "{message}");
     }
 
