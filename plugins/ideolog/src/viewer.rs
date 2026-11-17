@@ -9,7 +9,19 @@ const MAX_EVENTS: usize = 2048;
 const PAGE: u32 = 100;
 struct Row {
     line: u32,
+    level: Option<Severity>,
     cells: Vec<String>,
+}
+/// The level facet: section buttons, as the host has no pressed state for toolbar buttons.
+const LEVELS: [(&str, Severity, &str); 5] = [
+    ("error", Severity::Error, "Errors"),
+    ("warning", Severity::Warning, "Warnings"),
+    ("info", Severity::Info, "Info"),
+    ("debug", Severity::Debug, "Debug"),
+    ("trace", Severity::Trace, "Trace"),
+];
+pub(crate) fn level_filter(key: &str) -> Option<Severity> {
+    LEVELS.iter().find(|(id, ..)| *id == key).map(|(_, level, _)| *level)
 }
 struct Snapshot {
     root: String,
@@ -26,6 +38,11 @@ pub(crate) struct Viewer {
     snapshot: Option<Snapshot>,
     visible: std::ops::Range<u32>,
     page: u32,
+    pub(crate) level: Option<Severity>,
+}
+/// The snapshot's rows of the chosen level; activation and paging count these.
+fn shown(snapshot: &Snapshot, level: Option<Severity>) -> Vec<&Row> {
+    snapshot.rows.iter().filter(|row| level.is_none_or(|level| row.level == Some(level))).collect()
 }
 fn owner(ctx: &Invocation, path: &str) -> Result<(String, Project), Error> {
     let project = ctx.project().ok_or(Error::Stale)?;
@@ -67,21 +84,26 @@ fn build(doc: &Document, root: String, config: &Config, mut cancelled: impl FnMu
     for event in events.into_iter().take(MAX_EVENTS) {
         checkpoint()?;
         let parsed = Parsed::new(format, event.text);
-        let severity = match parsed.severity(format) {
+        let level = parsed.level(format);
+        let severity = match level {
             Some(Severity::Error) => "Error",
             Some(Severity::Warning) => "Warning",
-            _ => "Unclassified",
+            Some(Severity::Info) => "Info",
+            Some(Severity::Debug) => "Debug",
+            Some(Severity::Trace) => "Trace",
+            None => "Unclassified",
         };
-        let level = format.filter(|f| !f.level_from_message)
+        let text = format.filter(|f| !f.level_from_message)
             .and_then(|f| f.severity_column)
             .and_then(|column| parsed.values().get(column).copied())
             .map(|value| cell(value.trim(), 128)).filter(|value| !value.is_empty())
             .unwrap_or_else(|| severity.to_owned());
         rows.push(Row {
             line: event.lines.start,
+            level,
             cells: vec![
                 (event.lines.start + 1).to_string(),
-                level,
+                text,
                 cell(parsed.time(format).unwrap_or(""), 128),
                 cell(parsed.category(format).unwrap_or(""), 128),
                 cell(parsed.message().lines().next().unwrap_or(""), 512),
@@ -147,32 +169,57 @@ impl Ideolog {
             ));
         }
         let custom = ui_kit::web::is_rendering();
+        let shown = shown(snapshot, self.viewer.level);
         let viewport = if custom {
-            let last_page = (snapshot.rows.len() as u32).saturating_sub(1) / PAGE;
+            let last_page = (shown.len() as u32).saturating_sub(1) / PAGE;
             self.viewer.page = self.viewer.page.min(last_page);
             Some(Viewport { first_row: self.viewer.page * PAGE, rows: PAGE })
         } else { viewport.map(|v| Viewport { first_row: v.first_row, rows: v.rows.clamp(1, PAGE) }) };
-        let range = Viewport::range(viewport, snapshot.rows.len() as u32, 50);
-        self.viewer.visible = range.clone();
-        let rows = snapshot.rows[range.start as usize..range.end as usize].iter().map(|r| r.cells.clone()).collect();
-        let mut view = View::new(Body::Table(Table{columns:vec!["Source line".into(),"Level".into(),"Timestamp".into(),"Category".into(),"Message (first line)".into()],total_rows:snapshot.rows.len()as u32,first_row:range.start,rows,editable:false}))
-            .button(Button::new("capture-log","Capture Active Log")).button(Button::new("discard-log","Discard Snapshot"))
-            .status(&format!("{} · version {} · {} bytes · {} · {} of {} events · {}s old · snapshot only, no tail; messages limited to 512 characters; activate a row to open its log source",snapshot.path,snapshot.version,snapshot.text.len(),snapshot.format,snapshot.rows.len(),snapshot.total,snapshot.at.elapsed().as_secs()));
+        let range = Viewport::range(viewport, shown.len() as u32, 50);
+        let rows = shown[range.start as usize..range.end as usize].iter().map(|r| r.cells.clone()).collect();
+        let filtered = match self.viewer.level {
+            Some(level) => format!("{} {} of ", shown.len(), LEVELS.iter().find(|(_, l, _)| *l == level).map_or("", |(_, _, label)| label).to_lowercase()),
+            None => String::new(),
+        };
+        let mut view = View::new(Body::Table(Table{columns:vec!["Source line".into(),"Level".into(),"Timestamp".into(),"Category".into(),"Message (first line)".into()],total_rows:shown.len()as u32,first_row:range.start,rows,editable:false}));
+        let mut sections = vec![("all", None, "All", snapshot.rows.len())];
+        for (id, level, label) in LEVELS {
+            let count = snapshot.rows.iter().filter(|row| row.level == Some(level)).count();
+            if count > 0 || self.viewer.level == Some(level) {
+                sections.push((id, Some(level), label, count));
+            }
+        }
+        for (id, level, label, count) in sections {
+            let marker = if level == self.viewer.level { "\u{25cf} " } else { "" };
+            view = view.button(Button::new(&format!("section:{id}"), &format!("{marker}{label} ({count})")));
+        }
+        view = view.button(Button::new("capture-log","Capture Active Log")).button(Button::new("discard-log","Discard Snapshot"))
+            .status(&format!("{} · version {} · {} bytes · {} · {filtered}{} of {} events · {}s old · snapshot only, no tail; messages limited to 512 characters; activate a row to open its log source",snapshot.path,snapshot.version,snapshot.text.len(),snapshot.format,snapshot.rows.len(),snapshot.total,snapshot.at.elapsed().as_secs()));
         if custom {
             view = view.button(Button::new("snapshot-previous", "Previous Events").icon("arrow-left").enabled(range.start > 0))
-                .button(Button::new("snapshot-next", "Next Events").icon("arrow-right").enabled(range.end < snapshot.rows.len() as u32));
-            view.status = Some(format!("{} · Events {}–{} of {}", view.status.as_deref().unwrap_or_default(), if range.is_empty() {0} else {range.start + 1}, range.end, snapshot.rows.len()));
+                .button(Button::new("snapshot-next", "Next Events").icon("arrow-right").enabled(range.end < shown.len() as u32));
+            view.status = Some(format!("{} · Events {}–{} of {}", view.status.as_deref().unwrap_or_default(), if range.is_empty() {0} else {range.start + 1}, range.end, shown.len()));
         }
+        self.viewer.visible = range;
         Ok(view)
     }
     pub(crate) fn handle_log(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if let ViewEvent::Button(ref key) = event {
             match key.as_str() {
                 "capture-log" => return self.capture_log(ctx),
+                section if section.starts_with("section:") => {
+                    let snapshot = self.viewer.snapshot.as_ref().ok_or(Error::Stale)?;
+                    if owner(ctx, &snapshot.path)?.0 != snapshot.root { return Err(Error::Stale); }
+                    self.viewer.level = level_filter(&section["section:".len()..]);
+                    self.viewer.page = 0;
+                    self.viewer.visible = 0..0;
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
+                    return Ok(());
+                }
                 "snapshot-previous" | "snapshot-next" => {
                     let snapshot = self.viewer.snapshot.as_ref().ok_or(Error::Stale)?;
                     if owner(ctx, &snapshot.path)?.0 != snapshot.root { return Err(Error::Stale); }
-                    let last_page = (snapshot.rows.len() as u32).saturating_sub(1) / PAGE;
+                    let last_page = (shown(snapshot, self.viewer.level).len() as u32).saturating_sub(1) / PAGE;
                     self.viewer.page = if key == "snapshot-next" { self.viewer.page.saturating_add(1).min(last_page) }
                         else { self.viewer.page.saturating_sub(1) };
                     self.viewer.visible = 0..0;
@@ -205,11 +252,11 @@ impl Ideolog {
             {
                 return Err("Snapshot source changed; capture again before following a row.".into());
             }
-            let row = snapshot.rows.get(row as usize).ok_or(Error::Stale)?;
+            let line = shown(snapshot, self.viewer.level).get(row as usize).ok_or(Error::Stale)?.line;
             if owner(ctx, &snapshot.path)?.0 != snapshot.root {
                 return Err(Error::Stale);
             }
-            host::open_location(&snapshot.path, row.line, 0)?;
+            host::open_location(&snapshot.path, line, 0)?;
         }
         Ok(())
     }

@@ -6,7 +6,7 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ideolog"
 license = "MIT"
 change-notes = """\
-Next release: A Log Levels panel beside log editors shows error, warning and exception counts with previous and next buttons; Highlight Selection and log navigation appear only in log files, large logs say how much is highlighted, and Remove Custom Highlightings asks first; live tail and a patterns table, and live tail no longer stops on the JVM's Picked up JAVA_TOOL_OPTIONS message; whole logs are coloured and folded, changed patterns apply right away, and custom timestamp formats and numeric level suffixes no longer show false errors; Jump to Source searches only source files, and file changes keep Mark Current Log Source marks. \
+Next release: A Log Levels panel beside log editors counts errors, warnings, exceptions, info, debug and trace entries with previous and next buttons and filters the log snapshot by level; Highlight Selection and log navigation appear only in log files, large logs say how much is highlighted, and Remove Custom Highlightings asks first; live tail and a patterns table, and live tail no longer stops on the JVM's Picked up JAVA_TOOL_OPTIONS message; whole logs are coloured and folded, changed patterns apply right away, and custom timestamp formats and numeric level suffixes no longer show false errors; Jump to Source searches only source files, and file changes keep Mark Current Log Source marks. \
 0.3.0: new hub window with live tail. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "tools"]

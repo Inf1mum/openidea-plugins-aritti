@@ -319,7 +319,9 @@ impl Ideolog {
     /// The editor panel beside a log. `{op:"summary",id,path}` answers the detected format and
     /// event counts (broadcast to every panel frame, so `id` names the asking one);
     /// `{op:"go",path,level,forward}` moves the caret like the navigation commands;
-    /// `{op:"patterns"}` opens the Formats & Highlighting view.
+    /// `{op:"snapshot",path,level}` captures the log into the Log Snapshot table filtered to `level`
+    /// (the editor cannot fold or hide lines for a plugin); `{op:"patterns"}` opens the Formats &
+    /// Highlighting view.
     fn levels_panel(&mut self, request: &str, ctx: &Invocation) -> Result<(), Error> {
         let request: serde_json::Value = serde_json::from_str(request).map_err(|_| Error::Invalid("Malformed panel request.".into()))?;
         if request["op"] == "patterns" {
@@ -336,6 +338,21 @@ impl Ideolog {
                 };
                 let level = request["level"].as_str().unwrap_or_default();
                 step(&config, &editor, level, request["forward"].as_bool().unwrap_or(true)).map(|_| ())
+            }
+            Some("snapshot") => {
+                if editor.is_none() {
+                    host::notify(NotificationLevel::Info, "Ideolog", "Click in this log first: the snapshot captures the focused editor.");
+                    return Ok(());
+                }
+                match self.capture_log(ctx) {
+                    Ok(()) => {
+                        self.viewer.level = viewer::level_filter(request["level"].as_str().unwrap_or_default());
+                        ui_kit::web::refresh_view(viewer::VIEW, include_str!("ui_config.json"));
+                    }
+                    Err(Error::Cancelled) => {}
+                    Err(error) => host::notify(NotificationLevel::Info, "Ideolog", &error.to_string()),
+                }
+                Ok(())
             }
             Some("summary") => {
                 let text = match editor {
@@ -360,34 +377,42 @@ impl Ideolog {
 fn summary(config: &Config, text: &str) -> serde_json::Value {
     let counted = head(text);
     let (format, events) = parsed_events(config, counted);
-    let (mut errors, mut warnings, mut exceptions) = (0, 0, 0);
+    let mut levels = [0; 5];
+    let mut exceptions = 0;
     for (event, parsed) in &events {
-        let severity = parsed.severity(format);
-        match severity {
-            Some(Severity::Error) => errors += 1,
-            Some(Severity::Warning) => warnings += 1,
-            None => {}
+        let level = parsed.level(format);
+        if let Some(level) = level {
+            levels[level as usize] += 1;
         }
-        if log::has_exception(event.text, severity == Some(Severity::Error)) {
+        if log::has_exception(event.text, level == Some(Severity::Error)) {
             exceptions += 1;
         }
     }
+    // A level the format cannot express is null, and the panel hides its row.
+    let count = |level: Severity| format.is_none_or(|f| f.expresses(level)).then_some(levels[level as usize]);
     serde_json::json!({
         "format": format.map(|format| format.name.as_str()),
-        "error": errors,
-        "warning": warnings,
+        "error": count(Severity::Error),
+        "warning": count(Severity::Warning),
         "exception": exceptions,
+        "info": count(Severity::Info),
+        "debug": count(Severity::Debug),
+        "trace": count(Severity::Trace),
         "entry": events.len(),
         "firstLines": (counted.len() < text.len()).then(|| counted.lines().count()),
     })
 }
 
-/// Moves the caret to the previous or next event of `level` (`error`, `warning`, `exception` or `entry`).
+/// Moves the caret to the previous or next event of `level` (`error`, `warning`, `info`, `debug`,
+/// `trace`, `exception` or `entry`).
 fn step(config: &Config, editor: &TextEditor, level: &str, forward: bool) -> Result<Option<String>, Error> {
     type Wanted = fn(&(Range<u32>, Option<Severity>, bool)) -> bool;
     let (noun, wanted): (&str, Wanted) = match level {
         "error" => ("errors", |(_, severity, _)| *severity == Some(Severity::Error)),
         "warning" => ("warnings", |(_, severity, _)| *severity == Some(Severity::Warning)),
+        "info" => ("info entries", |(_, severity, _)| *severity == Some(Severity::Info)),
+        "debug" => ("debug entries", |(_, severity, _)| *severity == Some(Severity::Debug)),
+        "trace" => ("trace entries", |(_, severity, _)| *severity == Some(Severity::Trace)),
         "exception" => ("exceptions", |(_, _, exception)| *exception),
         "entry" => ("entries", |_| true),
         _ => return Err(Error::Invalid(format!("Unknown log level {level}."))),
@@ -564,7 +589,10 @@ fn go_to(
     let (format, events) = parsed_events(config, &text);
     let entries: Vec<_> = events
         .iter()
-        .map(|(e, p)| (e.lines.clone(), p.severity(format), log::has_exception(e.text, p.severity(format) == Some(Severity::Error))))
+        .map(|(e, p)| {
+            let level = p.level(format);
+            (e.lines.clone(), level, log::has_exception(e.text, level == Some(Severity::Error)))
+        })
         .collect();
     let at = entries.iter().position(|(lines, ..)| lines.contains(&line)).unwrap_or(entries.len().saturating_sub(1));
 
@@ -995,7 +1023,7 @@ java.lang.IllegalStateException: boom
         assert_eq!(view, LEVELS_PANEL);
         assert_eq!(
             reply,
-            serde_json::json!({"id":"f1","path":"/p/logs/idea.log","format":"IntelliJ IDEA","error":1,"warning":1,"exception":1,"entry":4,"firstLines":null})
+            serde_json::json!({"id":"f1","path":"/p/logs/idea.log","format":"IntelliJ IDEA","error":1,"warning":1,"exception":1,"info":1,"debug":1,"trace":0,"entry":4,"firstLines":null})
         );
     }
 
@@ -1017,6 +1045,51 @@ java.lang.IllegalStateException: boom
         assert_eq!(host.opened_locations(), [("/p/logs/idea.log".to_owned(), 1, 0)]);
         assert_eq!(host.notifications()[0].body, "No more errors below the caret.");
         assert!(plugin.handle(LEVELS_PANEL, ViewEvent::Message(r#"{"op":"go","path":"/p/logs/idea.log","level":"x"}"#.into()), &host.invocation()).is_err());
+    }
+
+    #[test]
+    fn levels_panel_steps_through_info_debug_and_trace() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read"]);
+        open_log(&host, 5, 0);
+        let mut plugin = Ideolog::default();
+        let go = |plugin: &mut Ideolog, level: &str, forward: bool| {
+            panel(plugin, &host, serde_json::json!({"op":"go","path":"/p/logs/idea.log","level":level,"forward":forward}));
+        };
+        go(&mut plugin, "info", false);
+        go(&mut plugin, "debug", false);
+        go(&mut plugin, "trace", true);
+        assert_eq!(host.opened_locations(), [("/p/logs/idea.log".to_owned(), 0, 0)]);
+        assert_eq!(host.notifications().iter().map(|n| n.body.as_str()).collect::<Vec<_>>(), ["No more debug entries above the caret.", "No more trace entries below the caret."]);
+    }
+
+    #[test]
+    fn levels_panel_hides_levels_the_format_cannot_express() {
+        let python = summary(&Config::default(), "DEBUG:app:one\nINFO:app:two\nWARNING:app:three\n");
+        assert_eq!((python["info"].as_u64(), python["debug"].as_u64(), python["trace"].as_u64()), (Some(1), Some(1), None));
+        let syslog = summary(&Config::default(), "May  1 10:00:00 host app[1]: started\nMay  1 10:00:01 host app[1]: failed\n");
+        assert_eq!(syslog["format"], "Syslog");
+        assert_eq!((syslog["error"].as_u64(), syslog["info"].as_u64(), syslog["trace"].as_u64()), (Some(1), None, None));
+        let serilog = summary(&Config::default(), "2024-05-01 10:00:00.000 +02:00 [VRB] a\n2024-05-01 10:00:00.000 +02:00 [INF] b\n");
+        assert_eq!((serilog["info"].as_u64(), serilog["debug"].as_u64(), serilog["trace"].as_u64()), (Some(1), Some(0), Some(1)));
+    }
+
+    #[test]
+    fn levels_panel_opens_the_snapshot_filtered_to_a_level() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read"]);
+        host.set_project_root(Some("/p"));
+        host.add_file("logs/idea.log", IDEA);
+        open_log(&host, 0, 0);
+        let mut plugin = Ideolog::default();
+        panel(&mut plugin, &host, serde_json::json!({"op":"snapshot","path":"/p/logs/idea.log","level":"debug"}));
+        let view = plugin.render_log(None, &host.invocation()).unwrap();
+        let openidea_plugin::views::Body::Table(table) = &view.body else { panic!("table") };
+        assert_eq!(table.rows.len(), 1);
+        assert_eq!(table.rows[0][1], "DEBUG");
+        let sections: Vec<_> = view.toolbar.iter().filter(|b| b.id.starts_with("section:")).map(|b| b.label.as_str()).collect();
+        assert_eq!(sections, ["All (4)", "Errors (1)", "Warnings (1)", "Info (1)", "\u{25cf} Debug (1)"]);
+        plugin.handle(viewer::VIEW, ViewEvent::Button("section:all".into()), &host.invocation()).unwrap();
+        let openidea_plugin::views::Body::Table(table) = plugin.render_log(None, &host.invocation()).unwrap().body else { panic!("table") };
+        assert_eq!(table.total_rows, 4);
     }
 
     #[test]
