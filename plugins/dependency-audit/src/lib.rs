@@ -162,6 +162,10 @@ enum StoredReport {
 }
 
 const CALL_BUDGET: Duration = Duration::from_secs(45);
+const COMMAND_BUDGET: Duration = Duration::from_secs(55);
+const EVENT_BUDGET: Duration = Duration::from_secs(10);
+const EVENT_COORDINATES: usize = 1000;
+const MIN_RESOLVE_TIME: Duration = Duration::from_secs(10);
 
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
@@ -189,11 +193,11 @@ fn diagnostic(finding: &Finding, text: &str) -> Diagnostic {
     }
 }
 
-fn check(path: &str, deadline: Instant, live: &mut live::Live) -> Result<(), Error> {
+fn check(path: &str, deadline: Instant, uncached: &mut usize, live: &mut live::Live) -> Result<(), Error> {
     let project = project_of(path).ok_or_else(|| Error::NotFound(format!("project of {path}")))?;
     let (text, deps) = read_deps(&project, path)?;
     let _task = host::begin_task("Checking dependencies with OSV.dev", false);
-    audit(&deps, true, now(), deadline)?;
+    osv::audit_within(&deps, true, now(), deadline, uncached)?;
     live.remember(&project.root()?, path, &text, &deps);
     Ok(())
 }
@@ -269,8 +273,8 @@ fn last_failure(project: &Project) -> Option<ScanFailure> {
     host::storage::get(&failure_key(project).ok()?).ok().flatten().and_then(|json| serde_json::from_str(&json).ok())
 }
 
-fn scan(project: &Project, live: &mut live::Live) -> Result<String, Error> {
-    let result = scan_report(project, live);
+fn scan(project: &Project, live: &mut live::Live, deadline: Instant) -> Result<String, Error> {
+    let result = scan_report(project, live, deadline);
     if let Ok(key) = failure_key(project) {
         match &result {
             Ok((_, true)) => {
@@ -291,7 +295,7 @@ fn scan(project: &Project, live: &mut live::Live) -> Result<String, Error> {
     result.map(|(body, _)| body)
 }
 
-fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool), Error> {
+fn scan_report(project: &Project, live: &mut live::Live, deadline: Instant) -> Result<(String, bool), Error> {
     live.clear();
     let root = project.root()?;
     let task = host::begin_task("Scanning dependencies", true);
@@ -373,7 +377,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
     if !files.is_empty() && texts.is_empty() {
         return Err(Error::Failed("No discovered dependency file could be read; previous report retained.".into()));
     }
-    let findings = audit(&deps, true, now(), Instant::now() + CALL_BUDGET)?;
+    let findings = audit(&deps, true, now(), deadline)?;
 
     let mut rows: Vec<Row> = findings
         .iter()
@@ -399,7 +403,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
         })
         .collect();
     binding::annotate(&mut rows, &texts);
-    imports::scan(project, &mut rows);
+    imports::scan(project, &mut rows, deadline);
     let report = Report {
         rows,
         scanned_at: Some(now()),
@@ -506,8 +510,8 @@ pub(crate) fn notify_project(project: &Project, level: NotificationLevel, title:
     }
 }
 
-fn scan_and_notify(project: &Project, live: &mut live::Live) -> Result<(), Error> {
-    let body = scan(project, live)?;
+fn scan_and_notify(project: &Project, live: &mut live::Live, deadline: Instant) -> Result<(), Error> {
+    let body = scan(project, live, deadline)?;
     notify_project(project, NotificationLevel::Info, "Dependency Audit", &body);
 
     Ok(())
@@ -532,6 +536,7 @@ fn overlaps(dep: &Dep, text: &str, selection: &Range) -> bool {
 fn upgrade_actions(findings: &[Finding], doc: &Document) -> Vec<CodeAction> {
     // Deps sharing a `${property}` share one range: one action, the highest fix.
     let mut upgrades: Vec<((usize, usize), String, String)> = Vec::new();
+    let declared = parse(&doc.path, &doc.text, None);
 
     for finding in findings {
         let Some(at) = finding.dep.version_at else {
@@ -541,6 +546,9 @@ fn upgrade_actions(findings: &[Finding], doc: &Document) -> Vec<CodeAction> {
             continue;
         };
         if !doc.text.get(at.0..at.1).is_some_and(is_single_constraint) {
+            continue;
+        }
+        if declared.iter().any(|other| other.version_at == Some(at) && dep_key(other) != dep_key(&finding.dep)) {
             continue;
         }
 
@@ -591,10 +599,11 @@ impl Plugin for DependencyAudit {
             return Err(Error::NotFound(format!("command {id}")));
         }
 
+        let deadline = Instant::now() + COMMAND_BUDGET;
         let project = ctx.project().ok_or("Open a project first.")?;
         self.clear_presentation();
-        scan_and_notify(&project, &mut self.live)?;
-        self.auto_resolve(ctx);
+        scan_and_notify(&project, &mut self.live, deadline)?;
+        self.auto_resolve(ctx, deadline);
 
         Ok(None)
     }
@@ -607,11 +616,18 @@ impl Plugin for DependencyAudit {
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
         let cleared=events.iter().any(|event| matches!(event, Event::FileSaved(_) | Event::FilesChanged(_)));
+        let dependency_files_changed=events.iter().any(|event| match event {
+            Event::FileSaved(path) => kind(path).is_some(),
+            Event::FilesChanged(changed) => changed.created.iter().chain(&changed.modified).chain(&changed.removed).any(|path| kind(path).is_some()),
+            _ => false,
+        });
         let owner=ctx.project().and_then(|p|p.root().ok()).filter(|root|!root.is_empty());
         let owner_changed=events.iter().any(|event|matches!(event,Event::EditorFocused(_))) && owner!=self.display_owner;
         if (cleared || owner_changed) && self.npm_graph.is_some() {refresh(npm_graph::VIEW);}
         if cleared || owner_changed {
-            self.live.clear();
+            if dependency_files_changed || owner_changed {
+                self.live.clear();
+            }
             self.display_owner=owner;
             self.invalidate_report();
         }
@@ -629,10 +645,11 @@ impl Plugin for DependencyAudit {
             }
         }
 
-        let deadline = Instant::now() + CALL_BUDGET;
+        let deadline = Instant::now() + EVENT_BUDGET;
+        let mut uncached = EVENT_COORDINATES;
         let mut refreshed_cache=false;
         for path in paths {
-            if let Err(e) = check(path, deadline, &mut self.live) {
+            if let Err(e) = check(path, deadline, &mut uncached, &mut self.live) {
                 host::log(LogLevel::Warn, &format!("OSV check of {path}: {e}"));
                 if refreshed_cache && !cleared && !owner_changed { self.invalidate_report(); }
                 return;
@@ -790,10 +807,11 @@ impl Views for DependencyAudit {
                 Ok(())
             }
             ViewEvent::Button(id) if id == "scan" => {
+                let deadline = Instant::now() + COMMAND_BUDGET;
                 let project = ctx.project().ok_or("Open a project first.")?;
                 self.clear_presentation();
-                scan_and_notify(&project, &mut self.live)?;
-                self.auto_resolve(ctx);
+                scan_and_notify(&project, &mut self.live, deadline)?;
+                self.auto_resolve(ctx, deadline);
                 Ok(())
             }
             ViewEvent::Activate(key) => {
@@ -822,8 +840,11 @@ register_plugin!(DependencyAudit, providers, views, diagnostics, commit_checks);
 mod tests;
 
 impl DependencyAudit {
-    fn auto_resolve(&mut self, ctx: &Invocation) {
+    fn auto_resolve(&mut self, ctx: &Invocation, deadline: Instant) {
         if host::setting_bool("autoResolveBuilds") == Some(false) {
+            return;
+        }
+        if deadline.saturating_duration_since(Instant::now()) < MIN_RESOLVE_TIME {
             return;
         }
         let _ = self.build_resolution.start(ctx, false);

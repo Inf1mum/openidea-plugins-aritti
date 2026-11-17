@@ -372,7 +372,12 @@ fn gradle(path: &str, text: &str) -> Vec<Dep> {
         }
         // Groovy slashy/regex forms need a language parser; withhold rather
         // than interpreting quote-like content inside them as declarations.
-        if bytes[i]==b'/' {return Vec::new();}
+        // A `/` after anything but an operator is division.
+        if bytes[i]==b'/' {
+            let previous=text[..i].trim_end().bytes().next_back();
+            if previous.is_none_or(|b|b"=(,~+-*%&|!<>?:^{;".contains(&b)) {return Vec::new();}
+            i+=1;continue;
+        }
         if !matches!(bytes[i], b'\''|b'"') {i+=1;continue;}
         let quote=bytes[i];
         if bytes.get(i..i+3).is_some_and(|s|s.iter().all(|b|*b==quote)) {
