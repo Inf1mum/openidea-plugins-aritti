@@ -7,7 +7,7 @@ use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineM
 use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
-use spring_text::index::{Index, Indexes, PROVIDER_BUDGET};
+use spring_text::index::{Index, Indexes};
 use spring_text::{beans, contains, java, range, xml};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -431,17 +431,19 @@ fn diagram_view(flow: &Flow) -> View {
 pub struct WebFlow {
     indexes: Indexes<FileInfo>,
     actions: actions::Actions,
+    /// Whether the Web Flow section is the one on screen; line markers refresh the view only then.
+    pub active: bool,
 }
 
 impl Default for WebFlow {
     fn default() -> Self {
-        Self { indexes: Indexes::new(GLOBS, index_file), actions: actions::Actions::default() }
+        Self { indexes: Indexes::new(GLOBS, index_file), actions: actions::Actions::default(), active: true }
     }
 }
 
 impl WebFlow {
     fn index(&mut self, doc: &Document) -> Option<&Index<FileInfo>> {
-        self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET).map(|i| &*i)
+        self.indexes.for_cached_document(&doc.path, &doc.text).map(|i| &*i)
     }
 }
 
@@ -494,7 +496,9 @@ impl Providers for WebFlow {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         if cfg!(feature = "embedded") {
             let _ = self.indexes.for_cached_document(&doc.path, &doc.text);
-            refresh(VIEW);
+            if self.active && parse_flow(&doc.text).is_some() {
+                refresh(VIEW);
+            }
             return Vec::new();
         }
         let Some(flow) = parse_flow(&doc.text) else { return Vec::new() };
@@ -510,7 +514,13 @@ impl Views for WebFlow {
         (|| -> Result<View, Error> {
             let _ = host::subscribe(EventKind::EditorFocused);
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
-            let flow = ctx.editor().filter(|e|e.language()=="xml").and_then(|e|e.document().ok()).filter(|d|actions::valid(&d.text))
+            let document = match ctx.editor().filter(|e| e.language() == "xml").map(|e| e.document()) {
+                Some(Err(Error::Denied(_))) => {
+                    return Ok(View::message("Allow editor.read for Spring Endpoints Tools in Settings › Plugins to show the flow diagram.").button(refresh));
+                }
+                other => other.and_then(Result::ok),
+            };
+            let flow = document.filter(|d|actions::valid(&d.text))
                 .and_then(|d|parse_flow(&d.text)).filter(|f|f.states.len()<=128 && f.transitions.len()<=256
                     && f.states.iter().map(|s|&s.id).collect::<BTreeSet<_>>().len()==f.states.len());
             let Some(flow) = flow else { return Ok(View::message(NO_FLOW).button(refresh)) };
@@ -602,6 +612,13 @@ openidea_plugin::register_plugin!(WebFlow, providers, views);
 #[cfg(test)]
 #[cfg_attr(feature = "embedded", allow(dead_code, unused_imports))]
 mod tests {
+    fn warmed() -> WebFlow {
+        let mut flow = WebFlow::default();
+        if let Some(project) = host::projects().unwrap_or_default().first() {
+            flow.live_warm(project, std::time::Duration::from_secs(3));
+        }
+        flow
+    }
     use super::*;
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::text::position;
@@ -728,7 +745,7 @@ mod tests {
     #[test]
     fn navigates_states_in_the_flow() {
         let _host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         let d = doc(FLOW_PATH, FLOW);
         let here = |needle| [("booking-flow.xml".to_owned(), line(FLOW, needle))];
         assert_eq!(found(w.definition(&d, at(FLOW, "to=\"checkAvailability\""))), here("id=\"checkAvailability\""));
@@ -740,7 +757,7 @@ mod tests {
     #[test]
     fn navigates_to_parent_flows_and_their_states() {
         let _host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         let d = doc(FLOW_PATH, FLOW);
         let common = |needle| [("common.xml".to_owned(), line(COMMON, needle))];
         assert_eq!(found(w.definition(&d, at(FLOW, "to=\"cancelled\""))), common("id=\"cancelled\""));
@@ -752,7 +769,7 @@ mod tests {
     #[test]
     fn navigates_to_subflows_by_file_name_and_registry_id() {
         let _host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         let d = doc(FLOW_PATH, FLOW);
         assert_eq!(found(w.definition(&d, at(FLOW, "subflow=\"payment\""))), [("checkout.xml".to_owned(), 0)]);
         let caller = format!(
@@ -781,7 +798,7 @@ mod tests {
     fn java_config_flow_ids_resolve_subflows() {
         let host = setup();
         host.add_file("src/main/java/Cfg.java", JAVA_CONFIG);
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         let caller = format!("<flow xmlns=\"{NAMESPACE}\"><subflow-state id=\"s\" subflow=\"javaPay\"/><subflow-state id=\"t\" subflow=\"nope\"/></flow>");
         let d = doc(&format!("{FLOWS}/caller.xml"), &caller);
         assert_eq!(found(w.definition(&d, at(&caller, "subflow=\"javaPay\""))), [("checkout.xml".to_owned(), 0)]);
@@ -792,7 +809,7 @@ mod tests {
     #[test]
     fn completes_states_and_flow_ids() {
         let _host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         let d = doc(FLOW_PATH, FLOW);
         assert_eq!(
             labels(w.completion(&d, at(FLOW, "to=\"missing\""), None)),
@@ -812,7 +829,7 @@ mod tests {
     #[test]
     fn reports_unknown_and_duplicate_states_and_subflows() {
         let host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         w.line_markers(&doc(FLOW_PATH, FLOW));
         let problems: Vec<_> =
             host.diagnostics()[FLOW_PATH].iter().map(|d| (d.range.start.line, d.code.clone().unwrap(), d.severity)).collect();
@@ -839,7 +856,7 @@ mod tests {
     #[test]
     fn reports_a_missing_start_state_and_end_state() {
         let host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         let text = format!(
             "<flow xmlns=\"{NAMESPACE}\" start-state=\"begin\">\n<view-state id=\"a\"><transition on=\"x\" to=\"a\"/></view-state>\n</flow>\n"
         );
@@ -859,7 +876,7 @@ mod tests {
     #[test]
     fn draws_the_active_flow() {
         let host = setup();
-        let mut w = WebFlow::default();
+        let mut w = warmed();
         host.open_editor(FLOW_PATH,"xml",FLOW,&[]);
         assert!(matches!(w.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)),"duplicate state ids cannot silently collapse graph ownership");
         let unique=FLOW.replacen("id=\"confirmed\"","id=\"otherConfirmed\"",1);
@@ -883,6 +900,33 @@ mod tests {
         w.handle(VIEW, ViewEvent::Button("refresh".into()), &host.invocation()).unwrap();
         w.handle_events(&[Event::EditorFocused(Some(FLOW_PATH.into()))], &host.invocation());
         assert_eq!(host.refreshed_views(), [VIEW, VIEW]);
+    }
+
+    #[test]
+    fn java_provider_cold_cache_returns_fast() {
+        let host = setup();
+        for n in 0..30 {
+            host.add_file(&format!("src/main/java/com/acme/S{n}.java"), &format!("package com.acme;\nclass S{n} {{}}\n"));
+        }
+        let mut w = WebFlow::default();
+        let d = doc(FLOW_PATH, FLOW);
+        let started = std::time::Instant::now();
+        w.line_markers(&d);
+        w.completion(&d, Position::new(5, 10), None);
+        w.definition(&d, Position::new(5, 10));
+        assert!(started.elapsed() < std::time::Duration::from_millis(30));
+        let project = host.invocation().project().unwrap();
+        let cached = w.indexes.get(&project, std::time::Duration::ZERO).files().len();
+        assert!(cached <= 1, "a provider on a cold cache read {cached} files");
+    }
+
+    #[test]
+    fn denied_editor_read_names_the_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.open_editor(FLOW_PATH, "xml", FLOW, &[]);
+        let view = WebFlow::default().render(VIEW, None, &host.invocation()).unwrap();
+        let Body::Message(text) = view.body else { panic!("message expected") };
+        assert!(text.contains("editor.read"), "{text}");
     }
 
     #[cfg(feature = "embedded")]
@@ -916,6 +960,9 @@ impl WebFlow {
     }
     pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
         self.indexes.update_existing(project, path, text);
+    }
+    pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
+        self.indexes.on_events(events, deadline);
     }
     pub fn live_reset(&mut self) {
         self.indexes.reset();
