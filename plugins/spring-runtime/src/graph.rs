@@ -83,6 +83,20 @@ fn eligible(bean: &Bean) -> bool {
 }
 /// Explicit selection work only. This is a dated source observation, never an
 /// assertion that these sources built the application or cover its libraries.
+/// Packages of the cached source index; empty while it is cold or stale, never read from here.
+fn project_packages(java: &Indexes<Vec<JavaType>>, root: &str) -> BTreeSet<String> {
+    let Some(index) = java.cached(root).filter(|index| index.fresh()) else {
+        return BTreeSet::new();
+    };
+    index
+        .iter()
+        .flat_map(|(_, types)| types.iter().filter(|ty| ty.fqn != "\0incomplete"))
+        .map(|ty| package(&ty.fqn))
+        .filter(|package| !package.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 impl Runtime {
 fn source_comparison(&mut self, project: &Project, scope: &Scope, ty: &str) -> String {
     let observed = now();
@@ -352,12 +366,7 @@ impl Runtime {
             return Err(Error::Stale);
         };
         self.graph.epoch = epoch;
-        let project_packages: BTreeSet<String> = self
-            .java
-            .get(&project, spring_text::index::PROVIDER_BUDGET)
-            .iter()
-            .flat_map(|(_, types)| types.iter().map(|ty| package(&ty.fqn).to_owned()))
-            .collect();
+        let project_packages = project_packages(&self.java, &scope.root);
         let result = match model(snapshot, epoch, &project_packages) {
             Ok(result) => result,
             Err(error) => {
@@ -645,6 +654,23 @@ invalid"],
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>alert(1)"));
         assert!(graph.records.keys().all(|key| key.starts_with("runtime-graph:1:")));
+    }
+    #[test]
+    fn graph_ranks_from_the_cached_index_only() {
+        let host = MockHost::install();
+        host.add_file("src/Zeta.java", "package com.acme; class Zeta {}");
+        host.add_file("src/Plain.java", "class Plain {}");
+        host.add_file("src/Big.java", &format!("package com.big;{}", " ".repeat(512 << 10)));
+        let project = host.invocation().project().unwrap();
+        let mut runtime = Runtime::default();
+        assert!(project_packages(&runtime.java, "/project").is_empty());
+        runtime.java.get(&project, COMMAND_BUDGET);
+        assert_eq!(project_packages(&runtime.java, "/project"), ["com.acme".to_owned()].into());
+        let reads = host.fetches();
+        let mut cold = Runtime::default();
+        cold.render_graph(&host.invocation()).unwrap();
+        assert!(project_packages(&cold.java, "/project").is_empty(), "render never warms the index");
+        assert_eq!(host.fetches(), reads);
     }
     #[test]
     fn graph_prefers_project_beans() {

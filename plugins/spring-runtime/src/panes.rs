@@ -507,6 +507,7 @@ impl Runtime {
         let (path, line, column) = match self.resolve(&project, &scope, &target, true) {
             Resolved::Found(path, line, column) => (path, line, column),
             Resolved::Warming => return Err(Error::Failed(WARMING.into())),
+            Resolved::NotIndexed => return Err(Error::Failed(NOT_INDEXED.into())),
             Resolved::Library => return Err(Error::Failed("No project source with this exact name (library class); no file opened.".into())),
             Resolved::Refused(why) => return Err(Error::Failed(why)),
         };
@@ -555,7 +556,8 @@ impl Runtime {
         };
         let hits: Vec<_> = owned().filter(|(_, t)| t.fqn == *class).take(2).collect();
         let [(path, ty)] = hits.as_slice() else {
-            return if hits.is_empty() { Resolved::Library } else { Resolved::Refused("No unique exact qualified source candidate; no file opened.".into()) };
+            let in_project_package = || !package(class).is_empty() && owned().any(|(_, t)| package(&t.fqn) == package(class));
+            return if hits.is_empty() { if in_project_package() { Resolved::NotIndexed } else { Resolved::Library } } else { Resolved::Refused("No unique exact qualified source candidate; no file opened.".into()) };
         };
         let Some((name, params)) = method else {
             return Resolved::Found(path.to_string(), ty.line, ty.column);
@@ -571,9 +573,11 @@ impl Runtime {
         }
     }
 }
+const NOT_INDEXED: &str = "This class is in a project package but its source is not indexed yet; try again after the source index refreshes.";
 const WARMING: &str = "Source index warming; try again in a moment.";
 enum Resolved {
     Warming,
+    NotIndexed,
     Found(String, u32, u32),
     Library,
     Refused(String),
@@ -612,6 +616,7 @@ impl Details for Runtime {
         let source = match (target, matches!(endpoint, "conditions" | "configprops" | "mappings"), ctx.project()) {
             (Some(target), true, Some(project)) => Some(match self.resolve(&project, &scope, &target, false) {
                 Resolved::Warming => "Source: index warming; open the item once to scan project sources.".to_owned(),
+                Resolved::NotIndexed => "Source: in a project package but not indexed yet.".to_owned(),
                 Resolved::Found(path, line, _) => format!("Project source: {}:{}", presentation(&path, 1024), line + 1),
                 Resolved::Library => "library: no project source declares this exact name.".to_owned(),
                 Resolved::Refused(why) => format!("Not navigable: {why}"),
@@ -1276,6 +1281,16 @@ mod tests {
         runtime.activate_pane(&row, &ctx).unwrap();
         let tabs = runtime.detail(VIEW, &row, &ctx).unwrap();
         assert!(tabs.iter().any(|t| matches!(&t.body, Pane::Text(text) if text.starts_with("Project source"))));
+    }
+    #[test]
+    fn new_project_class_is_not_indexed_yet_not_a_library() {
+        let (host, mut runtime) = setup();
+        host.add_file("src/Service.java", "package com.acme; class Service {}");
+        let project = host.invocation().project().unwrap();
+        let scope = runtime.scope.clone().unwrap();
+        let look = |runtime: &mut Runtime, class: &str| runtime.resolve(&project, &scope, &Target::Type(class.into(), None), true);
+        assert!(matches!(look(&mut runtime, "com.acme.Fresh"), Resolved::NotIndexed));
+        assert!(matches!(look(&mut runtime, "org.other.Lib"), Resolved::Library));
     }
     #[test]
     fn kotlin_inlays_cold_instance() {

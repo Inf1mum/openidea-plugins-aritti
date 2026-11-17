@@ -901,7 +901,7 @@ impl Views for Runtime {
             tree.scheduled(snap);
             tree.loggers(snap);
             tree.caches(snap);
-            let mut status = format!("Read {} from {} · project {}", age(snap.fetched_at), snap.url,scope.root);
+            let mut status = format!("Read {} from {} · project {} · cached, not live state", age(snap.fetched_at), snap.url,scope.root);
             if !snap.kept.is_empty() {status.push_str(&format!(" · kept from before: {}", snap.kept.join(", ")));}
             if !snap.missing.is_empty() {
                 status.push_str(&format!(" · not available: {}", snap.missing.join(", ")));

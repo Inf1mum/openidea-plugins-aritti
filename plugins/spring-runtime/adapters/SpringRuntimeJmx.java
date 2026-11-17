@@ -47,10 +47,27 @@ public class SpringRuntimeJmx {
         }
     }
 
+    /** One output entry per leaf (`bean#op().path.to.leaf`), so the plugin can mask by the leaf key. */
+    static void flatten(StringBuilder out, String key, Object v, int depth) {
+        if (out.length() > 20000 || v == null) return;
+        if (v instanceof Map<?, ?> m && depth < 6) {
+            for (Map.Entry<?, ?> e : m.entrySet()) flatten(out, key + "." + e.getKey(), e.getValue(), depth + 1);
+        } else if (v instanceof Iterable<?> items && depth < 6) {
+            int i = 0;
+            for (Object item : items) {
+                if (i >= 64) break;
+                flatten(out, key + "[" + i + "]", item, depth + 1);
+                i++;
+            }
+        } else {
+            out.append(out.length() > 1 ? "," : "").append(esc(key)).append(':').append(esc(String.valueOf(v)));
+        }
+    }
+
     static void operation(StringBuilder out, MBeanServerConnection c, String bean, String name) {
         try {
             Object v = c.invoke(new ObjectName(bean), name, new Object[0], new String[0]);
-            out.append(out.length() > 1 ? "," : "").append(esc(bean + "#" + name + "()")).append(':').append(esc(String.valueOf(v)));
+            flatten(out, bean + "#" + name + "()", v, 0);
         } catch (Exception e) {
         }
     }

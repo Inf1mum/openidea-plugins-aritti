@@ -52,13 +52,19 @@ pub fn sensitive_key(key: &str) -> bool {
 
 /// `scheme://user:pw@host` becomes `scheme://******@host`.
 fn mask_userinfo(v: &str) -> String {
-    let Some(i) = v.find("://") else { return v.to_owned() };
-    let rest = &v[i + 3..];
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    match authority.rfind('@') {
-        Some(at) => format!("{}{MASK}{}", &v[..i + 3], &rest[at..]),
-        None => v.to_owned(),
+    let mut masked = String::new();
+    let mut rest = v;
+    while let Some(i) = rest.find("://") {
+        masked.push_str(&rest[..i + 3]);
+        rest = &rest[i + 3..];
+        let authority = rest.split(['/', '?', '#', ' ', ',', '}']).next().unwrap_or("");
+        if let Some(at) = authority.rfind('@') {
+            masked.push_str(MASK);
+            rest = &rest[at..];
+        }
     }
+    masked.push_str(rest);
+    masked
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

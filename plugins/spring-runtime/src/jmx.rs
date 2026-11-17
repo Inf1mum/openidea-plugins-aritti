@@ -44,6 +44,7 @@ pub(crate) fn render_result(output: &str) -> Result<String, Error> {
                     lines.push(format!("  {shown}"));
                 }
             }
+            _ if attribute.ends_with("()") => lines.push(format!("{name}: (unstructured result not shown)")),
             other => lines.push(format!("{name}: {}", masked_value(attribute, other.as_str().unwrap_or_default()))),
         }
     }
@@ -145,21 +146,33 @@ mod tests {
         assert!(host.process_runs().is_empty());
     }
     #[test]
-    fn jmx_adapter_reads_health_operation() {
+    fn jmx_adapter_invokes_only_fixed_read_only_operations() {
         assert!(HELPER.contains("\"health\"") && HELPER.contains("\"info\""));
         assert_eq!(HELPER.matches(".invoke(").count(), 1, "one fixed read-only call site");
         assert!(!confirmation(9010, "x.java").contains("never invoke"));
-        let compiled = std::process::Command::new("javac").arg("--version").output().is_ok_and(|o| o.status.success());
-        if !compiled {
-            return;
-        }
-        let dir = std::env::temp_dir().join(format!("spring-runtime-jmx-{}", std::process::id()));
+    }
+
+    #[test]
+    #[ignore = "needs javac"]
+    fn jmx_adapter_compiles() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("spring-runtime-jmx-{}-{unique}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("SpringRuntimeJmx.java");
         std::fs::write(&source, HELPER).unwrap();
         let output = std::process::Command::new("javac").arg("-d").arg(&dir).arg(&source).output().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn operation_results_are_masked_per_leaf() {
+        let out = r#"{"o.s.b:type=Endpoint,name=Info#info().app.password":"hunter2","o.s.b:type=Endpoint,name=Info#info().app.api-key":"abc","o.s.b:type=Endpoint,name=Info#info().app.db.url":"jdbc:x://u:pw@h/db","o.s.b:type=Endpoint,name=Info#info()":"{app={password=hunter2, url=http://u:pw@h/, mirror=http://v:qq@h2/}}"}"#;
+        let text = render_result(out).unwrap();
+        for leaked in ["hunter2", "pw@", "qq@", ": abc"] {
+            assert!(!text.contains(leaked), "{leaked}: {text}");
+        }
+        assert!(text.contains("app.db.url: jdbc:x://******@h/db"), "{text}");
     }
 
     #[test]
