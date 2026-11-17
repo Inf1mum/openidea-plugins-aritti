@@ -1444,7 +1444,7 @@ impl Plugin for Main {
             "route-create-http" => {
                 if self.selected.is_none() { return Err(Error::Invalid("Select a route in the Symfony window first.".into())); }
                 if let Some(route) = self.selected_route(ctx) {
-                    routes::create_http_file(&concrete_method(route), DEFAULT_BASE_URL, None)?;
+                    routes::create_http_file(&concrete_method(route), DEFAULT_BASE_URL, None, "Symfony")?;
                 }
                 Ok(None)
             }

@@ -576,7 +576,7 @@ impl Plugin for OpenApi {
                 routes::copy_as_curl(&route, DEFAULT_BASE)?;
             } else {
                 let directory = route.location.as_ref().and_then(|location| location.path.rsplit_once('/')).map(|(directory, _)| directory);
-                routes::create_http_file(&route, DEFAULT_BASE, directory)?;
+                routes::create_http_file(&route, DEFAULT_BASE, directory, "OpenAPI")?;
             }
             return Ok(None);
         }

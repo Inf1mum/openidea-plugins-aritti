@@ -1137,7 +1137,7 @@ impl Plugin for Main {
                 }
                 match id {
                     "route-copy-curl" => copy_as_curl(&route, DEFAULT_BASE_URL)?,
-                    _ => create_http_file_for_project(&route, DEFAULT_BASE_URL, None, &ctx.project().ok_or(Error::Stale)?)?,
+                    _ => create_http_file_for_project(&route, DEFAULT_BASE_URL, None, &ctx.project().ok_or(Error::Stale)?, "Laravel")?,
                 }
                 Ok(None)
             }

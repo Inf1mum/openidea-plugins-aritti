@@ -306,7 +306,7 @@ fn http_file_name(route: &Route) -> String {
 }
 
 /// `directory` is where the file goes; `None` means `<project root>/http`.
-pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&str>) -> Result<(), Error> {
+pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&str>, plugin: &str) -> Result<(), Error> {
     let Some(base) = ask_base(default_base)? else {
         return Ok(());
     };
@@ -316,16 +316,16 @@ pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&st
         .and_then(|location| host::project_of(&location.path))
         .or_else(|| host::projects().ok().and_then(|mut projects| if projects.len() == 1 { projects.pop() } else { None }))
         .ok_or_else(|| Error::NotFound("The route has no unambiguous project.".into()))?;
-    write_http_file(route, &base, directory, &project)
+    write_http_file(route, &base, directory, &project, plugin)
 }
 
 /// Bound project context for runtime routes without a source declaration.
-pub fn create_http_file_for_project(route: &Route, default_base: &str, directory: Option<&str>, project: &openidea_plugin::Project) -> Result<(), Error> {
+pub fn create_http_file_for_project(route: &Route, default_base: &str, directory: Option<&str>, project: &openidea_plugin::Project, plugin: &str) -> Result<(), Error> {
     let Some(base) = ask_base(default_base)? else { return Ok(()); };
-    write_http_file(route, &base, directory, project)
+    write_http_file(route, &base, directory, project, plugin)
 }
 
-fn write_http_file(route: &Route, base: &str, directory: Option<&str>, project: &openidea_plugin::Project) -> Result<(), Error> {
+fn write_http_file(route: &Route, base: &str, directory: Option<&str>, project: &openidea_plugin::Project, plugin: &str) -> Result<(), Error> {
     let name = http_file_name(route);
     let (relative, path) = match directory {
         Some(directory) => {
@@ -348,7 +348,8 @@ fn write_http_file(route: &Route, base: &str, directory: Option<&str>, project: 
                 NotificationLevel::Warning,
                 TITLE,
                 &format!(
-                    "Could not write {relative}; the request is on the clipboard. Allow project writes in Settings \u{203a} Plugins to create the file."
+                    "Could not write {relative}; the request is on the clipboard. {}",
+                    crate::denied::message("Creating the file", "project.write", plugin)
                 ),
             );
             Ok(())
@@ -545,7 +546,7 @@ mod tests {
         host.answer_next_prompt(None);
         copy_as_curl(&r, "http://localhost:8080").unwrap();
         host.answer_next_prompt(None);
-        create_http_file(&r, "http://localhost:8080", None).unwrap();
+        create_http_file(&r, "http://localhost:8080", None, "P").unwrap();
         assert_eq!(host.clipboard(), None);
         assert!(host.process_runs().is_empty());
         assert!(host.opened_locations().is_empty());
@@ -563,7 +564,7 @@ mod tests {
     fn http_file_is_written_with_project_api_and_opened() {
         let host = write_host();
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
-        create_http_file(&route("GET", "/users/{id}", "C"), "http://localhost:8080", None).unwrap();
+        create_http_file(&route("GET", "/users/{id}", "C"), "http://localhost:8080", None, "P").unwrap();
         assert_eq!(
             host::projects().unwrap()[0].read_file("http/get-users-id.http").unwrap(),
             "### GET /users/{id}\nGET http://localhost:8080/users/{id}\n"
@@ -576,8 +577,9 @@ mod tests {
     fn denied_project_write_falls_back_to_the_clipboard() {
         let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
-        create_http_file(&route("GET", "/users", "C"), "http://localhost:8080", None).unwrap();
+        create_http_file(&route("GET", "/users", "C"), "http://localhost:8080", None, "P").unwrap();
         assert_eq!(host.clipboard().as_deref(), Some("### GET /users\nGET http://localhost:8080/users\n"));
+        assert!(host.notifications()[0].body.contains("project.write permission. Allow it in Settings › Plugins › P."));
         assert!(host.opened_locations().is_empty());
     }
 
@@ -586,7 +588,7 @@ mod tests {
         let host = write_host();
         host.add_file("http/get-users.http", "old");
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
-        create_http_file(&route("GET", "/users", "C"), "http://localhost:8080", None).unwrap();
+        create_http_file(&route("GET", "/users", "C"), "http://localhost:8080", None, "P").unwrap();
         assert!(host.process_runs().is_empty());
         assert_eq!(host.opened_locations(), [("/project/http/get-users.http".to_owned(), 0, 0)]);
     }
