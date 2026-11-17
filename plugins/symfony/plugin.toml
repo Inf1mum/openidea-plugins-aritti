@@ -5,7 +5,7 @@ description = """Symfony support in PHP, Twig, YAML and XML files. Completion an
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/symfony"
 license = "MIT"
-change-notes = """Saving a controller, command, template or translation now updates the index for that file only, so completion no longer stalls on large projects. Completion skips nested projects, Symfony Twig checks are skipped when a custom Twig Lexer is used, and diagnostics run on files up to 256 KiB. Console arguments keep quoted values, listing commands no longer times out on slow starts, and service, route and template gutter icons appear for services, classes, events, blocks, renders, routes and constraints; the template and validator icons are gone because they had nothing exact to link to. No more crashes on accents or emoji."""
+change-notes = """Saving a controller, command, template or translation now updates the index for that file only, so completion no longer stalls on large projects. Completion skips nested projects, Symfony Twig checks are skipped when a custom Twig Lexer is used, and diagnostics run on files up to 256 KiB. Console arguments keep quoted values, listing commands no longer times out on slow starts, and route usages get a gutter icon that goes to the route definition. Renaming a route now updates its declaration and every usage together. No more crashes on accents or emoji."""
 categories = ["frameworks"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
@@ -256,58 +256,10 @@ title = "Symfony: Find Source Occurrences"
 category = "Symfony"
 
 [[contributes.markerIcons]]
-id = "service"
-icon = "icons/marker-service.svg"
-markers = ["class-service#"]
-tooltip = "Service definition"
-
-[[contributes.markerIcons]]
-id = "class"
-icon = "icons/marker-class.svg"
-markers = ["class#"]
-tooltip = "Service class"
-
-[[contributes.markerIcons]]
-id = "listener"
-icon = "icons/marker-listener.svg"
-markers = ["event#"]
-tooltip = "Event listeners"
-
-[[contributes.markerIcons]]
-id = "dispatch"
-icon = "icons/marker-dispatch.svg"
-markers = ["event-dispatch#"]
-tooltip = "Event dispatch sites"
-
-[[contributes.markerIcons]]
-id = "constraint"
-icon = "icons/marker-constraint.svg"
-markers = ["constraint-of#"]
-tooltip = "Constraint"
-
-[[contributes.markerIcons]]
-id = "render"
-icon = "icons/marker-render.svg"
-markers = ["render#"]
-tooltip = "Rendered by"
-
-[[contributes.markerIcons]]
-id = "block-child"
-icon = "icons/marker-block-child.svg"
-markers = ["override#"]
-tooltip = "Overriding blocks"
-
-[[contributes.markerIcons]]
-id = "block-parent"
-icon = "icons/marker-block-parent.svg"
-markers = ["block#"]
-tooltip = "Parent block"
-
-[[contributes.markerIcons]]
 id = "route"
 icon = "icons/marker-route.svg"
-markers = ["route-use#"]
-tooltip = "Route usages"
+markers = ["route#"]
+tooltip = "Route definition"
 
 [[contributes.mcpTools]]
 name = "routes"

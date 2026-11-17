@@ -664,10 +664,9 @@ fn twig(path: &str, text: &str, out: &mut Collected) {
 
 const MAX_INDEXED_BYTES: usize = 1_000_000;
 
-/// Marker kinds whose definitions are published. `template#` and `validator-of#` are left out: their
-/// definitions would not cover exactly the renamable name.
-const PUBLISHED_KINDS: [&str; 9] =
-    ["class-service#", "class#", "event#", "event-dispatch#", "constraint-of#", "render#", "override#", "block#", "route-use#"];
+/// Only routes are published: their declaration and every usage are anchors of one `route#` key with
+/// exact-name ranges, so a host Rename is closed. Other kinds would leave one side behind.
+const PUBLISHED_KINDS: [&str; 1] = ["route#"];
 
 fn published_kind(key: &str) -> bool {
     PUBLISHED_KINDS.iter().any(|kind| key.starts_with(kind))
@@ -687,10 +686,11 @@ fn covers_exactly_its_name(text: &str, anchor: &Anchor) -> bool {
 impl DocumentIndexer for Main {
     fn index(&mut self, doc: &Document) -> Edges {
         let all = self.navigation_associations(doc);
-        let markers = all.markers.into_iter().filter(|marker| published_kind(&marker.key)).collect();
-        let definitions =
-            all.definitions.into_iter().filter(|anchor| published_kind(&anchor.key) && covers_exactly_its_name(&doc.text, anchor)).collect();
-        Edges { definitions, markers, ..Edges::default() }
+        let exact = |anchor: &Anchor| published_kind(&anchor.key) && covers_exactly_its_name(&doc.text, anchor);
+        let definitions = all.definitions.into_iter().filter(exact).collect();
+        let references: Vec<Anchor> = all.references.into_iter().filter(exact).collect();
+        let markers = references.clone();
+        Edges { definitions, references, markers, ..Edges::default() }
     }
 }
 impl Main {
@@ -784,13 +784,15 @@ mod tests {
     }
 
     #[test]
-    fn indexer_publishes_service_and_route_markers() {
+    fn indexer_publishes_route_markers() {
         use openidea_plugin::indexing::DocumentIndexer;
         let text = "<?php\nnamespace App;\nclass BlogController {\n  #[Route('/b', name: 'blog')]\n  function i() { return $this->render('blog/i.html.twig'); }\n}\n";
         let edges = Main::default().index(&Document { path: "/p/src/BlogController.php".into(), text: text.into(), symbols: Vec::new() });
-        assert!(keys(&edges.markers).contains(&"route-use#blog"));
-        assert!(keys(&edges.markers).contains(&"class-service#App\\BlogController"));
-        assert!(edges.references.is_empty());
+        assert!(keys(&edges.definitions).contains(&"route#blog"));
+        assert!(edges.markers.is_empty());
+        let usage = published("/p/src/U.php", "<?php\nclass U { function f() { return $this->generateUrl('blog'); } }\n");
+        assert_eq!(keys(&usage.markers), ["route#blog"]);
+        assert!(keys(&usage.references).contains(&"route#blog"));
     }
 
     fn published(path: &str, text: &str) -> Edges {
@@ -798,57 +800,65 @@ mod tests {
         Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
     }
 
-    fn fixtures() -> Vec<(&'static str, String)> {
-        let dispatcher = "<?php\nnamespace App\\Service;\n\nuse App\\Event\\OrderPlaced;\n\nclass Checkout\n{\n    public function go($dispatcher, $e)\n    {\n        $dispatcher->dispatch(new OrderPlaced($x));\n    }\n}\n";
+    fn fixtures() -> Vec<(&'static str, &'static str)> {
         vec![
-            ("/p/src/Controller/BlogController.php", "<?php\nnamespace App\\Controller;\nclass BlogController {\n  #[Route('/b', name: 'blog')]\n  function i() { return $this->render('blog/i.html.twig'); }\n  function j() { return $this->generateUrl('blog'); }\n}\n".into()),
-            ("/p/config/services.yaml", "services:\n    App\\Controller\\BlogController: ~\n".into()),
-            ("/p/templates/blog/i.html.twig", "{% extends 'base.html.twig' %}\n{% block body %}{% endblock %}".into()),
-            ("/p/templates/base.html.twig", "{% block body %}{% endblock %}".into()),
-            ("/p/src/EventSubscriber/S.php", SUBSCRIBER.into()),
-            ("/p/src/Service/Checkout.php", dispatcher.into()),
-            ("/p/src/Validator/NoSpaces.php", "<?php\nnamespace App\\Validator;\n\nuse Symfony\\Component\\Validator\\Constraint;\n\nclass NoSpaces extends Constraint\n{\n}\n".into()),
-            ("/p/src/Validator/NoSpacesValidator.php", "<?php\nnamespace App\\Validator;\n\nuse Symfony\\Component\\Validator\\ConstraintValidator;\n\nclass NoSpacesValidator extends ConstraintValidator\n{\n}\n".into()),
+            ("/p/src/Controller/BlogController.php", "<?php\nnamespace App\\Controller;\nclass BlogController {\n  #[Route('/b', name: 'blog')]\n  function i() { return $this->generateUrl('blog'); }\n  function j() { return $this->redirectToRoute(\"blog\"); }\n}\n"),
+            ("/p/config/routes.yaml", "blog:\n    path: /b\n"),
+            ("/p/templates/a.html.twig", "{{ path('blog') }} <a href=\"{{ url('blog', {id: 1}) }}\">x</a>"),
+            ("/p/src/EventSubscriber/S.php", SUBSCRIBER),
+            ("/p/templates/blog/i.html.twig", "{% extends 'base.html.twig' %}\n{% block body %}{% endblock %}"),
+            ("/p/src/Validator/NoSpaces.php", "<?php\nnamespace App\\Validator;\n\nuse Symfony\\Component\\Validator\\Constraint;\n\nclass NoSpaces extends Constraint\n{\n}\n"),
         ]
+    }
+
+    #[test]
+    fn published_kinds_are_rename_closed() {
+        let mut anchored = 0;
+        for (path, text) in fixtures() {
+            let edges = published(path, text);
+            let all: Vec<&Anchor> = edges.definitions.iter().chain(&edges.references).collect();
+            assert!(all.iter().all(|anchor| anchor.key == "route#blog"), "{path}: {:?}", keys_of(&all));
+            assert!(edges.markers.iter().all(|anchor| anchor.key == "route#blog"));
+            for (at, _) in text.match_indices("blog").filter(|(at, _)| {
+                *at > 0 && matches!(text.as_bytes()[at - 1], b'\'' | b'"') && text.as_bytes()[at + 4] == text.as_bytes()[at - 1]
+            }) {
+                let line = text[..at].matches('\n').count() as u32;
+                let start = text[..at].rfind('\n').map_or(0, |n| n + 1);
+                let column = text[start..at].encode_utf16().count() as u32;
+                assert!(
+                    all.iter().any(|anchor| anchor.range.start == Position::new(line, column) && anchor.range.end == Position::new(line, column + 4)),
+                    "{path}: occurrence at {line}:{column} is not an anchor"
+                );
+                anchored += 1;
+            }
+            let route_at_start = path.ends_with("routes.yaml");
+            if route_at_start {
+                assert!(edges.definitions.iter().any(|anchor| anchor.key == "route#blog" && anchor.range.start == Position::new(0, 0)));
+            }
+        }
+        assert_eq!(anchored, 5);
+    }
+
+    fn keys_of(anchors: &[&Anchor]) -> Vec<String> {
+        anchors.iter().map(|anchor| anchor.key.clone()).collect()
     }
 
     #[test]
     fn every_published_definition_covers_exactly_its_name() {
         for (path, text) in fixtures() {
-            let doc = Document { path: path.into(), text: text.clone(), symbols: Vec::new() };
-            for anchor in published(path, &text).definitions {
-                assert!(covers_exactly_its_name(&doc.text, &anchor), "{path}: {}", anchor.key);
-                let (start, end) = (text::offset(&text, anchor.range.start).unwrap(), text::offset(&text, anchor.range.end).unwrap());
-                let name = anchor.key.split_once('#').unwrap().1;
-                let name = name.rsplit_once("::").map_or(name, |(_, block)| block);
-                assert!(name.ends_with(&text[start..end]), "{path}: {} covers {:?}", anchor.key, &text[start..end]);
+            let edges = published(path, text);
+            for anchor in edges.definitions.iter().chain(&edges.references) {
+                assert!(covers_exactly_its_name(text, anchor), "{path}: {}", anchor.key);
             }
         }
     }
 
     #[test]
-    fn each_published_marker_kind_has_a_matching_definition() {
-        let mut markers = Vec::new();
-        let mut definitions = Vec::new();
-        for (path, text) in fixtures() {
-            let edges = published(path, &text);
-            markers.extend(edges.markers.into_iter().map(|anchor| anchor.key));
-            definitions.extend(edges.definitions.into_iter().map(|anchor| anchor.key));
-        }
-        for kind in PUBLISHED_KINDS {
-            let of_kind: Vec<_> = markers.iter().filter(|key| key.starts_with(kind)).collect();
-            assert!(!of_kind.is_empty(), "no {kind} marker");
-            assert!(of_kind.iter().any(|key| definitions.contains(key)), "{kind} markers have no published definition");
-        }
-    }
-
-    #[test]
-    fn template_and_validator_markers_are_not_published() {
-        for (path, text) in fixtures() {
-            let edges = published(path, &text);
-            assert!(edges.markers.iter().all(|anchor| !anchor.key.starts_with("template#") && !anchor.key.starts_with("validator-of#")));
-            assert!(edges.definitions.iter().all(|anchor| !anchor.key.starts_with("template#") && !anchor.key.starts_with("validator-of#")));
-        }
+    fn route_markers_sit_on_usages_with_the_route_key() {
+        let (path, text) = fixtures()[2];
+        let edges = published(path, text);
+        assert_eq!(edges.markers.len(), 2);
+        assert!(edges.markers.iter().all(|anchor| anchor.key == "route#blog"));
     }
 
     #[test]
@@ -1103,7 +1113,7 @@ mod tests {
             ("/p/assets/controllers/x_controller.js", "export default class {}"),
         ] {
             let edges = Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() });
-            assert!(edges.definitions.iter().all(|anchor| published_kind(&anchor.key)) && edges.references.is_empty() && edges.aliases.is_empty());
+            assert!(edges.definitions.iter().chain(&edges.references).chain(&edges.markers).all(|anchor| published_kind(&anchor.key)) && edges.aliases.is_empty());
         }
     }
 }
