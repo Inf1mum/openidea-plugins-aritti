@@ -498,7 +498,7 @@ impl State {
         } else if project.exists(&format!("{root}/build.gradle"))? || project.exists(&format!("{root}/build.gradle.kts"))? {
             Tool::Gradle
         } else {
-            return Err("No pom.xml or build.gradle(.kts) in the project root.".into());
+            return Err(Error::NotFound("No pom.xml or build.gradle(.kts) in the project root.".into()));
         };
         let configuration: String = match tool {
             Tool::Maven => "all declared scopes".into(),

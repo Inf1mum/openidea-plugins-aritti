@@ -1605,8 +1605,10 @@ fn event_checks_query_only_the_first_uncached_coordinates() {
 
 #[test]
 fn a_failed_automatic_resolution_is_reported_once() {
-    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read", "process:mvn", "storage"]);
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read", "storage"]);
     host.set_setting("autoResolveBuilds", "true");
+    host.add_file("pom.xml", "<project/>");
+    host.answer_next_prompt(Some(&["Run"]));
     let mut plugin = DependencyAudit::default();
 
     plugin.auto_resolve(&host.invocation(), Instant::now() + Duration::from_secs(60));
@@ -1614,7 +1616,18 @@ fn a_failed_automatic_resolution_is_reported_once() {
 
     let notifications = host.notifications();
     assert_eq!(notifications.len(), 1);
-    assert!(notifications[0].body.starts_with("Automatic build resolution didn't run: No pom.xml"), "{}", notifications[0].body);
+    assert!(notifications[0].body.starts_with("Automatic build resolution didn't run:"), "{}", notifications[0].body);
+}
+
+#[test]
+fn automatic_resolution_stays_silent_without_a_maven_or_gradle_build() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read", "process:mvn", "storage"]);
+    host.set_setting("autoResolveBuilds", "true");
+    let mut plugin = DependencyAudit::default();
+
+    plugin.auto_resolve(&host.invocation(), Instant::now() + Duration::from_secs(60));
+
+    assert!(host.notifications().is_empty());
 }
 
 #[test]

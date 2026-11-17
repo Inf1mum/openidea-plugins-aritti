@@ -940,7 +940,8 @@ impl DependencyAudit {
         let run_tool = host::setting_bool("autoResolveBuilds") == Some(true)
             && deadline.saturating_duration_since(Instant::now()) >= MIN_RESOLVE_TIME;
         let Err(error) = self.build_resolution.resolve(ctx, run_tool, false) else { return };
-        if matches!(error, Error::Stale | Error::Cancelled) {
+        // NotFound: no Maven or Gradle build in this project, so there was nothing to resolve.
+        if matches!(error, Error::Stale | Error::Cancelled | Error::NotFound(_)) {
             return;
         }
         let root = ctx.project().and_then(|project| project.root().ok()).unwrap_or_default();
