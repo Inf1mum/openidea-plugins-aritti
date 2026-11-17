@@ -5,11 +5,12 @@ use openidea_plugin::{Error,Project,host};
 use std::{cell::{Cell,RefCell},collections::{BTreeMap,BTreeSet}};
 const FILES_PER_STEP:usize=16;
 const BYTES_PER_STEP:usize=256*1024;
+const STEP_BUDGET:std::time::Duration=std::time::Duration::from_millis(150);
 pub(crate) enum BuildProgress{Pending{completed:usize,total:usize},Ready(Index)}
 pub(crate) struct Builder{root:String,index:Index,session:Session,finished:bool,topology:BTreeSet<String>}
 #[derive(Default)]pub(super) struct Session{
  done:RefCell<BTreeSet<String>>,known:RefCell<BTreeSet<String>>,attempted:RefCell<BTreeSet<String>>,
- used:Cell<usize>,semantic_used:Cell<usize>,bytes:Cell<usize>,pending:Cell<bool>,opaque:Cell<bool>,listing_bytes:Cell<usize>,
+ used:Cell<usize>,semantic_used:Cell<usize>,bytes:Cell<usize>,pending:Cell<bool>,started:Cell<Option<std::time::Instant>>,opaque:Cell<bool>,listing_bytes:Cell<usize>,
  pub(super) source_cache:RefCell<read_cache::SourceCache>,
  listings:RefCell<BTreeMap<Vec<String>,Vec<String>>>,queries:RefCell<BTreeMap<(String,u32),Option<Vec<String>>>>,
  snapshots:RefCell<BTreeMap<String,Option<String>>>,snapshot_bytes:Cell<usize>,
@@ -32,7 +33,7 @@ impl Builder{
  }
 }
 impl Session{
- fn begin(&self){self.used.set(0);self.semantic_used.set(0);self.bytes.set(0);self.pending.set(false);self.attempted.borrow_mut().clear();}
+ fn begin(&self){self.started.set(Some(std::time::Instant::now()));self.used.set(0);self.semantic_used.set(0);self.bytes.set(0);self.pending.set(false);self.attempted.borrow_mut().clear();}
  pub(super) fn retire(&self,key:&str){if self.known.borrow().contains(key){self.done.borrow_mut().insert(key.into());}}
  pub(super) fn mark_done(&self,key:&str){self.known.borrow_mut().insert(key.into());self.done.borrow_mut().insert(key.into());}
  pub(super) fn done(&self,key:&str)->bool{self.done.borrow().contains(key)}
@@ -47,15 +48,16 @@ impl Session{
   let keys=index.eloquent_models.keys().cloned().collect::<Vec<_>>();
   for round in 0..4{for key in &keys{
    let job=format!("{stage}:{round}:{key}");self.known.borrow_mut().insert(job.clone());if self.done(&job){continue;}
-   if self.semantic_used.get()>=32{self.pending.set(true);return false;}
+   if self.semantic_used.get()>=32||(self.semantic_used.get()>0&&self.out_of_time()){self.pending.set(true);return false;}
    self.semantic_used.set(self.semantic_used.get()+1);crate::eloquent_members::finish_model(&mut index.eloquent_models,key);self.done.borrow_mut().insert(job);
   }}
   self.mark_done(stage);true
  }
+ fn out_of_time(&self)->bool{self.started.get().is_some_and(|started|started.elapsed()>=STEP_BUDGET)}
  pub(super) fn attempted(&self,stage:&str,path:&str)->bool{self.attempted.borrow().contains(&format!("{stage}\0{path}"))}
  pub(super) fn file(&self,project:&Project,stage:&str,path:&str,index:&mut Index)->bool{
   let key=format!("{stage}\0{path}");self.known.borrow_mut().insert(key.clone());if self.done(&key){return false;}
-  if self.used.get()>=FILES_PER_STEP{self.pending.set(true);return false;}
+  if self.used.get()>=FILES_PER_STEP||(self.used.get()>0&&self.out_of_time()){self.pending.set(true);return false;}
   let root=&index.source_root;let absolute=if path.starts_with('/') {path.into()}else{format!("{root}/{path}")};
   if host::project_of(&absolute).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {
    self.opaque.set(true);index.partial=true;self.done.borrow_mut().insert(key);self.used.set(self.used.get()+1);return false;
