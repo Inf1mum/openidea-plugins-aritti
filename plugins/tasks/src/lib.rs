@@ -1209,6 +1209,7 @@ mod tests {
             let (status, stdout) = match command.as_str() {
                 "rev-parse --abbrev-ref HEAD" => (0, "main\n"),
                 c if c.starts_with("rev-parse --verify") => (1, ""),
+                c if c.starts_with("rev-parse --path-format=absolute --git-path") => (0, "/project/.git/openidea-task-message\n"),
                 c if c.starts_with("config --local --get") => (1, ""),
                 _ => (0, ""),
             };
@@ -1523,8 +1524,8 @@ mod tests {
         assert_eq!(load("/project").unwrap().active, "tool-12");
         assert!(git.borrow().iter().any(|c| c.starts_with("config --local commit.template ")));
         let template = git.borrow().iter().find(|c| c.starts_with("config --local commit.template ")).cloned().unwrap();
-        let written = host::fs::read_file(template.trim_start_matches("config --local commit.template ")).unwrap();
-        assert_eq!(written, "tool-12 100% crash\n");
+        assert_eq!(template, "config --local commit.template /project/.git/openidea-task-message");
+        assert!(git.borrow().iter().any(|c| c == "log -1 --format=tool-12 100%% crash --output=/project/.git/openidea-task-message"));
         assert!(!git.borrow().iter().any(|c| c.starts_with("switch -c")));
     }
 
@@ -1540,6 +1541,7 @@ mod tests {
             let (status, stdout) = match command.as_str() {
                 "rev-parse --abbrev-ref HEAD" => (0, "main\n"),
                 c if c.starts_with("log ") => (128, ""),
+                c if c.starts_with("rev-parse --path-format=absolute --git-path") => (0, "/project/.git/openidea-task-message\n"),
                 c if c.starts_with("config --local --get") => (1, ""),
                 _ => (0, ""),
             };

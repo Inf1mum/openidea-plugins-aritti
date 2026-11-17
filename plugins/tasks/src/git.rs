@@ -7,7 +7,7 @@ use openidea_plugin::{host, Error, Project};
 
 use crate::model::Task;
 
-const LEGACY_TEMPLATE_FILE: &str = "/openidea-task-message";
+const TEMPLATE_FILE: &str = "openidea-task-message";
 
 pub struct Git<'a> {
     project: &'a Project,
@@ -79,13 +79,17 @@ impl<'a> Git<'a> {
     }
 
     /// Points `commit.template` at a file holding `message` (`None`: removes
-    /// it). A template the user set up is left alone. The file lives in the
-    /// plugin's own directory: the host refuses plugin writes inside `.git`.
+    /// it). A template the user set up is left alone. Git writes the file
+    /// into the git dir (the host refuses plugin writes there, and a path in
+    /// the plugin directory dangles after uninstall); only a repository
+    /// without commits, where `git log` fails, falls back to the plugin
+    /// directory.
     pub fn set_commit_template(&self, message: Option<&str>) -> Result<(), Error> {
-        let path = template_path(&self.project.root()?, &host::fs::plugin_dir()?);
+        let plugin_path = template_path(&self.project.root()?, &host::fs::plugin_dir()?);
+        let git_path = self.run(&["rev-parse", "--path-format=absolute", "--git-path", TEMPLATE_FILE])?;
         let current = self.run(&["config", "--local", "--get", "commit.template"]).ok();
 
-        if current.as_deref().is_some_and(|template| template != path && !template.ends_with(LEGACY_TEMPLATE_FILE)) {
+        if current.as_deref().is_some_and(|template| template != plugin_path && !template.ends_with(&format!("/{TEMPLATE_FILE}"))) {
             return Ok(());
         }
 
@@ -96,7 +100,15 @@ impl<'a> Git<'a> {
             return Ok(());
         };
 
-        host::fs::write_file(&path, &format!("{message}\n"))?;
+        let by_git = self.run(&["log", "-1", &format!("--format={}", message.replace('%', "%%")), &format!("--output={git_path}")]);
+        let path = match by_git {
+            Ok(_) => git_path,
+            Err(_) => {
+                host::fs::write_file(&plugin_path, &format!("{message}\n"))?;
+                plugin_path
+            }
+        };
+
         self.run(&["config", "--local", "commit.template", &path]).map(drop)
     }
 }
