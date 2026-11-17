@@ -229,6 +229,12 @@ impl Core {
         if self.running() {
             return Err("Cancel the owned comparison child first.".into());
         }
+        let profile = profile.and_then(|profile| {
+            if profile.edition.eq_ignore_ascii_case("Community") {
+                return Err(format!("Ready check: Flyway {} Edition {} cannot run snapshot or diff; Flyway Teams or Enterprise is required.", profile.edition, profile.version).into());
+            }
+            Ok(profile)
+        });
         let status = match &profile {
             Ok(profile) => format!(
                 "Ready with Flyway {} Edition {} (configuration: {}; locations: {}). Start runs the snapshot stage.",
@@ -593,6 +599,11 @@ mod tests {
         assert!(start_button(&mut plugin).is_none(), "no installed CLI, no Start");
         assert_eq!(plugin.comparison.draft.as_ref().unwrap().managed.status, BLOCKED);
         assert!(openidea_plugin::views::Views::handle(&mut plugin, VIEW, ViewEvent::Button(format!("start-managed@{token}")), &host.invocation()).is_err());
+        host.on_process("flyway", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "Flyway Enterprise Edition 11.3.0 by Redgate\n".into(), stderr: String::new() }));
+        host.on_process("flyway", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "Flyway Community Edition 11.3.0 by Redgate\n".into(), stderr: String::new() }));
+        prepare(&mut plugin);
+        assert!(start_button(&mut plugin).is_none(), "Community cannot snapshot or diff");
+        assert!(plugin.comparison.draft.as_ref().unwrap().managed.status.contains("Teams or Enterprise is required"));
         host.on_process("flyway", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "Flyway Enterprise Edition 11.3.0 by Redgate\n".into(), stderr: String::new() }));
         let token = prepare(&mut plugin);
         assert!(start_button(&mut plugin).is_some_and(|button| button.enabled));

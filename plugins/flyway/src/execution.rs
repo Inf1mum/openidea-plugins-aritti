@@ -25,7 +25,7 @@ enum Secret {
 /// undotted leaf whose parent is unknown (YAML); `app.user` is not a credential.
 fn secret(key: &str, flyway: bool) -> Option<Secret> {
     let key = key.trim().to_ascii_lowercase();
-    if ["password", "passwd", "passphrase", "secret", "credential", "privatekey", "accesskey", "authorization"].iter().any(|word| key.contains(word)) {
+    if ["password", "passwd", "passphrase", "secret", "credential", "privatekey", "accesskey", "authorization", "licensekey"].iter().any(|word| key.contains(word)) {
         return Some(Secret::Always);
     }
     if key.contains("url") {
@@ -941,6 +941,9 @@ mod tests {
         let mut one = Redactor::default();
         one.add("p", Secret::Always);
         assert_eq!(one.label("plan p"), "plan [redacted]", "a one-character secret is a whole token");
+        let mut license = Redactor::default();
+        license.source("flyway.licenseKey=FL01ABCDEF\n", false);
+        assert_eq!(license.label("key FL01ABCDEF"), "key [redacted]");
     }
 
     #[test]
@@ -1022,7 +1025,7 @@ mod tests {
         assert!(session.child.is_some(), "inventory failure is not evidence of project closure");
         assert!(session.status.contains("unavailable"));
         assert!(!session.status.contains("Project closed"));
-        let host = host.with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
+        let _host = host.with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
         execution.closed_roots();
         assert!(execution.session.as_ref().unwrap().child.is_some());
         assert!(execution.session.as_ref().unwrap().status.contains("revalidated"));
