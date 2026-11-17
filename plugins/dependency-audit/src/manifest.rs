@@ -133,6 +133,7 @@ pub fn notes(path: &str, text: &str, members: &HashSet<String>) -> Vec<Note> {
         Some(Kind::ComposerLock) => private_notes(composer_lock(path, text).1),
         Some(Kind::CargoLock) => private_notes(toml_lock(path, text, Ecosystem::CratesIo).1),
         Some(Kind::PoetryLock) => private_notes(toml_lock(path, text, Ecosystem::PyPI).1),
+        Some(Kind::PnpmLock) => private_notes(pnpm_lock(path, text).1),
         _ => Vec::new(),
     }
 }
@@ -228,7 +229,7 @@ pub fn parse(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
         Some(Kind::ComposerLock) => composer_lock(path, text).0,
         Some(Kind::VersionCatalog) => version_catalog(path, text),
         Some(Kind::YarnLock) => yarn_lock(path, text).0,
-        Some(Kind::PnpmLock) => pnpm_lock(path, text),
+        Some(Kind::PnpmLock) => pnpm_lock(path, text).0,
         Some(Kind::CargoLock) => toml_lock(path, text, Ecosystem::CratesIo).0,
         Some(Kind::PoetryLock) => toml_lock(path, text, Ecosystem::PyPI).0,
         Some(Kind::UvLock) => uv_lock(path, text),
@@ -977,21 +978,40 @@ fn yarn_lock(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
     (deps, private)
 }
 
-fn pnpm_lock(path: &str, text: &str) -> Vec<Dep> {
-    let mut deps = Vec::new();
+/// `packages:` entries of `pnpm-lock.yaml`, with those whose `resolution.tarball` is on a private host skipped.
+fn pnpm_lock(path: &str, text: &str) -> (Vec<Dep>, Vec<Dep>) {
+    let (mut deps, mut private) = (Vec::new(), Vec::new());
+    let mut pending: Option<(Dep, bool)> = None;
+    let mut flush = |pending: &mut Option<(Dep, bool)>| match pending.take() {
+        Some((dep, true)) => private.push(dep),
+        Some((dep, false)) => deps.push(dep),
+        None => {}
+    };
     let mut in_packages = false;
     for (at, line) in lines(text) {
         if !line.starts_with([' ', '#']) && !line.is_empty() {
+            flush(&mut pending);
             in_packages = line.trim_end() == "packages:";
 
             continue;
         }
-        if !in_packages || line.starts_with("   ") {
+        if !in_packages {
+            continue;
+        }
+        if line.starts_with("   ") {
+            if let Some((_, url)) = line.split_once("tarball:") {
+                let url = url.split([',', '}']).next().unwrap_or_default().trim().trim_matches(['\'', '"']);
+                if let Some((_, hidden)) = pending.as_mut() {
+                    *hidden |= private_url(Some(url), NPM_HOSTS);
+                }
+            }
+
             continue;
         }
         let Some(key) = line.strip_prefix("  ").and_then(|k| k.strip_suffix(':')) else {
             continue;
         };
+        flush(&mut pending);
         let (key, inside) = quoted(key).unwrap_or((key, 0));
         let slash = usize::from(key.starts_with('/'));
         let key = key.split('(').next().unwrap_or_default();
@@ -1003,11 +1023,12 @@ fn pnpm_lock(path: &str, text: &str) -> Vec<Dep> {
             },
         };
         if is_version(version) {
-            deps.push(lock_dep(path, Ecosystem::Npm, name, version, at + 2 + inside + slash));
+            pending = Some((lock_dep(path, Ecosystem::Npm, name, version, at + 2 + inside + slash), false));
         }
     }
+    flush(&mut pending);
 
-    deps
+    (deps, private)
 }
 
 /// `[[package]]` tables of `Cargo.lock` and `poetry.lock`, with the packages skipped as private.
@@ -1499,6 +1520,16 @@ source = { registry = "https://pypi.org/simple/" }
         for dep in &deps {
             assert_eq!(&text[dep.at.0..dep.at.1], dep.name);
         }
+    }
+
+    #[test]
+    fn pnpm_lock_skips_packages_resolved_from_a_private_tarball_host() {
+        let text = "lockfileVersion: '9.0'\n\npackages:\n\n  internal@1.0.0:\n    resolution: {integrity: x, tarball: https://npm.acme.corp/internal/-/internal-1.0.0.tgz}\n\n  other@2.0.0:\n    resolution:\n      integrity: y\n      tarball: 'https://registry.npmjs.org/other/-/other-2.0.0.tgz'\n\n  secret@3.0.0:\n    resolution:\n      tarball: https://user:pw@nexus.local/secret.tgz\n";
+
+        assert_eq!(found(&parse("/p/pnpm-lock.yaml", text, None)), [("other", "2.0.0")]);
+        let notes = notes("/p/pnpm-lock.yaml", text, &HashSet::new());
+        let hidden: Vec<_> = notes.iter().map(|n| (n.name.as_str(), n.label)).collect();
+        assert_eq!(hidden, [("internal", PRIVATE), ("secret", PRIVATE)]);
     }
 
     #[test]
