@@ -182,8 +182,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | No completion or checks at all | The module must declare `io.quarkus` in its build file (a dependency, plugin or catalogue alias, not just a comment). Edits to the build file can take up to 30 seconds to be noticed. |
 | Unknown-key warnings never appear | Allow `events`. They show only after the whole project has been read. Keys of extensions that aren't bundled are never flagged. |
 | A key from an extension is missing | The bundled metadata covers about 170 extensions. Use **Quarkus: Load Config Keys from a Dependency JAR…** for others. |
-| *Open the owning Maven project first.* | Open a file of the Maven project whose root `pom.xml` lists the dependency. |
-| *No supported direct literal JAR dependencies in the current root POM.* | Only direct dependencies with literal coordinates in the root `pom.xml` are listed. BOM-managed, property-based and Gradle dependencies aren't. |
+| *Open the Maven project first.* | Open a file of the Maven project whose root `pom.xml` lists the dependency. |
+| *The root pom.xml lists no JAR dependency with written-out coordinates.* | Only direct dependencies with written-out coordinates in the root `pom.xml` are listed. BOM-managed, property-based and Gradle dependencies aren't. |
 | *No supported Quarkus config model in the selected JAR.* | The JAR has no `META-INF/quarkus-config-doc/quarkus-config-model.json`. Older layouts aren't supported. |
 | The JAR read is denied | Allow `fs.read:~/.m2/repository` in Settings › Plugins › *Quarkus Tools*. |
 | *Selected JAR must be a file of at most 8 MiB.* | The JAR is too large, or not in your Maven cache yet. Build the project once so Maven downloads it. |

@@ -87,7 +87,7 @@ fn facts_with(doc: &Document, prefix: Option<&str>) -> Vec<Fact> {
                     let (title, effective_note) = match &effective {
                         Some(e) => (
                             format!("{verb} {declared} (effective {e})"),
-                            format!("Effective path: {e}\nComposed from quarkus.http.root-path, then @ApplicationPath or else quarkus.rest.path, class @Path and method @Path, all literal. Environment, profile and system-property overrides are not read.\n"),
+                            format!("Effective path: {e}\nComposed from quarkus.http.root-path, then @ApplicationPath or else quarkus.rest.path, class @Path and method @Path, as written in the source. Environment, profile and system-property overrides are not read.\n"),
                         ),
                         None => (format!("{verb} {declared}"), String::new()),
                     };
