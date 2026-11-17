@@ -273,6 +273,9 @@ command = "reload-from-cluster"
 
 
 
+[[contributes.documentIndexers]]
+extensions = ["yaml", "yml"]
+
 [contributes.settings]
 title = "Kube Explorer"
 schema = "settings.schema.json"

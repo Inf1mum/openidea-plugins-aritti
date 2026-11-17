@@ -461,7 +461,11 @@ pub fn import() -> Result<(), Error> {
     if files.len() >= 4096 {
         return Err(invalid("Private directory listing reached the host limit; import was not written."));
     }
-    let private_count = files.iter().filter(|entry| entry.name.starts_with(FILE_PREFIX)).count();
+    let mut private_count = 0;
+    for entry in files.iter().filter(|entry| entry.name.starts_with(FILE_PREFIX)) {
+        let placeholder = host::fs::stat(&format!("{directory}/{}", entry.name)).is_ok_and(|stat| stat.size == 0);
+        private_count += usize::from(!placeholder);
+    }
     // The pinned host resolves existing private paths before stat and maps a
     // missing path to Invalid, unlike the SDK mock's NotFound. The complete
     // bounded listing above proves absence without interpreting error text.
@@ -568,9 +572,15 @@ impl KubeExplorer {
         }
         let record: Value = serde_json::from_slice(&host::fs::read_bytes(profile["path"].as_str().unwrap_or(""))?)
             .map_err(|_| invalid("Imported private profile is unreadable."))?;
-        let directory = host::fs::plugin_dir()?;
-        host::fs::write_bytes(&format!("{directory}/{ACTIVE_FILE}"), record["config"].to_string().as_bytes())?;
+        if !record["config"].is_object() {
+            return Err(invalid("Imported private profile has no kubeconfig; import it again."));
+        }
+        let active = format!("{}/{ACTIVE_FILE}", host::fs::plugin_dir()?);
         host::storage::set(SELECTED, &id)?;
+        if let Err(error) = host::fs::write_bytes(&active, record["config"].to_string().as_bytes()) {
+            let _ = host::storage::delete(SELECTED);
+            return Err(error);
+        }
         self.imported_selection_changed();
         crate::config::notify_success("Imported kubeconfig in use", profile["name"].as_str().unwrap_or(""));
         Ok(())
@@ -651,6 +661,20 @@ mod tests {
         kube.run_command("use-imported-kubeconfig", &host.invocation(), None).unwrap();
         assert!(kube.args(&["get"]).iter().all(|arg| !arg.starts_with("--kubeconfig")));
         assert!(host::fs::read_bytes(&path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sixty_five_import_delete_cycles_still_import() {
+        let host = host();
+        for n in 0..65 {
+            let mut cfg = config();
+            cfg["clusters"][0]["cluster"]["server"] = json!(format!("https://api{n}.example.test:6443"));
+            queue(&host, "cycle", &cfg.to_string(), true);
+            import().unwrap_or_else(|error| panic!("cycle {n}: {error}"));
+            let meta = profiles().unwrap().remove(0);
+            host::fs::write_bytes(meta["path"].as_str().unwrap(), b"").unwrap();
+            host::storage::delete(&format!("{PREFIX}{}", meta["id"].as_str().unwrap())).unwrap();
+        }
     }
 
     #[test]

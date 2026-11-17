@@ -1,4 +1,4 @@
-//! A bounded map that drops its least recently inserted entry, never the whole cache.
+//! A bounded map that drops its oldest entry by insertion (FIFO; a read does not refresh it), never the whole cache.
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, VecDeque};
 
@@ -47,6 +47,16 @@ impl<K: Ord + Clone, V> Lru<K, V> {
         K: Borrow<Q>,
     {
         self.entries.get(key)
+    }
+
+    pub(crate) fn pop_oldest(&mut self) -> Option<(K, V)> {
+        let key = self.order.pop_front()?;
+        let value = self.entries.remove(&key)?;
+        Some((key, value))
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
     }
 
     pub(crate) fn clear(&mut self) {

@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use openidea_plugin::indexing::{Anchor, Edges};
+use crate::KubeExplorer;
+use openidea_plugin::indexing::{Anchor, Document, DocumentIndexer, Edges};
 use openidea_plugin::{Position, Range};
 
 const MAX_ANCHORS: usize = 4096;
@@ -547,10 +548,22 @@ pub(crate) fn deployment_isolation(path: &str, flags: &mut TransformerFlags) -> 
     Some(true)
 }
 
+/// Warms the private caches for every indexed YAML file, opened or not. It publishes no
+/// anchors or markers: a users key would have definitions only at usages, which Rename cannot close.
+impl DocumentIndexer for KubeExplorer {
+    fn index(&mut self, doc: &Document) -> Edges {
+        self.navigation.warm(&doc.path, &doc.text);
+        self.crd_schema.warm(&doc.path, &doc.text);
+        self.label_refs.warm(&doc.path, &doc.text);
+        self.kustomize_paths.warm(&doc.path);
+        self.helm_assistance.warm(&doc.path, &doc.text);
+        Edges::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::KubeExplorer;
 
     fn keys(anchors: &[Anchor]) -> Vec<&str> {
         anchors.iter().map(|a| a.key.as_str()).collect()

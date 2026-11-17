@@ -2,7 +2,6 @@
 use crate::indexer::{deployment_isolation, edges_in};
 use openidea_plugin::providers::LineMarker;
 use openidea_plugin::{Location, Position, Project, host};
-use std::collections::{BTreeMap, VecDeque};
 use ui_kit::navigation::{Graph, Resolver};
 const MAX_TEXT: usize = 128 << 10;
 const MAX_BYTES: usize = 8 << 20;
@@ -31,15 +30,13 @@ struct Cached {
 }
 #[derive(Default)]
 pub(crate) struct Cache {
-    files: BTreeMap<(String, String), Cached>,
-    order: VecDeque<(String, String)>,
+    files: crate::lru::Lru<(String, String), Cached>,
     bytes: usize,
     transformers: crate::indexer::TransformerFlags,
 }
 impl Cache {
     pub(crate) fn clear(&mut self) {
         self.files.clear();
-        self.order.clear();
         self.bytes = 0;
         self.transformers.clear();
     }
@@ -53,10 +50,10 @@ impl Cache {
         }
     }
     fn remove(&mut self, key: &(String, String)) {
-        if let Some(old) = self.files.remove(key) {
+        if let Some(old) = self.files.get(key) {
             self.bytes = self.bytes.saturating_sub(old.bytes);
         }
-        self.order.retain(|k| k != key);
+        self.files.remove(key);
     }
     pub(crate) fn warm_file(&mut self, path: &str) {
         if !yaml(path) {
@@ -83,7 +80,7 @@ impl Cache {
         if text.len() > MAX_TEXT || project.read_file(path).is_err() {
             return;
         }
-        // Discovery happens only in index/open-save work, never provider calls.
+        // Discovery runs only while warming (index, open, save, file changes), never in provider calls.
         let isolated = deployment_isolation(path, &mut self.transformers).unwrap_or(true);
         let graph: Graph = edges_in(path, text, isolated).into();
         let bytes = graph.definitions.iter().chain(&graph.references).chain(&graph.markers).map(|(key, _)| key.len() + 128).sum::<usize>()
@@ -93,14 +90,11 @@ impl Cache {
             return;
         }
         while self.files.len() >= MAX_FILES || self.bytes + bytes > MAX_BYTES {
-            let Some(old) = self.order.pop_front() else { break };
-            if let Some(old) = self.files.remove(&old) {
-                self.bytes = self.bytes.saturating_sub(old.bytes);
-            }
+            let Some((_, old)) = self.files.pop_oldest() else { break };
+            self.bytes = self.bytes.saturating_sub(old.bytes);
         }
         self.bytes += bytes;
-        self.order.push_back(key.clone());
-        self.files.insert(key, Cached { graph, isolated, bytes });
+        self.files.insert(key, Cached { graph, isolated, bytes }, usize::MAX);
     }
     fn source(&self, doc: &openidea_plugin::providers::Document) -> Option<(Project, String, Graph)> {
         if doc.language != "yaml" || !yaml(&doc.path) || doc.text.len() > MAX_TEXT {
@@ -334,6 +328,21 @@ mod tests {
         kube.handle_events(&[Event::FilesChanged(changed)], &h.invocation());
         let left: Vec<_> = kube.navigation.files.keys().map(|(_, path)| path.as_str()).collect();
         assert_eq!(left, ["/project/b.yaml"]);
+    }
+    #[test]
+    fn definition_into_a_never_opened_file_works_after_index() {
+        use openidea_plugin::indexing::{Document as Indexed, DocumentIndexer};
+        let h = host();
+        h.add_file("secret.yaml", SECRET);
+        h.add_file("ingress.yaml", INGRESS);
+        let mut kube = KubeExplorer::default();
+        let edges = kube.index(&Indexed { path: "/project/secret.yaml".into(), text: SECRET.into(), symbols: Vec::new() });
+        assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.markers.is_empty());
+        kube.handle_events(&[Event::FileOpened("/project/ingress.yaml".into())], &h.invocation());
+        let at = text::position(INGRESS, INGRESS.rfind("cert").unwrap() + 1);
+        let found = kube.definition(&doc("ingress.yaml", INGRESS), at);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "/project/secret.yaml");
     }
     #[test]
     fn transformer_flag_cached_until_files_changed() {

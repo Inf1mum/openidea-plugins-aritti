@@ -1904,7 +1904,7 @@ impl KubeExplorer {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(KubeExplorer, providers, views, details, diagnostics, file_actions);
+openidea_plugin::register_plugin!(KubeExplorer, providers, views, indexing, details, diagnostics, file_actions);
 
 #[cfg(test)]
 mod tests {
@@ -3651,9 +3651,10 @@ mod marker_icon_tests {
     }
 
     #[test]
-    fn no_empty_indexer_or_unbacked_users_marker_is_declared() {
+    fn indexer_is_warm_only_and_declares_no_users_marker() {
         let manifest = include_str!("../plugin.toml");
-        assert!(!manifest.contains("documentIndexers"));
+        assert!(manifest.contains("[[contributes.documentIndexers]]"));
         assert!(!manifest.contains("kube-users:"));
+        assert!(!manifest.contains("marker-users"));
     }
 }
