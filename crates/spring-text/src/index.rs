@@ -40,6 +40,24 @@ pub struct Index<T> {
     stale: bool,
     globs: &'static [&'static str],
     parse: fn(&str, &str) -> Option<T>,
+    /// Files larger than this are not parsed (see [`Index::with_limits`]).
+    max_file: usize,
+    /// Bytes of kept files' text the index may hold.
+    max_total: usize,
+    /// Text bytes of each kept file, when `max_total` is set.
+    weights: BTreeMap<String, usize>,
+    total: usize,
+    required: fn(&str, Option<&str>) -> bool,
+    rejected: fn(&str, &str) -> bool,
+    generation: u64,
+}
+
+fn every(_: &str, _: Option<&str>) -> bool {
+    true
+}
+
+fn never(_: &str, _: &str) -> bool {
+    false
 }
 
 impl<T: Clone> Index<T> {
@@ -59,6 +77,62 @@ impl<T: Clone> Index<T> {
             stale: false,
             globs,
             parse,
+            max_file: usize::MAX,
+            max_total: usize::MAX,
+            weights: BTreeMap::new(),
+            total: 0,
+            required: every,
+            rejected: never,
+            generation: 0,
+        }
+    }
+
+    /// Files over `max_file` bytes are not parsed, and a file whose text
+    /// would take the kept files over `max_total` bytes is not kept: both
+    /// count as unreadable.
+    pub fn with_limits(mut self, max_file: usize, max_total: usize) -> Self {
+        self.max_file = max_file;
+        self.max_total = max_total;
+        self
+    }
+
+    /// Only unreadable files `required(path, text)` accepts make the index
+    /// incomplete; the others are skipped. `text` is `None` when the file
+    /// could not be read at all.
+    pub fn requiring(mut self, required: fn(&str, Option<&str>) -> bool) -> Self {
+        self.required = required;
+        self
+    }
+
+    /// A file that parses to nothing counts as unreadable when
+    /// `rejected(path, text)`: broken rather than irrelevant.
+    pub fn rejecting(mut self, rejected: fn(&str, &str) -> bool) -> Self {
+        self.rejected = rejected;
+        self
+    }
+
+    /// What `text` gives within the limits; `Err` when it counts as unreadable.
+    fn parsed(&mut self, path: &str, text: &str) -> Result<Option<T>, ()> {
+        let old = self.weights.get(path).copied().unwrap_or(0);
+        if text.len() > self.max_file || self.total - old + text.len() > self.max_total {
+            return Err(());
+        }
+        match (self.parse)(path, text) {
+            Some(value) => {
+                if self.max_total != usize::MAX {
+                    self.weights.insert(path.to_owned(), text.len());
+                    self.total = self.total - old + text.len();
+                }
+                Ok(Some(value))
+            }
+            None if (self.rejected)(path, text) => Err(()),
+            None => Ok(None),
+        }
+    }
+
+    fn unweigh(&mut self, path: &str) {
+        if let Some(weight) = self.weights.remove(path) {
+            self.total -= weight;
         }
     }
 
@@ -79,6 +153,8 @@ impl<T: Clone> Index<T> {
             }
             paths.sort();
             paths.dedup();
+            let nested = nested_roots(project);
+            paths.retain(|path| !nested.iter().any(|root| path.starts_with(root)));
             paths.reverse(); // popped from the end: read in path order
             self.unread = paths;
             self.scanned = Some(Instant::now());
@@ -89,23 +165,37 @@ impl<T: Clone> Index<T> {
         while start.elapsed() < budget
             && let Some(path) = self.unread.pop()
         {
+            self.generation += 1;
             let Ok(text) = project.read_file(&path) else {
-                self.pass_failed.insert(path);
+                if (self.required)(&path, None) {
+                    self.pass_failed.insert(path);
+                }
                 continue;
             };
+            let parsed = self.parsed(&path, &text);
             let target = if first { &mut self.files } else { &mut self.next };
-            match (self.parse)(&path, &text) {
-                Some(value) => {
+            match parsed {
+                Ok(Some(value)) => {
                     target.insert(path, value);
                 }
-                None => {
+                Ok(None) => {
                     target.remove(&path);
+                }
+                Err(()) => {
+                    target.remove(&path);
+                    if (self.required)(&path, Some(&text)) {
+                        self.pass_failed.insert(path);
+                    }
                 }
             }
         }
         if self.reading && self.unread.is_empty() {
+            self.generation += 1;
             if !first {
                 self.files = std::mem::take(&mut self.next);
+                let files = &self.files;
+                self.weights.retain(|path, _| files.contains_key(path));
+                self.total = self.weights.values().sum();
             }
             self.failed = std::mem::take(&mut self.pass_failed);
             self.discovery_incomplete = self.pass_discovery_incomplete;
@@ -118,8 +208,10 @@ impl<T: Clone> Index<T> {
     /// Replaces what a file says with its current text (an open document).
     pub fn update(&mut self, path: &str, text: &str) {
         self.remove(path);
-        let Some(value) = (self.parse)(path, text) else {
-            return;
+        let value = match self.parsed(path, text) {
+            Ok(Some(value)) => value,
+            Ok(None) => return,
+            Err(()) => return self.fail_with(path, Some(text)),
         };
         if self.reading && self.passes > 0 {
             self.next.insert(path.to_owned(), value.clone());
@@ -133,9 +225,39 @@ impl<T: Clone> Index<T> {
         self.passes > 0 && !self.stale
     }
 
-    /// Files the last pass, or a later change, could not read.
+    /// Required files the last pass, or a later change, could not read or
+    /// keep within the limits.
     pub fn unreadable(&self) -> usize {
         self.failed.len()
+    }
+
+    /// Every path the index knows of: kept, queued or unreadable.
+    pub fn inventory(&self) -> BTreeSet<&str> {
+        let kept = self.files.keys().chain(self.next.keys());
+        kept.chain(&self.unread).chain(&self.failed).chain(&self.pass_failed).map(String::as_str).collect()
+    }
+
+    /// Queues `paths` (such as an inventory saved by an earlier session) to
+    /// read before the first discovery. The pass reading them stays partial:
+    /// only the discovery that follows can complete the index. Ignored once
+    /// the index has started reading.
+    pub fn seed(&mut self, mut paths: Vec<String>) {
+        if self.passes > 0 || self.reading || self.scanned.is_some() || paths.is_empty() {
+            return;
+        }
+        paths.sort();
+        paths.dedup();
+        paths.reverse();
+        self.unread = paths;
+        self.reading = true;
+        self.pass_failed.clear();
+        self.pass_discovery_incomplete = true;
+        self.generation += 1;
+    }
+
+    /// Changes whenever what the index holds may have changed.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Whether the last pass was whole and uncapped and every file was read.
@@ -147,6 +269,7 @@ impl<T: Clone> Index<T> {
     /// Changes were missed: `complete()` and `fresh()` stay false until the
     /// next pass, which starts over, finishes.
     pub fn mark_stale(&mut self) {
+        self.generation += 1;
         self.stale = true;
         self.scanned = None;
         self.unread.clear();
@@ -166,6 +289,9 @@ impl<T: Clone> Index<T> {
 
     /// Forgets the files so the next scan starts over.
     pub fn reset(&mut self) {
+        self.generation += 1;
+        self.weights.clear();
+        self.total = 0;
         self.files.clear();
         self.next.clear();
         self.unread.clear();
@@ -180,6 +306,8 @@ impl<T: Clone> Index<T> {
     }
 
     pub fn remove(&mut self, path: &str) {
+        self.generation += 1;
+        self.unweigh(path);
         self.failed.remove(path);
         self.pass_failed.remove(path);
         self.files.remove(path);
@@ -188,8 +316,15 @@ impl<T: Clone> Index<T> {
     }
 
     /// Forgets what a file said because it could not be read.
-    fn fail(&mut self, path: &str) {
+    pub fn fail(&mut self, path: &str) {
+        self.fail_with(path, None);
+    }
+
+    fn fail_with(&mut self, path: &str, text: Option<&str>) {
         self.remove(path);
+        if !(self.required)(path, text) {
+            return;
+        }
         self.failed.insert(path.to_owned());
         if self.reading {
             self.pass_failed.insert(path.to_owned());
@@ -203,6 +338,15 @@ impl<T: Clone> Index<T> {
     pub fn iter(&self) -> impl Iterator<Item = (&str, &T)> {
         self.files.iter().map(|(p, v)| (p.as_str(), v))
     }
+}
+
+/// Prefixes (`root/`) of the open projects nested inside `project`: their
+/// files belong to them, as [`project_of`] answers.
+fn nested_roots(project: &Project) -> Vec<String> {
+    let Ok(root) = project.root() else { return Vec::new() };
+    let prefix = format!("{}/", root.trim_end_matches('/'));
+    let roots = host::projects().unwrap_or_default().into_iter().filter_map(|other| other.root().ok());
+    roots.map(|other| format!("{}/", other.trim_end_matches('/'))).filter(|other| other.starts_with(&prefix) && *other != prefix).collect()
 }
 
 /// What an index covers when it is not the whole project: "scanning…" while
@@ -625,6 +769,104 @@ mod tests {
         index.scan(&project, COMMAND_BUDGET);
         assert!(index.fresh(), "the next finished pass clears the stale mark");
         assert_eq!(index.files()["/project/src/A.java"], 2);
+    }
+
+    fn kept(_: &str, text: &str) -> Option<usize> {
+        (!text.contains("nothing")).then_some(text.len())
+    }
+
+    fn java_only(path: &str, _: Option<&str>) -> bool {
+        path.ends_with(".java")
+    }
+
+    fn broken(_: &str, text: &str) -> bool {
+        text.contains("broken")
+    }
+
+    #[test]
+    fn limits_fail_oversized_and_over_budget_files() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "aaaa");
+        host.add_file("src/B.java", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        host.add_file("src/C.java", "cccccc");
+        host.add_file("src/D.java", "dddddd");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java"], kept).with_limits(16, 12);
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(index.files().keys().map(|p| p.rsplit('/').next().unwrap()).collect::<Vec<_>>(), ["A.java", "C.java"]);
+        assert_eq!(index.unreadable(), 2, "B is over the file limit, D over the total");
+        assert!(!index.complete());
+        index.remove("/project/src/C.java");
+        index.update("/project/src/D.java", "dddddd");
+        assert!(index.files().contains_key("/project/src/D.java"), "removing C freed its bytes");
+        assert_eq!(index.unreadable(), 1);
+    }
+
+    #[test]
+    fn only_required_failures_leave_the_index_incomplete() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("seed.sql", &"x".repeat(64));
+        host.add_file_bytes("latin.sql", b"caf\xe9");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java", "**/*.sql"], kept).with_limits(32, 1 << 20).requiring(java_only);
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(index.unreadable(), 0);
+        assert!(index.complete() && index.fresh());
+        assert_eq!(coverage_note(&index), None);
+        index.update("/project/src/A.java", &"y".repeat(64));
+        assert_eq!(index.unreadable(), 1);
+        assert!(!index.complete());
+    }
+
+    #[test]
+    fn rejected_texts_that_parse_to_nothing_count_as_unreadable() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "nothing broken");
+        host.add_file("src/B.java", "nothing");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java"], kept).rejecting(broken);
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(index.unreadable(), 1);
+        assert!(index.files().is_empty());
+        index.update("/project/src/A.java", "fixed");
+        assert!(index.complete());
+        assert!(index.files().contains_key("/project/src/A.java"));
+    }
+
+    #[test]
+    fn seeded_paths_are_read_before_discovery_and_stay_partial() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("src/New.java", "new");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java"], words);
+        let before = index.generation();
+        index.seed(vec!["/project/src/A.java".into()]);
+        assert!(index.generation() > before);
+        assert_eq!(index.inventory().into_iter().collect::<Vec<_>>(), ["/project/src/A.java"]);
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(index.files().keys().collect::<Vec<_>>(), ["/project/src/A.java"]);
+        assert!(index.walked() && !index.complete(), "a restored inventory is not a discovery");
+        index.scan(&project, COMMAND_BUDGET);
+        assert!(index.complete());
+        assert_eq!(index.inventory().into_iter().collect::<Vec<_>>(), ["/project/src/A.java", "/project/src/New.java"]);
+        let settled = index.generation();
+        index.seed(vec!["/project/src/Gone.java".into()]);
+        assert_eq!(index.generation(), settled, "only a cold index takes a seed");
+    }
+
+    #[test]
+    fn discovery_leaves_nested_projects_to_their_own_index() {
+        let host = MockHost::install();
+        host.add_project("/project/inner");
+        host.add_file("/project/src/Outer.java", "outer");
+        host.add_file("/project/inner/src/Inner.java", "inner");
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::new(&["**/*.java"], words);
+        index.scan(&project, COMMAND_BUDGET);
+        assert_eq!(index.files().keys().collect::<Vec<_>>(), ["/project/src/Outer.java"]);
+        assert!(index.complete());
     }
 
     #[test]
