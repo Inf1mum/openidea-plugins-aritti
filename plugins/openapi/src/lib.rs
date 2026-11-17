@@ -575,8 +575,13 @@ impl Plugin for OpenApi {
             };
         }
         if id == "copy-route-curl" || id == "create-route-http" {
-            let route =
-                arg.and_then(|key| self.route_list().route(key).cloned()).ok_or_else(|| Error::Invalid("select an endpoint row".into()))?;
+            let route = match arg {
+                Some(key) => self.route_list().route(key).cloned().ok_or_else(|| Error::Invalid("That endpoint is no longer listed. Refresh the OpenAPI Endpoints window and try again.".into()))?,
+                None => match pick_route(ctx)? {
+                    Some(route) => route,
+                    None => return Ok(None),
+                },
+            };
             if id == "copy-route-curl" {
                 routes::copy_as_curl(&route, &route_base(&route))?;
             } else {
@@ -1431,6 +1436,23 @@ const DEFAULT_BASE: &str = "http://localhost:8080";
 const RENDERER_KEY: &str = "previewRenderer";
 
 /// The route's spec server (as Write Requests uses it), else the local default.
+fn pick_route(ctx: &Invocation) -> Result<Option<Route>, Error> {
+    let project = ctx.project().ok_or("Open a project to choose an endpoint.")?;
+    let routes = project_routes(&project)?;
+    if routes.is_empty() {
+        return Err("No OpenAPI operations found in this project.".into());
+    }
+    let items: Vec<_> = routes
+        .iter()
+        .enumerate()
+        .map(|(at, route)| PickItem::new(&at.to_string(), &format!("{} {}", route.method, route.path)).description(&route.handler.class))
+        .collect();
+    let Some(chosen) = host::pick("Choose an endpoint", &items)? else {
+        return Ok(None);
+    };
+    Ok(chosen.parse::<usize>().ok().and_then(|at| routes.into_iter().nth(at)))
+}
+
 fn route_base(route: &routes::Route) -> String {
     route
         .location
@@ -1884,6 +1906,24 @@ mod tests {
         host.answer_next_prompt(Some(&["http://localhost:9000"]));
         openapi.run_command("copy-route-curl", &host.invocation(), Some(&items[0].key)).unwrap();
         assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:9000/pets'"));
+    }
+
+    #[test]
+    fn copy_route_curl_from_the_palette_picks_an_endpoint() {
+        let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
+        host.add_file("/project/api/openapi.yaml", PETSTORE);
+        host.answer_next_prompt(Some(&["0"]));
+        host.answer_next_prompt(Some(&["http://localhost:9000"]));
+        OpenApi::default().run_command("copy-route-curl", &host.invocation(), None).unwrap();
+        assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:9000/pets'"));
+    }
+
+    #[test]
+    fn copy_route_curl_from_the_palette_does_nothing_when_the_pick_is_dismissed() {
+        let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
+        host.add_file("/project/api/openapi.yaml", PETSTORE);
+        assert_eq!(OpenApi::default().run_command("copy-route-curl", &host.invocation(), None).unwrap(), None);
+        assert_eq!(host.clipboard(), None);
     }
 
     #[test]

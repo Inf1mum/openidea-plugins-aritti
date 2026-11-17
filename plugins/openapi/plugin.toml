@@ -5,7 +5,7 @@ description = "Editing support for OpenAPI 3 and Swagger 2 files in YAML and JSO
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: An Operations panel beside spec editors lists operations by tag with a filter and jumps to one on click; Copy as cURL and Create HTTP Request File suggest the spec server as the base URL, and the preview remembers Redoc or Swagger UI; Try it out works with YAML specs, starts from the preview Try button, accepts a single https server with the optional net:ask permission and refuses private, single-label and localhost servers; Draft Spec from Source Mappings and Breaking-Change Report commands, operation and response quick fixes in JSON, and self-contained export no longer duplicates components; gutter markers skip files that are not OpenAPI specs, list every $ref of an operation in a chooser and mark component declarations with their local $ref uses, files in hidden folders are ignored, and setting titles are shorter. \
+Next release: An Operations panel beside spec editors lists operations by tag with a filter and jumps to one on click; Copy as cURL and Create HTTP Request File suggest the spec server as the base URL and let you pick an endpoint from Search Everywhere, and the preview remembers Redoc or Swagger UI; Try it out works with YAML specs, starts from the preview Try button, accepts a single https server with the optional net:ask permission and refuses private, single-label and localhost servers; Draft Spec from Source Mappings and Breaking-Change Report commands, operation and response quick fixes in JSON, and self-contained export no longer duplicates components; gutter markers skip files that are not OpenAPI specs, list every $ref of an operation in a chooser and mark component declarations with their local $ref uses, files in hidden folders are ignored, setting titles are shorter, spec commands are enabled only in a spec, and code generation says when it finishes and how to apply it. \
 0.3.0: generation with preview and apply, richer checks. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "tools"]
@@ -77,16 +77,19 @@ category = "OpenAPI"
 id = "export-self-contained"
 title = "OpenAPI: Write Self-Contained Spec"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "copy-reference"
 title = "OpenAPI: Copy Reference to the Key at the Caret"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "copy-http-requests"
 title = "OpenAPI: Write Requests for the HTTP Client"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "copy-route-curl"
@@ -196,11 +199,13 @@ category = "OpenAPI"
 id = "component-occurrences"
 title = "OpenAPI: Find Component Occurrences in This Document"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "generate-code"
 title = "OpenAPI: Generate Client, Server or Documentation…"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "export-comparison"
@@ -211,13 +216,15 @@ category = "OpenAPI"
 id = "component-project-usages"
 title = "OpenAPI: Find Component Usages in Project"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "generate-code-configured"
 title = "OpenAPI: Generate With Options or Templates…"
 category = "OpenAPI"
+when = "plugin.aritti.openapi.spec"
 
 [[contributes.commands]]
 id = "forget-codegen-stage"
-title = "OpenAPI: Clear Finished Code Generation"
+title = "OpenAPI: Stop Tracking Generated Code"
 category = "OpenAPI"
