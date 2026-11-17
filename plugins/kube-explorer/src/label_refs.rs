@@ -62,8 +62,22 @@ enum Frame {
     Map(Vec<(Scalar, Node)>, Option<Scalar>),
     Seq(Vec<Node>),
 }
+/// Byte offsets of every line start, so a position costs one binary search.
+pub(crate) struct LineStarts(Vec<usize>);
+impl LineStarts {
+    pub(crate) fn new(source: &str) -> Self {
+        Self(std::iter::once(0).chain(source.match_indices('\n').map(|(at, _)| at + 1)).collect())
+    }
+    pub(crate) fn position(&self, source: &str, at: usize) -> Position {
+        let at = at.min(source.len());
+        let line = self.0.partition_point(|start| *start <= at) - 1;
+        let character = source.get(self.0[line]..at).map_or(0, |text| text.chars().map(|c| c.len_utf16() as u32).sum());
+        Position { line: line as u32, character }
+    }
+}
 struct Reader<'a> {
     source: &'a str,
+    lines: LineStarts,
     offsets: Vec<usize>,
     frames: Vec<Frame>,
     docs: Vec<Node>,
@@ -141,8 +155,8 @@ impl MarkedEventReceiver for Reader<'_> {
                     exact,
                     escaped: scanned.is_some(),
                     range: Range::new(
-                        text::position(self.source, start.min(self.source.len())),
-                        text::position(self.source, end.min(self.source.len())),
+                        self.lines.position(self.source, start),
+                        self.lines.position(self.source, end),
                     ),
                 };
                 self.push(Node::Scalar(scalar));
@@ -230,20 +244,34 @@ pub(crate) fn parse(source: &str) -> Option<Vec<Node>> {
     if source.len() > MAX_TEXT || source.contains("{{") || source.contains("${") {
         return None;
     }
-    crate::convert::source_documents(source)?;
-    let mut reader = Reader {
-        source,
-        offsets: source
-            .char_indices()
-            .map(|(i, _)| i)
-            .chain(std::iter::once(source.len()))
-            .collect(),
-        frames: Vec::new(),
-        docs: Vec::new(),
-        bad: false,
+    let mut checked = Checked {
+        guard: crate::convert::ValueGuard::default(),
+        reader: Reader {
+            source,
+            lines: LineStarts::new(source),
+            offsets: source
+                .char_indices()
+                .map(|(i, _)| i)
+                .chain(std::iter::once(source.len()))
+                .collect(),
+            frames: Vec::new(),
+            docs: Vec::new(),
+            bad: false,
+        },
     };
-    Parser::new_from_str(source).load(&mut reader, true).ok()?;
-    (!reader.bad).then_some(reader.docs)
+    Parser::new_from_str(source).load(&mut checked, true).ok()?;
+    (!checked.guard.rejected() && !checked.reader.bad).then_some(checked.reader.docs)
+}
+/// Feeds one parse pass to the value guard and to the node reader.
+struct Checked<'a> {
+    guard: crate::convert::ValueGuard,
+    reader: Reader<'a>,
+}
+impl MarkedEventReceiver for Checked<'_> {
+    fn on_event(&mut self, event: Event, mark: Marker) {
+        yaml_rust2::parser::EventReceiver::on_event(&mut self.guard, event.clone());
+        self.reader.on_event(event, mark);
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Resource {
@@ -1687,7 +1715,7 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
     })
 }
 struct Cached {
-    digest: [u8; 32],
+    stamp: Option<(u64, Option<u64>)>,
     facts: Facts,
 }
 #[derive(Default)]
@@ -1927,7 +1955,7 @@ impl Cache {
         self.files.insert(
             (root, path.into()),
             Cached {
-                digest: Sha256::digest(source.as_bytes()).into(),
+                stamp: project.stat(path).ok().map(|stat| (stat.size, stat.modified)),
                 facts,
             },
             MAX_FILES,
@@ -1951,10 +1979,8 @@ impl Cache {
             {
                 continue;
             }
-            let Ok(source) = project.read_file(path) else {
-                continue;
-            };
-            if <[u8; 32]>::from(Sha256::digest(source.as_bytes())) != cache.digest {
+            let current = project.stat(path).ok().map(|stat| (stat.size, stat.modified));
+            if current.is_none() || current != cache.stamp {
                 continue;
             }
             all.push((path.clone(), cache.facts.clone()));
@@ -3255,10 +3281,36 @@ mod tests {
         let cached = cache.files.values().next().unwrap();
         assert_eq!(cached.facts.keys.len(), 1);
         assert_eq!(cached.facts.keys[0].key.value, "server");
-        assert_eq!(
-            cached.digest,
-            <[u8; 32]>::from(Sha256::digest(SECRET.as_bytes()))
-        );
+        assert_eq!(cached.stamp.map(|(size, _)| size), Some(SECRET.len() as u64));
+    }
+    #[test]
+    fn position_table_matches_naive() {
+        for source in ["", "a: 1\n", "a: é\n😀: x\r\nb: ü😀z\n\n\nlast", "\n\n", "key: \"é\"\n  - café: 😀"] {
+            let lines = LineStarts::new(source);
+            for at in (0..=source.len()).filter(|at| source.is_char_boundary(*at)) {
+                assert_eq!(lines.position(source, at), text::position(source, at), "{source:?} at {at}");
+            }
+            assert_eq!(lines.position(source, source.len() + 9), text::position(source, source.len()));
+        }
+    }
+    #[test]
+    fn label_cache_no_rehash() {
+        let (host, cache) = setup(&[("pod.yaml", POD), ("service.yaml", SERVICE)]);
+        let service = Document {
+            path: "/p/service.yaml".into(),
+            language: "yaml".into(),
+            version: 1,
+            text: SERVICE.into(),
+        };
+        let at = caret(SERVICE, "tier");
+        let before = cache.definition(&service, at);
+        assert!(!before.is_empty());
+
+        host.add_file("pod.yaml", &POD.replace("frontend", "frontenx"));
+        assert_eq!(cache.definition(&service, at), before);
+
+        host.add_file("pod.yaml", &format!("{POD}# longer\n"));
+        assert!(cache.definition(&service, at).is_empty());
     }
     #[test]
     fn deployment_selector_links_only_its_own_template_labels() {

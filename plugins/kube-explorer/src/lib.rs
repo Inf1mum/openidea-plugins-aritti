@@ -178,8 +178,6 @@ pub struct KubeExplorer {
     /// Port forward being set up (shown instead of the tree): namespace, target and ports.
     forward: Option<forward::Draft>,
     forward_session: Option<forward::Session>,
-    prepared_forward: Option<forward::Prepared>,
-    forward_nonce: u64,
     show_forward_session: bool,
     /// The manifest whose resources the shown dry run would delete.
     pending_delete: Option<String>,
@@ -343,7 +341,7 @@ impl KubeExplorer {
     }
     pub(crate) fn begin_panel(&mut self)->Result<String,Error> {
         self.ensure_panel_replace()?;
-        self.clear_panel_data();self.forward=None;self.prepared_forward=None;
+        self.clear_panel_data();self.forward=None;
         self.show_forward_session=false;Ok(self.new_rich_callback())
     }
 
@@ -712,7 +710,6 @@ impl KubeExplorer {
     }
 
     fn render_tree_in(&mut self, ctx: Option<&Invocation>) -> Result<View, Error> {
-        if let Some(view) = self.prepared_forward_view() { return Ok(self.protect_rich_view(view)); }
         if self.show_forward_session {
             let view=self.forward_status(ctx);return Ok(self.protect_rich_view(view));
         }
@@ -966,7 +963,6 @@ impl KubeExplorer {
                 crate::refresh_panel();
             }
             ViewEvent::Field(key, value) if key == "ports" => {
-                self.prepared_forward = None;
                 if let Some(draft) = &mut self.forward {
                     draft.ports = value;
                 }
@@ -1017,7 +1013,6 @@ impl KubeExplorer {
         if self.forward_button(button, ctx)? {
             return Ok(());
         }
-        self.prepared_forward = None;
         if button != "refresh" {
             self.show_forward_session = false;
         }
@@ -1034,7 +1029,6 @@ impl KubeExplorer {
         }
         match button {
             "back" => {
-                self.prepared_forward = None;
                 self.show_forward_session = false;
                 self.details = None;
                 self.forward = None;
@@ -1280,14 +1274,16 @@ fn parent(path: &str) -> &str {
 /// The innermost Helm chart (a directory with `Chart.yaml`) holding `file`.
 fn chart_dir(ctx: &Invocation, file: &str) -> Result<String, Error> {
     let project = ctx.project().ok_or("No project is open.")?;
-    let charts = project.find_files("**/Chart.yaml", 1000)?;
-    charts
-        .iter()
-        .filter_map(|chart| chart.strip_suffix("/Chart.yaml"))
-        .filter(|dir| file.starts_with(&format!("{dir}/")))
-        .max_by_key(|dir| dir.len())
-        .map(str::to_owned)
-        .ok_or_else(|| "The open file is not in a Helm chart (no Chart.yaml in its folder or above).".into())
+    let root = project.root()?;
+    let root = root.trim_end_matches('/');
+    let mut directory = file.rsplit_once('/').map(|(directory, _)| directory);
+    while let Some(candidate) = directory.filter(|candidate| candidate.starts_with(root)) {
+        if project.exists(&format!("{candidate}/Chart.yaml")).unwrap_or(false) {
+            return Ok(candidate.to_owned());
+        }
+        directory = candidate.rsplit_once('/').map(|(parent, _)| parent);
+    }
+    Err("The open file is not in a Helm chart (no Chart.yaml in its folder or above).".into())
 }
 
 fn file_safe(s: &str) -> String {
@@ -1919,6 +1915,18 @@ mod tests {
     }
 
     #[test]
+    fn chart_dir_walks_up_to_the_nearest_chart_without_searching() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.set_project_root(Some("/project"));
+        host.add_file("charts/app/Chart.yaml", "name: app\n");
+        host.add_file("charts/app/charts/sub/Chart.yaml", "name: sub\n");
+        let ctx = host.invocation();
+        assert_eq!(chart_dir(&ctx, "/project/charts/app/templates/a.yaml").unwrap(), "/project/charts/app");
+        assert_eq!(chart_dir(&ctx, "/project/charts/app/charts/sub/templates/a.yaml").unwrap(), "/project/charts/app/charts/sub");
+        assert!(chart_dir(&ctx, "/project/other/a.yaml").is_err());
+    }
+
+    #[test]
     fn reload_stops_after_first_failure() {
         let host = MockHost::install().with_capabilities(&["process:kubectl", "storage"]);
         host.on_process(KUBECTL, |_, _| {
@@ -2191,7 +2199,7 @@ mod tests {
     }
 
     #[test]
-    fn managed_port_forward_previews_ports_then_starts_an_owned_process() {
+    fn managed_port_forward_starts_an_owned_process_after_one_confirm() {
         let host = host().with_capabilities(&["process:kubectl", "project.read", "editor.read", "storage"]);
         let mut kube = KubeExplorer::default();
         kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
@@ -2201,10 +2209,6 @@ mod tests {
         kube.handle(TREE, ViewEvent::Field(kube.test_control_key("ports"), "8080:80".into()), &host.invocation()).unwrap();
         host.answer_next_prompt(Some(&[]));
         kube.handle(TREE, ViewEvent::Button(kube.test_control_key("start-managed-forward")), &host.invocation()).unwrap();
-        assert!(kube.forward_session.is_none(), "approval must return without spawning");
-        let prepared = kube.render(PANEL, None, &host.invocation()).unwrap();
-        let token = prepared.toolbar.iter().find(|b| b.id.starts_with("launch-reviewed-forward-")).unwrap().id.clone();
-        kube.handle(TREE, ViewEvent::Button(token), &host.invocation()).unwrap();
 
         assert!(matches!(form, Body::Form(fields) if fields[0].value == FieldValue::Text("80:80 443:443".into())));
         assert!(host.terminals().is_empty());

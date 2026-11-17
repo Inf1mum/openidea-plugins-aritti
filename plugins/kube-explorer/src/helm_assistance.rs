@@ -915,8 +915,9 @@ impl Cache {
         let Some(parsed) = yaml(&doc.text) else {
             return vec![];
         };
+        let values_file = doc.path.ends_with("/values.yaml");
         let mut messages = Vec::new();
-        if doc.path.ends_with("/values.yaml") {
+        if values_file {
             if let Some((_, schema)) = &chart.schema {
                 if let Some(value) = json_value(&parsed) {
                     validate(&value, schema, schema, "values", 0, &mut messages);
@@ -929,15 +930,29 @@ impl Cache {
             .into_iter()
             .take(64)
             .map(|message| {
-                Diagnostic::new(
-                    Range::new(Position::new(0, 0), Position::new(0, 0)),
-                    Severity::Warning,
-                    message,
-                )
-                .code("helm-local-schema")
+                let range = if values_file {
+                    values_finding_range(&doc.text, &message)
+                } else {
+                    crate::helm_values::find_key(&doc.text, &["dependencies".to_owned()]).unwrap_or_default()
+                };
+                Diagnostic::new(range, Severity::Warning, message).code("helm-local-schema")
             })
             .collect()
     }
+}
+/// The deepest key of the finding's `values/a/b` path that the file spells out.
+fn values_finding_range(values: &str, message: &str) -> Range {
+    let path = message.split_once(": ").map_or("", |(path, _)| path);
+    let mut keys: Vec<String> = path.split('/').skip(1).map(str::to_owned).collect();
+    let array_at = keys.iter().position(|key| key.parse::<usize>().is_ok());
+    keys.truncate(array_at.unwrap_or(keys.len()));
+    while !keys.is_empty() {
+        if let Some(range) = crate::helm_values::find_key(values, &keys) {
+            return range;
+        }
+        keys.pop();
+    }
+    Range::default()
 }
 fn dependency_identity(metadata: &Yaml) -> String {
     let identities: Vec<_> = metadata["dependencies"]
@@ -1207,6 +1222,15 @@ mod tests {
                 .completion(&document("text: |\n  pu"), Position::new(1, 4))
                 .is_empty()
         );
+    }
+    #[test]
+    fn values_schema_finding_has_key_range() {
+        let (_host, cache) = setup();
+        let source = "image: {}\nreplicas: 0\n";
+        let findings = cache.diagnostics(&document(source));
+        let at = |needle: &str| findings.iter().find(|finding| finding.message.contains(needle)).unwrap().range;
+        assert_eq!(at("missing required value repository"), Range::new(Position::new(0, 0), Position::new(0, 5)));
+        assert_eq!(at("minimum"), Range::new(Position::new(1, 0), Position::new(1, 8)));
     }
     #[test]
     fn schema_validation_matches_known_constraints_and_withdraws_stale_sources() {
