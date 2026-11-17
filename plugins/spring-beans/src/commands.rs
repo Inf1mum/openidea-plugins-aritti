@@ -15,6 +15,8 @@ const EVENT_LISTENER: &str = "org.springframework.context.event.EventListener";
 const MAX_CHOICES: usize = 500;
 const MAX_CHECKED: usize = 1000;
 const TITLE: &str = "Spring Beans";
+/// Source reading inside the check's task, which may run for 60 s.
+const TASK_SCAN: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
 pub enum Generate {
@@ -66,13 +68,8 @@ pub fn change_active_profiles(nav: &mut Navigator, ctx: &Invocation) -> Result<O
         format!("Active Spring profiles (now: {})", current.join(", "))
     };
     let Some(chosen) = host::pick_many(&title, &items)? else { return Ok(None) };
-
-    match host::storage::set(ACTIVE_PROFILES, &chosen.join(",")) {
-        Err(Error::Denied(_)) => {
-            host::notify(NotificationLevel::Warning, TITLE, STORAGE_DENIED);
-            return Ok(None);
-        }
-        other => other?,
+    if !save_profiles(&chosen)? {
+        return Ok(None);
     }
     let message = if chosen.is_empty() {
         "No active profile: every bean is considered.".to_owned()
@@ -81,6 +78,18 @@ pub fn change_active_profiles(nav: &mut Navigator, ctx: &Invocation) -> Result<O
     };
     host::notify(NotificationLevel::Info, TITLE, &message);
     Ok(None)
+}
+
+/// Stores the chosen profiles; `false` (with a notice) when storage is denied.
+pub(crate) fn save_profiles(chosen: &[String]) -> Result<bool, Error> {
+    match host::storage::set(ACTIVE_PROFILES, &chosen.join(",")) {
+        Ok(()) => Ok(true),
+        Err(Error::Denied(_)) => {
+            host::notify(NotificationLevel::Warning, TITLE, STORAGE_DENIED);
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub fn generate(nav: &mut Navigator, ctx: &Invocation, kind: Generate) -> Result<Option<String>, Error> {
@@ -307,7 +316,7 @@ fn capitalize(name: &str) -> String {
 pub fn check_configuration(nav: &mut Navigator, ctx: &Invocation) -> Result<Option<String>, Error> {
     let project = ctx.project().ok_or("Open a project first.")?;
     let task = host::begin_task("Checking Spring configuration", false);
-    let index = nav.indexes.get(&project, COMMAND_BUDGET);
+    let index = nav.indexes.get(&project, TASK_SCAN);
     let world = World::new(index);
     let sources: Vec<(&String, &str)> = world
         .files

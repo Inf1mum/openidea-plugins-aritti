@@ -528,7 +528,7 @@ fn sibling_text(path: &str, relative: &str) -> Option<Option<String>> {
 /// Whether the project's sources declare a package under the first two segments of `qualified`, so a miss is not a library class.
 fn owns_package_root(world: &World, qualified: &str) -> bool {
     let root = qualified.split('.').take(2).collect::<Vec<_>>().join(".");
-    qualified.contains('.') && world.files.values().flat_map(|m| &m.types).any(|t| t.qualified.starts_with(&format!("{root}.")))
+    qualified.contains('.') && world.declares_under(&format!("{root}."))
 }
 
 fn unresolved_classes(els: &[xml::Element], world: &World, out: &mut Vec<Finding>) {

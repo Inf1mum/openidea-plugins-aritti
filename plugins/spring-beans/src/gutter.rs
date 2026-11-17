@@ -23,8 +23,7 @@ fn groups(world:&World,model:&FileModel,doc:&Document)->BTreeMap<u32,Vec<(String
     let mut add=|line:u32,label:String,location:Location|{let items=groups.entry(line).or_default();if items.len()<1000&&!items.iter().any(|(_,old)|old==&location){items.push((label,location));}};
     for injection in &model.injections {for (path,bean) in world.candidates(injection){add(injection.range.start.line,format!("Bean: {}",describe(bean)),Location{path:path.into(),range:bean.range});}}
     for bean in &model.beans {for (location,into) in world.users(&doc.path,bean){add(bean.range.start.line,format!("Injected into: {into}"),location);}}
-    let resolver=ui_kit::navigation::Resolver::new(world.files.iter().map(|(path,model)|(path.as_str(),&model.navigation)));
-    let mut checked=resolver.checked(|path|if path==doc.path{Some(model.navigation.clone())}else{world.files.get(path).map(|model|model.navigation.clone())});
+    let mut checked=world.resolver().checked(|path|if path==doc.path{Some(model.navigation.clone())}else{world.files.get(path).map(|model|model.navigation.clone())});
     for (key,range) in &model.navigation.markers {for location in checked.targets(key){add(range.start.line,format!("Related source: {key}"),location);}}
     groups.retain(|_,items|items.len()>1);groups
 }

@@ -72,23 +72,61 @@ const MAX_CLASSES: usize = 200;
 
 /// What providers look up across the project, derived once per cache change:
 /// beans by name and by type (active ones only), the type hierarchy both ways,
-/// injection points by the type or name they ask for, and the inactive beans.
-#[derive(Clone, Default)]
+/// types by simple and qualified name, injection points by the type or name
+/// they ask for, configuration literals, related-source links, and the
+/// inactive beans.
 pub(crate) struct Lookups {
     by_name: BTreeMap<String, Vec<(String, usize)>>,
     by_type: BTreeMap<String, Vec<(String, usize)>>,
     supertypes: BTreeMap<String, Vec<String>>,
     subtypes: BTreeMap<String, Vec<String>>,
+    types_by_name: BTreeMap<String, Vec<(String, usize)>>,
+    types_by_qualified: BTreeMap<String, Vec<(String, usize)>>,
     injections_by_type: BTreeMap<String, Vec<(String, usize)>>,
     injections_by_name: BTreeMap<String, Vec<(String, usize)>>,
+    /// The value of each canonical key set once, to a plain literal, in base
+    /// `application.*` files; `None` when repeated, profile-scoped or not plain.
+    literals: BTreeMap<String, Option<String>>,
+    /// `spring.config.import` appears: no literal can be trusted.
+    config_imports: bool,
+    /// `spring.profiles.include` or `spring.profiles.group` appears.
+    profile_names_set: bool,
+    resolver: ui_kit::navigation::Resolver,
     inactive: BTreeSet<(String, usize)>,
 }
 
 impl Lookups {
     fn build(files: &BTreeMap<String, FileModel>, complete: bool, modules: &RefCell<BTreeMap<String, Option<String>>>) -> Self {
-        let mut lookups = Lookups::default();
+        let mut lookups = Lookups {
+            by_name: BTreeMap::new(),
+            by_type: BTreeMap::new(),
+            supertypes: BTreeMap::new(),
+            subtypes: BTreeMap::new(),
+            types_by_name: BTreeMap::new(),
+            types_by_qualified: BTreeMap::new(),
+            injections_by_type: BTreeMap::new(),
+            injections_by_name: BTreeMap::new(),
+            literals: BTreeMap::new(),
+            config_imports: false,
+            profile_names_set: false,
+            resolver: ui_kit::navigation::Resolver::new(files.iter().map(|(p, m)| (p.as_str(), &m.navigation))),
+            inactive: BTreeSet::new(),
+        };
+        let imports = spring_text::config::canonical("spring.config.import");
+        let profile_names = [spring_text::config::canonical("spring.profiles.include"), spring_text::config::canonical("spring.profiles.group")];
+        for config in files.values().filter_map(|m| m.config.as_ref()) {
+            for (key, value) in &config.keys {
+                let key = spring_text::config::canonical(key);
+                lookups.config_imports |= key == imports;
+                lookups.profile_names_set |= profile_names.iter().any(|n| key.starts_with(n.as_str()));
+                let plain = !config.profile_scoped && !value.is_empty() && !value.contains("${");
+                lookups.literals.entry(key).and_modify(|once| *once = None).or_insert(plain.then(|| value.clone()));
+            }
+        }
         for (path, model) in files {
-            for t in &model.types {
+            for (at, t) in model.types.iter().enumerate() {
+                lookups.types_by_name.entry(t.name.clone()).or_default().push((path.clone(), at));
+                lookups.types_by_qualified.entry(t.qualified.clone()).or_default().push((path.clone(), at));
                 lookups.supertypes.entry(t.name.clone()).or_default().extend(t.supers.iter().cloned());
                 for s in &t.supers {
                     lookups.subtypes.entry(s.clone()).or_default().push(t.name.clone());
@@ -113,7 +151,7 @@ impl Lookups {
                 .map(|(p, at, _)| (p.clone(), at))
                 .collect()
         };
-        let mut lookups = Rc::try_unwrap(lookups).unwrap_or_else(|shared| (*shared).clone());
+        let Ok(mut lookups) = Rc::try_unwrap(lookups) else { unreachable!("the probe world is gone") };
         for (path, model) in files {
             for (at, bean) in model.beans.iter().enumerate() {
                 let key = (path.clone(), at);
@@ -202,41 +240,71 @@ impl<'a> World<'a> {
         }
     }
 
+    /// The type at `key` of the lookups.
+    fn type_at(&self, (path, at): &(String, usize)) -> Option<&'a TypeInfo> {
+        self.files.get(path)?.types.get(*at)
+    }
+
+    /// The one project type `keys` name, if exactly one.
+    fn only_type(&self, keys: Option<&Vec<(String, usize)>>) -> Option<&'a TypeInfo> {
+        match keys.map(Vec::as_slice) {
+            Some([key]) => self.type_at(key),
+            _ => None,
+        }
+    }
+
     /// The type `start` and its supertypes, when every one is a project type with all members listed.
     /// `qualified` pins the first one; nothing when a name is ambiguous or comes from a library.
     fn member_chain(&self, start: &str, qualified: Option<&str>) -> Option<Vec<&'a TypeInfo>> {
         const LIBRARY_MARKERS: [&str; 6] = ["Object", "Serializable", "Cloneable", "Comparable", "AutoCloseable", "Closeable"];
+        let lookups = self.lookups.clone();
         let mut found: Vec<&TypeInfo> = Vec::new();
         let mut seen = BTreeSet::new();
-        let mut todo = vec![start];
+        let mut todo = vec![start.to_owned()];
         while let Some(name) = todo.pop() {
-            if !seen.insert(name) || LIBRARY_MARKERS.contains(&name) {
+            if LIBRARY_MARKERS.contains(&name.as_str()) || !seen.insert(name.clone()) {
                 continue;
             }
-            let mut matches = self.files.values().flat_map(|m| &m.types).filter(|t| t.name == name);
-            let (Some(ty), None) = (matches.next(), matches.next()) else {
-                return None;
-            };
+            let ty = self.only_type(lookups.types_by_name.get(&name))?;
             if !ty.members_known || (found.is_empty() && qualified.is_some_and(|q| q != ty.qualified)) {
                 return None;
             }
-            todo.extend(ty.supers.iter().map(String::as_str));
+            todo.extend(ty.supers.iter().cloned());
             found.push(ty);
         }
         Some(found)
     }
 
     fn project_type(&self, qualified: &str) -> Option<&'a TypeInfo> {
-        let mut matches = self.files.values().flat_map(|m| &m.types).filter(|t| t.qualified == qualified);
-        let (Some(ty), None) = (matches.next(), matches.next()) else {
-            return None;
-        };
-        Some(ty)
+        let lookups = self.lookups.clone();
+        self.only_type(lookups.types_by_qualified.get(qualified))
     }
 
     fn path_of(&self, ty: &TypeInfo) -> &'a str {
-        let owner = self.files.iter().find(|(_, m)| m.types.iter().any(|t| std::ptr::eq(t, ty)));
+        let lookups = self.lookups.clone();
+        let keys = lookups.types_by_qualified.get(&ty.qualified).into_iter().flatten();
+        let owner = keys.filter(|key| self.type_at(key).is_some_and(|t| std::ptr::eq(t, ty))).find_map(|(path, _)| self.files.get_key_value(path));
         owner.map_or("", |(p, _)| p.as_str())
+    }
+
+    /// Whether a project type's qualified name starts with `prefix`.
+    fn declares_under(&self, prefix: &str) -> bool {
+        self.lookups.types_by_qualified.range(prefix.to_owned()..).next().is_some_and(|(q, _)| q.starts_with(prefix))
+    }
+
+    /// Whether a project type is qualified `qualified`, under any spelling count.
+    fn declares(&self, qualified: &str) -> bool {
+        self.lookups.types_by_qualified.contains_key(qualified)
+    }
+
+    /// Whether a project type extends or implements `name`.
+    fn has_subtypes(&self, name: &str) -> bool {
+        self.lookups.subtypes.contains_key(name)
+    }
+
+    /// The links between related sources of the cached files.
+    fn resolver(&self) -> &ui_kit::navigation::Resolver {
+        &self.lookups.resolver
     }
 
     /// The value of a string expression made of literals and `static final` project constants.
@@ -810,8 +878,8 @@ impl DiagnosticsProvider for Navigator {
 impl Providers for Navigator {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         self.with_doc(doc, |world, model| {
-            let resolver = ui_kit::navigation::Resolver::new(world.files.iter().map(|(p, m)| (p.as_str(), &m.navigation)));
-            let mut markers = resolver
+            let mut markers = world
+                .resolver()
                 .checked(|path| {
                     if path == doc.path {
                         return Some(model.navigation.clone());
@@ -878,7 +946,8 @@ impl Providers for Navigator {
                 }
             }
             let related = || {
-                ui_kit::navigation::Resolver::new(world.files.iter().map(|(p, m)| (p.as_str(), &m.navigation)))
+                world
+                    .resolver()
                     .checked(|path| {
                         if path == doc.path {
                             return Some(model.navigation.clone());

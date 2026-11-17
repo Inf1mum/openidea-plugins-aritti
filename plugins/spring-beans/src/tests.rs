@@ -3947,6 +3947,12 @@ fn profiles_storage_denied_message() {
         "{:?}",
         host.notifications()
     );
+    let denied_set = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+    assert!(!commands::save_profiles(&["prod".to_owned()]).unwrap(), "a denied set is a notice, not an error");
+    assert!(denied_set.notifications().iter().any(|n| n.body.contains("Allow storage for Spring Beans in Settings › Plugins to remember active profiles.")));
+    let allowed = MockHost::install();
+    assert!(commands::save_profiles(&["prod".to_owned()]).unwrap());
+    assert_eq!(allowed.storage()["activeProfiles"], "prod");
 }
 
 #[test]
@@ -3963,4 +3969,23 @@ fn reviewed_edits_show_changed_lines_with_three_lines_of_context() {
     assert!(!shown.contains("line 9"));
     let overlapping = [edits[1].clone(), TextEdit { range: Range::new(at(15), at(17)), text: String::new() }];
     assert!(matches!(reviewed(&text, &overlapping), Err(Error::Stale)));
+}
+
+#[test]
+fn providers_reuse_lookups_of_one_generation() {
+    let host = setup();
+    let mut nav = warmed_navigator();
+    let source = java("UserController.java", CONTROLLER);
+    let markers = nav.line_markers(&source);
+    nav.diagnostics(&source);
+    let built = nav.indexes.document(&source.path).unwrap().lookups(|| panic!("lookups rebuilt for an unchanged cache"));
+    nav.definition(&source, Position::new(5, 20));
+    nav.completion(&source, Position::new(5, 20), None);
+    assert_eq!(nav.line_markers(&source), markers);
+    let again = nav.indexes.document(&source.path).unwrap().lookups(|| panic!("lookups rebuilt for an unchanged cache"));
+    assert!(Rc::ptr_eq(&built, &again));
+    host.add_file("src/main/java/com/acme/Extra.java", "@org.springframework.stereotype.Component class Extra {}");
+    nav.indexes.changed(&host.invocation().project().unwrap(), "/project/src/main/java/com/acme/Extra.java", false);
+    let rebuilt = nav.indexes.document(&source.path).unwrap().lookups(|| Lookups::build(&BTreeMap::new(), false, &RefCell::default()));
+    assert!(!Rc::ptr_eq(&built, &rebuilt), "a changed cache gets new lookups");
 }

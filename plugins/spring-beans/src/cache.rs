@@ -93,7 +93,9 @@ pub(crate) struct Cache {
 }
 impl Cache {
     pub fn new() -> Self {
-        let index = Index::new(GLOBS, parse).with_limits(MAX_TEXT, MAX_CACHE_BYTES).requiring(required).rejecting(broken_beans);
+        let index = Index::new(GLOBS, parse).with_limits(MAX_TEXT, MAX_CACHE_BYTES).requiring(required)
+            .rejecting(broken_beans)
+            .excluding_nested_projects();
         Self { index, modules: RefCell::default(), lookups: RefCell::default() }
     }
     pub fn files(&self) -> &BTreeMap<String, FileModel> {
@@ -320,23 +322,31 @@ impl Indexes {
                 }
             }
         }
-        let mut size = 32usize;
-        let mut overflow = false;
+        let json_len = |text: &str| serde_json::to_string(text).map_or(MAX_INVENTORY_BYTES + 1, |s| s.len());
+        let mut size = 32 + roots.iter().map(|(root, paths)| json_len(root) + 4 + paths.iter().map(|p| json_len(p) + 1).sum::<usize>()).sum::<usize>();
         for (root, cache) in &self.roots {
-            if root.len() > 4096 { overflow = true; break; }
-            size += serde_json::to_string(root).map_or(MAX_INVENTORY_BYTES + 1, |s| s.len()) + 4;
+            if roots.contains_key(root) {
+                continue;
+            }
+            let mut root_size = json_len(root) + 4;
             let mut paths = BTreeSet::new();
+            let mut overflow = root.len() > 4096;
             for path in cache.index.inventory() {
+                if overflow {
+                    break;
+                }
                 if !source(path) || !owned(path, root) { continue; }
-                size += serde_json::to_string(path).map_or(MAX_INVENTORY_BYTES + 1, |s| s.len()) + 1;
-                if size > MAX_INVENTORY_BYTES || paths.len() >= MAX_FILES { overflow = true; break; }
+                root_size += json_len(path) + 1;
+                overflow = size + root_size > MAX_INVENTORY_BYTES || paths.len() >= MAX_FILES;
                 paths.insert(path.to_owned());
             }
-            if overflow || size > MAX_INVENTORY_BYTES { overflow = true; break; }
-            roots.entry(root.clone()).or_insert(paths);
+            // A root over the bounded format is left out, so no older inventory of it survives; the others keep theirs.
+            if !overflow && size + root_size <= MAX_INVENTORY_BYTES {
+                size += root_size;
+                roots.insert(root.clone(), paths);
+            }
         }
-        // Never retain an older inventory when the new one exceeds the bounded format.
-        if overflow || roots.len() > MAX_ROOTS { roots.clear(); }
+        if roots.len() > MAX_ROOTS { roots.clear(); }
         let value = serde_json::json!({"version": 1, "roots": roots}).to_string();
         if value.len() <= MAX_INVENTORY_BYTES { value } else { r#"{"version":1,"roots":{}}"#.into() }
     }
@@ -631,6 +641,21 @@ mod persistence_tests {
         assert!(inventory_paths(value, "/project").is_none());
         indexes.clear();
         assert!(inventory_paths(&host.storage()[INVENTORY_KEY], &project.root().unwrap()).is_none());
+    }
+    #[test]
+    fn one_oversized_root_does_not_erase_the_other_roots_inventory() {
+        let host = MockHost::install();
+        host.add_project("/second");
+        let mut indexes = Indexes::default();
+        indexes.ensure("/second").update("/second/B.java", "@org.springframework.stereotype.Component class B {}");
+        let index = indexes.ensure("/project");
+        for n in 0..80 {
+            index.update(&format!("/project/{}{}.java", "a".repeat(3500), n), "@org.springframework.stereotype.Component class A {}");
+        }
+        indexes.checkpoint();
+        let value = &host.storage()[INVENTORY_KEY];
+        assert!(inventory_paths(value, "/project").is_none());
+        assert_eq!(inventory_paths(value, "/second"), Some(vec!["/second/B.java".into()]));
     }
     #[test]
     fn first_warm_checkpoint_preserves_another_open_roots_pending_inventory() {
