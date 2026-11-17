@@ -45,6 +45,24 @@ impl Plugin for Main {
         Ok(())
     }
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        self.command(id, ctx, arg).map_err(explain_denial)
+    }
+}
+
+/// Process denials become the standard "allow this permission" message.
+pub(crate) fn explain_denial(error: Error) -> Error {
+    let Error::Denied(capability) = &error else { return error };
+    let feature = match capability.as_str() {
+        "process:devcontainer" => "Running the devcontainer CLI",
+        "process:docker" => "Listing, starting and stopping containers",
+        "process:git" => "Cloning a repository",
+        _ => return error,
+    };
+    Error::Invalid(ui_kit::denied::message(feature, capability, "Dev Container CLI"))
+}
+
+impl Main {
+    fn command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "managed-output" {
             host::reveal_view(operations::VIEW)?;
             return Ok(None);
@@ -88,10 +106,7 @@ impl Plugin for Main {
         }
 
         if id == "stop" {
-            self.run_target.clear_for(&root);
-            host::unregister_run_target(&project, run_target::ID);
-            host::unregister_run_target(&project, run_target::MAPPED_ID);
-            return stop(&project, &root);
+            return stop(&mut self.run_target, &project, &root);
         }
 
         if id == "info" {
@@ -321,32 +336,31 @@ fn start_cloned(target: Option<&str>) -> Result<Option<String>, Error> {
 }
 
 /// The CLI has no stop command; its containers carry the workspace folder as a label.
-fn stop(project: &Project, root: &str) -> Result<Option<String>, Error> {
-    let label = format!("label=devcontainer.local_folder={root}");
-    let listed = project.run_process("docker", &["ps".into(), "-q".into(), "--filter".into(), label], None)?;
+fn stop(run_target: &mut run_target::State, project: &Project, root: &str) -> Result<Option<String>, Error> {
+    let running: Vec<dashboard::Container> = dashboard::list(project, root)?.into_iter().filter(|c| c.running).collect();
 
-    if listed.status != Some(0) {
-        return Err(format!("docker ps failed: {}", listed.stderr.trim()).into());
-    }
-
-    let ids: Vec<String> = listed.stdout.split_whitespace().map(str::to_owned).collect();
-
-    if ids.is_empty() {
+    if running.is_empty() {
         host::notify(NotificationLevel::Info, "Dev Container", "No running container for this project.");
         return Ok(None);
     }
 
-    let stopped = project.run_process("docker", &[vec!["stop".to_owned()], ids.clone()].concat(), None)?;
+    let names = running.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ");
+    let body = format!("Runs docker stop on {names}. Unsaved work in a container shell is lost.\nAny Dev Container run target for this project is removed too.");
+    if !host::confirm(&format!("Stop {names}?"), &body)? {
+        return Ok(None);
+    }
+
+    let ids: Vec<String> = running.into_iter().map(|c| c.id).collect();
+    let stopped = project.run_process("docker", &[vec!["stop".to_owned()], ids].concat(), None)?;
 
     if stopped.status != Some(0) {
         return Err(format!("docker stop failed: {}", stopped.stderr.trim()).into());
     }
 
-    let stopped = match ids.len() {
-        1 => format!("Stopped 1 container. {RUN_TARGET_REMOVED}"),
-        count => format!("Stopped {count} containers. {RUN_TARGET_REMOVED}"),
-    };
-    host::notify(NotificationLevel::Info, "Dev Container", &stopped);
+    run_target.clear_for(root);
+    host::unregister_run_target(project, run_target::ID);
+    host::unregister_run_target(project, run_target::MAPPED_ID);
+    host::notify(NotificationLevel::Info, "Dev Container", &format!("Stopped {names}. {RUN_TARGET_REMOVED}"));
 
     Ok(None)
 }
@@ -603,13 +617,12 @@ mod tests {
         assert!(host.terminals().is_empty());
     }
 
-    #[test]
-    fn stop_stops_the_project_containers() {
+    fn stop_host() -> MockHost {
         let host = host();
         host.on_process("docker", |args, _| match args[0].as_str() {
             "ps" => {
                 assert_eq!(args[3], "label=devcontainer.local_folder=/work/app");
-                ok("abc\ndef\n")
+                ok("{\"ID\":\"abc\",\"Names\":\"web\",\"State\":\"running\"}\n{\"ID\":\"def\",\"Names\":\"db\",\"State\":\"running\"}\n{\"ID\":\"0ff\",\"Names\":\"old\",\"State\":\"exited\"}\n")
             }
             "stop" => {
                 assert_eq!(args, ["stop", "abc", "def"]);
@@ -617,10 +630,45 @@ mod tests {
             }
             other => panic!("unexpected docker {other}"),
         });
+        host
+    }
+
+    #[test]
+    fn stop_names_the_running_containers_and_stops_them_after_confirming() {
+        let host = stop_host();
+        host.answer_next_prompt(Some(&[]));
 
         Main::default().run_command("stop", &host.invocation(), None).unwrap();
 
-        assert_eq!(host.notifications()[0].body, format!("Stopped 2 containers. {RUN_TARGET_REMOVED}"));
+        assert!(host.process_runs().iter().any(|r| r.args[0] == "stop"));
+        assert_eq!(host.notifications()[0].body, format!("Stopped web, db. {RUN_TARGET_REMOVED}"));
+    }
+
+    #[test]
+    fn declining_stop_stops_nothing_and_keeps_run_targets() {
+        let host = stop_host();
+        let project = host.invocation().project().unwrap();
+        let target = openidea_plugin::PluginRunTarget { id: run_target::ID.into(), name: "t".into(), program: "docker".into(), args: vec![], workdir_args: vec![], container_root: None, commands: vec![] };
+        host::register_run_target(&project, &target).unwrap();
+
+        Main::default().run_command("stop", &host.invocation(), None).unwrap();
+
+        assert!(host.process_runs().iter().all(|r| r.args[0] == "ps"));
+        assert_eq!(host.run_targets().len(), 1);
+    }
+
+    #[test]
+    fn stop_without_running_container_keeps_run_targets() {
+        let host = host();
+        host.on_process("docker", |_, _| ok(""));
+        let project = host.invocation().project().unwrap();
+        let target = openidea_plugin::PluginRunTarget { id: run_target::ID.into(), name: "t".into(), program: "docker".into(), args: vec![], workdir_args: vec![], container_root: None, commands: vec![] };
+        host::register_run_target(&project, &target).unwrap();
+
+        Main::default().run_command("stop", &host.invocation(), None).unwrap();
+
+        assert_eq!(host.notifications()[0].body, "No running container for this project.");
+        assert_eq!(host.run_targets().len(), 1);
     }
 
     #[test]
@@ -691,7 +739,7 @@ mod tests {
 
         let error = Main::default().run_command("stop", &host.invocation(), None).unwrap_err();
 
-        assert!(matches!(error, Error::Denied(cap) if cap == "process:docker"));
+        assert!(matches!(error, Error::Invalid(m) if m == "Listing, starting and stopping containers needs the process:docker permission. Allow it in Settings › Plugins › Dev Container CLI."));
     }
 
     fn strip_line_comments(text: &str) -> String {
@@ -1090,7 +1138,7 @@ mod tests {
 
         let error = Main::default().run_command("info", &host.invocation(), None).unwrap_err();
 
-        assert!(matches!(error, Error::Denied(cap) if cap == "process:devcontainer"));
+        assert!(matches!(error, Error::Invalid(m) if m.starts_with("Running the devcontainer CLI needs the process:devcontainer permission.")));
     }
 
     fn complete_in(path: &str, marked: &str) -> Vec<openidea_plugin::providers::CompletionItem> {
@@ -1428,6 +1476,7 @@ mod tests {
         plugin.handle("containers", ViewEvent::Button("shell".into()), &host.invocation()).unwrap();
         assert!(host.finish_terminal("docker-shell-abc123").is_some());
 
+        host.answer_next_prompt(Some(&[]));
         plugin.handle("containers", ViewEvent::Button("stop".into()), &host.invocation()).unwrap();
         assert!(host.process_runs().iter().any(|run| run.args == ["stop", "abc123"]));
         assert!(plugin.selected.is_none());
@@ -1464,6 +1513,7 @@ mod tests {
     #[test]
     fn view_explains_empty_denied_and_failed_listings() {
         let host = docker_host("");
+        host.add_file(".devcontainer/devcontainer.json", "{}");
         let message = |host: &MockHost| match Main::default().render("containers", None, &host.invocation()).unwrap().body {
             Body::List(rows) if rows.len() == 1 && rows[0].key == "devcontainer:status" => rows[0].detail.clone().unwrap(),
             _ => panic!("a status row visible in Services"),

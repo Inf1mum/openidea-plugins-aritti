@@ -38,7 +38,7 @@ fn owner(ctx: &Invocation) -> Result<(Project, String), Error> {
 }
 
 fn row(message: &str) -> View {
-    View::new(Body::List(vec![ListItem::new("managed-status", "Background Run").detail(message)]))
+    View::new(Body::List(vec![ListItem::new("managed-status", "Background run").detail(message)]))
         .button(Button::new("refresh-managed", "Refresh Status").icon("refresh"))
 }
 
@@ -58,7 +58,7 @@ fn append(session: &mut Session, label: &str, value: &str) {
 impl Operations {
     pub(crate) fn idle(&self) -> Result<(), Error> {
         if self.session.as_ref().is_some_and(|s| s.child.is_some()) {
-            return Err("A background command is still running. Open Dev Container: Show Background Output, then press Refresh Status or Cancel Command before starting another.".into());
+            return Err("A background command is still running. Open Dev Container: Show Background Runs, then press Refresh Status or Cancel Command before starting another.".into());
         }
         Ok(())
     }
@@ -140,7 +140,7 @@ impl Operations {
             }
         }
         session.status = session.exit.map_or_else(
-            || "CLI running; bounded output read completed. Refresh Status for further progress.".into(),
+            || "Still running, with more output waiting. Refresh Status reads it.".into(),
             |code| format!("CLI exited with status {code}; output is still draining. Refresh Status or press Cancel Command."),
         );
         Ok(())
@@ -170,7 +170,7 @@ impl Operations {
         Ok(vec![
             Tab::new("target", "Target / State", Pane::Text(format!(
                 "Project: {}\nConfiguration: {}\nProgram: devcontainer\nArguments: {}\n\n{}\n\nThe CLI reads the configuration and may run the build and lifecycle commands it references. Closing it does not prove the container or build stopped. The handle is released after about 300 seconds idle.", session.root, session.config, serde_json::to_string(&session.args).unwrap_or_default(), session.status))),
-            Tab::new("output", "Captured Output", Pane::Text(format!("{}{}", if session.truncated { "[Earlier output truncated; the latest 64 KiB is kept]\n" } else { "" }, if session.output.is_empty() { "No captured output yet. Refresh Status reads a bounded chunk." } else { &session.output }))),
+            Tab::new("output", "Captured Output", Pane::Text(format!("{}{}", if session.truncated { "[Earlier output truncated; the latest 64 KiB is kept]\n" } else { "" }, if session.output.is_empty() { "No output yet. Refresh Status reads the latest output." } else { &session.output }))),
         ])
     }
 
@@ -309,7 +309,7 @@ mod tests {
         let previous = plugin.operations.session.as_ref().unwrap().output.clone();
         let host = host.with_capabilities(&["project.read"]);
         host.answer_next_prompt(Some(&[]));
-        assert!(matches!(plugin.run_command("up-managed", &host.invocation(), None), Err(Error::Denied(_))));
+        assert!(matches!(plugin.run_command("up-managed", &host.invocation(), None), Err(Error::Invalid(m)) if m.contains("process:devcontainer permission")));
         assert_eq!(plugin.operations.session.as_ref().unwrap().output, previous);
         assert!(plugin.operations.failed.as_ref().unwrap().1.contains("Last start failed"));
         assert!(host.refreshed_views().iter().any(|view| view == VIEW));
@@ -322,7 +322,7 @@ mod tests {
         start(&host, &mut plugin, "up-managed");
         let key = plugin.operations.session.as_ref().unwrap().key.clone();
         let tabs = plugin.detail(VIEW, &key, &host.invocation()).unwrap();
-        assert!(matches!(&tabs[1].body, Pane::Text(text) if text.contains("No captured output yet")));
+        assert!(matches!(&tabs[1].body, Pane::Text(text) if text.contains("No output yet")));
         plugin.render(VIEW, None, &host.invocation()).unwrap();
         assert!(plugin.operations.session.as_ref().unwrap().output.is_empty(), "render does not poll");
         let session = plugin.operations.session.as_mut().unwrap();

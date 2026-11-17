@@ -39,7 +39,7 @@ fn full_id(id: &str) -> bool {
 fn text<'a>(value: &'a Value, field: &str) -> Result<&'a str, Error> {
     value[field]
         .as_str()
-        .ok_or_else(|| invalid("Required Docker identity field is missing or not text."))
+        .ok_or_else(|| invalid("Docker returned container details in an unexpected format."))
 }
 // Docker output is not trusted to select an owner through last-key-wins JSON semantics.
 struct Strict(Value);
@@ -98,21 +98,21 @@ impl<'de> Deserialize<'de> for Strict {
 }
 fn json(input: &str) -> Result<Value, Error> {
     if input.len() > MAX_OUTPUT {
-        return Err(invalid("Docker identity output exceeds 128 KiB."));
+        return Err(invalid("Docker returned more than 128 KiB of container details."));
     }
     serde_json::from_str::<Strict>(input)
         .map(|v| v.0)
-        .map_err(|_| invalid("Docker identity output must be valid, duplicate-free JSON."))
+        .map_err(|_| invalid("Docker returned container details that are not valid JSON."))
 }
 fn run(project: &Project, args: &[String]) -> Result<String, Error> {
     let out = project.run_process("docker", args, None)?;
     if out.status != Some(0) {
         return Err(invalid(
-            "Docker identity inspection failed; no Run Target registered.",
+            "Docker could not read the container, so nothing was registered. Check that Docker is running, then try again.",
         ));
     }
     if out.stdout.len() > MAX_OUTPUT {
-        return Err(invalid("Docker identity output exceeds 128 KiB."));
+        return Err(invalid("Docker returned more than 128 KiB of container details."));
     }
     Ok(out.stdout)
 }
@@ -135,14 +135,14 @@ fn endpoint(project: &Project) -> Result<String, Error> {
     let list = value
         .as_array()
         .filter(|a| a.len() == 1)
-        .ok_or_else(|| invalid("Exactly one Docker context is required."))?;
+        .ok_or_else(|| invalid("Docker did not report exactly one current context. Check docker context ls, then try again."))?;
     if list[0]["Name"].as_str() != Some(name) {
-        return Err(invalid("Docker context identity changed."));
+        return Err(invalid("The current Docker context changed while checking. Try again."));
     }
     let endpoint = text(&list[0]["Endpoints"]["docker"], "Host")?;
     if !endpoint.strip_prefix("unix://").is_some_and(absolute) {
         return Err(invalid(
-            "This prototype supports an explicit local Unix Docker endpoint only.",
+            "Run targets need a local Docker socket (unix://). Switch to a local context with docker context use, then try again.",
         ));
     }
     Ok(endpoint.into())
@@ -175,7 +175,7 @@ fn candidates(project: &Project, root: &str, endpoint: &str) -> Result<Vec<Strin
         let id = text(&value, "ID")?;
         if !full_id(id) || !ids.insert(id.to_owned()) || ids.len() > 256 {
             return Err(invalid(
-                "Docker candidate IDs are malformed, duplicate or exceed 256.",
+                "Docker listed unexpected container IDs, or more than 256 containers. Refresh and try again.",
             ));
         }
     }
@@ -203,14 +203,14 @@ fn identity(input: &str, root: &str, config: &str, id: &str) -> Result<Identity,
         || c["State"]["Dead"] != false
     {
         return Err(invalid(
-            "Container identity is not the selected, running stable container.",
+            "The selected container is not running, or is paused or restarting. Start it, then try again.",
         ));
     }
     if c["Config"]["Labels"]["devcontainer.local_folder"].as_str() != Some(root)
         || c["Config"]["Labels"]["devcontainer.config_file"].as_str() != Some(config)
     {
         return Err(invalid(
-            "Container labels do not exactly own this project and configuration.",
+            "This container was started for another project folder or configuration. Start the container from this project, then try again.",
         ));
     }
     let mounts = c["Mounts"]
@@ -222,13 +222,13 @@ fn identity(input: &str, root: &str, config: &str, id: &str) -> Result<Identity,
         .collect();
     if matches.len() != 1 {
         return Err(invalid(
-            "One exact read-write project bind mount is required.",
+            "The container must mount the project folder exactly once, read-write.",
         ));
     }
     let mount = text(matches[0], "Destination")?;
     if !absolute(mount) {
         return Err(invalid(
-            "The project bind destination is not an unambiguous absolute path.",
+            "The project folder is mounted at an unsupported path in the container.",
         ));
     }
     for other in mounts {
@@ -254,7 +254,7 @@ fn identity(input: &str, root: &str, config: &str, id: &str) -> Result<Identity,
         || started.chars().any(char::is_control)
     {
         return Err(invalid(
-            "Container default user/start identity is unsupported.",
+            "The container user or start time could not be read.",
         ));
     }
     Ok(Identity {
@@ -374,7 +374,7 @@ impl State {
                 Mode::MappedProjectRoot => "Registered project-root tooling. Select it in the project's Language server targets to use it. Nothing was selected for you and no container command has run.",
             }
             Err(Error::Invalid(message)) if message == STORAGE_DENIED => {
-                "Not registered: allow storage for Dev Container CLI in Settings › Plugins."
+                "Not registered: run target registration needs the storage permission. Allow it in Settings › Plugins › Dev Container CLI."
             }
             Err(_) if withdrawn => {
                 "Registration failed after the previous target was removed. Prepare it again."
@@ -464,7 +464,7 @@ impl Plan {
 fn registration_key(root: &str, target_id: &str) -> String {
     format!("run-target:{target_id}:{root}")
 }
-const STORAGE_DENIED: &str = "Allow storage for Dev Container CLI in Settings › Plugins";
+const STORAGE_DENIED: &str = "Run target registration needs the storage permission. Allow it in Settings › Plugins › Dev Container CLI.";
 fn remember(plan: &Plan) -> Result<(), Error> {
     let value = serde_json::json!({"id": plan.identity.id, "endpoint": plan.endpoint, "config": plan.config}).to_string();
     match storage::set(&registration_key(&plan.root, plan.mode.id()), &value) {
@@ -519,11 +519,11 @@ fn prepare_mode(state: &mut State, ctx: &Invocation, mode: Mode) -> Result<Optio
     let nonce = state.begin()?;
     let project = ctx
         .project()
-        .ok_or_else(|| invalid("Open an owned project before registering a target."))?;
+        .ok_or_else(|| invalid("Open a project before registering a target."))?;
     let root = project.root()?;
     if !absolute(&root) {
         return Err(invalid(
-            "Only an unambiguous absolute POSIX project root is supported.",
+            "Run targets need a project on a local Unix path (macOS or Linux).",
         ));
     }
     let Some(relative) = crate::configs::choose(&project, false)? else {
@@ -532,7 +532,7 @@ fn prepare_mode(state: &mut State, ctx: &Invocation, mode: Mode) -> Result<Optio
     let config = format!("{root}/{relative}");
     let stat = project.stat(&config)?;
     if stat.kind != FileKind::File || stat.size > crate::MAX_BYTES as u64 {
-        return Err(invalid("Configuration must be a bounded project file."));
+        return Err(invalid("The configuration must be a project file up to 256 KiB."));
     }
     let source = project.read_file(&config)?;
     if source.len() > crate::MAX_BYTES {
@@ -542,7 +542,7 @@ fn prepare_mode(state: &mut State, ctx: &Invocation, mode: Mode) -> Result<Optio
     let ids = candidates(&project, &root, &endpoint)?;
     if ids.is_empty() {
         return Err(invalid(
-            "No running full-ID container was found for this project.",
+            "No running dev container for this project. Start it with Dev Container: Start Container, then try again.",
         ));
     }
     let choices: Vec<_> = ids
@@ -550,7 +550,7 @@ fn prepare_mode(state: &mut State, ctx: &Invocation, mode: Mode) -> Result<Optio
         .map(|id| PickItem {
             key: id.clone(),
             label: format!("Container {}", &id[..12]),
-            description: Some("Candidate only; labels and exact mount are inspected next.".into()),
+            description: Some("Its labels and project folder mount are checked next.".into()),
         })
         .collect();
     let Some(id) = host::pick(
@@ -577,7 +577,7 @@ fn prepare_mode(state: &mut State, ctx: &Invocation, mode: Mode) -> Result<Optio
     let preview = plan.preview();
     if preview.len() > 16 * 1024 {
         return Err(invalid(
-            "Exact target preview exceeds the host 16 KiB confirmation limit.",
+            "The registration details exceed the 16 KiB confirmation limit.",
         ));
     }
     if !host::confirm(
@@ -656,6 +656,7 @@ mod tests {
         main.run_command("register-mapped-tooling-target", &host.invocation(), None).unwrap();
         format!("register:{}", main.run_target.prepared.as_ref().unwrap().nonce)
     }
+    const RUNNING_ROW: &str = r#"{"ID":"CID","Names":"app","State":"running"}"#;
     fn registered(host: &MockHost) {
         remember(&plan(host)).unwrap();
     }
@@ -693,10 +694,11 @@ mod tests {
         let key = draft(&host, &mut main);
         let host = host.with_capabilities(&["project.read", "process:docker"]);
         assert!(main.handle(REVIEW, ViewEvent::Button(key), &host.invocation()).is_err());
-        assert!(main.run_target.status.as_ref().unwrap().1.contains("allow storage"));
+        assert!(main.run_target.status.as_ref().unwrap().1.contains("needs the storage permission"));
+        assert_eq!(STORAGE_DENIED, ui_kit::denied::message("Run target registration", "storage", "Dev Container CLI"));
         assert!(host.run_targets().is_empty());
-        assert!(host.notifications().iter().any(|n| n.body.contains("Allow storage for Dev Container CLI")));
-        assert!(validate_running("/work/app", ID).unwrap_err().contains("Allow storage"));
+        assert!(host.notifications().iter().any(|n| n.body == STORAGE_DENIED));
+        assert!(validate_running("/work/app", ID).unwrap_err() == STORAGE_DENIED);
     }
     #[test]
     fn validate_refuses_malformed_stored_registration() {
@@ -811,11 +813,12 @@ mod tests {
         assert_eq!(host.process_runs().len(),0);
     }
     #[test]
-    fn container_stop_withdraws_both_mode_slots_before_mutation() {
+    fn container_stop_withdraws_both_mode_slots_after_stopping() {
         let host=setup();register_both(&host);
         host.on_process("docker", |args,_| {
-            match args.first().map(String::as_str) { Some("ps") => ok(CID), Some("stop") => ok(CID), _ => panic!("unexpected {args:?}") }
+            match args.first().map(String::as_str) { Some("ps") => ok(&RUNNING_ROW.replace("CID", CID)), Some("stop") => ok(CID), _ => panic!("unexpected {args:?}") }
         });
+        host.answer_next_prompt(Some(&[]));
         crate::Main::default().run_command("stop",&host.invocation(),None).unwrap();
         assert!(host.run_targets().is_empty());
     }
@@ -1107,7 +1110,7 @@ mod tests {
             if action == "stop" {
                 host.on_process("docker", |args, _| {
                     if args[0] == "ps" {
-                        ok(CID)
+                        ok(&RUNNING_ROW.replace("CID", CID))
                     } else if args[0] == "stop" {
                         ok(CID)
                     } else {
