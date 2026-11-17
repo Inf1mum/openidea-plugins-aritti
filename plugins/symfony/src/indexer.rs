@@ -664,10 +664,33 @@ fn twig(path: &str, text: &str, out: &mut Collected) {
 
 const MAX_INDEXED_BYTES: usize = 1_000_000;
 
+/// Marker kinds whose definitions are published. `template#` and `validator-of#` are left out: their
+/// definitions would not cover exactly the renamable name.
+const PUBLISHED_KINDS: [&str; 9] =
+    ["class-service#", "class#", "event#", "event-dispatch#", "constraint-of#", "render#", "override#", "block#", "route-use#"];
+
+fn published_kind(key: &str) -> bool {
+    PUBLISHED_KINDS.iter().any(|kind| key.starts_with(kind))
+}
+
+/// The renamable name of a key: a block name, or the class name when the range holds only its short form.
+fn covers_exactly_its_name(text: &str, anchor: &Anchor) -> bool {
+    let (Some(start), Some(end)) = (text::offset(text, anchor.range.start), text::offset(text, anchor.range.end)) else {
+        return false;
+    };
+    let Some(covered) = text.get(start..end).filter(|covered| !covered.is_empty()) else { return false };
+    let name = anchor.key.split_once('#').map_or("", |(_, name)| name);
+    let name = name.rsplit_once("::").map_or(name, |(_, block)| block);
+    covered == name || name.ends_with(&format!("\\{covered}"))
+}
+
 impl DocumentIndexer for Main {
     fn index(&mut self, doc: &Document) -> Edges {
-        let markers = self.navigation_associations(doc).markers;
-        Edges { markers, ..Edges::default() }
+        let all = self.navigation_associations(doc);
+        let markers = all.markers.into_iter().filter(|marker| published_kind(&marker.key)).collect();
+        let definitions =
+            all.definitions.into_iter().filter(|anchor| published_kind(&anchor.key) && covers_exactly_its_name(&doc.text, anchor)).collect();
+        Edges { definitions, markers, ..Edges::default() }
     }
 }
 impl Main {
@@ -766,7 +789,66 @@ mod tests {
         let text = "<?php\nnamespace App;\nclass BlogController {\n  #[Route('/b', name: 'blog')]\n  function i() { return $this->render('blog/i.html.twig'); }\n}\n";
         let edges = Main::default().index(&Document { path: "/p/src/BlogController.php".into(), text: text.into(), symbols: Vec::new() });
         assert!(keys(&edges.markers).contains(&"route-use#blog"));
-        assert!(edges.definitions.is_empty() && edges.references.is_empty());
+        assert!(keys(&edges.markers).contains(&"class-service#App\\BlogController"));
+        assert!(edges.references.is_empty());
+    }
+
+    fn published(path: &str, text: &str) -> Edges {
+        use openidea_plugin::indexing::DocumentIndexer;
+        Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
+    }
+
+    fn fixtures() -> Vec<(&'static str, String)> {
+        let dispatcher = "<?php\nnamespace App\\Service;\n\nuse App\\Event\\OrderPlaced;\n\nclass Checkout\n{\n    public function go($dispatcher, $e)\n    {\n        $dispatcher->dispatch(new OrderPlaced($x));\n    }\n}\n";
+        vec![
+            ("/p/src/Controller/BlogController.php", "<?php\nnamespace App\\Controller;\nclass BlogController {\n  #[Route('/b', name: 'blog')]\n  function i() { return $this->render('blog/i.html.twig'); }\n  function j() { return $this->generateUrl('blog'); }\n}\n".into()),
+            ("/p/config/services.yaml", "services:\n    App\\Controller\\BlogController: ~\n".into()),
+            ("/p/templates/blog/i.html.twig", "{% extends 'base.html.twig' %}\n{% block body %}{% endblock %}".into()),
+            ("/p/templates/base.html.twig", "{% block body %}{% endblock %}".into()),
+            ("/p/src/EventSubscriber/S.php", SUBSCRIBER.into()),
+            ("/p/src/Service/Checkout.php", dispatcher.into()),
+            ("/p/src/Validator/NoSpaces.php", "<?php\nnamespace App\\Validator;\n\nuse Symfony\\Component\\Validator\\Constraint;\n\nclass NoSpaces extends Constraint\n{\n}\n".into()),
+            ("/p/src/Validator/NoSpacesValidator.php", "<?php\nnamespace App\\Validator;\n\nuse Symfony\\Component\\Validator\\ConstraintValidator;\n\nclass NoSpacesValidator extends ConstraintValidator\n{\n}\n".into()),
+        ]
+    }
+
+    #[test]
+    fn every_published_definition_covers_exactly_its_name() {
+        for (path, text) in fixtures() {
+            let doc = Document { path: path.into(), text: text.clone(), symbols: Vec::new() };
+            for anchor in published(path, &text).definitions {
+                assert!(covers_exactly_its_name(&doc.text, &anchor), "{path}: {}", anchor.key);
+                let (start, end) = (text::offset(&text, anchor.range.start).unwrap(), text::offset(&text, anchor.range.end).unwrap());
+                let name = anchor.key.split_once('#').unwrap().1;
+                let name = name.rsplit_once("::").map_or(name, |(_, block)| block);
+                assert!(name.ends_with(&text[start..end]), "{path}: {} covers {:?}", anchor.key, &text[start..end]);
+            }
+        }
+    }
+
+    #[test]
+    fn each_published_marker_kind_has_a_matching_definition() {
+        let mut markers = Vec::new();
+        let mut definitions = Vec::new();
+        for (path, text) in fixtures() {
+            let edges = published(path, &text);
+            markers.extend(edges.markers.into_iter().map(|anchor| anchor.key));
+            definitions.extend(edges.definitions.into_iter().map(|anchor| anchor.key));
+        }
+        for kind in PUBLISHED_KINDS {
+            let of_kind: Vec<_> = markers.iter().filter(|key| key.starts_with(kind)).collect();
+            assert!(!of_kind.is_empty(), "no {kind} marker");
+            assert!(of_kind.iter().any(|key| definitions.contains(key)), "{kind} markers have no published definition");
+        }
+    }
+
+    #[test]
+    fn template_and_validator_markers_are_not_published() {
+        for (path, text) in fixtures() {
+            let edges = published(path, &text);
+            assert!(edges.markers.iter().all(|anchor| !anchor.key.starts_with("template#") && !anchor.key.starts_with("validator-of#")));
+            assert!(edges.definitions.iter().all(|anchor| !anchor.key.starts_with("template#") && !anchor.key.starts_with("validator-of#")));
+        }
     }
 
     #[test]
@@ -1021,7 +1103,7 @@ mod tests {
             ("/p/assets/controllers/x_controller.js", "export default class {}"),
         ] {
             let edges = Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() });
-            assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.aliases.is_empty());
+            assert!(edges.definitions.iter().all(|anchor| published_kind(&anchor.key)) && edges.references.is_empty() && edges.aliases.is_empty());
         }
     }
 }

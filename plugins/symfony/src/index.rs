@@ -117,8 +117,8 @@ pub struct Index {
     pub compiled_container: bool,
     /// Some files were skipped to stay within the call's time budget.
     pub partial: bool,
-    /// A `new Lexer(` in `src/` means custom Twig delimiters, which Symfony's own Twig checks do not read.
-    pub custom_twig_lexer: bool,
+    /// `src/` files that build a Twig Lexer: custom delimiters, which Symfony's own Twig checks do not read.
+    pub lexer_files: BTreeSet<String>,
 }
 
 /// Compiled files of `bin/console cache:warmup`, which also hold what bundles
@@ -240,7 +240,24 @@ fn cache_settings() -> Option<Vec<Option<String>>> {
         .into_iter().map(host::setting_string).collect();
     values.iter().all(|value|value.as_ref().is_none_or(|value|value.len()<=32<<10)).then_some(values)
 }
+/// A Twig Lexer, not Doctrine's or ExpressionLanguage's.
+fn declares_twig_lexer(text: &str) -> bool {
+    (text.contains("Twig\\Lexer") && text.contains("Lexer("))
+        || (text.contains("setLexer(") && text.contains("Twig"))
+}
+
 impl Index {
+    pub fn custom_twig_lexer(&self) -> bool {
+        !self.lexer_files.is_empty()
+    }
+
+    pub(crate) fn note_lexer(&mut self, path: &str, text: &str) {
+        match declares_twig_lexer(text) {
+            true => self.lexer_files.insert(path.to_owned()),
+            false => self.lexer_files.remove(path),
+        };
+    }
+
     pub(crate) fn settings_current(&self) -> bool {
         self.cache_settings.as_ref().is_none_or(|expected|cache_settings().as_ref()==Some(expected))
     }
@@ -414,7 +431,9 @@ impl Index {
         let mut route_files_seen = false;
         let route_php = files(&["config/routes.php", "config/routes/**/*.php"]);
         routes_literal &= route_php.is_empty();
-        routes_literal &= optional_text(project, "src/Kernel.php", &mut index).find("outes").is_none();
+        let kernel = optional_text(project, "src/Kernel.php", &mut index);
+        routes_literal &= kernel.find("outes").is_none();
+        index.note_lexer(&format!("{root}/src/Kernel.php"), &kernel);
 
         for path in &config {
             let Some(text) = read(path, &mut index) else { continue };
@@ -475,6 +494,7 @@ impl Index {
 
         for path in &controllers {
             let Some(text) = read(path, &mut index) else { continue };
+            index.note_lexer(path, &text);
             routes_literal &= php_routes_literal(&text);
             php_routes(path, &text, &mut index.routes);
             index.route_defs.extend(route_defs::php_route_defs(path, &text));
@@ -484,15 +504,13 @@ impl Index {
 
         for path in &commands {
             let Some(text) = read(path, &mut index) else { continue };
+            index.note_lexer(path, &text);
             php_commands(path, &text, &mut index.commands);
         }
 
-        for path in discover(project, &["src/**/*.php"], MAX_FILES).0 {
-            let Some(text) = read(&path, &mut index) else { break };
-            if text.contains("new Lexer(") {
-                index.custom_twig_lexer = true;
-                break;
-            }
+        for path in files(&["src/Twig/**/*.php"]) {
+            let Some(text) = read(&path, &mut index) else { continue };
+            index.note_lexer(&path, &text);
         }
 
         for path in &translations {
@@ -520,6 +538,7 @@ impl Index {
         let mut found_components: Vec<(crate::components::Component, String)> = Vec::new();
         for path in files(&["src/**/Components/**/*.php"]) {
             let Some(text) = read(&path, &mut index) else { continue };
+            index.note_lexer(&path, &text);
             if !text.contains("AsTwigComponent") && !text.contains("AsLiveComponent") {
                 continue;
             }
@@ -568,6 +587,7 @@ impl Index {
         let entity_globs: Vec<&str> = entity_globs.iter().map(String::as_str).collect();
         for path in files(&entity_globs) {
             let Some(text) = read(&path, &mut index) else { continue };
+            index.note_lexer(&path, &text);
             if !text.contains("Entity") {
                 continue;
             }
@@ -689,10 +709,7 @@ impl Index {
         if declares_component || text.contains("AsAlias") || self.components.values().any(|entry| entry.path == path) {
             return false;
         }
-        if self.custom_twig_lexer && !text.contains("new Lexer(") {
-            return false;
-        }
-        self.custom_twig_lexer |= text.contains("new Lexer(");
+        self.note_lexer(&path, &text);
 
         drop_path(&mut self.routes);
         drop_path(&mut self.roles);

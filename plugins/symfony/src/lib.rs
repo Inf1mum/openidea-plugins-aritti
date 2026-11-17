@@ -862,7 +862,7 @@ fn route_is_missing(index: &Index, text: &str, start: usize, name: &str) -> bool
 }
 
 pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
-    if language == "twig" && index.custom_twig_lexer {
+    if language == "twig" && index.custom_twig_lexer() {
         return Vec::new();
     }
     let mut problems = Vec::new();
@@ -1006,7 +1006,7 @@ impl Groups {
 fn findings(index: &Index, groups: Groups, read: checks::Reader, path: &str, language: &str, text: &str) -> Vec<checks::Finding> {
     let ctx = checks::Context::new(index, read);
     let mut findings = Vec::new();
-    let groups = if language == "twig" && index.custom_twig_lexer { Groups { twig: false, twig_syntax: false, ..groups } } else { groups };
+    let groups = if language == "twig" && index.custom_twig_lexer() { Groups { twig: false, twig_syntax: false, ..groups } } else { groups };
 
     if groups.controllers {
         findings.extend(checks::check_routes(&ctx, path, language, text));
@@ -1077,7 +1077,7 @@ fn fixes(index: &Index, path: &str, language: &str, text: &str) -> Vec<checks::F
         found.extend(config_checks::yaml_scalars(path, language, text));
     }
 
-    if groups.twig && language == "twig" && !index.custom_twig_lexer {
+    if groups.twig && language == "twig" && !index.custom_twig_lexer() {
         let read = |_: &str| None;
         found.extend(twig_checks::names(&checks::Context::new(index, &read), text));
     }
@@ -3315,6 +3315,28 @@ mod tests {
     }
 
     #[test]
+    fn saving_unrelated_controller_stays_incremental_with_a_twig_lexer() {
+        let host = MockHost::install();
+        host.add_file("src/Twig/Custom.php", "<?php\nuse Twig\\Lexer;\n$twig->setLexer(new Lexer($twig));\n");
+        let mut plugin = activated(&host);
+        plugin.index_all();
+        assert!(plugin.indexes["/project"].custom_twig_lexer());
+        host.add_file("templates/unrelated.html.twig", "x");
+        host.add_file(
+            "src/Controller/BlogController.php",
+            "<?php\nnamespace App\\Controller;\nclass BlogController\n{\n    #[Route('/blog', name: 'blog_renamed')]\n    public function index() {}\n}\n",
+        );
+        plugin.handle_events(&[Event::FileSaved("/project/src/Controller/BlogController.php".into())], &host.invocation());
+        let index = &plugin.indexes["/project"];
+        assert!(index.routes.contains_key("blog_renamed") && !index.templates.contains_key("unrelated.html.twig"));
+        assert!(index.custom_twig_lexer());
+        host.add_file("src/Twig/Custom.php", "<?php\nclass Custom {}\n");
+        plugin.handle_events(&[Event::FileSaved("/project/src/Twig/Custom.php".into())], &host.invocation());
+        assert!(!plugin.indexes["/project"].custom_twig_lexer());
+        assert!(!plugin.indexes["/project"].templates.contains_key("unrelated.html.twig"));
+    }
+
+    #[test]
     fn saving_composer_json_still_rebuilds() {
         let host = MockHost::install();
         let mut plugin = activated(&host);
@@ -5008,7 +5030,7 @@ mod marker_icon_guard {
             .lines()
             .filter_map(|line| line.strip_prefix("icon = \"icons/marker-"))
             .collect();
-        assert_eq!(declared.len(), 11);
+        assert_eq!(declared.len(), 9);
         for name in declared {
             let icon = format!("icons/marker-{}", name.trim_end_matches('"'));
             assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&icon).is_file(), "{icon}");

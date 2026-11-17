@@ -21,7 +21,7 @@ impl DiagnosticsProvider for Main {
         let unavailable=Index{partial:true,..Index::default()};
         let index=if cached.settings_current() {cached} else {&unavailable};
         let mut groups = Groups::from_settings();
-        if doc.language == "twig" && index.custom_twig_lexer {
+        if doc.language == "twig" && index.custom_twig_lexer() {
             groups.twig = false;
             groups.twig_syntax = false;
         }
@@ -132,20 +132,22 @@ mod tests {
     #[test]
     fn custom_twig_lexer_skips_symfony_twig_checks() {
         let missing = Document { path: "/project/templates/a.twig".into(), language: "twig".into(), version: 1, text: "{{ path('missing') }}".into() };
-        let checked = |lexer: bool| {
+        let checked = |lexer: Option<&str>| {
             let (host, mut owner) = setup();
-            if lexer {
-                host.add_file("src/Twig/Custom.php", "<?php\n$twig->setLexer(new Lexer($twig, ['tag_block' => ['<%', '%>']]));\n");
+            if let Some(source) = lexer {
+                host.add_file("src/Twig/Custom.php", source);
             }
             let mut index = Index::build(&host.invocation().project().unwrap());
-            assert_eq!(index.custom_twig_lexer, lexer);
             index.partial = false;
             index.compiled_routes = true;
             owner.indexes.insert("/project".into(), index);
             owner.diagnostics(&missing).iter().any(|finding| finding.code.as_deref() == Some("twig-missing-route"))
         };
-        assert!(checked(false));
-        assert!(!checked(true));
+        let twig = "<?php\nuse Twig\\Lexer;\n$twig->setLexer(new Lexer($twig, ['tag_block' => ['<%', '%>']]));\n";
+        let doctrine = "<?php\nuse Doctrine\\ORM\\Query\\Lexer;\n$lexer = new Lexer($dql);\n";
+        assert!(checked(None));
+        assert!(checked(Some(doctrine)));
+        assert!(!checked(Some(twig)));
     }
 
     #[test]
