@@ -632,7 +632,8 @@ fn members(bytes: &[u8], at: usize) -> Vec<Member> {
         if key_end < i + 2 || bytes[key_end - 1] != b'"' {
             return found;
         }
-        let key = String::from_utf8_lossy(&bytes[i + 1..key_end - 1]).into_owned();
+        let raw = String::from_utf8_lossy(&bytes[i..key_end]);
+        let key = serde_json::from_str::<String>(&raw).unwrap_or_else(|_| raw[1..raw.len() - 1].to_owned());
         let key_range = i..key_end;
 
         i = skip_trivia(bytes, key_end);

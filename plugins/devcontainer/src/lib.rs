@@ -62,7 +62,7 @@ impl Plugin for Main {
             self.operations.idle()?;
             let Some(config) = configs::choose(&project, false)? else { return Ok(None); };
             let plan = launch::Plan::prepare(&project, if id == "up-managed" { "up" } else { "rebuild" }, &config)?;
-            if !ui_kit::prompts::confirm_exact(plan.title(), &format!("{}\n\nFinite managed mode: one CLI client is retained only while this plugin instance lives (normally about300seconds idle). Refresh Status reads bounded progress; Cancel closes that client handle. CLI exit/cancellation does not establish container or Docker-build termination, rollback or IDE ownership. Output stays in memory, latest64KiB only. Existing Start/Rebuild terminal commands remain available.", plan.preview()))? {
+            if !ui_kit::prompts::confirm_exact(plan.title(), &format!("{}\n\nThe command runs in Services. Refresh Status shows its progress and Cancel closes it; cancelling does not undo a container or build that already started. The latest 64 KiB of output is kept, and the handle is released after about 300 seconds idle.", plan.preview()))? {
                 return Ok(None);
             }
             plan.launch_managed(ctx, &mut self.operations)?;
@@ -98,7 +98,7 @@ impl Plugin for Main {
         }
 
         if id == "clone" {
-            return clone(&project, &root);
+            return clone(&root);
         }
 
         if !matches!(id, "up" | "rebuild" | "shell") {
@@ -248,7 +248,7 @@ fn repository_name(url: &str) -> &str {
     name.strip_suffix(".git").unwrap_or(name)
 }
 
-fn clone(project: &Project, root: &str) -> Result<Option<String>, Error> {
+fn clone(root: &str) -> Result<Option<String>, Error> {
     let Some(url) = host::input("Repository URL to clone", None)? else {
         return Ok(None);
     };
@@ -269,16 +269,9 @@ fn clone(project: &Project, root: &str) -> Result<Option<String>, Error> {
         return Ok(None);
     }
 
-    let cloned = {
-        let _task = host::begin_task("Cloning the repository", false);
-        project.run_process("git", &["clone".into(), "--".into(), url.into(), target.into()], None)?
-    };
-    if cloned.status != Some(0) {
-        return Err(format!("git clone failed: {}", cloned.stderr.trim()).into());
-    }
-
-    let args = ["up".to_owned(), "--workspace-folder".to_owned(), target.to_owned()];
-    host::open_terminal("Dev Container: Start Cloned Container", "devcontainer", &args)?;
+    let args = ["clone".to_owned(), "--".to_owned(), url.to_owned(), target.to_owned()];
+    host::open_terminal("Dev Container: Clone Repository", "git", &args)?;
+    host::notify(NotificationLevel::Info, "Dev Container", "Cloning in a terminal. Open the new folder, then run Dev Container: Start Container.");
 
     Ok(None)
 }
@@ -419,8 +412,8 @@ fn feature_items(text: &str, key: std::ops::Range<usize>) -> Vec<CompletionItem>
 }
 
 impl openidea_plugin::RunTargetValidation for Main {
-    fn validate(&mut self, project: &str, _target_id: &str, _launch: &openidea_plugin::RunTargetLaunch) -> Result<(), String> {
-        run_target::validate_running(project)
+    fn validate(&mut self, project: &str, target_id: &str, _launch: &openidea_plugin::RunTargetLaunch) -> Result<(), String> {
+        run_target::validate_running(project, target_id)
     }
 }
 
@@ -579,24 +572,22 @@ mod tests {
     }
 
     #[test]
-    fn clone_clones_next_to_the_project_then_starts_the_container() {
-        let host = host().with_capabilities(&["project.read", "process:devcontainer", "process:git"]);
-        host.on_process("git", |args, _| {
-            assert_eq!(args, ["clone", "--", "https://example.com/acme/tool.git", "/work/tool"]);
-            ok("")
-        });
+    fn clone_opens_terminal() {
+        let host = host().with_capabilities(&["project.read", "process:git"]);
 
         host.answer_next_prompt(Some(&["https://example.com/acme/tool.git"]));
         host.answer_next_prompt(Some(&["/work/tool"]));
         Main::default().run_command("clone", &host.invocation(), None).unwrap();
 
-        assert_eq!(host.terminals()[0].args, ["up", "--workspace-folder", "/work/tool"]);
+        let terminals = host.terminals();
+        assert_eq!(terminals[0].program, "git");
+        assert_eq!(terminals[0].args, ["clone", "--", "https://example.com/acme/tool.git", "/work/tool"]);
+        assert!(host.process_runs().is_empty());
     }
 
     #[test]
-    fn clone_stops_on_dismissal_bad_url_or_failed_git() {
-        let host = host().with_capabilities(&["project.read", "process:devcontainer", "process:git"]);
-        host.on_process("git", |_, _| Ok(ProcessOutput { status: Some(128), stdout: String::new(), stderr: "fatal: nope".into() }));
+    fn clone_stops_on_dismissal_or_bad_url() {
+        let host = host().with_capabilities(&["project.read", "process:git"]);
 
         host.answer_next_prompt(None);
         Main::default().run_command("clone", &host.invocation(), None).unwrap();
@@ -605,14 +596,9 @@ mod tests {
         host.answer_next_prompt(Some(&["https://example.com/acme/tool.git"]));
         host.answer_next_prompt(None);
         Main::default().run_command("clone", &host.invocation(), None).unwrap();
+
         assert!(host.process_runs().is_empty() && host.terminals().is_empty());
         assert_eq!(host.notifications().len(), 1);
-
-        host.answer_next_prompt(Some(&["https://example.com/acme/tool.git"]));
-        host.answer_next_prompt(Some(&["/work/tool"]));
-        let error = Main::default().run_command("clone", &host.invocation(), None).unwrap_err();
-        assert!(error.to_string().contains("fatal: nope"));
-        assert!(host.terminals().is_empty());
     }
 
     #[test]
@@ -775,12 +761,20 @@ mod tests {
     }
 
     #[test]
-    fn manifest_activates_on_file_events() {
+    fn escaped_key_recognised() {
+        let host = host();
+        open(&host, ".devcontainer.json", "{\"\\u0069mage\": \"x\"}");
+        assert!(host.provider_diagnostics().is_empty());
+    }
+
+    #[test]
+    fn manifest_activates_on_views_only() {
         let manifest = include_str!("../plugin.toml");
 
-        for activation in ["on-event:file-opened", "on-event:file-saved", "on-view:containers", "on-view:run-target-review"] {
+        for activation in ["on-view:containers", "on-view:run-target-review"] {
             assert!(manifest.contains(&format!("\"{activation}\"")));
         }
+        assert!(!manifest.contains("on-event:") && !manifest.contains("\"events\""));
     }
 
     #[test]
