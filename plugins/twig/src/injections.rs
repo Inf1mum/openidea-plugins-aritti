@@ -119,6 +119,8 @@ fn tag_end(bytes: &[u8], start: usize) -> Option<usize> {
             quote = Some(b);
         } else if b == b'>' {
             return Some(i);
+        } else if b == b'<' {
+            return None;
         }
     }
     None
@@ -190,6 +192,12 @@ mod tests {
             bodies("<script>{{ x }}</script><style>p{}</style>").len(),
             1
         );
+    }
+    #[test]
+    fn unquoted_lt_before_a_script_does_not_hide_it() {
+        let found = bodies("a < b <script>x</script>");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].2, "javascript");
     }
     #[test]
     fn stray_lt_does_not_stop_injections() {

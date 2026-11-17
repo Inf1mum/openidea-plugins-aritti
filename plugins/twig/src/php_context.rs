@@ -4,6 +4,7 @@
 
 use crate::navigate::{is_word, php_code_mask, quoted};
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
@@ -122,7 +123,14 @@ fn agreed(facts: Vec<LexerFacts>) -> Option<[String; 6]> {
     Some([block.0, block.1, variable.0, variable.1, comment.0, comment.1])
 }
 
-thread_local! {static CACHE: RefCell<Option<[String; 6]>> = const { RefCell::new(None) };}
+/// The scanned project root and the Lexer facts of each of its PHP files that has some.
+type ProjectFacts = (String, BTreeMap<String, Vec<LexerFacts>>);
+
+thread_local! {
+    static CACHE: RefCell<Option<[String; 6]>> = const { RefCell::new(None) };
+    /// What the last full scan found per file; `None` when it gave up, so single-file updates can't be trusted.
+    static FACTS: RefCell<Option<ProjectFacts>> = const { RefCell::new(None) };
+}
 
 /// Delimiters from the last project scan; never scans. Providers read this, `refresh_project_lexer` fills it.
 pub fn project_lexer() -> Option<[String; 6]> {
@@ -132,16 +140,42 @@ pub fn project_lexer() -> Option<[String; 6]> {
 /// Rescans the open project's literal `Lexer` construction. Only one open project is considered, because
 /// syntax requests carry no file path; several projects, no literal config or conflicting ones give `None`.
 pub fn refresh_project_lexer() {
-    let value = scan_project();
+    let scanned = scan_project();
+    let value = scanned.as_ref().and_then(|(_, facts)| agreed(facts.values().flatten().cloned().collect()));
     CACHE.with(|c| *c.borrow_mut() = value);
+    FACTS.with(|f| *f.borrow_mut() = scanned);
 }
 
-fn scan_project() -> Option<[String; 6]> {
+/// Re-reads one saved, changed or removed PHP file of the scanned project and agrees the delimiters again
+/// from the cached facts of the others, instead of rescanning the project.
+pub fn update_project_lexer(path: &str) {
+    FACTS.with(|f| {
+        let mut f = f.borrow_mut();
+        let Some((root, facts)) = f.as_mut() else { return };
+        let in_scope = path
+            .strip_prefix(&format!("{root}/"))
+            .is_some_and(|rel| rel.ends_with(".php") && ["src/", "app/", "lib/"].iter().any(|dir| rel.starts_with(dir)));
+        if !in_scope {
+            return;
+        }
+        let read = crate::host::project_of(path)
+            .filter(|project| project.stat(path).is_ok_and(|s| s.size <= 128 << 10))
+            .and_then(|project| project.read_file(path).ok());
+        match read.map(|php| lexer_facts(&php)).filter(|found| !found.is_empty()) {
+            Some(found) => facts.insert(path.to_owned(), found),
+            None => facts.remove(path),
+        };
+        let value = agreed(facts.values().flatten().cloned().collect());
+        CACHE.with(|c| *c.borrow_mut() = value);
+    });
+}
+
+fn scan_project() -> Option<ProjectFacts> {
     let projects = crate::host::projects().ok()?;
     let [project] = projects.as_slice() else { return None };
     let root = project.root().ok()?;
     let deadline = Instant::now() + Duration::from_secs(1);
-    let mut facts = Vec::new();
+    let mut facts = BTreeMap::new();
     let (mut files, mut bytes) = (0usize, 0usize);
     for glob in crate::EXTENSION_GLOBS {
         for path in project.find_files(glob, 400).ok()? {
@@ -157,10 +191,13 @@ fn scan_project() -> Option<[String; 6]> {
             if bytes > 8 << 20 {
                 return None;
             }
-            facts.extend(lexer_facts(&php));
+            let found = lexer_facts(&php);
+            if !found.is_empty() {
+                facts.insert(path, found);
+            }
         }
     }
-    agreed(facts)
+    Some((root, facts))
 }
 
 fn skip_expression(php: &str, mut at: usize) -> Option<usize> {

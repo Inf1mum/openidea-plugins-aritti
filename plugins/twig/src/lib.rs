@@ -78,9 +78,18 @@ impl Twig {
         while std::time::Instant::now()<deadline {
             let Some(path)=self.pending.pop() else {return};
             if self.scanned_files>=EXTENSION_FILES||self.scanned_bytes+(128<<10)>(12<<20) {self.pending.clear();return;}
-            let Some(project)=project_of(&path) else {continue};
+            let Some(project)=project_of(&path) else {self.extensions.remove(&path);self.renders.remove(&path);continue};
             self.scanned_files+=1;
             self.scanned_bytes+=self.scan_file(&project,&path);
+        }
+    }
+    /// Queues paths for the 40 ms slices instead of dropping what they said: each is re-read or forgotten there.
+    fn requeue(&mut self,paths:Vec<String>) {
+        if paths.is_empty() {return;}
+        if self.pending.is_empty() {self.scanned_files=0;self.scanned_bytes=0;}
+        let room=(EXTENSION_FILES as usize).saturating_sub(self.pending.len());
+        for path in paths.into_iter().take(room) {
+            if !self.pending.contains(&path) {self.pending.push(path);}
         }
     }
     fn scan_file(&mut self,project:&Project,path:&str)->usize {
@@ -248,7 +257,7 @@ fn main_template_dirs(project: &Project) -> Option<(Vec<String>, Vec<String>)> {
     let usable = |dir: &str| safe_namespace_part(dir, true).then(|| dir.trim_end_matches('/').to_owned());
     let mut fixed = Vec::new();
     let mut variable = Vec::new();
-    let mut add = |list: &mut Vec<String>, other: &[String], dir: Option<String>| {
+    let add = |list: &mut Vec<String>, other: &[String], dir: Option<String>| {
         if let Some(dir) = dir {
             if !list.contains(&dir) && !other.contains(&dir) {
                 list.push(dir);
@@ -410,31 +419,40 @@ impl Plugin for Twig {
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         let started=std::time::Instant::now();
-        let mut count=0usize;
-        let mut rescanned=0usize;
-        if events.len()>256 {self.extensions.clear();self.renders.clear();return;}
+        let paths=|events:&[Event]|events.iter().flat_map(|event|match event {
+            Event::FileSaved(path)=>vec![path.clone()],
+            Event::FilesChanged(batch)=>batch.created.iter().chain(&batch.modified).chain(&batch.removed).cloned().collect(),
+            _=>Vec::new(),
+        }).collect::<Vec<_>>();
+        let php:Vec<String>=paths(events).into_iter().filter(|p|p.ends_with(".php")).collect();
+        if php.len()>MAX_RESCANNED_PHP {php_context::refresh_project_lexer();}
+        else {for path in &php {php_context::update_project_lexer(path);}}
+        if events.len()>256 {self.requeue(paths(events));return self.drain_pending();}
         self.drain_pending();
-        for event in events {
-            if started.elapsed()>std::time::Duration::from_millis(100) {self.extensions.clear();self.renders.clear();return;}
+        let mut rescanned=0usize;
+        for (at,event) in events.iter().enumerate() {
+            if started.elapsed()>std::time::Duration::from_millis(100) {self.requeue(paths(&events[at..]));return self.drain_pending();}
             match event {
                 Event::FileSaved(path) => {
                     if path.ends_with("composer.json")||path.ends_with("symfony.lock")||path.ends_with("twig.yaml") {forget_project_facts();}
                     if !path.ends_with(".php") {continue;}
                     if let Some(project)=project_of(path) { self.scan_file(&project,path); }
                     else {self.extensions.remove(path);self.renders.remove(path);}
-                    php_context::refresh_project_lexer();
                 }
                 Event::FilesChanged(batch) => {
-                    for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed).take(257) {
-                        count+=1;
-                        if count>256 {self.extensions.clear();self.renders.clear();return;}
+                    for path in batch.removed.iter().chain(batch.created.iter().chain(&batch.modified).filter(|p|!p.ends_with(".php"))) {
                         self.extensions.remove(path);self.renders.remove(path);
                     }
-                    for path in batch.created.iter().chain(&batch.modified).filter(|p|p.ends_with(".php")) {
-                        if rescanned>=MAX_RESCANNED_PHP {break;}
+                    let changed:Vec<String>=batch.created.iter().chain(&batch.modified).filter(|p|p.ends_with(".php")).cloned().collect();
+                    let room=MAX_RESCANNED_PHP.saturating_sub(rescanned).min(changed.len());
+                    for path in &changed[..room] {
                         rescanned+=1;
-                        if let Some(project)=project_of(path) {self.scan_file(&project,path);}
+                        match project_of(path) {
+                            Some(project)=>{self.scan_file(&project,path);}
+                            None=>{self.extensions.remove(path);self.renders.remove(path);}
+                        }
                     }
+                    self.requeue(changed[room..].to_vec());
                 }
                 _ => {}
             }
@@ -1568,6 +1586,25 @@ mod project_tests {
         twig.handle_events(&[changed(&[],&[],&["/project/src/Ext.php"])],&host.invocation());
         let(d,p)=at("{{ value|eu^ }}");
         assert!(!labels(twig.completion(&d,p,None)).contains(&"euro".into()));
+    }
+
+    #[test]
+    fn save_all_of_many_php_files_keeps_extensions_and_renders() {
+        let host=host();let mut twig=Twig::default();twig.activate(&host.context("aritti.twig")).unwrap();
+        let ext=host.invocation().project().unwrap().read_file("src/Ext.php").unwrap();
+        let mut saved=vec![Event::FileSaved("/project/src/Ext.php".into())];
+        for n in 0..9 {
+            host.add_file(&format!("src/C{n}.php"),&format!("<?php\nclass C{n} {{ function f() {{ return $this->render('page{n}.html.twig', ['v{n}' => 1]); }} }}\n"));
+            saved.push(Event::FileSaved(format!("/project/src/C{n}.php")));
+        }
+        twig.handle_events(&saved,&host.invocation());
+        let(d,p)=at("{{ value|mo^ }}");
+        assert!(labels(twig.completion(&d,p,None)).contains(&"money".into()),"{ext}");
+        assert_eq!(twig.renders.len(),9);
+        let flood:Vec<Event>=(0..300).map(|_|Event::FileSaved("/project/src/C0.php".into())).chain(saved).collect();
+        twig.handle_events(&flood,&host.invocation());
+        assert!(labels(twig.completion(&d,p,None)).contains(&"money".into()),"an event flood requeues instead of clearing");
+        assert_eq!(twig.renders.len(),9);
     }
 
     #[test]
