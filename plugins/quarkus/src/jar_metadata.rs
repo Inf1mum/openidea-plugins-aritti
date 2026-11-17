@@ -64,7 +64,7 @@ fn pom_namespace<R>(
 fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
     if text.len() > 256 * 1024 || text.contains("<!") {
         return Err(invalid(
-            "Use a bounded literal root POM without DTDs/entities/comments.",
+            "The root pom.xml is over 256 KiB or contains comments, DTDs or entities, which this command can't read.",
         ));
     }
     let mut reader = quick_xml::reader::NsReader::from_str(text);
@@ -206,7 +206,7 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
             scope: scope.into(),
         };
         if !keys.insert(format!("{}:{}", group, artifact)) {
-            return Err(invalid("Duplicate direct dependency owners are ambiguous."));
+            return Err(invalid("The root pom.xml lists the same dependency twice. Remove the duplicate and try again."));
         }
         result.push(dep);
         if result.len() > 128 {
@@ -253,7 +253,7 @@ impl State {
             .get(&root)
             .filter(|s| s.at.elapsed() < Duration::from_secs(600))?;
         Some(format!(
-            "Selected Maven dependency snapshot: {} ({} scope), {} · SHA-256 {} · entries {}. Declared source provenance; resolved/runtime classpath is unverified.",
+            "Loaded from Maven dependency {} ({} scope), {} · SHA-256 {} · files {}. Read from the dependency declared in pom.xml; the resolved classpath isn't checked.",
             s.dep.gav(),
             s.dep.scope,
             s.jar,
@@ -295,11 +295,11 @@ impl State {
     fn import_at(&mut self, ctx: &Invocation, cache: &str) -> Result<Option<String>, Error> {
         let project = ctx
             .project()
-            .ok_or("Open the owning Maven project first.")?;
+            .ok_or("Open the Maven project first.")?;
         let root = project.root()?;
         let pom = format!("{root}/pom.xml");
         if root.len() > 4096 || root.chars().any(char::is_control) {
-            return Err(invalid("Unreviewable project identity."));
+            return Err(invalid("The project path is too long or contains control characters."));
         }
         let source = project.read_file(&pom)?;
         let pom_digest = format!("{:x}", Sha256::digest(source.as_bytes()));
@@ -313,7 +313,7 @@ impl State {
         let dependencies = dependencies(&source)?;
         if dependencies.is_empty() {
             return Err(invalid(
-                "No supported direct literal JAR dependencies in the current root POM.",
+                "The root pom.xml lists no JAR dependency with written-out coordinates. Dependencies managed by a BOM or using ${…} properties aren't listed.",
             ));
         }
         let choices: Vec<_> = dependencies
@@ -339,7 +339,7 @@ impl State {
             return Err(invalid("Selected JAR must be a file of at most 8 MiB."));
         }
         let review = format!(
-            "Read local dependency JAR metadata?\n\nProject: {root}\nPOM: {pom}\nDeclared dependency: {}\nDeclared scope: {}\nExact archive: {jar}\n\nReads only META-INF/quarkus-config-doc/quarkus-config-model.json and META-INF/quarkus-config-doc/quarkus-config-javadoc.json from this selected archive. No extraction, code execution, build or network. This is a source-declared snapshot, not a resolved/runtime classpath. Replaces this project's previous selected JAR snapshot only on success.",
+            "Read local dependency JAR metadata?\n\nProject: {root}\nPOM: {pom}\nDependency: {}\nScope: {}\nJAR: {jar}\n\nReads only META-INF/quarkus-config-doc/quarkus-config-model.json and META-INF/quarkus-config-doc/quarkus-config-javadoc.json from this JAR. Nothing is extracted, run, built or downloaded. Keys come from the dependency declared in pom.xml, not from the resolved classpath. Replaces the keys loaded earlier for this project only if reading succeeds.",
             selected.gav(),
             selected.scope
         );
@@ -377,7 +377,7 @@ impl State {
             .retain(|_, snapshot| snapshot.at.elapsed() < Duration::from_secs(600));
         if !self.snapshots.contains_key(&root) && self.snapshots.len() >= 8 {
             return Err(invalid(
-                "Eight project snapshots are already retained; reload before importing another project.",
+                "Config keys from JARs are already loaded for 8 projects. Try again in a few minutes: loaded keys expire after 10 minutes.",
             ));
         }
         self.snapshots.insert(
@@ -397,7 +397,7 @@ impl State {
             openidea_plugin::NotificationLevel::Info,
             "Quarkus JAR metadata",
             &format!(
-                "Loaded {count} properties from one selected Maven dependency snapshot. Runtime classpath is unverified."
+                "Loaded {count} config keys from the selected Maven dependency."
             ),
         );
         Ok(None)
@@ -431,7 +431,7 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
             .any(|(name, text)| !matches!(name.as_str(), MODEL | DOCS) || text.len() > 512 * 1024)
         || entries.iter().map(|(_, text)| text.len()).sum::<usize>() > 768 * 1024
     {
-        return Err(invalid("Metadata document budget exceeded."));
+        return Err(invalid("The JAR's config metadata is too large (over 768 KiB) or has unexpected files."));
     }
     let model = entries
         .iter()
@@ -491,7 +491,7 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
             .get("path")
             .and_then(|v| v.get("property"))
             .and_then(Value::as_str)
-            .ok_or("Property has no literal path.property.")?;
+            .ok_or("A property in the JAR's config model has no name.")?;
         if item.get("map").is_some_and(|value| !value.is_boolean()) {
             return Err(invalid("Unsupported map flag."));
         }
@@ -584,7 +584,7 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
     }
     if result.props.is_empty() {
         return Err(invalid(
-            "No supported literal config properties in this archive model; extension descriptors/class lists are not a key catalog.",
+            "The JAR's config model lists no supported config properties.",
         ));
     }
     Ok(result)
@@ -723,7 +723,7 @@ mod tests {
             .unwrap();
         assert!(
             hover.markdown.contains("SHA-256")
-                && hover.markdown.contains("classpath is unverified")
+                && hover.markdown.contains("resolved classpath isn't checked")
         );
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
     }
