@@ -6,25 +6,9 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/gitlab"
 license = "MIT"
 change-notes = """\
-Editor gutter markers for unresolved review threads use a packaged icon. \
-Draft and diff comments omit the unused old/new line instead of sending null, matching the GitLab draft notes API. \
-Bounded CommonMark descriptions/diff comments escape raw HTML, block unsafe links and remote image fetching, with shared native tokens and snapshot-bound link activation. \
-Re-request assigned review with fresh owner/head checks; two declared credential slots isolate identity and snapshot caches. \
-Optional approved glab 1.x adapter follows a freshly validated selected job in a native managed log tab. \
-Pipeline effect controls bind exact source target and cancel-confirm phase before retry, browser or trace actions. \
-Files row and bulk viewed controls carry source context to reject stale MR callbacks. \
-Diff rendering uses checked line counters and withholds guessed malformed-hunk positions. \
-Changes comments/replies/resolution validate displayed row membership; empty discussions no longer panic rendering. \
-Changes callbacks echo the rendered repository/MR/head/commit context and refuse stale or unbound pages. \
-Changes Open/Viewed callbacks validate listed source rows and local project ownership before navigation/state changes. \
-Unreleased: Self-hosted GitLab over HTTPS through the new server setting, approved on first use (net:ask). Merge request Changes and commit diffs open each file in the IDE's side-by-side diff viewer. Cloning a project or adding a merge request worktree offers Open Clone / Open Worktree, and clones ask for a directory when none is set. Local Drafts tab keeps up to 50 unsent review comments per merge request in plugin storage, bound to project, MR and head commit (stale ones are flagged, never submitted; edit, delete, rebind, clear, Submit All to your pending review); Markdown shows `$math$`, `$$math$$` and ```math blocks as escaped, labelled source (not rendered); Markdown shows @mentions as plain highlighted text (never links) and a small set of :emoji: shortcodes, outside code. GitLab: Create Merge Request asks for source and target branch, title, description and draft instead of opening a form window, and offers Open on GitLab when the request fails. The Merge Request window has Overview, Changes, Commits, Files and Pipelines buttons; Merge Request Changes, Commits, Files and Pipelines are sections of it now; the separate Files, Commits and Pipelines tool windows are gone. Merge Request Files view (Tree or List, double-click toggles Viewed, Mark All Viewed, Clear Viewed; no page scripts needed). Create Snippet asks for title, visibility and more project files, and Share Project asks for name and visibility, instead of opening form windows; the `forms` setting is gone. CI value completion (when, stage, extends, needs, dependencies, booleans, !reference job and key) and a warning for !reference naming a missing job. Open on GitLab in the Project view menu (a file or folder). Completion of CI keywords and CI_* variables in .gitlab-ci.yml, and `include: local:` files count for job and stage checks. Edit labels, assignees, reviewers, milestone and title of a merge request from the Details button or GitLab: Edit Merge Request, choosing from the project's labels, members and milestones. The list Filter button picks a quick filter or an author, reviewer, label or text filter. The three tool windows have distinct icons. \
-0.3.0: Create Snippet from the files selected in the Project view, with a title prompt; the status item and Create Merge Request bring their views to the front. Needs OpenIDEA API 1.2. \
-0.2.0: Merge Request Changes tool window (diff, comments on lines, pending review, viewed files), Submit Review, \
-timeline events, the current branch's merge request in the status bar and the editor, Check Out Branch, and cloning \
-and sharing projects with git. \
-0.1.0: first release. \
-gitlab.com with a personal access token: merge request list, threads and review actions, Open on GitLab and Copy Link \
-for files, Create Snippet."""
+Next release: Unresolved review threads get their own gutter icon; Copy Link menu entries; draft and diff comments no longer fail on unused line numbers; row commands say what to select; clearer permission messages and command names. \
+0.3.0: commits, pipelines and job details with retry and cancel, snippet and merge request forms, self-hosted HTTPS servers. \
+0.2.0: Merge Request window sections, distinct window icons and plugin icon."""
 categories = ["vcs"]
 icon = "icon.svg"
 engines.openidea = "^1.9"

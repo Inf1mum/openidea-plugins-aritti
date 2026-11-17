@@ -6,7 +6,10 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ddev"
 license = "MIT"
 icon = "icon.svg"
-change-notes = "Run target maps Composer to `ddev composer` and refuses Run/Test when the project is not running. 0.1.0: first release, targeting API 1.4. Native Services, readable Overview, redacted Inspect, root logo and streaming logs. State-aware lifecycle controls and guided project preferences. Native owned Database sources, secure credentials and connection requests; non-secret legacy fallback/migration. DDEV execution target for host-selected PHP/Node/Composer runs and tests with project/cwd mapping. Keyed native terminals with command environment, exit-triggered refresh and success-only Configure opening. Window-scoped status and direct service links. Offline official v1.25.5 schema completion, hover and validation. Host-approved global/project executable selection."
+change-notes = """\
+Next release: Composer runs use `ddev composer`, and Run/Test tell you when the project is not running; one name per action and clearer messages; shorter setting titles; the duplicate Help and Diagnostics command is gone. \
+0.2.0: consolidated panels and native service actions. \
+0.1.0: first release with Services, lifecycle controls, logs, database connections and PHP/Node/Composer run target."""
 categories = ["tools"]
 engines.openidea = "^1.9"
 wasm = "dist/plugin.wasm"

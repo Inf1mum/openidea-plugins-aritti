@@ -37,9 +37,20 @@ STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
 problems: list[str] = []
 
+MAX_CHANGE_NOTES = 1200
+ONLY = set(sys.argv[2].split(",")) if len(sys.argv) > 2 and sys.argv[1] == "--plugins" else None
+
 for toml in sorted(ROOT.glob("plugins/*/plugin.toml")):
     name = toml.parent.name
-    commands = tomllib.loads(toml.read_text()).get("contributes", {}).get("commands", [])
+    if ONLY is not None and name not in ONLY:
+        continue
+    manifest = tomllib.loads(toml.read_text())
+    notes = manifest.get("change-notes", "")
+    if len(notes) > MAX_CHANGE_NOTES:
+        problems.append(f"{name}: change-notes is {len(notes)} chars (max {MAX_CHANGE_NOTES})")
+    if "Unreleased:" in notes:
+        problems.append(f"{name}: change-notes contains 'Unreleased:' (use 'Next release:')")
+    commands = manifest.get("contributes", {}).get("commands", [])
     prefixes: dict[str, list[str]] = {}
     for c in commands:
         title = c.get("title", "")

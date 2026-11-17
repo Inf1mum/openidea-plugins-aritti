@@ -4,7 +4,11 @@ version = "0.3.0" # x-release-please-version
 description = "Laravel Blade support for .blade.php files: highlighting of Blade directives, echo statements, PHP and the HTML around them, sections and pushes in the structure view, folding of directive pairs and multi-line comments, static directive hover, and inspections for unpaired directives and unbalanced parentheses in directive arguments. Completion comes from the Laravel plugin."
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: bidirectional matching-directive navigation using unsaved source. Unreleased: bounded current-text closing-directive navigation and explicit Laravel/Blade reference ownership, with no unsafe Rename graph. documented that directive completion and its snippets are provided by aritti.laravel, not by this plugin. 0.1.0: 0.1.0: first release, with .blade.php file detection, highlighting, structure view and folding."
+change-notes = """\
+Next release: Jump between a directive and its matching closing directive, also in unsaved text; clearer, consistent command names; directive completion is provided by the Laravel plugin. \
+0.3.0: custom directives are highlighted and project-declared directives are recognised. \
+0.2.0: plugin icon and smoother editor workflows. \
+0.1.0: first release with .blade.php detection, highlighting, structure view and folding."""
 categories = ["languages"]
 icon = "icon.svg"
 engines.openidea = "^1.9"
