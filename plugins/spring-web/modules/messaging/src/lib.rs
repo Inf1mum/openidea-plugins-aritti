@@ -881,7 +881,7 @@ impl Views for Messaging {
                 tree.entry(e.broker).or_default().entry((e.name.as_str(), e.space)).or_default().push((*path, e));
             }
             if tree.is_empty() {
-                let text = spring_text::index::empty_message("No Kafka, RabbitMQ or JMS destinations found", scanning, note.as_deref());
+                let text = spring_text::index::empty_message("No Kafka, RabbitMQ or JMS destinations found. Add a @KafkaListener, @RabbitListener or @JmsListener, or send with KafkaTemplate, RabbitTemplate or JmsTemplate", scanning, note.as_deref());
                 return Ok(View::message(&text).button(refresh));
             }
             let mut items = Vec::new();

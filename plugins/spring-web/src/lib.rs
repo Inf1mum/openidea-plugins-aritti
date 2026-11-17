@@ -976,6 +976,15 @@ impl Providers for WebTools {
     }
 }
 
+const NO_ENDPOINTS: &str = "No Spring endpoints found. Add a @RestController or @Controller with @GetMapping, @PostMapping or @RequestMapping methods.";
+
+fn no_routes_error(scanning: bool) -> Error {
+    if scanning {
+        return "Still indexing endpoints. Try again in a moment.".into();
+    }
+    NO_ENDPOINTS.into()
+}
+
 const BUILD_FILES: [&str; 5] = ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
 
 struct Routes {
@@ -992,9 +1001,9 @@ impl WebTools {
 
     fn pick_route(&mut self, ctx: &Invocation) -> Result<Option<Route>, Error> {
         let project = ctx.project().ok_or("Open a project to choose an endpoint.")?;
-        let routes = self.routes(&project, COMMAND_BUDGET).routes;
+        let Routes { routes, scanning, .. } = self.routes(&project, COMMAND_BUDGET);
         if routes.is_empty() {
-            return Err("No Spring endpoints found in this project.".into());
+            return Err(no_routes_error(scanning));
         }
         let items: Vec<_> = routes
             .iter()
@@ -1049,7 +1058,7 @@ impl WebTools {
             let text = if !scanning && !BUILD_FILES.iter().any(|file| project.exists(file).unwrap_or(false)) {
                 "No Spring endpoints found. This project doesn't look like a Spring project: it has no pom.xml or build.gradle.".to_owned()
             } else {
-                spring_text::index::empty_message("No Spring endpoints found", scanning, note.as_deref())
+                spring_text::index::empty_message(NO_ENDPOINTS.trim_end_matches('.'), scanning, note.as_deref())
             };
             return View::message(&text).button(refresh);
         }
@@ -1141,7 +1150,7 @@ impl Plugin for WebTools {
             controllers.sort();controllers.dedup();
             let sources=dto_schemas::Sources::collect(&project,&controllers,&mut skipped,&||task.is_cancelled())?;
             let document=openapi_export::export_with_registry(&found.routes, |route| route.location.as_ref().and_then(|location|sources.text(&location.path)),Some(&sources));
-            if document.len()>1<<20{return Err(Error::Failed("Source OpenAPI export exceeds its 1 MiB clipboard budget.".into()))}
+            if document.len()>1<<20{return Err(Error::Failed("The OpenAPI document is too large to copy (over 1 MiB).".into()))}
             host::copy_to_clipboard(&document)
                 .map_err(|e| ui_kit::denied::map(e, "Copy OpenAPI export", "clipboard", PLUGIN_NAME))?;
             if skipped.is_empty(){host::notify(NotificationLevel::Info,"Spring Endpoints","Copied the OpenAPI document to the clipboard.");}else{host::notify(NotificationLevel::Info,"Spring Endpoints",&format!("Copied the OpenAPI document to the clipboard. It leaves out: {}.",skipped.join(", ")));}
@@ -1167,7 +1176,7 @@ impl Plugin for WebTools {
                 host::notify(
                     NotificationLevel::Warning,
                     "Spring Endpoints",
-                    &ui_kit::denied::message("Copy as cURL", "clipboard", PLUGIN_NAME),
+                    &ui_kit::denied::message("Copy Endpoint as cURL", "clipboard", PLUGIN_NAME),
                 )
             }
             result => result?,
@@ -2017,7 +2026,7 @@ class Users {
         assert!(message(&view).contains("doesn't look like a Spring project"));
         host.add_file("pom.xml", "<project/>");
         let view = tools.render(ENDPOINT_VIEW, None, &host.invocation()).unwrap();
-        assert_eq!(message(&view), "No Spring endpoints found.");
+        assert_eq!(message(&view), NO_ENDPOINTS);
     }
 
     #[test]
@@ -2098,7 +2107,13 @@ class Users {
         let host = MockHost::install();
         let mut tools = WebTools::default();
         let error = tools.run_command("copy-endpoint-curl", &host.invocation(), None).unwrap_err();
-        assert!(matches!(error, Error::Failed(ref message) if message == "No Spring endpoints found in this project."), "{error:?}");
+        assert!(matches!(error, Error::Failed(ref message) if message == NO_ENDPOINTS), "{error:?}");
+    }
+
+    #[test]
+    fn endpoint_picker_says_still_indexing_while_scanning() {
+        assert!(matches!(no_routes_error(true), Error::Failed(ref message) if message == "Still indexing endpoints. Try again in a moment."));
+        assert!(matches!(no_routes_error(false), Error::Failed(ref message) if message == NO_ENDPOINTS));
     }
 
     #[test]
