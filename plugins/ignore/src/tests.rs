@@ -99,8 +99,23 @@ fn opening_nine_ignore_files_still_serves_the_first() {
         host.add_file(&format!("d{i}/.gitignore"), "a\na\n");
         plugin.handle_events(&[Event::FileOpened(format!("/project/d{i}/.gitignore"))], &host.invocation());
     }
+    assert_eq!(plugin.cached_checks.len(), 8);
+    assert!(plugin.cached_checks.iter().all(|(p, _, _)| p != "/project/d0/.gitignore"));
+    assert!(plugin.cached_checks.iter().any(|(p, _, _)| p == "/project/d8/.gitignore"));
     let found = provider_lines(&host, &mut plugin, "/project/d0/.gitignore", "a\na\n");
+    assert_eq!(plugin.cached_checks.len(), 8);
     assert!(found.contains(&(1, Some("duplicate-entry".into()))));
+}
+
+#[test]
+fn huge_ignore_file_event_is_not_cached_and_has_no_checks() {
+    let host = MockHost::install();
+    let text = "a\n".repeat(70_000);
+    host.add_file(".gitignore", &text);
+    let mut plugin = IgnorePlugin::default();
+    plugin.handle_events(&[Event::FileOpened("/project/.gitignore".into())], &host.invocation());
+    assert!(plugin.cached_checks.is_empty());
+    assert!(provider_lines(&host, &mut plugin, "/project/.gitignore", &text).is_empty());
 }
 
 #[test]

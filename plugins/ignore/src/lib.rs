@@ -454,6 +454,10 @@ struct IgnorePlugin {
 
 impl IgnorePlugin {
     fn checks_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<Diagnostic> {
+        if text.len() > 128 << 10 {
+            return Vec::new();
+        }
+
         if let Some((_, _, items)) = self.cached_checks.iter().find(|(p, t, _)| p == path && t == text) {
             return items.clone();
         }
