@@ -67,6 +67,42 @@ fn ignore_problem_reported_once() {
     assert_eq!(severities, [(1, Severity::Error), (3, Severity::Warning)]);
 }
 
+fn provider_lines(host: &MockHost, plugin: &mut IgnorePlugin, path: &str, text: &str) -> Vec<(u32, Option<String>)> {
+    host.open_editor(path, "ignore", text, &[]);
+    host.refresh_diagnostics(plugin);
+    host.provider_diagnostics().get(path).map(|d| d.iter().map(|d| (d.range.start.line, d.code.clone())).collect()).unwrap_or_default()
+}
+
+#[test]
+fn large_gitignore_shows_duplicates_through_the_provider() {
+    let host = MockHost::install();
+    let text = format!("{}a\na\n", (0..600).map(|i| format!("f{i}\n")).collect::<String>());
+    let found = provider_lines(&host, &mut IgnorePlugin::default(), "/project/.gitignore", &text);
+    assert!(found.contains(&(601, Some("duplicate-entry".into()))));
+}
+
+#[test]
+fn unsaved_edit_introducing_a_duplicate_shows_it() {
+    let host = MockHost::install();
+    host.add_file(".gitignore", "a\nb\n");
+    let mut plugin = IgnorePlugin::default();
+    plugin.handle_events(&[Event::FileOpened("/project/.gitignore".into())], &host.invocation());
+    let found = provider_lines(&host, &mut plugin, "/project/.gitignore", "a\nb\na\n");
+    assert!(found.contains(&(2, Some("duplicate-entry".into()))));
+}
+
+#[test]
+fn opening_nine_ignore_files_still_serves_the_first() {
+    let host = MockHost::install();
+    let mut plugin = IgnorePlugin::default();
+    for i in 0..9 {
+        host.add_file(&format!("d{i}/.gitignore"), "a\na\n");
+        plugin.handle_events(&[Event::FileOpened(format!("/project/d{i}/.gitignore"))], &host.invocation());
+    }
+    let found = provider_lines(&host, &mut plugin, "/project/d0/.gitignore", "a\na\n");
+    assert!(found.contains(&(1, Some("duplicate-entry".into()))));
+}
+
 #[test]
 fn hgignore_same_text_different_syntax_not_duplicate() {
     let problems = check::check("syntax: glob\nfoo\nsyntax: regexp\nfoo\nfoo\n", HG);

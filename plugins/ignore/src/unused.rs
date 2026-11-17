@@ -119,7 +119,6 @@ impl State {
         let (unused,unsupported)=find_unused(&doc.text,&entries)?;
         let value:serde_json::Value=serde_json::from_str(&output).map_err(|_|Error::Stale)?;
         self.snapshot=Some(Snapshot{root,base,doc:doc.clone(),serial:self.serial,at:Instant::now(),unused,fingerprint:value["fingerprint"].as_str().ok_or(Error::Stale)?.into(),count:entries.len(),unsupported});
-        check::dialect(&path).ok_or(Error::Stale)?;
         host::notify(NotificationLevel::Info,"Complete unused-entry snapshot",&format!("{} paths captured; {} unmatched entries; {} unsupported rules withheld. Glob matching conservatively ignores case; non-ASCII patterns are judged only by exact bytes and withheld when non-ASCII paths exist without a match, or when they use ? or [. Snapshot eligibility lasts120seconds and delivered filesystem/source changes withdraw it. Results describe capture time; rerun to refresh. Source unchanged.",entries.len(),self.snapshot.as_ref().unwrap().unused.len(),self.snapshot.as_ref().unwrap().unsupported));
         Ok(None)
     }

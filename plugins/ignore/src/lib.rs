@@ -447,12 +447,26 @@ struct IgnorePlugin {
     unused: unused::State,
     directories: decorations::Directories,
     checked_paths: HashSet<String>,
-    cached_checks: HashMap<String,(String,Vec<Diagnostic>)>,
+    cached_checks: Vec<(String,String,Vec<Diagnostic>)>,
     selected: Option<String>,
     expanded: HashSet<String>,
 }
 
 impl IgnorePlugin {
+    fn checks_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<Diagnostic> {
+        if let Some((_, _, items)) = self.cached_checks.iter().find(|(p, t, _)| p == path && t == text) {
+            return items.clone();
+        }
+
+        let items = diagnostics(text, dialect);
+        self.cached_checks.retain(|(p, _, _)| p != path);
+        if self.cached_checks.len() >= 8 {
+            self.cached_checks.remove(0);
+        }
+        self.cached_checks.push((path.to_owned(), text.to_owned(), items.clone()));
+        items
+    }
+
     fn selected_user_template(&self) -> Option<&str> {
         self.selected_template().and_then(|k| k.strip_prefix("u:"))
     }
@@ -592,11 +606,7 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                     if !preferences::checks(path) {
                         continue;
                     }
-                    let items=diagnostics(&text,dialect);
-                    if self.cached_checks.len()>=8 {self.cached_checks.clear();}
-                    if text.len()<=64<<10&&text.lines().count()<=512 {
-                        self.cached_checks.insert(path.clone(),(text.clone(),items.clone()));
-                    }
+                    self.checks_for(path, &text, dialect);
                 }
                 Event::EditorFocused(path) => show_ignored_status(path.as_deref()),
                 _ => {}
@@ -785,10 +795,8 @@ impl Views for IgnorePlugin {
 impl openidea_plugin::diagnostics::DiagnosticsProvider for IgnorePlugin {
     fn diagnostics(&mut self,doc:&Document)->Vec<Diagnostic> {
         if doc.text.len()>128<<10||!preferences::checks(&doc.path){return Vec::new();}
-        if dialect(&doc.path).is_none(){return Vec::new();}
-        // The legacy coverage matcher is potentially expensive. Events warm
-        // source-identical checks; live providers only clone bounded cached facts.
-        let mut diagnostics=self.cached_checks.get(&doc.path).filter(|(text,_)|text==&doc.text).map(|(_,items)|items.clone()).unwrap_or_default();
+        let Some(dialect)=dialect(&doc.path) else{return Vec::new();};
+        let mut diagnostics=self.checks_for(&doc.path,&doc.text,dialect);
         diagnostics.extend(self.unused.diagnostics(doc));diagnostics
     }
 }
