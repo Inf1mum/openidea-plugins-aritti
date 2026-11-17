@@ -66,7 +66,7 @@ Hover a command method, its key or a legacy availability reference. You see the 
 
 Both actions are on ⌥⏎ and show the exact change before applying it. The change is one undoable edit.
 
-- **Preview add explicit ShellComponent annotation…** adds the fully qualified annotation to an unannotated legacy command class.
+- **Add @ShellComponent…** adds the fully qualified annotation to an unannotated legacy command class.
 - **Rename command key…** renames a command key and its availability selectors in the class. It also updates selectors in project subclasses. The method name stays the same.
 
 A new key uses lowercase ASCII words separated by spaces. Each word starts with a letter and uses letters, digits or hyphens. The key is at most 64 characters.
@@ -86,6 +86,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | Permission | Used for | Without it |
 |---|---|---|
 | `editor.read` | Reading the open file and caret for the occurrences command and code lenses. | The command asks you to open a command class and select a name. |
+| `events` | Updating the command index and cross-file checks when you save or change files. | A notification says file tracking is off. Checks use the index from when the project opened. |
 
 `project.read` is required. It reads your sources for the command index and cross-file checks.
 
@@ -95,14 +96,14 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| "Open a supported Java or Kotlin ShellComponent and select a literal command or availability name." | Open the command class in the editor first. Check that `editor.read` is allowed. |
+| "Open a Java or Kotlin @ShellComponent class and put the caret on a command or availability name." | Open the command class in the editor first. Check that `editor.read` is allowed. |
 | "Put the caret on a Spring Shell command key first." | Put the caret inside a quoted command key or availability name, then run the command again. |
 | Cross-file checks and duplicate warnings don't appear | They wait until the project has been read once. Open a few files or use completion to warm the cache. |
 | A `@Command` method isn't recognised | Import `org.springframework.shell.command.annotation.Command` explicitly or write it fully qualified. A wildcard or aliased import isn't enough. |
 | The rename or annotation fix isn't offered | The class must be a single, closed source class with literal keys. Inherited, nested, wildcard-imported or already annotated classes are refused. |
-| "A subclass of this command's class is not fully literal; rename refused." | A subclass's chain or selector can't be read literally. Rename by hand. |
+| "A subclass of this class can't be read completely, so the rename could miss commands…" | A subclass's chain or selector can't be read literally. Rename by hand. |
 | "A subclass already has a command with that key." | Pick another key. |
-| "Use a different non-colliding lowercase literal command key, at most 64 characters." | The new key collides, is unchanged or breaks the key rules above. |
+| "Use a new command name that no other command uses…" | The new key collides, is unchanged or breaks the key rules above. |
 | A code lens or occurrence pick does nothing | The file changed since the lens was shown. Wait for it to refresh, then click again. |
 
 ## Limitations
@@ -162,7 +163,7 @@ A source-local file action for a top-level, unannotated, no-supertype legacy com
 ### Rename command key
 
 - A reviewed file action that applies one atomic batch to exact declaration and indicator-selector string contents. It works in one admitted closed Java or Kotlin legacy command class, or a supported unprefixed modern class.
-- The preview shows the old and new literal keys, exact UTF-16 spans and the complete resulting source, with the local physical-source/runtime limitation stated first. Selectors in inheriting subclasses are listed as `path:line:col`.
+- The preview shows the old and new names, the line and column of each change and the complete resulting source, and says that other files are not changed. Selectors in inheriting subclasses are listed as `path:line:col`.
 - Explicit `@ShellMethod` aliases and normalized space-separated multiword command keys are supported. Selecting one alias changes only its exact declaration and availability selectors. Other aliases and command-side indicator method names (including camelCase indicators) keep their identity.
 - An implicit method-derived command name is changed by adding an explicit annotation key/name. The method identifier stays unchanged.
 - Refused: duplicate aliases, ambiguous or duplicate declarations, dynamic keys, noncanonical whitespace, new-key collisions, unresolved command-side indicator methods, foreign or wildcard imports, inheritance that isn't fully literal, malformed or incomplete source and unsafe source expressions.
