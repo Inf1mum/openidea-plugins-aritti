@@ -49,17 +49,24 @@ impl Rule {
     /// directory) or one of its parent directories.
     pub fn matches(&self, path: &str, is_dir: bool) -> bool {
         let ends = path.match_indices('/').map(|(i, _)| i).chain([path.len()]);
-        ends.into_iter().any(|end| {
-            let prefix = &path[..end];
-            if self.dir_only && end == path.len() && !is_dir {
-                return false;
-            }
-            let candidate = match self.anchored {
-                true => prefix,
-                false => prefix.rsplit('/').next().unwrap_or(prefix),
-            };
-            wildmatch(self.pattern.as_bytes(), candidate.as_bytes())
-        })
+        ends.into_iter().any(|end| self.matches_prefix(path, end, is_dir))
+    }
+
+    /// Whether the rule matches `path` itself, not its parent directories.
+    pub fn matches_exact(&self, path: &str, is_dir: bool) -> bool {
+        self.matches_prefix(path, path.len(), is_dir)
+    }
+
+    fn matches_prefix(&self, path: &str, end: usize, is_dir: bool) -> bool {
+        if self.dir_only && end == path.len() && !is_dir {
+            return false;
+        }
+        let prefix = &path[..end];
+        let candidate = match self.anchored {
+            true => prefix,
+            false => prefix.rsplit('/').next().unwrap_or(prefix),
+        };
+        wildmatch(self.pattern.as_bytes(), candidate.as_bytes())
     }
 
     /// No wildcard: the entry names one path.
@@ -82,26 +89,78 @@ impl Rule {
     }
 }
 
-/// gitignore's wildmatch: `*`, `?` and `[...]` stay within one name, `**`
-/// spans directories.
-// ponytail: backtracking recursion, exponential on many `*`s; entries are short.
-fn wildmatch(p: &[u8], t: &[u8]) -> bool {
-    match p {
-        [] => t.is_empty(),
-        [b'*', b'*', b'/', rest @ ..] => {
-            wildmatch(rest, t) || t.iter().enumerate().any(|(i, &c)| c == b'/' && wildmatch(rest, &t[i + 1..]))
-        }
-        [b'*', b'*', rest @ ..] => (0..=t.len()).any(|i| wildmatch(rest, &t[i..])),
-        [b'*', rest @ ..] => (0..=t.len()).take_while(|&i| !t[..i].contains(&b'/')).any(|i| wildmatch(rest, &t[i..])),
-        [b'?', rest @ ..] => matches!(t, [c, ..] if *c != b'/') && wildmatch(rest, &t[1..]),
-        [b'[', class @ ..] => match (t, class_match(class, t.first().copied())) {
-            ([_, tail @ ..], Some((true, len))) => wildmatch(&class[len..], tail),
-            (_, Some((false, _))) => false,
-            _ => t.first() == Some(&b'[') && wildmatch(class, &t[1..]),
-        },
-        [b'\\', c, rest @ ..] => t.first() == Some(c) && wildmatch(rest, &t[1..]),
-        [c, rest @ ..] => t.first() == Some(c) && wildmatch(rest, &t[1..]),
+enum Token<'a> {
+    Literal(u8),
+    Any,
+    Star,
+    DoubleStar,
+    DoubleStarSlash,
+    Class(&'a [u8], usize),
+    Never,
+}
+
+fn tokenize(mut p: &[u8]) -> Vec<Token<'_>> {
+    let mut tokens = Vec::new();
+    while !p.is_empty() {
+        let (token, used) = match p {
+            [b'*', b'*', b'/', ..] => (Token::DoubleStarSlash, 3),
+            [b'*', b'*', ..] => (Token::DoubleStar, 2),
+            [b'*', ..] => (Token::Star, 1),
+            [b'?', ..] => (Token::Any, 1),
+            [b'[', class @ ..] => match class_match(class, None) {
+                Some((_, len)) => (Token::Class(class, len), 1 + len),
+                None => (Token::Never, 1),
+            },
+            [b'\\', c, ..] => (Token::Literal(*c), 2),
+            [c, ..] => (Token::Literal(*c), 1),
+            [] => break,
+        };
+        tokens.push(token);
+        p = &p[used..];
     }
+    tokens
+}
+
+/// gitignore's wildmatch: `*`, `?` and `[...]` stay within one name, `**`
+/// spans directories. Dynamic programming over (token, position): O(|p|·|t|).
+/// An unclosed `[` matches nothing, as in git.
+fn wildmatch(p: &[u8], t: &[u8]) -> bool {
+    let mut cur = vec![false; t.len() + 1];
+    cur[0] = true;
+
+    for token in tokenize(p) {
+        let mut next = vec![false; t.len() + 1];
+        match token {
+            Token::Never => return false,
+            Token::Literal(c) => (0..t.len()).for_each(|j| next[j + 1] = cur[j] && t[j] == c),
+            Token::Any => (0..t.len()).for_each(|j| next[j + 1] = cur[j] && t[j] != b'/'),
+            Token::Class(class, _) => {
+                for j in 0..t.len() {
+                    next[j + 1] = cur[j] && class_match(class, Some(t[j])).is_some_and(|(hit, _)| hit);
+                }
+            }
+            Token::Star => {
+                for j in 0..=t.len() {
+                    next[j] = cur[j] || (j > 0 && next[j - 1] && t[j - 1] != b'/');
+                }
+            }
+            Token::DoubleStar => {
+                for j in 0..=t.len() {
+                    next[j] = cur[j] || (j > 0 && next[j - 1]);
+                }
+            }
+            Token::DoubleStarSlash => {
+                let mut reached = false;
+                for j in 0..=t.len() {
+                    next[j] = cur[j] || (j > 0 && t[j - 1] == b'/' && reached);
+                    reached |= cur[j];
+                }
+            }
+        }
+        cur = next;
+    }
+
+    cur[t.len()]
 }
 
 /// Matches `c` against the class after its `[`: whether it matched and the
@@ -188,7 +247,7 @@ fn decision<'a>(sources: &'a Sources, path: &str, is_dir: bool) -> Option<(&'a s
         };
         for line in text.lines() {
             let Some(rule) = Rule::parse(line) else { continue };
-            if rule.matches(relative, is_dir) {
+            if rule.matches_exact(relative, is_dir) {
                 verdict = (!rule.negated).then_some((name.as_str(), line.trim()));
             }
         }
@@ -265,7 +324,7 @@ mod tests {
         assert!(matches("[]]", "]"));
         assert!(matches("\\#notes", "#notes"));
         assert!(matches("out\\[1\\].log", "out[1].log"));
-        assert!(matches("[abc", "[abc"));
+        assert!(!matches("[abc", "[abc"));
     }
 
     #[test]
@@ -279,5 +338,33 @@ mod tests {
         assert_eq!(ignored_by(&sources, "app/cache/x.bin"), Some(("app/.gitignore", "cache/")));
         assert_eq!(ignored_by(&sources, "cache/x.bin"), None);
         assert_eq!(ignored_by(&sources, "src/main.rs"), None);
+    }
+
+    #[test]
+    fn wildmatch_pathological_pattern_is_fast() {
+        let started = std::time::Instant::now();
+        let text = "a".repeat(40);
+        assert!(!wildmatch(b"*a*a*a*a*a*a*a*a*a*b", text.as_bytes()));
+        assert!(started.elapsed() < std::time::Duration::from_millis(50));
+    }
+
+    #[test]
+    fn whitelist_negated_dirs_keep_files_ignored() {
+        let sources: Sources = vec![(String::new(), ".gitignore".into(), "*\n!*/\n!*.txt\n".into())];
+        assert!(ignored_by(&sources, "src/a.md").is_some());
+        assert_eq!(ignored_by(&sources, "src/a.txt"), None);
+    }
+
+    #[test]
+    fn slash_star_whitelist() {
+        let sources: Sources = vec![(String::new(), ".gitignore".into(), "/*\n!/src/\n".into())];
+        assert_eq!(ignored_by(&sources, "src/a.md"), None);
+        assert!(ignored_by(&sources, "other/a.md").is_some());
+    }
+
+    #[test]
+    fn unclosed_bracket_matches_nothing() {
+        assert!(!matches("[abc", "[abc"));
+        assert!(!matches("a[", "a["));
     }
 }

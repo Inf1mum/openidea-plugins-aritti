@@ -644,7 +644,7 @@ impl Providers for IgnorePlugin {
         if !preferences::checks(&doc.path) {
             return Vec::new();
         }
-        let mut actions=match dialect(&doc.path) {
+        let mut actions=match dialect(&doc.path).filter(|_| doc.text.len()<=128<<10) {
             Some(dialect) => quick_fixes(doc, selection.start.line, dialect),
             None => Vec::new(),
         };
