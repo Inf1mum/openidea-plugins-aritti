@@ -9,6 +9,8 @@ use std::io::{Cursor, Read};
 use std::time::{Duration, Instant};
 const MAX_ZIP: usize = 1 << 20;
 const MAX_FILE: usize = 128 << 10;
+/// Read as `plugin.aritti.spring-initializr.importReady` by the Tools menu entry of Open Source Folder.
+pub(crate) const IMPORT_READY: &str = "importReady";
 const WRAPPERS: [&str; 4] = ["mvnw", "mvnw.cmd", ".mvn/wrapper/maven-wrapper.properties", ".mvn/wrapper/maven-wrapper.jar"];
 #[derive(Clone)]
 struct Plan {
@@ -30,7 +32,9 @@ pub(crate) struct State {
 }
 impl State {
     pub(crate) fn invalidate(&mut self) {
-        self.plan = None;
+        if self.plan.take().is_some_and(|plan| plan.issued) {
+            host::remove_context(IMPORT_READY);
+        }
         self.pending.clear();
     }
 }
@@ -306,7 +310,7 @@ fn verify_visible(project: &Project, plan: &Plan) -> Result<(), Error> {
             parent = parent.rsplit_once('/').map(|(p, _)| p).ok_or(Error::Stale)?;
         }
         if project.stat(&path)?.kind != FileKind::File || project.read_file(&path)? != *text {
-            return Err("Expected source files are missing, partial or changed; folder not opened.".into());
+            return Err("Some imported files are missing or were changed, so the folder wasn't opened. Open it with File › Open… instead.".into());
         }
     }
     Ok(())
@@ -405,10 +409,10 @@ impl Launcher {
         vacant(&project, &plan)?;
         let url = format!("{START}/starter.zip?{}", plan.query);
         let request = format!(
-            "Fetch source archive: {url}\nDestination proposal: {}\n\nSelected starters also require version-bound dependency metadata. No disk extraction occurs. Known Maven wrappers will be explicitly excluded. A complete exact-source preview must be approved in the later FileAction before any source is created.",
+            "Download: {url}\nNew folder: {}\n\nNothing is written yet. Next, press ⌥⏎ in any open file of this project and choose Preview Import Maven Sources… to see every file before it is created. The Maven wrapper (mvnw) is left out; use your installed Maven.",
             plan.target
         );
-        if !ui_kit::prompts::confirm_exact("Prepare Maven source-only import?", &request)? {
+        if !ui_kit::prompts::confirm_exact("Download the Maven project?", &request)? {
             return Err(Error::Cancelled);
         }
         let response = host::fetch(&HttpRequest::get(&url))?;
@@ -438,7 +442,7 @@ impl Launcher {
         vacant(&project, &plan)?;
         self.import_identity(&plan)?;
         self.imports.plan = Some(plan);
-        Ok(Some("Source-only ZIP validated in memory. Open a small existing project editor and invoke Preview Import Maven Sources…; after applying its atomic edit, Open Source Folder independently verifies expected files before normal project trust/open flow.".into()))
+        Ok(Some(format!("Downloaded {} files for {}. Press ⌥⏎ in any open file of this project and choose Preview Import Maven Sources… to create them.", self.imports.plan.as_ref().map_or(0, |p| p.files.len()), self.get("artifactId"))))
     }
     fn import_identity(&mut self, plan: &Plan) -> Result<(), Error> {
         if self.owner != format!("project:{}", plan.root)
@@ -493,7 +497,7 @@ impl Launcher {
             return Err(Error::Stale);
         }
         vacant(&project, &plan)?;
-        if !ui_kit::prompts::confirm_exact("Create reviewed source-only project files?", &preview(&plan))? {
+        if !ui_kit::prompts::confirm_exact("Create these project files?", &preview(&plan))? {
             return Err(Error::Cancelled);
         }
         self.import_identity(&plan)?;
@@ -503,8 +507,15 @@ impl Launcher {
         }
         self.imports.pending.clear();
         self.imports.plan.as_mut().ok_or(Error::Stale)?.issued = true;
+        let _ = host::set_context(IMPORT_READY, true);
+        let _ = host::notify_with_actions(
+            NotificationLevel::Info,
+            "Spring Initializr",
+            &format!("Created {} files in {}.", plan.files.len(), plan.target),
+            &[openidea_plugin::NotificationAction::new("Open Folder", "open-reviewed-import")],
+        );
         Ok(FileAction {
-            title: "Import reviewed Maven sources".into(),
+            title: "Import Maven sources".into(),
             kind: Some("source".into()),
             operations: plan
                 .files
@@ -520,20 +531,20 @@ impl Launcher {
             .plan
             .clone()
             .filter(|p| p.issued)
-            .ok_or("No issued source import in this session. Apply its atomic FileAction first.")?;
+            .ok_or("Nothing to open yet. Run Prepare Maven Project Import…, then press ⌥⏎ and choose Preview Import Maven Sources… to create the files.")?;
         let project = ctx.project().ok_or(Error::Stale)?;
         verify_visible(&project, &plan)?;
         let message = format!(
-            "Folder: {}\nVerified: {} expected files physically exist and match current project-visible text.\n\nUnsaved editor buffers may mask disk contents; disk bytes, extra files, Maven build/runtime state and original archive completeness are NOT verified. Known wrappers were excluded. This requests the normal project trust/open flow in a new window; it does not mark the folder trusted or certify a build.",
+            "Folder: {}\nAll {} imported files are present and unchanged.\n\nThe folder opens in a new window, which asks whether you trust it as usual. Nothing has been built yet.",
             plan.target,
             plan.files.len()
         );
-        if !ui_kit::prompts::confirm_exact("Open reviewed source folder?", &message)? {
+        if !ui_kit::prompts::confirm_exact("Open the imported folder?", &message)? {
             return Err(Error::Cancelled);
         }
         verify_visible(&project, &plan)?;
         host::open_project(&plan.target, true)?;
-        Ok(Some("Requested normal trust/open flow for the reviewed source folder.".into()))
+        Ok(None)
     }
 }
 
@@ -707,6 +718,19 @@ mod tests {
         l.run_command("open-reviewed-import", &host.invocation(), None).unwrap();
         assert_eq!(host.opened_projects(), vec![("/project/demo".into(), true)]);
         assert_eq!(host.editor_text(), "anchor");
+    }
+    #[test]
+    fn created_import_enables_open_folder_menu_and_offers_it_in_a_notification() {
+        let (host, mut l, d) = prepared();
+        assert!(!host.context_keys().contains_key(IMPORT_READY));
+        let error = l.run_command("open-reviewed-import", &host.invocation(), None).unwrap_err();
+        assert!(error.to_string().contains("Nothing to open yet"), "{error}");
+        resolve(&host, &mut l, &d).unwrap();
+        assert!(host.context_keys().contains_key(IMPORT_READY));
+        let notified = host.notifications_with_actions();
+        assert_eq!(notified.last().unwrap().actions[0].command, "open-reviewed-import");
+        l.imports.invalidate();
+        assert!(!host.context_keys().contains_key(IMPORT_READY));
     }
     #[test]
     fn cancellation_and_outside_or_colliding_parent_prevent_archive_fetch() {

@@ -1,11 +1,11 @@
 id = "aritti.spring-initializr"
 name = "Spring Initializr Launcher"
 version = "0.3.0" # x-release-please-version
-description = "Starts a Spring Boot project from a tool window. Pick the build, language, Spring Boot and Java versions, coordinates, packaging and dependencies. Generate and Open creates the project from start.spring.io in a folder you choose, Download ZIP gets the project zip from a Spring Initializr server (start.spring.io or your own) in the browser, Explore in Browser opens the server's web page with the same options, and Generate with Spring Boot CLI runs `spring init` in an IDE terminal when the Spring Boot CLI is allowed. The plugin remembers the form."
+description = "Starts a Spring Boot project from a tool window. Pick the build, language, Spring Boot and Java versions, coordinates, packaging and dependencies. Generate and Open creates the project from start.spring.io in a folder you choose, Download ZIP gets the project zip from a Spring Initializr server (start.spring.io or your own) in the browser, Explore in Browser opens the server's web page with the same options, and Run Spring Boot CLI in Terminal runs `spring init` in an IDE terminal when the Spring Boot CLI is allowed. The plugin remembers the form."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Generate and Open is the main button with one confirmation and falls back to the browser download without its permissions, Generate Project is renamed Download ZIP, and artifact problems show before you click; Add Starters works with more Maven and Gradle layouts, including version catalogs, on build files up to 256 KiB, and confirms only the inserted lines; generated ZIPs keep executable scripts, the downloaded archive is deleted afterwards and a failed extract shows the kept folder; Generate and Open and source-only import are off for custom servers and refuse folders that are not on the machine running the project; unsaved form changes survive switching projects, the plugin no longer wakes when a pom.xml opens, and the status line is one sentence. \
+Next release: Generate and Open is the main button with one confirmation and falls back to the browser download without its permissions, Generate Project is renamed Download ZIP, and artifact problems show before you click; Add Spring Boot Starters asks for the starters and shows the inserted lines itself, leaving one ⌥⏎ action that inserts them, and works with more Maven and Gradle layouts, including version catalogs, on build files up to 256 KiB; generated ZIPs keep executable scripts, the downloaded archive is deleted afterwards and a failed extract shows the kept folder, and Open Source Folder appears in Tools and in a notification once an import created its files; Generate and Open and source-only import are off for custom servers and refuse folders that are not on the machine running the project; unsaved form changes survive switching projects, the plugin no longer wakes when a pom.xml opens, the status line is one sentence, CLI buttons use plain names and Tools shows Add Starters only in Maven and Gradle projects. \
 0.3.0: Add Starters for Maven and Gradle and project generation. \
 0.2.0: plugin icon and server list."""
 categories = ["frameworks"]
@@ -32,12 +32,14 @@ web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "add-starters"
-title = "Spring Initializr: Prepare Add Spring Boot Starters"
+title = "Spring Initializr: Add Spring Boot Starters…"
 category = "Spring Initializr"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
 
 [[contributes.menus]]
 menu = "tools"
 command = "add-starters"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
 
 [[contributes.providers]]
 kinds = ["code-actions"]
@@ -52,6 +54,7 @@ category = "Spring Initializr"
 id = "open-reviewed-import"
 title = "Spring Initializr: Open Source Folder"
 category = "Spring Initializr"
+when = "plugin.aritti.spring-initializr.importReady"
 
 [[contributes.menus]]
 menu = "tools"
@@ -60,6 +63,7 @@ command = "prepare-import"
 [[contributes.menus]]
 menu = "tools"
 command = "open-reviewed-import"
+when = "plugin.aritti.spring-initializr.importReady"
 
 [[contributes.commands]]
 id = "generate-archive"
