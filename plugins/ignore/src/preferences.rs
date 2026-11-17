@@ -134,7 +134,7 @@ impl State {
             "scope",
             "Scope and ownership",
             FieldValue::readonly_text(
-                "Application-global Ignore plugin preferences. Inherit uses Settings › Plugins › .ignore scalar values. Explicit On/Off overrides them. This form changes Ignore's own behaviour. Built-in colouring, file types and the IDE's static New menu stay unchanged.",
+                "On or Off overrides Settings › Plugins › .ignore for all projects; Inherit keeps the value from Settings.",
                 true,
             ),
         )];
@@ -151,7 +151,7 @@ impl State {
                 FieldValue::Choice(vec!["Inherit".into(), "On".into(), "Off".into()], choice.into()),
             ));
         }
-        fields.push(Field::new("dialects","File-type options",FieldValue::readonly_text("Editor assistance controls checks, completion, navigation, directory markers and template append for the selected exact filename. Creation is independent. Built-in colouring and static New menu entries remain controlled by the IDE. Additional ignore-file colouring is shared across that family; use its shared switch above. Changes apply on the next edit/open; disabled tracked problems are cleared on Save. Older plugin builds retain their earlier preferences.",true)));
+        fields.push(Field::new("dialects","File-type options",FieldValue::readonly_text("Editor assistance turns checks, completion, navigation, markers and templates on or off for the chosen file type. Changes apply the next time a file is edited or opened.",true)));
         let names=names();let i=draft.selected;let name=names[i];
         fields.push(Field::new(&self.id("dialect-select"),"Ignore file type",FieldValue::Choice(names.iter().map(|name|(*name).into()).collect(),name.into())));
         let syntax=match check::dialect(name).unwrap_or(Dialect{syntax:check::Syntax::Glob,switchable:false}) {
@@ -160,13 +160,13 @@ impl State {
         fields.push(Field::new(&self.id(&format!("support:{i}")),"Editor assistance",FieldValue::Checkbox(!draft.model.disabled_support.contains(name))));
         fields.push(Field::new(&self.id(&format!("create:{i}")),"Allow Create action for this file type",FieldValue::Checkbox(!draft.model.disabled_creation.contains(name))));
         fields.push(Field::new(&self.id(&format!("dialect:{i}")),&format!("Checks ({syntax}; requires editor assistance)"),FieldValue::Checkbox(!draft.model.disabled.contains(name))));
-        fields.push(Field::new("colouring","Colouring scope",FieldValue::readonly_text("Turning off editor assistance removes its extra markers and highlighting where supported. Shared additional-file colouring has one family-wide switch. This does not hide or unregister any IDE file type, built-in grammar or native New menu item.",true)));
+        fields.push(Field::new("colouring","Colouring scope",FieldValue::readonly_text("Turning off editor assistance removes this plugin's markers and highlighting. The IDE's own colouring and New menu are not affected.",true)));
         Ok(View::new(Body::Form(fields))
             .button(Button::new(&self.id("prefs-save"), "Save").icon("check"))
             .button(Button::new(&self.id("prefs-cancel"), "Cancel").icon("close"))
             .button(Button::new(&self.id("prefs-reload"), "Reload / discard draft").icon("refresh"))
             .status(self.message.as_deref().unwrap_or(
-                "Draft only. Save validates all fields and checks for external preference/scalar changes; Cancel discards edits.",
+                "Changes apply when you press Save; Cancel discards them.",
             )))
     }
 }
@@ -227,7 +227,7 @@ impl IgnorePlugin {
                             let scalars: Vec<_> = FLAGS.iter().map(|(key, _, _)| host::setting(key)).collect();
                             if current != draft.raw || scalars != draft.scalars {
                                 return Err(
-                                    "Preferences or scalar settings changed elsewhere. Reload before saving; draft retained.".into()
+                                    "Preferences or settings changed elsewhere. Reload before saving; your changes are kept until then.".into()
                                 );
                             }
                             let encoded=serde_json::json!({"schema":2,"scope":"application:aritti.ignore","overrides":draft.model.overrides,"disabledChecks":draft.model.disabled,"disabledSupport":draft.model.disabled_support,"disabledCreation":draft.model.disabled_creation}).to_string();
@@ -235,7 +235,7 @@ impl IgnorePlugin {
                             host::storage::set(KEY2, &encoded)?;
                             self.preferences.draft = None;
                             self.preferences.message = Some(
-                                "Saved application-global Ignore overrides. Other documents refresh their checks on next open/save.".into(),
+                                "Saved. Other open files update their checks when next opened or saved.".into(),
                             );
                             show_ignored_status(ctx.editor().as_ref().map(|e| e.path()).as_deref());
                         }
