@@ -117,6 +117,8 @@ pub struct Index {
     pub compiled_container: bool,
     /// Some files were skipped to stay within the call's time budget.
     pub partial: bool,
+    /// A `new Lexer(` in `src/` means custom Twig delimiters, which Symfony's own Twig checks do not read.
+    pub custom_twig_lexer: bool,
 }
 
 /// Compiled files of `bin/console cache:warmup`, which also hold what bundles
@@ -250,9 +252,11 @@ impl Index {
         let relative = |path: &str| path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_owned();
 
         let discovery_partial=Cell::new(root.is_empty());
+        let nested = crate::nested_roots(&root);
         let files = |globs: &[&str]| -> Vec<String> {
-            let (paths,partial)=discover(project,globs,MAX_FILES);
+            let (mut paths,partial)=discover(project,globs,MAX_FILES);
             if partial {discovery_partial.set(true);}
+            paths.retain(|path| !nested.iter().any(|inner| crate::under(path, inner)));
             paths
         };
 
@@ -483,6 +487,14 @@ impl Index {
             php_commands(path, &text, &mut index.commands);
         }
 
+        for path in discover(project, &["src/**/*.php"], MAX_FILES).0 {
+            let Some(text) = read(&path, &mut index) else { break };
+            if text.contains("new Lexer(") {
+                index.custom_twig_lexer = true;
+                break;
+            }
+        }
+
         for path in &translations {
             let Some(text) = read(path, &mut index) else { continue };
             let domain = translation_domain(path).to_owned();
@@ -638,6 +650,73 @@ impl Index {
         index.partial |= discovery_partial.get() || started.elapsed()>BUDGET;
         index.template_scan_observed=!index.partial;
         index
+    }
+
+    /// Re-reads one modified file into the index. False when the change needs a full build.
+    pub fn update_file(&mut self, project: &Project, root: &str, relative: &str) -> bool {
+        let path = format!("{root}/{relative}");
+        let php = relative.starts_with("src/") && relative.ends_with(".php");
+        let template = relative.starts_with("templates/") && relative.ends_with(".twig");
+        let translation = relative.starts_with("translations/")
+            && [".yaml", ".yml", ".xlf", ".xliff"].iter().any(|extension| relative.ends_with(extension));
+        if !(php || template || translation) {
+            return false;
+        }
+        let Ok(text) = project.read_file(&path) else { return false };
+        let drop_path = |names: &mut Names| names.retain(|_, entry| entry.path != path);
+
+        if template {
+            let owns_component = self.component_info.values().any(|info| self.templates.get(&info.component.template).is_some_and(|entry| entry.path == path));
+            if owns_component {
+                return false;
+            }
+            self.includes.retain(|include| self.templates.get(&include.caller).is_none_or(|entry| entry.path != path));
+            let Some(caller) = self.templates.iter().find(|(_, entry)| entry.path == path).map(|(name, _)| name.clone()) else { return false };
+            for (target, variables) in crate::twig::includes(&text).into_iter().filter(|(_, variables)| !variables.is_empty()) {
+                self.includes.push(TemplateInclude { target, variables, caller: caller.clone() });
+            }
+            return true;
+        }
+
+        if translation {
+            let domain = translation_domain(&path).to_owned();
+            drop_path(self.translations.entry(domain.clone()).or_default());
+            translation_keys(&path, &text, self.translations.entry(domain).or_default());
+            return true;
+        }
+
+        let declares_component = text.contains("AsTwigComponent") || text.contains("AsLiveComponent");
+        if declares_component || text.contains("AsAlias") || self.components.values().any(|entry| entry.path == path) {
+            return false;
+        }
+        if self.custom_twig_lexer && !text.contains("new Lexer(") {
+            return false;
+        }
+        self.custom_twig_lexer |= text.contains("new Lexer(");
+
+        drop_path(&mut self.routes);
+        drop_path(&mut self.roles);
+        drop_path(&mut self.commands);
+        self.route_defs.retain(|route| route.file != path);
+        self.renders.retain(|render| render.path != path);
+        self.entities.retain(|_, entity| entity.entry.path != path);
+
+        if relative.ends_with("Controller.php") || relative.starts_with("src/Controller/") {
+            self.routes_complete &= php_routes_literal(&text);
+            php_routes(&path, &text, &mut self.routes);
+            self.route_defs.extend(route_defs::php_route_defs(&path, &text));
+            roles(&path, &text, &mut self.roles);
+            self.renders.extend(php_renders(&path, &text));
+        }
+        if relative.starts_with("src/Command/") || relative.ends_with("Command.php") {
+            php_commands(&path, &text, &mut self.commands);
+        }
+        if text.contains("Entity") {
+            if let Some(entity) = crate::entities::parse(&path, &text) {
+                self.entities.insert(entity.class.clone(), entity);
+            }
+        }
+        true
     }
 
     /// The Twig name of a template file.

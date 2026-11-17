@@ -665,16 +665,12 @@ fn twig(path: &str, text: &str, out: &mut Collected) {
 const MAX_INDEXED_BYTES: usize = 1_000_000;
 
 impl DocumentIndexer for Main {
-    fn index(&mut self, _doc: &Document) -> Edges {
-        // Global equality/transformed navigation keys do not prove complete
-        // replaceable symbol ownership. API1.3 also uses this graph for Rename.
-        Edges::default()
+    fn index(&mut self, doc: &Document) -> Edges {
+        let markers = self.navigation_associations(doc).markers;
+        Edges { markers, ..Edges::default() }
     }
 }
 impl Main {
-    // Retain the audited association parsers/tests as navigation-model evidence,
-    // never as automatic edits. Explicit definition providers remain available.
-    #[allow(dead_code)]
     fn navigation_associations(&mut self, doc: &Document) -> Edges {
         let path = doc.path.as_str();
         let text = doc.text.as_str();
@@ -762,6 +758,15 @@ mod tests {
 
     fn keys(anchors: &[Anchor]) -> Vec<&str> {
         anchors.iter().map(|a| a.key.as_str()).collect()
+    }
+
+    #[test]
+    fn indexer_publishes_service_and_route_markers() {
+        use openidea_plugin::indexing::DocumentIndexer;
+        let text = "<?php\nnamespace App;\nclass BlogController {\n  #[Route('/b', name: 'blog')]\n  function i() { return $this->render('blog/i.html.twig'); }\n}\n";
+        let edges = Main::default().index(&Document { path: "/p/src/BlogController.php".into(), text: text.into(), symbols: Vec::new() });
+        assert!(keys(&edges.markers).contains(&"route-use#blog"));
+        assert!(edges.definitions.is_empty() && edges.references.is_empty());
     }
 
     #[test]
@@ -1016,7 +1021,7 @@ mod tests {
             ("/p/assets/controllers/x_controller.js", "export default class {}"),
         ] {
             let edges = Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() });
-            assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.aliases.is_empty() && edges.markers.is_empty());
+            assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.aliases.is_empty());
         }
     }
 }

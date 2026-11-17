@@ -94,7 +94,8 @@ Forms: `$this->createForm(PostType::class)` (and `FormFactoryInterface::create()
 ## Commands
 
 - _Symfony: Warm Up Cache_ / _Symfony: Clear Cache_ run `php bin/console cache:warmup` or `cache:clear` (optional `process:php`, trusted projects only), then reindex, because the compiled files hold the routes and services of bundles.
-- _Symfony: Reindex Project_ rebuilds the index. Saving a file under `config/`, `templates/` or `translations/`, a PHP file under `src/`, `composer.json`, `webpack.config.js` or `importmap.php` also rebuilds it.
+- _Symfony: Reindex Project_ rebuilds the index. Saving a PHP file under `src/`, a template or a translation file updates only that file in the index. Adding or removing such a file, or changing `config/`, `composer.json`, `webpack.config.js`, `importmap.php` or the compiled cache files, rebuilds it.
+- Templates under gitignored directories (for example `vendor/acme/bundle/templates` added through `twig: paths:`) are not listed, because the host skips ignored paths.
 - _Symfony: Run Console Command..._ runs a `bin/console` command in a terminal; _Symfony: Go to Route..._, _Go to Service..._, _Go to Console Command..._ and _Go to Template..._ jump project-wide.
 - _Symfony: Make..._ lists `make:*` commands (from `bin/console list make`, or a built-in list), asks for the name and options, and runs `php bin/console make:…` in a terminal (optional `process:php`).
 - _Symfony: Create Twig Template..._ explains how to invoke the reviewed **Create missing Twig template…** intention on a quoted Twig reference; _Symfony: Extend Twig Template..._ inserts the `extends` tag; _Symfony: Insert Form Rows from a Form Type..._ picks a form type of the project and inserts `form_start`, a `form_row` per literal `->add('name')` and `form_end` at the caret.

@@ -37,7 +37,10 @@ impl Main {
     pub(crate) fn make(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let project = ctx.project().ok_or("No project is open.")?;
         let args = ["bin/console".to_owned(), "list".to_owned(), "make".to_owned(), "--raw".to_owned()];
-        let listed = project.run_process("php", &args, None).ok().filter(|output| output.status == Some(0));
+        let listed = {
+            let _task = host::begin_task("Listing console makers", false);
+            project.run_process("php", &args, None).ok().filter(|output| output.status == Some(0))
+        };
 
         let mut makers: Vec<(String, String)> = Vec::new();
         for line in listed.iter().flat_map(|output| output.stdout.lines()) {
@@ -57,7 +60,7 @@ impl Main {
         };
 
         let mut args = vec!["bin/console".to_owned(), format!("make:{maker}")];
-        args.extend(arguments.split_whitespace().map(str::to_owned));
+        args.extend(shell_words::split(&arguments).map_err(|_| Error::Invalid("Unbalanced quote in the arguments.".into()))?);
         match host::open_terminal(&format!("make:{maker}"), "php", &args) {
             Err(Error::Denied(_)) => Err("Allow the process:php capability in Settings › Plugins.".into()),
             result => result.map(|()| None),
