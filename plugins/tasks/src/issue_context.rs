@@ -216,14 +216,11 @@ pub fn run(search: &Search, ctx: &Invocation, activate: bool) -> Result<(), Erro
     }
     validate_existing(&crate::load(&root)?, &issue)?;
     let review = format!(
-        "Activate this cached issue locally?\n\nProject: {root}\nIssue: {}\nSummary: {}\nTracker: {}\nPage: {}\nAPI identity: {}\n\nThis changes the active local task/time tracking only. It creates no branch, runs no git, updates no tracker state, and reopens no files.",
-        issue.id,
+        "{}\nTime tracking switches to this issue. No branch is created, and the issue on {} is not changed.",
         issue.summary,
-        issue.tracker.as_deref().unwrap_or_default(),
-        issue.url.as_deref().unwrap_or_default(),
-        issue.api.as_deref().unwrap_or_default()
+        crate::trackers::tracker_name(issue.tracker.as_deref().unwrap_or_default())
     );
-    if !ui_kit::prompts::confirm_exact("Activate cached issue locally", &review)? {
+    if !ui_kit::prompts::confirm_exact(&format!("Start a task for {}?", issue.id), &review)? {
         return Ok(());
     }
     same_source(ctx, &root, &doc)?;
