@@ -3803,7 +3803,7 @@ const EN: &[&str] = &[
     "Open the owning Laravel project first.",
     "Unsupported cached commands.",
     "Docker mount type is unavailable.",
-    "Docker project directory must map exactly to this project through its most-specific bind mount. Volume-only/Mutagen project roots cannot be verified from Docker metadata.",
+    "Docker project directory must map exactly to this project through its most-specific bind mount, or be a DDEV project (com.ddev.approot) on its synced project volume.",
     "Docker start identity is unavailable.",
     "Docker mount source is unavailable.",
     "Cached declarations — read-only; no command will execute",

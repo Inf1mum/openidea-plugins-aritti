@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 const MAX_CONTAINERS: usize = 128;
 const MAX_SCAN: usize = 4 * 1024 * 1024;
-const FORMAT: &str = r#"{"Id":{{json .Id}},"Image":{{json .Image}},"Running":{{json .State.Running}},"Paused":{{json .State.Paused}},"Restarting":{{json .State.Restarting}},"StartedAt":{{json .State.StartedAt}},"Mounts":{{json .Mounts}},"Name":{{json .Name}},"WorkingDir":{{json .Config.WorkingDir}},"ComposeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"ComposeService":{{json (index .Config.Labels "com.docker.compose.service")}},"ComposeWorkdir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"DdevRoot":{{json (index .Config.Labels "com.ddev.approot")}},"DdevName":{{json (index .Config.Labels "com.ddev.site-name")}}"#;
+const FORMAT: &str = r#"{"Id":{{json .Id}},"Image":{{json .Image}},"Running":{{json .State.Running}},"Paused":{{json .State.Paused}},"Restarting":{{json .State.Restarting}},"StartedAt":{{json .State.StartedAt}},"Mounts":{{json .Mounts}},"Name":{{json .Name}},"WorkingDir":{{json .Config.WorkingDir}},"ComposeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"ComposeService":{{json (index .Config.Labels "com.docker.compose.service")}},"ComposeWorkdir":{{json (index .Config.Labels "com.docker.compose.project.working_dir")}},"DdevRoot":{{json (index .Config.Labels "com.ddev.approot")}},"DdevName":{{json (index .Config.Labels "com.ddev.site-name")}}}"#;
 fn key(root: &str) -> String {
     format!("artisan-docker-target-v1:{}", metadata::hash(root))
 }
@@ -332,7 +332,13 @@ fn discover_with(
     Ok(None)
 }
 pub(crate) fn discover(ctx: &Invocation) -> Result<Option<String>, Error> {
-    discover_with(ctx, run).map_err(super::ui_error)
+    let root = owner(ctx)?.1;
+    let before = host::storage::get(&key(&root))?;
+    let result = discover_with(ctx, run).map_err(super::ui_error)?;
+    if host::storage::get(&key(&root))? != before {
+        return super::refresh(ctx);
+    }
+    Ok(result)
 }
 pub(crate) fn clear_discovered_target(ctx: &Invocation) -> Result<Option<String>, Error> {
     let (_, root) = owner(ctx)?;
@@ -447,6 +453,50 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+    #[test]
+    fn inspect_templates_render_one_json_object_per_container() {
+        for template in [FORMAT, super::super::FORMAT] {
+            let rendered = render_with_nulls(template);
+            assert!(serde_json::from_str::<Value>(&rendered).is_ok(), "{rendered}");
+        }
+    }
+    fn render_with_nulls(template: &str) -> String {
+        let mut rendered = String::new();
+        let mut rest = template;
+        while let Some(start) = rest.find("{{") {
+            rendered.push_str(&rest[..start]);
+            let end = rest[start..].find("}}").unwrap() + start + 2;
+            rendered.push_str("null");
+            rest = &rest[end..];
+        }
+        rendered.push_str(rest);
+        rendered
+    }
+    #[test]
+    fn ddev_synced_volume_is_accepted_only_for_its_own_project_at_the_ddev_workdir() {
+        let _ui_host=openidea_plugin::mock::MockHost::install();
+        let mut ddev = raw();
+        ddev["DdevRoot"] = json!("/project");
+        ddev["DdevName"] = json!("project");
+        ddev["WorkingDir"] = json!("/var/www/html");
+        ddev["Mounts"] = json!([
+            {"Type":"volume","Source":"/var/lib/docker/volumes/project_mutagen/_data","Destination":"/var/www"},
+            {"Type":"bind","Source":"/project/.git","Destination":"/var/www/html/.git"}
+        ]);
+        let found = candidates("/project", "unix:///var/run/docker.sock", &[ddev.clone()]).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].target.workdir, "/var/www/html");
+        assert_eq!(found[0].proof["DdevRoot"], "/project");
+        let mut foreign = ddev.clone();
+        foreign["DdevRoot"] = json!("/other");
+        assert!(candidates("/project", "unix:///var/run/docker.sock", &[foreign]).unwrap().is_empty());
+        let mut elsewhere = ddev.clone();
+        elsewhere["WorkingDir"] = json!("/var/www/html/web");
+        assert!(candidates("/project", "unix:///var/run/docker.sock", &[elsewhere]).unwrap().is_empty());
+        let mut shadow = ddev;
+        shadow["Mounts"].as_array_mut().unwrap()[1]["Source"] = json!("/elsewhere/.git");
+        assert!(candidates("/project", "unix:///var/run/docker.sock", &[shadow]).unwrap().is_empty());
     }
     #[test]
     fn ancestor_and_compatible_nested_binds_preserve_the_exact_project_mapping() {

@@ -64,6 +64,22 @@ fn windowless_unavailable(error: &Error) -> bool {
     }
 }
 
+const MAX_ARG_BYTES: usize = 4096;
+const STDIN_LOADER: &str = "eval(stream_get_contents(STDIN));";
+
+/// The host refuses an argument over 4096 bytes, so a long `php -r <script>` runs the
+/// script from stdin instead (`docker exec` needs `-i` for that).
+fn spill_script(args: &[String]) -> Option<(Vec<String>, String)> {
+    let flag = args.iter().position(|arg| arg == "-r")?;
+    let script = args.get(flag + 1).filter(|script| script.len() > MAX_ARG_BYTES)?;
+    let mut spilled = args.to_vec();
+    spilled[flag + 1] = STDIN_LOADER.to_owned();
+    if let Some(exec) = spilled.iter().position(|arg| arg == "exec") {
+        spilled.insert(exec + 1, "-i".to_owned());
+    }
+    Some((spilled, script.clone()))
+}
+
 /// Starts a background process; PHP on a Windows project goes through `php-win`
 /// (no console window) when `process:php-win` is granted, otherwise `program`.
 pub(super) fn start_background(
@@ -71,6 +87,21 @@ pub(super) fn start_background(
     args: &[String],
     project: &Project,
 ) -> Result<host::Child, Error> {
+    let (args, script) = match spill_script(args) {
+        Some((spilled, script)) => (spilled, Some(script)),
+        None => (args.to_vec(), None),
+    };
+    let child = start_process(program, &args, project)?;
+    if let Some(script) = script {
+        if let Err(error) = child.write(&script) {
+            let _ = child.kill();
+            return Err(error);
+        }
+    }
+    Ok(child)
+}
+
+fn start_process(program: &str, args: &[String], project: &Project) -> Result<host::Child, Error> {
     if program == "php" && project.root().is_ok_and(|root| is_windows_root(&root)) {
         match host::start(&host::Command::new(WINDOWLESS_PHP).args(args), Some(project)) {
             Err(error) if windowless_unavailable(&error) => {}
@@ -109,5 +140,31 @@ mod windowless_tests {
         let host = MockHost::install().with_capabilities(&["project.read", "process:php", "process:php-win"]);
         assert_eq!(started_program(&host, "/home/dev/app"), "started: php\n");
         assert!(is_windows_root("\\\\?\\UNC\\wsl\\app"));
+    }
+}
+
+#[cfg(test)]
+mod spill_tests {
+    use super::*;
+
+    #[test]
+    fn long_inline_script_moves_to_stdin_and_short_one_stays() {
+        let script = "x".repeat(MAX_ARG_BYTES + 1);
+        let args = vec!["-r".to_owned(), script.clone(), "mode".to_owned()];
+        let (spilled, body) = spill_script(&args).unwrap();
+        assert_eq!(spilled, ["-r", STDIN_LOADER, "mode"]);
+        assert_eq!(body, script);
+        assert!(spill_script(&["-r".to_owned(), "echo 1;".to_owned()]).is_none());
+    }
+
+    #[test]
+    fn docker_exec_gets_interactive_flag() {
+        let args: Vec<String> = ["--host", "sock", "exec", "--workdir", "/app", "c", "php", "-r"]
+            .into_iter()
+            .map(str::to_owned)
+            .chain(["y".repeat(MAX_ARG_BYTES + 1)])
+            .collect();
+        let (spilled, _) = spill_script(&args).unwrap();
+        assert_eq!(&spilled[..4], ["--host", "sock", "exec", "-i"]);
     }
 }
