@@ -123,7 +123,18 @@ New › offers PHP class templates: **Symfony Command** (plain, invokable, with 
 
 ### Follow links in the gutter
 
-A gutter icon on route usages (`generateUrl()`, `redirectToRoute()`, Twig `path()`/`url()`) goes to the route definition. Renaming a route updates its declaration and every usage. Other kinds have no gutter icons.
+A gutter icon on route usages (`generateUrl()`, `redirectToRoute()`, Twig `path()`/`url()`) goes to the route definition. Renaming a route updates its declaration and every usage.
+
+A Symfony icon marks the classes and templates tied to other files. Click it to pick one from the **Choose Mapping Target** list; when there is only one, it opens right away. Hovering it shows *Related files*.
+
+| Where | Related |
+| --- | --- |
+| A public method of a controller | The YAML routes whose `controller:` points to it and the templates it renders (`$this->render()`, `renderView()`, `#[Template]`) |
+| The class line of an entity | Its `repositoryClass`, the classes of the same name with `Controller`, `Type`, `FormType`, `Fixtures` or `Repository` after it, the entities it has a relation to and the entities that have one to it |
+| The class line of a controller, form type, fixture or repository | The entity of the same base name (`OrderController` → `Order`, or the entity whose `repositoryClass` it is) and the rest of that list |
+| The first line of a Twig template | The controllers that render it |
+
+The current file is read as you type; the other files come from the project index, updated on save.
 
 ### Use the Symfony tool window
 
@@ -315,6 +326,7 @@ These need PhpStorm's full PHP, Twig and YAML models, which the plugin API doesn
 
 - Translation completion and lookup never fall back to another domain's catalogue when the requested domain has no indexed names.
 - The host-index association graph for event listeners, Twig macros, voters, constraints, transformed class/template names and related gutter links is gated. Its global equality keys and synthetic anchors were navigation associations, not proven complete Rename symbols. Explicit Go to Definition from the table above and source-derived tool-window navigation remain; graph-only related gutter links and automatic usages/Rename are unavailable.
+- *Related files* icons come from the `line-markers` provider, one marker per target on the same line, which the IDE shows as one icon. They publish no index keys, so Find Usages and Rename never see them. Routes declared with an attribute in the same file, functional tests, Doctrine migrations, form types matched by `data_class` and fixtures that only reference an entity aren't listed. Templates that extend, include or embed a template are left to the Twig plugin.
 - Twig tag, filter, function and test lists are static lists from Twig's public documentation plus the project's own extensions, read from the document index. Extensions in `vendor/` aren't read. Template paths come from the cached `templates/` index. Names starting with `@` are never reported missing.
 - `IsGranted(attribute:)` offers the common role names and `AsEventListener(event:)` the core kernel and console event names. Attribute values are completed for `methods:`, `schemes:`, `type:`, `fetch:`, `cascade:`, `strategy:` and `onDelete:`. Doctrine attribute aliases are followed.
 - A constraint argument such as `message: 'post.title.blank'` whose text looks like a key (a dot, no spaces) is a `validators` translation reference: completion, Go to Definition and the missing-key problem.
@@ -402,7 +414,7 @@ File-creating actions are lazy file actions with exact resulting-file confirmati
 ### Tool window
 
 - **Routes**: the method icon, the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. **Create HTTP Request File** writes `http/<verb>-<path>.http` using `http://localhost:8000`; without `project.write` the request is copied. The toolbar cache is bound to its rendered root: actions verify the current root, the unchanged selected fact and membership in the current cached index, and never execute an HTTP request. There's no request panel beside the list and no gutter icon on the handler.
-- Only route usages get a gutter icon; it links to the route definition.
+- Route usages get a route icon that links to the route definition; controllers, entities, their family and templates get the *Related files* icon.
 - **About** runs no PHP. Versions come from `composer.lock`.
 - **Env** reads `.env`, `.env.local`, `.env.dev`, `.env.test`, `.env.prod` and their `.local` variants. Values are never read into the index or shown.
 - **Entities** reads `src/Entity/` and the `dir:` of `doctrine.orm.mappings`. Fields show Doctrine type, nullability and `id`; relations show their target, in the row's details. Activating a row opens the entity class; fields and relations have no rows of their own. Legacy annotations, XML and YAML mappings, embeddables and mapped superclasses aren't read.
