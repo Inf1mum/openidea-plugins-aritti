@@ -803,7 +803,9 @@ fn bounded_reference_keys(text:&str)->Option<Vec<spec::Key>> {
     else {yaml_scan::keys(text,8192,4<<20,48)}
 }
 fn in_hidden_dir(root: &str, path: &str) -> bool {
-    let relative = path.strip_prefix(root).unwrap_or(path);
+    let Some(relative) = path.strip_prefix(root) else {
+        return false;
+    };
 
     relative.split('/').any(|segment| segment.starts_with('.') && segment.len() > 1)
 }
@@ -1210,6 +1212,12 @@ mod yaml_definition_integrity_tests {
 mod marker_integrity_tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
+    #[test]
+    fn hidden_dir_check_is_relative_to_the_root() {
+        assert!(!in_hidden_dir("/x/.claude/w/project", "/x/.claude/w/project/api/o.yaml"));
+        assert!(in_hidden_dir("/x/.claude/w/project", "/x/.claude/w/project/.openidea/s/o.yaml"));
+        assert!(!in_hidden_dir("/x/.claude/w/project", "/elsewhere/.git/o.yaml"));
+    }
     #[test]
     fn line_markers_skip_non_openapi_json() {
         let _host=MockHost::install().with_capabilities(&[]);
