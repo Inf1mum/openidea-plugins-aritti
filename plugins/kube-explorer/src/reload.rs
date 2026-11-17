@@ -80,6 +80,9 @@ impl KubeExplorer {
 
     fn live_yaml(&self, doc: &Doc) -> Result<String, Error> {
         let kind = resource_type(doc).ok_or("unreadable kind")?;
+        if kind == "secret" && !Self::reveal_allowed() {
+            return Err("Secret values are hidden; turn on \"Allow Show Secret\" to reload it".into());
+        }
         let name = doc.name.as_ref().map(|name| name.text.as_str()).ok_or("no metadata.name")?;
         if !is_dns_subdomain(name) {
             return Err(format!("\"{name}\" is not a resource name").into());
@@ -143,5 +146,29 @@ mod tests {
         KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap();
         assert_eq!(host.editor_text(), FILE);
         assert!(host.notifications()[0].body.contains("Allow editor changes"));
+    }
+
+    #[test]
+    fn reload_skips_secret_unless_reveal_allowed() {
+        const SECRET_FILE: &str = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\nspec:\n  replicas: 1\n---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: db\n  namespace: shop\ndata:\n  password: b2xk\n";
+        let secret_live = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: db\n  namespace: shop\ndata:\n  password: bmV3\n";
+
+        let host = MockHost::install().with_capabilities(&["project.read", "process:kubectl", "editor.read", "editor.write", "storage"]);
+        host.set_project_root(Some("/p"));
+        host.on_process(KUBECTL, move |args, _| {
+            let stdout = if args.contains(&"secret".to_owned()) { secret_live } else { "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\nspec:\n  replicas: 3\n" };
+            Ok(ProcessOutput { status: Some(0), stdout: stdout.into(), stderr: String::new() })
+        });
+        host.open_editor("/p/web.yaml", "yaml", SECRET_FILE, &[(0, 0, 0, 0)]);
+        KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap();
+
+        let text = host.editor_text();
+        assert!(text.contains("replicas: 3") && text.contains("password: b2xk") && !text.contains("bmV3"));
+        assert!(host.notifications()[0].body.contains("not reloaded: db:"));
+
+        host.set_setting("allowRevealSecrets", "true");
+        host.open_editor("/p/web.yaml", "yaml", SECRET_FILE, &[(0, 0, 0, 0)]);
+        KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap();
+        assert!(host.editor_text().contains("password: bmV3"));
     }
 }
