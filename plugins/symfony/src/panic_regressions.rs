@@ -79,3 +79,16 @@ fn unbalanced_component_text_no_panic() {
 fn symfony_providers_survive_offsets() {
     survive(&SEEDS);
 }
+
+#[test]
+fn index_build_survives_unclosed_twig_tags() {
+    for text in ["{%}", "{#}", "{{ x }}{%}{% block a %}", "{% props %}{%}", "{# @var x Foo #}{#}"] {
+        crate::components::template_blocks(text);
+        crate::components::template_props(text);
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/broken.html.twig", text);
+        host.add_file("templates/components/Broken.html.twig", text);
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+    }
+}
