@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 const MAX_TEXT: usize = 32 << 10;
 const MAX_KEYS: usize = 256;
 const MAX_REFERENCES: usize = 256;
+const UNSUPPORTED_FILE: &str = "Find Property works in application*.properties and bootstrap*.properties files of this project, up to 32 KiB. Open one and place the caret on a key.";
+const PLACE_CARET: &str = "Place the caret on a property key or on the name inside a ${…} placeholder.";
 struct Reference {
     key: String,
     from: usize,
@@ -144,7 +146,7 @@ fn live_source(ctx: &Invocation) -> Result<(String, Document, Position), Error> 
     let editor = ctx
         .editor()
         .ok_or("Open a supported properties file and place the caret on a key or placeholder.")?;
-    let d = editor.document()?;
+    let d = editor.document().map_err(|error| ui_kit::denied::map(error, "Find Property", "editor.read", "Spring Boot Tools"))?;
     let at = editor
         .selections()?
         .first()
@@ -177,7 +179,7 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
     let (root, doc, at) = live_source(ctx)?;
     let off = offset(&doc.text, at).ok_or(Error::Stale)?;
     let (keys, references) =
-        model(&doc).ok_or("This current file is outside the bounded literal properties model.")?;
+        model(&doc).ok_or(UNSUPPORTED_FILE)?;
     let name = references
         .iter()
         .find(|r| r.from <= off && off < r.to)
@@ -187,10 +189,10 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
                 .find(|k| k.at <= off && off < k.end)
                 .map(|k| k.key.as_str())
         })
-        .ok_or("Place the caret on a literal property key or placeholder name.")?;
+        .ok_or(PLACE_CARET)?;
     let targets = candidates(&doc, &keys, name);
     let [key] = targets.as_slice() else {
-        return Err(Error::Invalid("A unique exact current-file property spelling is required; no effective configuration owner is inferred.".into()));
+        return Err(Error::Invalid("Find Property in File needs the key declared exactly once in this file. Try Find Property in Project.".into()));
     };
     let mut locations = vec![("Property spelling", range(&doc.text, key.at, key.end))];
     locations.extend(
@@ -215,7 +217,7 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
         })
         .collect();
     let title = format!(
-        "Current file only: {name} · {} literal occurrences",
+        "{name} · {} occurrences in this file",
         items.len()
     );
     let Some(selected) = host::pick(&title, &items)? else {
@@ -238,7 +240,7 @@ pub(crate) fn project_occurrences(ctx: &Invocation) -> Result<Option<String>, Er
     let (root, doc, at) = live_source(ctx)?;
     let off = offset(&doc.text, at).ok_or(Error::Stale)?;
     let (keys, references) =
-        model(&doc).ok_or("Current source is outside the literal properties model.")?;
+        model(&doc).ok_or(UNSUPPORTED_FILE)?;
     let name = references
         .iter()
         .find(|r| r.from <= off && off < r.to)
@@ -249,7 +251,7 @@ pub(crate) fn project_occurrences(ctx: &Invocation) -> Result<Option<String>, Er
                 .map(|k| k.key.as_str())
         })
         .filter(|name| literal(name))
-        .ok_or("Place the caret on a literal property key or placeholder.")?;
+        .ok_or(PLACE_CARET)?;
     let project = ctx.project().ok_or(Error::Stale)?;
     let mut paths = std::collections::BTreeSet::new();
     paths.insert(doc.path.clone());
@@ -286,7 +288,7 @@ pub(crate) fn project_occurrences(ctx: &Invocation) -> Result<Option<String>, Er
             text: text.clone(),
             version: 0,
         };
-        let (keys, refs)=model(&file).ok_or("A configuration file is outside the bounded literal model; source search was not presented as complete.")?;
+        let (keys, refs)=model(&file).ok_or_else(|| format!("{path} can't be searched (it is over 32 KiB or uses syntax this search doesn't read), so no results are shown."))?;
         for key in keys
             .iter()
             .filter(|k| k.key == name && file.text.get(k.at..k.end) == Some(name))
@@ -643,6 +645,16 @@ mod tests {
         assert!(h.process_runs().is_empty() && h.requests().is_empty());
     }
     #[test]
+    fn unsupported_files_get_a_plain_reason_and_menus_need_a_properties_editor() {
+        let h = command_host("#---\napp.name=a", Position::new(1, 3));
+        for command in ["current-file-placeholder-occurrences", "project-placeholder-occurrences"] {
+            let error = BootTools::default().run_command(command, &h.invocation(), None).unwrap_err().to_string();
+            assert!(error.contains(UNSUPPORTED_FILE), "{error}");
+        }
+        let manifest = include_str!("../plugin.toml");
+        assert_eq!(manifest.matches("when = \"editorLangId == properties\"").count(), 4);
+    }
+    #[test]
     fn cancellation_unknown_selection_denied_editor_and_foreign_owner_never_navigate() {
         for answer in [None, Some(&["999"][..])] {
             let h = command_host("app.name=secret\nx=${app.name}", Position::new(0, 3));
@@ -656,15 +668,11 @@ mod tests {
         }
         let h = command_host("app.name=secret", Position::new(0, 3))
             .with_capabilities(&["project.read"]);
-        assert!(
-            BootTools::default()
-                .run_command(
-                    "current-file-placeholder-occurrences",
-                    &h.invocation(),
-                    None
-                )
-                .is_err()
-        );
+        let denied = BootTools::default()
+            .run_command("current-file-placeholder-occurrences", &h.invocation(), None)
+            .unwrap_err()
+            .to_string();
+        assert!(denied.contains("Find Property needs the editor.read permission"), "{denied}");
         assert!(h.opened_locations().is_empty());
         let h = command_host("app.name=secret", Position::new(0, 3));
         h.add_project("/project");

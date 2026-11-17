@@ -1275,12 +1275,14 @@ impl Navigator {
             Report::Dump(text) => {
                 let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
                 View::new(Body::Html(format!("<pre class=\"ui-code\" style=\"font-family: var(--ui-mono); white-space: pre-wrap\">{escaped}</pre>")))
+                    .button(Button::new("dump", "Dump Spring Configuration").icon("refresh"))
             }
             Report::Problems(files) if files.is_empty() => View::message(if self.report_incomplete {
-                "Partial source check: no findings in checked sources; unavailable/capped facts cannot prove absence."
+                "No problems found in the files checked so far, but the scan isn't finished. Click Refresh in Spring Beans, then check again."
             } else {
                 "No problems found."
-            }),
+            })
+            .button(check_button()),
             Report::Problems(files) => {
                 let mut items = Vec::new();
                 let mut total = 0;
@@ -1293,7 +1295,7 @@ impl Navigator {
                     }
                     total += problems.len();
                 }
-                View::new(Body::Tree(items)).status(&format!(
+                View::new(Body::Tree(items)).button(check_button()).status(&format!(
                     "{total} problems in {} files{}",
                     files.len(),
                     if self.report_incomplete { " · partial source check" } else { "" }
@@ -1303,7 +1305,25 @@ impl Navigator {
     }
 }
 
+pub(crate) const PLUGIN_NAME: &str = "Spring Beans Navigator";
+/// One read step of a Refresh; the task's progress reports renew the call's time budget.
+const SCAN_STEP: Duration = Duration::from_secs(1);
+
 impl Navigator {
+    /// Reads the whole project in steps under a cancellable IDE task, so one Refresh finishes the scan.
+    fn scan_project(&mut self, project: &Project) -> String {
+        let task = host::begin_task("Scanning Spring beans", true);
+        let mut step = 0;
+        loop {
+            let index = self.indexes.get(project, SCAN_STEP);
+            if !index.scanning() || task.is_cancelled() {
+                return index.state();
+            }
+            step += 1;
+            task.report(step, None, Some(&format!("Scanning… {} source files read", index.files().len())));
+        }
+    }
+
     /// Asks for a bean name or type and focuses the graph on the first match; Escape clears the search.
     fn find_in_graph(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let project = ctx.project().ok_or("Open a project first.")?;
@@ -1393,12 +1413,16 @@ impl Views for Navigator {
                 commands::check_configuration(self, ctx)?;
                 return Ok(());
             }
+            ViewEvent::Button(b) if b == "dump" => {
+                commands::dump_configuration(self, ctx)?;
+                return Ok(());
+            }
             ViewEvent::Button(b) if b == "refresh" => {
                 if let Some(project) = ctx.project() {
                     if !self.indexes.cached(&project).is_some_and(|index| index.scanning()) {
                         self.indexes.reset_project(&project);
                     }
-                    self.indexes.get(&project, COMMAND_BUDGET);
+                    self.scan_project(&project);
                 }
                 refresh_beans_view();
                 return Ok(());
@@ -1567,9 +1591,10 @@ impl Plugin for Navigator {
             "reindex" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
                 self.indexes.reset_project(&project);
-                self.indexes.get(&project, COMMAND_BUDGET);
+                let state = self.scan_project(&project);
                 refresh_beans_view();
-                Ok(None)
+                let complete = self.indexes.cached(&project).is_some_and(|index| index.complete());
+                Ok(Some(if complete { "Spring Beans finished reindexing this project.".into() } else { state }))
             }
             "generate-setter" => commands::generate(self, ctx, commands::Generate::Setter),
             "generate-constructor-dependency" => commands::generate(self, ctx, commands::Generate::Constructor),

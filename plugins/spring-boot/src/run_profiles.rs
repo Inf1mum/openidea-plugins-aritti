@@ -626,7 +626,8 @@ pub(crate) fn run_with_options(ctx: &openidea_plugin::Invocation) -> Result<Opti
     )? {
         return Ok(None);
     }
-    host::open_terminal("Spring Boot", &run.program, &launch)?;
+    host::open_terminal("Spring Boot", &run.program, &launch)
+        .map_err(|error| ui_kit::denied::map(error, "Run with Profiles/Arguments", &format!("process:{}", run.program), "Spring Boot Tools"))?;
     Ok(Some(line))
 }
 impl RunConfigurations for BootTools {
@@ -754,6 +755,16 @@ mod tests {
         host.add_file("settings.gradle.kts", "include(\"web\")");
         assert!(configurations("/project").is_empty());
         assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn denied_build_tool_names_the_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("pom.xml", POM);
+        for answer in [s(&[""]), s(&[""]), s(&[])] {
+            host.answer_next_prompt(answer);
+        }
+        let error = BootTools::default().run_command("run-with-options", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains("Run with Profiles/Arguments needs the process:mvn permission"), "{error}");
     }
     fn s<'a>(v: &'a [&'a str]) -> Option<&'a [&'a str]> {
         Some(v)

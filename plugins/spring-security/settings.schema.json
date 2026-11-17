@@ -7,12 +7,14 @@
     },
     "springSecurity.checkPathPatterns": {
       "type": "boolean",
-      "title": "Check explicit PathPatternRequestMatcher factory path syntax (implicit matcher strategy stays unresolved)",
+      "title": "Check PathPatternRequestMatcher path syntax",
+      "description": "Checks paths passed to PathPatternRequestMatcher factory methods. Plain requestMatchers(String) calls aren't checked, because their matcher type depends on the configuration.",
       "default": true
     },
     "springSecurity.checkDebug": {
       "type": "boolean",
-      "title": "Warn when security debug logging is enabled (@EnableWebSecurity(debug = true), WebSecurity.debug(true), <debug/>)",
+      "title": "Warn when security debug logging is enabled",
+      "description": "Flags @EnableWebSecurity(debug = true), WebSecurity.debug(true) and <debug/>.",
       "default": true
     },
     "springSecurity.checkBeanReferences": {
@@ -42,11 +44,12 @@
       "title": "Warn about removed Spring Security 6 APIs",
       "type": "boolean",
       "default": true,
-      "description": "Warn about source declarations of removed or deprecated Security configuration APIs (source advisories, framework version unresolved)"
+      "description": "Warn about removed or deprecated Security configuration APIs in your sources, whatever Spring Security version the project uses."
     },
     "springSecurity.checkRolePrefixes": {
       "type": "boolean",
-      "title": "Warn about explicit ROLE_ prefixes in role-check literals (receiver and custom prefix semantics unresolved)",
+      "title": "Warn about ROLE_ prefixes in role checks",
+      "description": "Flags role names such as ROLE_ADMIN passed to hasRole and similar checks. A custom role prefix isn't taken into account.",
       "default": true
     },
     "springSecurity.checkPasswords": {
@@ -58,7 +61,7 @@
       "title": "Check access expression syntax",
       "type": "boolean",
       "default": true,
-      "description": "Check source-local Security XML access expression syntax and known function names (custom expression roots unresolved)"
+      "description": "Check the syntax and function names of Security XML access expressions. Functions from custom expression roots aren't known."
     },
     "springSecurity.checkXmlAttributes": {
       "type": "boolean",

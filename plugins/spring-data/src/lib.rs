@@ -6,7 +6,7 @@
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::{
-    Diagnostic, Error, Invocation, Location, NotificationLevel, Plugin, Position, Range, Severity, TextEdit, host,
+    Diagnostic, Error, Invocation, Location, NotificationLevel, PickItem, Plugin, Position, Range, Severity, TextEdit, host,
     register_plugin,
 };
 use spring_text::index::{Index, Indexes};
@@ -1250,15 +1250,13 @@ impl Plugin for DataTools {
             );
             return Ok(None);
         }
-        let mut by_owner: Vec<(&str, Vec<&str>)> = Vec::new();
-        for (owner, member) in &found {
-            match by_owner.last_mut() {
-                Some((last, members)) if last == owner => members.push(member),
-                _ => by_owner.push((owner, vec![member])),
-            }
-        }
-        let body: Vec<String> = by_owner.iter().map(|(owner, members)| format!("{owner}: {}", members.join(", "))).collect();
-        host::notify(NotificationLevel::Info, &format!("Inherited members of {}", repository.name), &body.join("\n"));
+        // The members live in library jars: the list is for reading, choosing one opens nothing.
+        let items: Vec<PickItem> = found
+            .iter()
+            .enumerate()
+            .map(|(i, (owner, member))| PickItem::new(&i.to_string(), member).description(&format!("from {owner}")))
+            .collect();
+        host::pick(&format!("{} inherits {} members", repository.name, items.len()), &items)?;
         Ok(None)
     }
 }
@@ -1871,13 +1869,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     }
 
     #[test]
-    fn inherited_members_are_informational_without_a_pick() {
+    fn inherited_members_are_listed_in_a_picker_by_interface() {
         let host = setup();
         host.open_editor("/project/src/main/java/com/acme/UserRepository.java", "java", REPO, &[(2, 20, 2, 20)]);
-        DataTools::default().run_command("show-repository-members", &host.invocation(), None).unwrap();
-        let shown = host.notifications();
-        assert_eq!(shown.len(), 1);
-        assert!(shown[0].title.contains("UserRepository"), "{}", shown[0].title);
-        assert!(shown[0].body.contains("CrudRepository: ") && shown[0].body.contains("findById(ID id)"), "{}", shown[0].body);
+        host.answer_next_prompt(Some(&["0"]));
+        assert_eq!(DataTools::default().run_command("show-repository-members", &host.invocation(), None).unwrap(), None);
+        assert!(host.notifications().is_empty(), "no notification dump");
+        assert!(host.opened_locations().is_empty(), "library members open nothing");
     }
 }

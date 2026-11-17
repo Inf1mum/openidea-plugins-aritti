@@ -135,16 +135,16 @@ impl Cache {
     }
     pub fn state(&self) -> String {
         if self.index.scanning() {
-            "Bounded source scan pending; Refresh to continue.".into()
+            "Scan not finished. Click Refresh to finish it.".into()
         } else if !self.index.walked() {
             "Not scanned yet. Click Refresh to find this project's Spring beans.".into()
         } else if self.index.unreadable() > 0 {
             format!(
-                "{} source files unreadable, oversized or unsupported XML; unaffected cached facts retained; Refresh to retry.",
+                "{} source files couldn't be read (too large or not valid Spring XML); the other beans still show. Click Refresh to retry.",
                 self.index.unreadable()
             )
         } else if !self.index.complete() {
-            "Source inventory incomplete/capped; Refresh to retry.".into()
+            "Not every source file was read (the project has too many files). Click Refresh to retry.".into()
         } else {
             "Source cache ready.".into()
         }
@@ -401,6 +401,20 @@ mod tests {
         assert!(nav.indexes.cached(&host.invocation().project().unwrap()).unwrap().files().contains_key("/project/src/Later.java"));
     }
     #[test]
+    fn one_reindex_scans_the_whole_project_in_a_task_and_says_so() {
+        let host = MockHost::install();
+        for i in 0..40 {
+            host.add_file(&format!("src/C{i}.java"), &format!("@org.springframework.stereotype.Component class C{i} {{}}"));
+        }
+        let mut nav = Navigator::default();
+        let message = nav.run_command("reindex", &host.invocation(), None).unwrap();
+        assert_eq!(message.as_deref(), Some("Spring Beans finished reindexing this project."));
+        let project = host.invocation().project().unwrap();
+        assert!(nav.indexes.cached(&project).unwrap().complete());
+        assert_eq!(nav.indexes.cached(&project).unwrap().files().len(), 40);
+        assert!(host.tasks().iter().any(|task| task.title == "Scanning Spring beans" && task.ended));
+    }
+    #[test]
     fn unrelated_events_do_not_cold_scan_and_updates_removals_are_owned() {
         let host = MockHost::install();
         host.add_file("src/A.java", "@org.springframework.stereotype.Component class A {}");
@@ -438,7 +452,7 @@ mod tests {
         let index = indexes.cached(&project).unwrap();
         assert!(!index.files().contains_key("/project/src/A.java"));
         assert!(index.files().contains_key("/project/src/B.java"));
-        assert!(index.state().contains("unreadable"));
+        assert!(index.state().contains("couldn't be read"));
     }
     #[test]
     fn caps_stale_and_denied_discovery_never_prove_absence() {
@@ -450,7 +464,7 @@ mod tests {
         let mut index = Cache::new();
         index.index.scan(&project, COMMAND_BUDGET);
         assert!(!index.complete());
-        assert!(index.state().contains("capped"));
+        assert!(index.state().contains("too many files"));
         let host = MockHost::install().with_capabilities(&[]);
         let project = host.invocation().project().unwrap();
         let mut index = Cache::new();
@@ -516,7 +530,8 @@ mod tests {
         nav.report_incomplete = true;
         nav.sections.set(REPORT_SECTION);
         let shown = nav.render(BEANS_VIEW, None, &host.invocation()).unwrap();
-        assert!(matches!(shown.body,Body::Message(message) if message.contains("Partial source check")));
+        assert!(matches!(shown.body,Body::Message(message) if message.contains("the scan isn't finished")));
+        assert!(shown.toolbar.iter().any(|button| button.id == "check"), "partial results can be checked again");
         assert!(nav.indexes.changed(&project, "/project/build.gradle.kts", false));
         assert!(!nav.indexes.cached(&project).unwrap().complete());
     }
@@ -566,7 +581,7 @@ mod persistence_tests {
         assert_eq!(index.files()["/project/src/A.java"].beans[0].name, "fresh");
         assert!(!index.files().contains_key("/project/src/New.java"));
         assert!(!index.complete());
-        assert!(index.state().contains("incomplete"));
+        assert!(index.state().contains("Not every source file"));
         let index = restarted.get(&project, COMMAND_BUDGET);
         assert!(index.complete());
         assert!(index.files().contains_key("/project/src/New.java"));

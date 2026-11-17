@@ -301,7 +301,7 @@ impl Runtime {
         };
         self.load_scope(scope.clone());
         let Some(snap) = &self.snapshot else {
-            return Ok(View::message("No cached snapshot. Refresh in Spring Runtime first; this view never fetches."));
+            return Ok(View::message("No runtime data yet. Start the application, then click Refresh to read its Actuator.").button(crate::refresh_button()));
         };
         let at = snap.fetched_at;
         if self.panes.scope.as_ref() != Some(&scope) || self.panes.at != at || self.panes.rows.is_empty() {
@@ -341,16 +341,19 @@ impl Runtime {
             }
             Body::Other { kind: "tree".into(), data: serde_json::json!({"items":rows}).to_string() }
         } else { Body::Tree(items) };
-        Ok(View::new(body)
+        let view = View::new(body)
             .button(Button::new("snapshot-related-beans", "Related Beans…").icon("hierarchy").enabled(self.panes.selected.as_ref().and_then(|key|self.panes.rows.get(key)).is_some_and(|row|!row.relations.is_empty())))
             .button(Button::new("snapshot-method", &format!("HTTP Method: {}", self.panes.method.as_deref().unwrap_or("All"))).icon("filter"))
             .button(Button::new("snapshot-open-browser", "Open GET in Browser…").icon("external-link").enabled(self.panes.selected.as_ref().and_then(|key|self.panes.rows.get(key)).is_some_and(|row|row.methods.iter().any(|method|method=="GET"))))
             .button(Button::new("snapshot-send-request", "Send Local Request…").icon("run").enabled(self.panes.selected.as_ref().and_then(|key| self.panes.rows.get(key)).is_some_and(|row| !row.methods.is_empty())))
             .button(Button::new("snapshot-create-request", "Create HTTP Request File…").icon("add").enabled(self.panes.selected.as_ref().and_then(|key| self.panes.rows.get(key)).is_some_and(|row| row.request.is_some())))
             .button(Button::new("snapshot-copy-request", "Copy HTTP Requests").icon("copy").enabled(self.panes.selected.as_ref().and_then(|key| self.panes.rows.get(key)).is_some_and(|row| row.request.is_some())))
+            .status(&format!("{visible} of {} observations · read {} · right-click a row for its actions",self.panes.rows.len(),age(at)));
+        // The packaged window has its own search box above the rows.
+        if custom { return Ok(view); }
+        Ok(view
             .button(Button::new("snapshot-search", "Search Observations…").icon("search"))
-            .button(Button::new("snapshot-search-clear", "Clear Search").icon("close").enabled(self.panes.query.is_some()))
-            .status(&format!("Cached observations · {visible}/{} shown · {} · Unix {} · bounded sections (up to 64 rows each; health/env 32) · values omitted · Show Details for Observation / Provenance; activate to navigate to a unique source candidate",self.panes.rows.len(),age(at),at)))
+            .button(Button::new("snapshot-search-clear", "Clear Search").icon("close").enabled(self.panes.query.is_some())))
     }
     pub(crate) fn choose_related_bean(&mut self,ctx:&Invocation)->Result<(),Error> {
         let key=self.panes.selected.clone().ok_or(Error::Stale)?;
@@ -921,7 +924,7 @@ mod tests {
         let Body::Tree(rows) = view.body else { panic!() };
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "POST misleading presentation");
-        assert!(view.status.unwrap().contains("1/5 shown"));
+        assert!(view.status.unwrap().contains("1 of 5 observations"));
         assert_eq!(runtime.panes.method.as_deref(), Some("GET"));
         host.set_project_root(Some("/other"));
         runtime.render_panes(&host.invocation()).unwrap();
@@ -955,7 +958,7 @@ mod tests {
         let Body::Tree(rows) = filtered.body else { panic!("native tree") };
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "service");
-        assert!(filtered.status.unwrap().contains("1/2 shown"));
+        assert!(filtered.status.unwrap().contains("1 of 2 observations"));
         runtime.panes.query = Some("nothing-matches".into());
         let empty = runtime.render_panes(&ctx).unwrap();
         assert!(matches!(empty.body, Body::Tree(rows) if rows.is_empty()));

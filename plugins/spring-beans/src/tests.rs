@@ -473,6 +473,17 @@ fn toolbar_ids(view: &View) -> Vec<&str> {
 }
 
 #[test]
+fn dump_report_can_run_again_from_its_toolbar() {
+    let host = setup();
+    let mut n = warmed_navigator();
+    n.run_command("dump-spring-configuration", &host.invocation(), None).unwrap();
+    n.sections.set(REPORT_SECTION);
+    let dumped = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(toolbar_ids(&dumped).contains(&"dump"));
+    n.handle(BEANS_VIEW, ViewEvent::Button("dump".into()), &host.invocation()).unwrap();
+}
+
+#[test]
 fn beans_window_has_three_sections() {
     let host = setup();
     let mut n = warmed_navigator();
@@ -485,7 +496,7 @@ fn beans_window_has_three_sections() {
     assert_eq!(toolbar_ids(&report), ["section:beans", "section:graph", "section:report", "check"]);
     n.handle(BEANS_VIEW, ViewEvent::Button("check".into()), &host.invocation()).unwrap();
     let checked = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
-    assert!(!toolbar_ids(&checked).contains(&"check"));
+    assert!(toolbar_ids(&checked).contains(&"check"), "results can be checked again");
 }
 
 #[test]
@@ -3474,7 +3485,7 @@ fn invalid_xml_current_text_drops_old_bean_facts_and_marks_context_incomplete_un
     host.add_file(XML_PATH,&good);host.add_file("Other.java","@org.springframework.stereotype.Service class Unaffected {}");let project=host.invocation().project().unwrap();let mut nav=Navigator::default();
     assert!(nav.indexes.get(&project,COMMAND_BUDGET).complete());assert!(nav.indexes.cached(&project).unwrap().files().contains_key(XML_PATH));
     let bad=good.replacen("<beans ","<beans xmlns:xml=\"urn:foreign\" ",1);assert!(nav.diagnostics(&doc(XML_PATH,&bad)).is_empty());
-    let cache=nav.indexes.cached(&project).unwrap();assert!(!cache.complete()&&!cache.files().contains_key(XML_PATH));assert!(cache.files().contains_key("/project/Other.java"));assert!(cache.state().contains("unsupported XML"));
+    let cache=nav.indexes.cached(&project).unwrap();assert!(!cache.complete()&&!cache.files().contains_key(XML_PATH));assert!(cache.files().contains_key("/project/Other.java"));assert!(cache.state().contains("not valid Spring XML"));
     assert!(parse(XML_PATH,&bad).is_none());nav.diagnostics(&doc(XML_PATH,&good));assert!(nav.indexes.cached(&project).unwrap().complete());assert!(nav.indexes.cached(&project).unwrap().files().contains_key(XML_PATH));
 }
 

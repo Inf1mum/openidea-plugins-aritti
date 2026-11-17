@@ -297,17 +297,17 @@ impl Runtime {
             Ok(scope) => scope,
             Err(_) => {
                 self.graph.clear();
-                return Ok(View::message("Current project or Actuator scope is unavailable; cached graph withheld."));
+                return Ok(View::message("Can't show the bean graph for this project. Check Actuator base URL in Settings › Plugins › Spring Runtime Insight, then click Refresh.").button(refresh_button()));
             }
         };
         self.load_scope(scope.clone());
         let Some(snapshot) = &self.snapshot else {
             self.graph.clear();
-            return Ok(View::message("No cached snapshot. Use explicit Refresh in Spring Runtime; this graph never fetches."));
+            return Ok(View::message("No runtime data yet. Start the application, then click Refresh to read its Actuator.").button(refresh_button()));
         };
         if snapshot.url != scope.url {
             self.graph.clear();
-            return Ok(View::message("Cached endpoint identity differs; graph withheld."));
+            return Ok(View::message("The saved snapshot comes from another Actuator URL. Click Refresh to read the current one.").button(refresh_button()));
         }
         if !snapshot.has("beans") {
             self.graph.clear();
@@ -407,7 +407,7 @@ impl Runtime {
             status.push_str(" · last refresh failed; previous snapshot retained");
         }
         Ok(View::new(Body::Html(diagram::html(&result.nodes, &result.edges, "No unique valid bean identities in this cached snapshot.")))
-            .button(Button::new("graph-observations", "Inspect Snapshot List").icon("list"))
+            .button(Button::new("graph-observations", "Show Observations").icon("list"))
             .status(&status))
     }
 }

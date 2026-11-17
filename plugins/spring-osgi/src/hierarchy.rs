@@ -178,7 +178,7 @@ impl openidea_plugin::hover::HoverProvider for SpringOsgi {
             return None;
         }
         let offset = offset(&doc.text, at)?;
-        let scope=self.source_scope(&doc.path);
+        let scope=self.source_scope(&doc.path, &doc.text);
         let mut local = Index::new(GLOBS, parse);
         let index = match self.indexes.for_cached_document(&doc.path,&doc.text) {
             Some(index)=>index,

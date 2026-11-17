@@ -121,7 +121,7 @@ These are facts read from your source files, not from a running application.
 - In the **Beans** section, right-click a bean and choose **Focus in Graph**.
 - The graph draws at most 400 beans. In a larger project it starts with **Find a bean to show its neighbours** instead of a partial graph. The status bar always says how many beans are shown out of how many.
 
-Click **Refresh** to index the project or continue a scan. Run **Spring Beans: Reindex Project** to start over.
+Click **Refresh** to index the project. A large project scans as a background task (**Scanning Spring beans**) until it finishes; cancel it there. Run **Spring Beans: Reindex Project** to start over.
 
 When no bean is found and the project root has no `pom.xml` or `build.gradle`, the window says the project doesn't look like a Spring project.
 
@@ -148,7 +148,7 @@ From ⌥⏎ in the editor:
 - **Create XML bean for literal reference…** adds a new bean for a `ref` that points nowhere. You type the class name and review the XML first.
 - **Move annotation string to property…** moves a literal annotation string into an existing `.properties` file. You pick the file and key, then review both files before they change.
 
-The **Move Annotation String to Property** menu command only points you to the ⌥⏎ action.
+The **Move Annotation String to Property** editor command does the same at the caret: it adds the key to the file you pick and replaces the string with its `${…}` placeholder. It needs the `project.write` and `editor.write` permissions.
 
 ### Templates
 
@@ -186,9 +186,9 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 | **Spring Beans: Generate Constructor Dependency** | Adds a constructor-injected dependency. | Java editor context menu |
 | **Spring Beans: Generate Autowired Dependency** | Adds an `@Autowired` dependency. | Java editor context menu |
 | **Spring Beans: Generate Event Listener** | Adds an event listener method. | Java editor context menu |
-| **Spring Beans: Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
+| **Spring Beans: Move Annotation String to Property** | Moves the annotation string at the caret into a `.properties` file you pick and replaces it with a `${…}` placeholder, after you review both changes. | Java editor context menu |
 | **Spring Beans: Focus Bean in Graph** | Asks for a bean name or type, then shows that bean and its neighbours in the **Graph** section. | Command palette, **Focus in Graph** on a bean row |
-| **Spring Beans: Reindex Project** | Starts a fresh scan of the project's sources. | Tools menu, Search Everywhere |
+| **Spring Beans: Reindex Project** | Scans the project's sources again from the start and says when it's done. | Tools menu, Search Everywhere |
 
 ## Settings
 
@@ -220,7 +220,8 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | Permission | Used for | Without it |
 |---|---|---|
 | `events` | Updating bean facts when files change on disk. | Facts update only when you open or save a file, or click **Refresh**. |
-| `editor.write` | The **Generate …** commands writing code into the editor. | The commands show a warning and add nothing. |
+| `editor.write` | The **Generate …** commands and **Move Annotation String to Property** changing the Java source. | The commands show a warning and add nothing. |
+| `project.write` | **Move Annotation String to Property** adding the key to the `.properties` file. | The command shows a warning and changes nothing. |
 | `storage` | Remembering active profiles and the list of project files across restarts. | **Change Active Spring Profiles** can't save your choice. The file list is rebuilt in memory after each restart. |
 
 ## Troubleshooting
@@ -232,11 +233,11 @@ See also the [repository guide](../../README.md#troubleshooting).
 | **Spring Beans** says "Not scanned yet. Click Refresh to find this project's Spring beans." | Click **Refresh**. |
 | The **Spring Beans** window or the Check, Dump or Change Active Spring Profiles Tools menu entries are missing | They appear only when the project root has a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. Open the folder that holds the build file. |
 | "No Spring beans found. This project doesn't look like a Spring project…" | No beans were found and the root has no `pom.xml` or `build.gradle`. Open the module's folder, or check that classes use Spring annotations. |
-| It says the scan is pending, stale or incomplete | Click **Refresh** again until it says the cache is ready. Large projects take several passes. |
-| It says "Source files unavailable/oversized/unsupported XML or source cache budget reached" | Some files are too large or are not valid Spring XML. Other beans still show. See the limits under Technical details. |
+| It says "Scan not finished" or "Not every source file was read" | Click **Refresh**. The scan runs to the end unless you cancel its background task. |
+| It says some source files "couldn't be read" | Some files are too large or are not valid Spring XML. Other beans still show. See the limits under Technical details. |
 | "Project identity is unavailable." | Check that the plugin is enabled and has its required permissions in Settings › Plugins › Spring Beans Navigator. |
 | **Report** says "No configuration report for this project yet." | Click **Check Spring Configuration**, or run **Dump Spring Configuration** from the Tools menu. Reports belong to the project they ran on. |
-| A result says "partial source check" | The scan hadn't finished. Click **Refresh** in **Spring Beans**, then run the check again. |
+| A result says "partial source check" or "the scan isn't finished" | Click **Refresh** in **Spring Beans**, then click **Check Spring Configuration** again. |
 | "Adding code needs the editor.write permission. Allow it in Settings › Plugins › Spring Beans Navigator." | Allow `editor.write`. |
 | **Change Active Spring Profiles** says "No profiles found…" | Add a `@Profile`, a `<beans profile>` or an `application-<profile>.yml`/`.properties` file. |
 | **Change Active Spring Profiles** fails to save | Allow `storage` in Settings › Plugins › Spring Beans Navigator. |
@@ -305,7 +306,7 @@ Limits: eight retained roots, 4,096 inventoried files per root, 512 KiB per sour
 
 ### Tool window states
 
-Rendering is cache-only and states are explicit: cold, incomplete-source, pending-scan and stale snapshots stay visibly distinct and cannot prove missing beans. Explicit configuration reports label incomplete inventories/checked-file caps instead of displaying a clean result. Reports are snapshots of their explicit Check/Dump command, bound to their source project; a foreign project cannot render another project's report, and closing a report's owner clears its cached report. **Refresh** in the view advances pending work or restarts a completed/incomplete pass.
+Rendering is cache-only and states are explicit: cold, incomplete-source, pending-scan and stale snapshots stay visibly distinct and cannot prove missing beans. Explicit configuration reports label incomplete inventories/checked-file caps instead of displaying a clean result. Reports are snapshots of their explicit Check/Dump command, bound to their source project; a foreign project cannot render another project's report, and closing a report's owner clears its cached report. **Refresh** in the view resumes a pending scan or restarts a finished one, then reads in one-second steps under a cancellable IDE task (each progress report renews the call budget) until the scan ends.
 
 **Find Bean** asks in a prompt rather than an inline search field: the packaged view runs no page scripts, so each graph control is a button that asks the plugin to redraw. The search, focused bean and depth are kept per IDE session and are matched against the whole index, not only the 400 drawn beans. A focused bean that disappears from the index falls back to the whole graph.
 

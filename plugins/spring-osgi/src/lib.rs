@@ -606,9 +606,10 @@ impl Default for SpringOsgi {
 }
 
 impl SpringOsgi {
-    fn source_scope(&mut self,path:&str)->ownership::Scope {
+    fn source_scope(&mut self,path:&str,text:&str)->ownership::Scope {
         let roots=ownership::roots();
-        if roots.is_none() && matches!(host::projects(),Err(Error::Denied(_))) {
+        // Only OSGi documents lose cross-file checks; a pom.xml must not raise the notice.
+        if roots.is_none() && text.contains(OSGI) && matches!(host::projects(),Err(Error::Denied(_))) {
             ui_kit::denied::notify_once(&self.project_notice,"Service checks across files","project.read","Spring OSGi");
         }
         if roots.is_none() || self.known_roots.as_ref().is_some_and(|old|Some(old)!=roots.as_ref()) {self.indexes.reset();}
@@ -619,7 +620,7 @@ impl SpringOsgi {
     fn open<'d>(&mut self, doc: &'d Document, at: Position) -> Option<(OsgiXml<'d>, usize, ownership::Scoped<'_>)> {
         let osgi = OsgiXml::new(&doc.text)?;
         let at = offset(&doc.text, at)?;
-        let scope=self.source_scope(&doc.path);
+        let scope=self.source_scope(&doc.path, &doc.text);
         if !scope.known() {return None;}
         let index = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET)?;
         Some((osgi, at, ownership::Scoped::new(index,&scope)))
@@ -629,7 +630,7 @@ impl SpringOsgi {
 impl DiagnosticsProvider for SpringOsgi {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
         if !doc.path.ends_with(".xml") { return Vec::new(); }
-        let scope=self.source_scope(&doc.path);
+        let scope=self.source_scope(&doc.path, &doc.text);
         if doc.text.len()>512*1024 {
             let _=self.indexes.for_cached_document(&doc.path,&doc.text);
             return Vec::new();
@@ -1341,7 +1342,10 @@ public class AuditListener implements OsgiServiceLifecycleListener {
         let host = MockHost::install().with_capabilities(&[]);
         let mut plugin = SpringOsgi::default();
         plugin.diagnostics(&doc("plain.xml", "<beans/>"));
-        plugin.diagnostics(&doc("plain.xml", "<beans/>"));
+        assert!(host.notifications().is_empty(), "non-OSGi XML stays quiet");
+        let osgi = format!("<beans xmlns:osgi=\"{OSGI}\"/>");
+        plugin.diagnostics(&doc("osgi.xml", &osgi));
+        plugin.diagnostics(&doc("osgi.xml", &osgi));
         let notices: Vec<_> = host.notifications().into_iter().filter(|n| n.body.contains("needs the project.read permission")).collect();
         assert_eq!(notices.len(), 1);
         assert!(notices[0].body.contains("Settings › Plugins › Spring OSGi"));
