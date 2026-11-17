@@ -64,10 +64,9 @@ The CLI section can also run the CLI inside the tool window: **Run Spring Boot C
 
 1. Open your `pom.xml`, `build.gradle` or `build.gradle.kts`.
 2. Run **Spring Initializr: Add Spring Boot Starters…** (also in the **Tools** menu of Maven and Gradle projects). It loads the starters that match your build's Spring Boot version.
-3. Pick up to eight starters and confirm the changed lines.
-4. Press ⌥⏎ in the build file and choose **Add N Spring Boot Starters** to insert them.
+3. Pick up to eight starters and confirm the changed lines. The plugin writes the build file and opens it at the new starters.
 
-The plugin can't write files itself, so the last step goes through ⌥⏎. The edit is a single undoable change. Starters already in the build are skipped. To pick again later, ⌥⏎ also offers **Preview Add Spring Boot Starters…** for 15 minutes.
+Without the `project.write` permission, or when the build file has unsaved changes, nothing is written: press ⌥⏎ in the build file and choose **Add N Spring Boot Starters** to insert them as a single undoable change. Starters already in the build are skipped. To pick again later, ⌥⏎ also offers **Preview Add Spring Boot Starters…** for 15 minutes.
 
 Supported builds:
 
@@ -83,10 +82,10 @@ For a small Maven/Java/Jar project created inside the current project:
 
 1. Run **Spring Initializr: Prepare Maven Project Import…** (also in the **Tools** menu).
 2. Choose a parent folder inside the project. The new project goes into a child folder named after the artifact.
-3. Press ⌥⏎ › **Preview Import Maven Sources…** to see every file and its content, then confirm.
+3. Confirm the folder and file list. The plugin creates the files; it never overwrites an existing file.
 4. Click **Open Folder** in the notification, or run **Spring Initializr: Open Source Folder** (in the **Tools** menu once the files exist), to open it in a new window.
 
-Maven wrapper files (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/…`) are left out, and the preview says so.
+Without the `project.write` permission, step 3 is: press ⌥⏎ in any open file of the project › **Preview Import Maven Sources…** to see every file and its content, then confirm. Maven wrapper files (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/…`) are left out, and the confirmation says so.
 
 ## Commands
 
@@ -96,8 +95,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Initializr**;
 |---|---|
 | **Spring Initializr: Open start.spring.io** | Opens the start.spring.io site. |
 | **Spring Initializr: Generate and Open…** | Downloads, reviews, extracts and opens a complete project. |
-| **Spring Initializr: Add Spring Boot Starters…** | Picks starters for the open build file and shows the change, ready for ⌥⏎ › **Add N Spring Boot Starters**. Also in **Tools** for Maven and Gradle projects. |
-| **Spring Initializr: Prepare Maven Project Import…** | Downloads a Maven project into memory, ready for ⌥⏎ › **Preview Import Maven Sources…**. Also in **Tools**. |
+| **Spring Initializr: Add Spring Boot Starters…** | Picks starters for the open build file, shows the change and writes it after you confirm (without `project.write`: ⌥⏎ › **Add N Spring Boot Starters**). Also in **Tools** for Maven and Gradle projects. |
+| **Spring Initializr: Prepare Maven Project Import…** | Downloads a Maven project and creates its files in a new folder after you confirm (without `project.write`: ⌥⏎ › **Preview Import Maven Sources…**). Also in **Tools**. |
 | **Spring Initializr: Open Source Folder** | Checks the imported files and opens the folder in a new window. In **Tools** once an import created its files. |
 
 ## Permissions
@@ -111,6 +110,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | `process:spring` | **Run Spring Boot CLI in Terminal** and **Run Spring Boot CLI…**. | A notification says so and the browser download runs instead. |
 | `process:python3` | Extracting the ZIP for **Generate and Open…**. | The main button is **Download ZIP**; **Generate and Open…** downloads in the browser instead. |
 | `editor.read` | Reading the open build file for **Add Spring Boot Starters…**. | Add Starters can't start. |
+| `project.write` | Writing the build file for **Add Spring Boot Starters…** and creating the imported files. | Nothing is written; ⌥⏎ in the build file or an open project file finishes the change. |
 
 ## Troubleshooting
 
@@ -133,8 +133,12 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Archive adapter refused or failed. No project was opened…" | Check `python3` (3.8+) is allowed. The staging folder is kept for review. |
 | "Couldn't load the starter list from start.spring.io…" | Check the connection and `net:start.spring.io`, then run **Add Spring Boot Starters…** again. |
 | "This build file isn't supported…" | Your build uses something Add Starters doesn't handle. Add the starter by hand. |
-| "The build file changed since the starters were chosen…" | Run **Add Spring Boot Starters…** again. |
-| "Nothing to open yet…" | Finish the import first: ⌥⏎ › **Preview Import Maven Sources…**. |
+| "The build file changed since the starters were chosen…" or "…since the preview, so nothing was written" | Run **Add Spring Boot Starters…** again. |
+| "Add Spring Boot Starters needs the project.write permission…" | Allow `project.write`, or press ⌥⏎ in the build file and choose **Add N Spring Boot Starters**. |
+| "pom.xml has unsaved changes, so it wasn't written…" | Save the file and run **Add Spring Boot Starters…** again, or press ⌥⏎ in it and choose **Add N Spring Boot Starters**. |
+| "Creating the files directly needs the project.write permission…" | Allow `project.write`, or press ⌥⏎ in any open project file › **Preview Import Maven Sources…**. |
+| "… already exists and wasn't overwritten" | Remove or rename the existing folder, then run **Prepare Maven Project Import…** again. |
+| "Nothing to open yet…" | Finish the import first with **Prepare Maven Project Import…**. |
 | "Saved form or server selection changed in another window; draft retained. Reload saved form to continue." | Choose **Reload saved form…** in **More Actions…**. |
 
 ## Limitations
@@ -210,17 +214,16 @@ See also the [repository guide](../../README.md#troubleshooting).
 ### Source-only Maven import
 
 - Uses the current project/server form and saved metadata. Needs an open project, advertised Maven/Java/Jar/Boot/Java-version choices and known dependency compatibility. The target is the vacant artifact-name child of an existing parent inside the project.
-- A first confirmation shows the exact URL and target, and says no process or disk extraction runs. The ZIP is downloaded only by this command and validated in memory.
-- The preview lists the complete manifest, every file's UTF-8 content and byte count, and the present wrapper exclusions (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`, `.mvn/wrapper/maven-wrapper.jar`).
-- The result is one atomic FileAction of at most 32 non-overwriting creates. Collisions, changed owner/form/server/metadata, a stale anchor document, cancellation or an oversized preview (12 KiB per file, 16 KiB confirmation) return no operation. Larger projects are refused, not summarized.
+- The ZIP is downloaded by this command after you choose the parent folder and validated in memory. With `project.write`, one confirmation names the folder and every file, and each file is created only if its path is still free; an error part-way says how many files were created.
+- Without `project.write`, the ⌥⏎ preview lists the complete manifest, every file's UTF-8 content and byte count, and the present wrapper exclusions (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/maven-wrapper.properties`, `.mvn/wrapper/maven-wrapper.jar`). Its result is one atomic FileAction of at most 32 non-overwriting creates. Collisions, changed owner/form/server/metadata, a stale anchor document, cancellation or an oversized preview (12 KiB per file, 16 KiB confirmation) return no operation. Larger projects are refused, not summarized.
 - Only ordinary single-disk classic ZIP (stored/deflated): 1 MiB archive, 64 entries, 128 KiB each, 512 KiB declared total, bounded compression ratio. Symlinks/devices, unsafe paths, duplicates, non-UTF-8 and binary files are refused.
 - The root POM must match the chosen group/artifact/Boot parent, echo the selected literal `java.version`, use jar or omitted packaging, and contain every selected plain Boot-managed starter with its declared scope (up to 64; versions checked via `/dependencies?bootVersion=`). A source path under the chosen package must exist.
-- **Open Source Folder** verifies all expected paths against project-visible text, then requests the normal trust/open flow in a new window. Unsaved buffers can mask disk contents; build/runtime state isn't certified.
+- **Open Source Folder** verifies all expected paths against project-visible text, then, without another confirmation, requests the normal trust/open flow in a new window. Unsaved buffers can mask disk contents; build/runtime state isn't certified.
 - Innermost-project ownership of the parent, its ancestry, the target and every planned/verified path is checked before fetch and rechecked around the final review. A nested foreign owner refuses without operations.
 
 ### Permissions
 
-- Required: `storage`. Optional: `project.read`, `process:spring`, `process:python3`, `net:start.spring.io`, `editor.read`.
+- Required: `storage`. Optional: `project.read`, `process:spring`, `process:python3`, `net:start.spring.io`, `editor.read`, `project.write`.
 
 </details>
 

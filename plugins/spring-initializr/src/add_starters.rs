@@ -455,6 +455,33 @@ struct Staged {
     expected: Vec<(String, String)>,
     action: FileAction,
 }
+/// Writes the confirmed starters; `Some(reason)` when nothing was written and the ⌥⏎ action has to insert them.
+fn write_starters(staged: &Staged) -> Result<Option<String>, Error> {
+    for (path, text) in &staged.expected {
+        if host::project_of(path).ok_or(Error::Stale)?.read_file(path)? != *text {
+            return Err("The build file changed since the preview, so nothing was written. Run Add Spring Boot Starters again.".into());
+        }
+    }
+    if let Some(open) = host::open_editors().unwrap_or_default().into_iter().find(|e| e.dirty && staged.expected.iter().any(|(p, _)| *p == e.path)) {
+        return Ok(Some(format!("{} has unsaved changes, so it wasn't written. Save it and run Add Spring Boot Starters again.", open.path.rsplit('/').next().unwrap_or_default())));
+    }
+    // The version catalog goes first, so the build file never names an alias that isn't there.
+    for (written, ((path, edits), (_, before))) in staged.action.edits.iter().zip(&staged.expected).rev().enumerate() {
+        let mut after = before.clone();
+        for edit in edits.iter().rev() {
+            let from = openidea_plugin::text::offset(before, edit.range.start).ok_or(Error::Stale)?;
+            let to = openidea_plugin::text::offset(before, edit.range.end).ok_or(Error::Stale)?;
+            after.replace_range(from..to, &edit.text);
+        }
+        match host::project_of(path).ok_or(Error::Stale)?.write_file(path, &after) {
+            Err(Error::Denied(_)) if written == 0 => {
+                return Ok(Some(ui_kit::denied::message("Add Spring Boot Starters", "project.write", "Spring Initializr Launcher")));
+            }
+            result => result.map_err(|e| ui_kit::denied::map(e, "Add Spring Boot Starters", "project.write", "Spring Initializr Launcher"))?,
+        }
+    }
+    Ok(None)
+}
 const STAGED: &str = "starters:staged";
 #[derive(Default)]
 pub(crate) struct State {
@@ -470,9 +497,11 @@ impl State {
     }
 }
 impl Launcher {
-    /// Loads the starters, asks which to add, shows the change and stages it for ⌥⏎.
+    /// Loads the starters, asks which to add, shows the change and writes it, or stages it for ⌥⏎
+    /// when the build file can't be written (no project.write, unsaved changes).
     pub(crate) fn prepare_starters(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let doc = self.cache_starters(ctx)?;
+        let root = self.starter_edits.cache.as_ref().ok_or(Error::Stale)?.root.clone();
         let preview = self.starter_file_actions(&doc, Range::default()).pop().ok_or(Error::Stale)?;
         let action = self.resolve_starter_file_action(&doc, preview)?;
         let mut expected = Vec::new();
@@ -480,8 +509,15 @@ impl Launcher {
             expected.push((path.clone(), host::project_of(path).ok_or(Error::Stale)?.read_file(path)?));
         }
         let file = doc.path.rsplit('/').next().unwrap_or_default().to_owned();
-        let message = format!("Press ⌥⏎ in {file} and choose {} to insert them. One Undo removes them again.", action.title);
-        self.starter_edits.staged = Some(Staged { doc, expected, action });
+        let staged = Staged { doc, expected, action };
+        let Some(reason) = write_starters(&staged)? else {
+            let (path, edits) = &staged.action.edits[0];
+            let _ = host::open_location(path, edits[0].range.start.line, 0);
+            let shown = path.strip_prefix(&format!("{root}/")).unwrap_or(path);
+            return Ok(Some(format!("{} to {shown}.", staged.action.title.replacen("Add", "Added", 1))));
+        };
+        let message = format!("{reason} Or press ⌥⏎ in {file} and choose {} to insert them. One Undo removes them again.", staged.action.title);
+        self.starter_edits.staged = Some(staged);
         Ok(Some(message))
     }
     fn cache_starters(&mut self, ctx: &Invocation) -> Result<Document, Error> {
@@ -749,10 +785,16 @@ impl Launcher {
         if let Some((path, at, text, resulting)) = &catalog_edit {
             preview.push_str(&format!("\n\nVersion catalog {path}, changed section of the resulting file:\n{}", hunk(resulting, *at, at + text.len())));
         }
-        if !ui_kit::prompts::confirm_exact("Add these Spring Boot starters?", &preview)? {
+        let title = format!("Add {} Spring Boot Starter{}", ids.len(), if ids.len() == 1 { "" } else { "s" });
+        if !ui_kit::prompts::confirm_exact(&format!("{title} to {}?", doc.path.rsplit('/').next().unwrap_or_default()), &preview)? {
             return Err(Error::Cancelled);
         }
         fresh_source(doc, &pending.root)?;
+        if let Some(c) = &catalog {
+            if host::project_of(&c.path).ok_or(Error::Stale)?.read_file(&c.path)? != c.text {
+                return Err(Error::Stale);
+            }
+        }
         if root(doc).as_deref() != Some(&pending.root)
             || self.server != START
             || cache.at.elapsed() > Duration::from_secs(900)
@@ -769,7 +811,7 @@ impl Launcher {
             edits.push((path, vec![TextEdit { range: Range::new(at, at), text }]));
         }
         Ok(FileAction {
-            title: format!("Add {} Spring Boot Starter{}", ids.len(), if ids.len() == 1 { "" } else { "s" }),
+            title,
             kind: Some("source".into()),
             edits,
             ..FileAction::default()
@@ -846,7 +888,11 @@ mod tests {
     pub(super) const META: &str = r#"{"bootVersion":{"values":[{"id":"3.5.16"},{"id":"4.0.0"}]},"dependencies":{"values":[{"name":"Web","values":[{"id":"web","name":"Spring Web","compatibilityRange":"[3.0.0,4.0.0)"},{"id":"data-jpa","name":"JPA"},{"id":"cloud","name":"Cloud"},{"id":"unknown-range","compatibilityRange":"mystery"}]}]}}"#;
     pub(super) const COORDS: &str = r#"{"bootVersion":"3.5.16","dependencies":{"web":{"groupId":"org.springframework.boot","artifactId":"spring-boot-starter-web"},"data-jpa":{"groupId":"org.springframework.boot","artifactId":"spring-boot-starter-data-jpa","scope":"runtime"},"cloud":{"groupId":"org.springframework.cloud","artifactId":"spring-cloud-starter","bom":"cloud"},"unknown-range":{"groupId":"org.springframework.boot","artifactId":"spring-boot-starter-unknown"}}}"#;
     fn setup(text: &str) -> (MockHost, Launcher, Document) {
-        let host = MockHost::install().with_capabilities(&["storage", "editor.read", "project.read", "net:start.spring.io"]);
+        setup_with(text, &["storage", "editor.read", "project.read", "net:start.spring.io"])
+    }
+    const WRITABLE: [&str; 5] = ["storage", "editor.read", "project.read", "project.write", "net:start.spring.io"];
+    fn setup_with(text: &str, capabilities: &[&str]) -> (MockHost, Launcher, Document) {
+        let host = MockHost::install().with_capabilities(capabilities);
         host.add_file("pom.xml", text);
         host.open_editor("/project/pom.xml", "xml", text, &[]);
         host.on_fetch(|req| {
@@ -882,6 +928,7 @@ mod tests {
         host.answer_next_prompt(Some(&["web"]));
         host.answer_next_prompt(Some(&["yes"]));
         let message = l.run_command("add-starters", &host.invocation(), None).unwrap().unwrap();
+        assert!(message.contains("Add Spring Boot Starters needs the project.write permission. Allow it in Settings › Plugins › Spring Initializr Launcher."), "{message}");
         assert!(message.contains("⌥⏎ in pom.xml") && message.contains("Add 1 Spring Boot Starter"), "{message}");
         let actions = l.file_actions(&d, Range::default());
         assert_eq!(actions.len(), 1);
@@ -890,6 +937,56 @@ mod tests {
         assert!(apply_one(&d, &resolved).contains("spring-boot-starter-web"));
         assert!(l.resolve_file_action(&d, actions[0].clone()).is_err());
         assert_eq!(host.editor_text(), POM);
+    }
+    fn read(path: &str) -> String {
+        host::project_of(path).unwrap().read_file(path).unwrap()
+    }
+    #[test]
+    fn with_project_write_the_command_writes_the_module_pom_after_one_confirm_and_opens_it() {
+        let (host, mut l, _) = setup_with(AGG, &WRITABLE);
+        host.add_file("app/pom.xml", POM);
+        host.add_file("lib/pom.xml", &POM.replace("<relativePath/>", ""));
+        host.answer_next_prompt(Some(&["/project/app/pom.xml"]));
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let message = l.run_command("add-starters", &host.invocation(), None).unwrap().unwrap();
+        assert_eq!(message, "Added 1 Spring Boot Starter to app/pom.xml.");
+        assert!(read("/project/app/pom.xml").contains("<artifactId>spring-boot-starter-web</artifactId>"));
+        assert_eq!(read("/project/pom.xml"), AGG);
+        assert_eq!(host.opened_locations()[0].0, "/project/app/pom.xml");
+        assert!(l.starter_edits.staged.is_none());
+    }
+    #[test]
+    fn cancelling_the_confirm_writes_nothing() {
+        let (host, mut l, _) = setup_with(AGG, &WRITABLE);
+        host.add_file("app/pom.xml", POM);
+        host.answer_next_prompt(Some(&["/project/app/pom.xml"]));
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(None);
+        assert!(matches!(l.run_command("add-starters", &host.invocation(), None), Err(Error::Cancelled)));
+        assert_eq!(read("/project/app/pom.xml"), POM);
+        assert!(l.starter_edits.staged.is_none());
+    }
+    #[test]
+    fn unsaved_build_file_is_not_written_and_waits_for_alt_enter() {
+        let (host, mut l, _) = setup_with(POM, &WRITABLE);
+        host.type_in_editor("");
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let message = l.run_command("add-starters", &host.invocation(), None).unwrap().unwrap();
+        assert!(message.starts_with("pom.xml has unsaved changes, so it wasn't written.") && message.contains("⌥⏎ in pom.xml"), "{message}");
+        assert!(l.starter_edits.staged.is_some());
+    }
+    #[test]
+    fn build_file_changed_since_the_preview_is_refused() {
+        let (host, mut l, _) = setup(POM);
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        l.run_command("add-starters", &host.invocation(), None).unwrap();
+        let staged = l.starter_edits.staged.take().unwrap();
+        host.type_in_editor("<!-- edited -->");
+        let error = write_starters(&staged).unwrap_err();
+        assert!(error.to_string().contains("changed since the preview, so nothing was written"), "{error}");
     }
     #[test]
     fn staged_starters_refuse_when_the_build_file_changed_and_cancel_stages_nothing() {
