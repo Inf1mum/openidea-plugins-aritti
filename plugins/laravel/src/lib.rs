@@ -19,6 +19,7 @@ pub(crate) const MODEL_SUPPORT_MARKER: &str = "icons/marker-model-support.svg";
 pub(crate) const LISTENER_MARKER: &str = "icons/marker-listener.svg";
 pub(crate) const EVENT_MARKER: &str = "icons/marker-event.svg";
 pub(crate) const ROUTE_MARKER: &str = "icons/marker-route.svg";
+pub(crate) const RELATED_MARKER: &str = "icons/laravel.svg";
 
 mod actions;
 mod about;
@@ -1956,14 +1957,16 @@ fn php_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMark
     };
 
     let Some(full)=eloquent_members::declaration(&doc.text)else{return markers;};
+    // Every route of a method shares one icon: the host lists several targets in
+    // its anchored chooser and opens a single one directly.
     for (method, offset) in &controller.methods {
-        let route = index.route_defs.iter().find(|r|index.route_controller_full(r).is_some_and(|target|target.eq_ignore_ascii_case(&full))&&r.def.controller.as_ref().is_some_and(|(_,m)|m.eq_ignore_ascii_case(method)));
-        let Some(route) = route else { continue };
-
-        let end = Position::new(route.at.line, route.at.character + route.width);
-        let tooltip = crate::ui_text::format("root.formatted.c960019874", "Route {methods} {uri}", &[("methods", &format!("{}", route.def.methods)), ("uri", &format!("{}", route.def.uri))]);
-        let target = Location { path: route.path.clone(), range: Range::new(route.at, end) };
-        markers.push(LineMarker { line: line_of(*offset), icon: Some("run".into()), tooltip, target: Some(target) });
+        let routes = index.route_defs.iter().filter(|r|r.width>0&&index.route_controller_full(r).is_some_and(|target|target.eq_ignore_ascii_case(&full))&&r.def.controller.as_ref().is_some_and(|(_,m)|m.eq_ignore_ascii_case(method)));
+        for route in routes {
+            let end = Position::new(route.at.line, route.at.character + route.width);
+            let tooltip = crate::ui_text::format("root.formatted.c960019874", "Route {methods} {uri}", &[("methods", &route.def.methods), ("uri", &route.def.uri)]);
+            let target = Location { path: route.path.clone(), range: Range::new(route.at, end) };
+            markers.push(LineMarker { line: line_of(*offset), icon: Some(RELATED_MARKER.into()), tooltip, target: Some(target) });
+        }
     }
 
     markers
@@ -2689,7 +2692,6 @@ impl openidea_plugin::language_features::LanguageFeatures for Main {
         let owns=|path:&str| owns_current_path(&project,path);
         let mut gutters=console_editor::gutters(doc,&owns);
         if let Some(index)=self.index_for(&doc.path) {
-            gutters.extend(route_editor::gutters(index,doc,&owns));
             gutters.extend(model_gutter(index,doc));
         }
         gutters
@@ -2742,7 +2744,7 @@ mod marker_icon_guard {
     #[test]
     fn marker_icons_are_declared_in_the_manifest() {
         let manifest = include_str!("../plugin.toml");
-        for icon in [crate::VIEW_MARKER, crate::CONTROLLER_MARKER, crate::CONFIG_DEFAULTS_MARKER, crate::USED_BY_MARKER, crate::RENDERED_BY_MARKER, crate::SECTION_PARENT_MARKER, crate::SECTION_CHILD_MARKER, crate::STACK_PARENT_MARKER, crate::STACK_PUSH_MARKER, crate::MIGRATION_MARKER, crate::MODEL_MARKER, crate::MODEL_SUPPORT_MARKER, crate::LISTENER_MARKER, crate::EVENT_MARKER, crate::ROUTE_MARKER] {
+        for icon in [crate::VIEW_MARKER, crate::CONTROLLER_MARKER, crate::CONFIG_DEFAULTS_MARKER, crate::USED_BY_MARKER, crate::RENDERED_BY_MARKER, crate::SECTION_PARENT_MARKER, crate::SECTION_CHILD_MARKER, crate::STACK_PARENT_MARKER, crate::STACK_PUSH_MARKER, crate::MIGRATION_MARKER, crate::MODEL_MARKER, crate::MODEL_SUPPORT_MARKER, crate::LISTENER_MARKER, crate::EVENT_MARKER, crate::ROUTE_MARKER, crate::RELATED_MARKER] {
             assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
             assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
         }

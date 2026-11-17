@@ -307,7 +307,7 @@ fn marks_routes_views_and_layouts() {
     let controller = host_text(&host, "app/Http/Controllers/PostController.php");
     let markers = plugin.line_markers(&doc("/project/app/Http/Controllers/PostController.php", "php", &controller));
     let tooltips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
-    assert_eq!(tooltips[..3], [(7, "View posts.index"), (5, "Route GET|HEAD /posts"), (10, "Route GET|HEAD /posts/{post}")]);
+    assert_eq!(tooltips[..4], [(7, "View posts.index"), (5, "Route GET|HEAD /posts"), (5, "Route GET|HEAD /admin/dashboard"), (10, "Route GET|HEAD /posts/{post}")]);
     let related: Vec<_> = markers.iter().filter(|m| m.tooltip == "Related routes for App\\Http\\Controllers\\PostController").collect();
     assert_eq!(related.len(), 2, "retain the class-level route links formerly supplied by the host index");
     assert!(related.iter().all(|m| m.line == 3 && m.target.as_ref().is_some_and(|l| l.path.ends_with("routes/web.php"))));
@@ -3567,6 +3567,30 @@ fn invokable_controller_gets_route_marker() {
     let markers = plugin.line_markers(&doc("/project/app/Http/Controllers/WishController.php", "php", &text));
 
     assert!(markers.iter().any(|m| m.line == 7 && m.tooltip.starts_with("Route POST /x/wish")), "{markers:?}");
+}
+
+#[test]
+fn controller_method_routes_share_one_native_chooser_icon_instead_of_a_route_actions_gutter() {
+    use openidea_plugin::language_features::LanguageFeatures;
+    let routes = "<?php\nuse App\\Http\\Controllers\\OrderController;\nRoute::get('/orders', [OrderController::class, 'index'])->name('orders.index');\nRoute::get('/archive', [OrderController::class, 'index']);\nRoute::post('/orders', [OrderController::class, 'store']);\n";
+    let controller = "<?php\nnamespace App\\Http\\Controllers;\nclass OrderController\n{\n    public function index()\n    {\n    }\n    public function store()\n    {\n    }\n}\n";
+    let host = MockHost::install();
+    let plugin = &mut activated_with(&host, &[("app/Http/Controllers/OrderController.php", controller), ("routes/web.php", routes)]);
+    let document = doc("/project/app/Http/Controllers/OrderController.php", "php", controller);
+
+    let markers: Vec<_> = plugin.line_markers(&document).into_iter().filter(|m| m.icon.as_deref() == Some(crate::RELATED_MARKER)).collect();
+
+    let targets = |line: u32| -> Vec<(u32, String)> {
+        markers.iter().filter(|m| m.line == line).map(|m| {
+            let target = m.target.as_ref().unwrap();
+            assert!(target.path.ends_with("routes/web.php") && target.range.start.line == target.range.end.line && target.range.start.character < target.range.end.character, "{m:?}");
+            let line = routes.lines().nth(target.range.start.line as usize).unwrap();
+            (target.range.start.line, line[target.range.start.character as usize..target.range.end.character as usize].to_owned())
+        }).collect()
+    };
+    assert_eq!(targets(4), [(2, "orders.index".to_owned()), (3, "get".to_owned())], "{markers:?}");
+    assert_eq!(targets(7), [(4, "post".to_owned())], "{markers:?}");
+    assert!(!plugin.gutter_actions(&document).iter().any(|g| g.command == "route-editor-action"));
 }
 
 #[test]

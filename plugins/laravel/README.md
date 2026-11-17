@@ -56,6 +56,7 @@ More completion:
 
 - Hover a route, view, config or translation name to see where it is defined, with a link to the Laravel docs.
 - Gutter markers link controllers, routes, views, layouts, sections, stacks, models, migrations, listeners and events. Each relationship has its own icon.
+- A controller method's Laravel icon lists the routes that point to it (`Route::get(...)`, `Route::resource()` actions). Click it to pick one from the list under the icon, or to go straight to the route when there is only one. Copy URL, Copy as cURL and Create HTTP Request stay as code lenses above the method.
 - Route and controller hints show in PHP files (setting `routeHints`).
 - The status bar shows the Laravel and PHP versions.
 
