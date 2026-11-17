@@ -20,6 +20,20 @@ pub fn project_of(path: &str) -> Option<Project> {
     host::project_of(path)
 }
 
+/// The root of `project` when it is canonical (POSIX or drive-letter), as written.
+pub fn scoped_root(project: &Project) -> Option<String> {
+    let root = project.root().ok()?;
+    crate::scope::scope_path(&root)?;
+    Some(root)
+}
+
+/// The root of the open project holding `path`, when both are canonical
+/// (POSIX or drive-letter) and the path is below the root.
+pub fn owning_root(path: &str) -> Option<String> {
+    let root = scoped_root(&project_of(path)?)?;
+    (crate::scope::current_owner(path, std::slice::from_ref(&root)).as_deref() == Some(root.as_str())).then_some(root)
+}
+
 /// What a project's files matching some globs say, by absolute path. The
 /// first pass fills `files` as it goes; later passes replace it when done.
 pub struct Index<T> {
@@ -51,6 +65,8 @@ pub struct Index<T> {
     rejected: fn(&str, &str) -> bool,
     /// Discovery leaves files of nested open projects to their own index.
     exclude_nested: bool,
+    /// What [`Index::update`] last applied per path, so the same text again changes nothing.
+    applied: BTreeMap<String, u64>,
     generation: u64,
 }
 
@@ -86,6 +102,7 @@ impl<T: Clone> Index<T> {
             required: every,
             rejected: never,
             exclude_nested: false,
+            applied: BTreeMap::new(),
             generation: 0,
         }
     }
@@ -178,6 +195,7 @@ impl<T: Clone> Index<T> {
             && let Some(path) = self.unread.pop()
         {
             self.generation += 1;
+            self.applied.remove(&path);
             let Ok(text) = project.read_file(&path) else {
                 if (self.required)(&path, None) {
                     self.pass_failed.insert(path);
@@ -219,7 +237,15 @@ impl<T: Clone> Index<T> {
 
     /// Replaces what a file says with its current text (an open document).
     pub fn update(&mut self, path: &str, text: &str) {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        let hash = hasher.finish();
+        if !self.reading && self.applied.get(path) == Some(&hash) && self.files.contains_key(path) {
+            return;
+        }
         self.remove(path);
+        self.applied.insert(path.to_owned(), hash);
         let value = match self.parsed(path, text) {
             Ok(Some(value)) => value,
             Ok(None) => return,
@@ -302,6 +328,7 @@ impl<T: Clone> Index<T> {
     /// Forgets the files so the next scan starts over.
     pub fn reset(&mut self) {
         self.generation += 1;
+        self.applied.clear();
         self.weights.clear();
         self.total = 0;
         self.files.clear();
@@ -319,12 +346,27 @@ impl<T: Clone> Index<T> {
 
     pub fn remove(&mut self, path: &str) {
         self.generation += 1;
+        self.applied.remove(path);
         self.unweigh(path);
         self.failed.remove(path);
         self.pass_failed.remove(path);
         self.files.remove(path);
         self.next.remove(path);
         self.unread.retain(|p| p != path);
+    }
+
+    /// Forgets the files of projects nested inside `project`, when this index
+    /// excludes them: one opened after the scan still took them over.
+    fn drop_nested(&mut self, project: &Project) {
+        if !self.exclude_nested {
+            return;
+        }
+        let nested = nested_roots(project);
+        let foreign: Vec<String> =
+            self.files.keys().chain(self.next.keys()).filter(|path| nested.iter().any(|root| path.starts_with(root))).cloned().collect();
+        for path in foreign {
+            self.remove(&path);
+        }
     }
 
     /// Forgets what a file said because it could not be read.
@@ -403,11 +445,19 @@ pub struct Indexes<T> {
     unidentified: Index<T>,
     globs: &'static [&'static str],
     parse: fn(&str, &str) -> Option<T>,
+    exclude_nested: bool,
 }
 
 impl<T: Clone> Indexes<T> {
     pub fn new(globs: &'static [&'static str], parse: fn(&str, &str) -> Option<T>) -> Self {
-        Self { by_root: BTreeMap::new(), unidentified: Index::new(globs, parse), globs, parse }
+        Self { by_root: BTreeMap::new(), unidentified: Index::new(globs, parse), globs, parse, exclude_nested: false }
+    }
+
+    /// Every project's index leaves out the files of projects nested inside it.
+    pub fn excluding_nested_projects(mut self) -> Self {
+        self.exclude_nested = true;
+        self.unidentified.exclude_nested = true;
+        self
     }
 
     /// The index of `project`, read for at most `budget` more.
@@ -420,9 +470,14 @@ impl<T: Clone> Indexes<T> {
             self.unidentified.reset();
             return &mut self.unidentified;
         }
-        let (globs, parse) = (self.globs, self.parse);
-        let index = self.by_root.entry(root).or_insert_with(|| Index::new(globs, parse));
+        let (globs, parse, nested) = (self.globs, self.parse, self.exclude_nested);
+        let index = self.by_root.entry(root).or_insert_with(|| {
+            let mut index = Index::new(globs, parse);
+            index.exclude_nested = nested;
+            index
+        });
         index.scan(project, budget);
+        index.drop_nested(project);
         index
     }
 
@@ -442,8 +497,13 @@ impl<T: Clone> Indexes<T> {
     pub fn for_cached_document(&mut self, path: &str, text: &str) -> Option<&mut Index<T>> {
         let project = project_of(path)?;
         let root = project.root().ok().filter(|root| !root.is_empty())?;
-        let (globs, parse) = (self.globs, self.parse);
-        let index = self.by_root.entry(root).or_insert_with(|| Index::new(globs, parse));
+        let (globs, parse, nested) = (self.globs, self.parse, self.exclude_nested);
+        let index = self.by_root.entry(root).or_insert_with(|| {
+            let mut index = Index::new(globs, parse);
+            index.exclude_nested = nested;
+            index
+        });
+        index.drop_nested(&project);
         if index.globs.iter().any(|g| glob_matches(g, path)) {
             index.update(path, text);
         }
@@ -462,11 +522,16 @@ impl<T: Clone> Indexes<T> {
     pub fn for_cached_document_warm(&mut self, path: &str, text: &str, budget: Duration) -> Option<&mut Index<T>> {
         let project = project_of(path)?;
         let root = project.root().ok().filter(|root| !root.is_empty())?;
-        let (globs, parse) = (self.globs, self.parse);
-        let index = self.by_root.entry(root).or_insert_with(|| Index::new(globs, parse));
+        let (globs, parse, nested) = (self.globs, self.parse, self.exclude_nested);
+        let index = self.by_root.entry(root).or_insert_with(|| {
+            let mut index = Index::new(globs, parse);
+            index.exclude_nested = nested;
+            index
+        });
         if !index.fresh() || index.scanning() {
             index.scan(&project, budget);
         }
+        index.drop_nested(&project);
         if index.globs.iter().any(|g| glob_matches(g, path)) {
             index.update(path, text);
         }
@@ -583,6 +648,29 @@ mod tests {
     }
 
     #[test]
+    fn updating_a_file_with_the_text_it_already_has_keeps_the_generation() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a b c");
+        let mut index = Index::new(&["**/*.java"], words);
+        index.scan(&host.invocation().project().unwrap(), COMMAND_BUDGET);
+        index.update("/project/src/A.java", "a b");
+        let generation = index.generation();
+        index.update("/project/src/A.java", "a b");
+        assert_eq!(index.generation(), generation);
+        index.update("/project/src/A.java", "a b c d");
+        assert_ne!(index.generation(), generation);
+        assert_eq!(index.files()["/project/src/A.java"], 4);
+    }
+
+    #[test]
+    fn owning_root_accepts_drive_letter_roots() {
+        let host = MockHost::install();
+        host.set_project_root(Some("C:/work/app"));
+        assert_eq!(owning_root("C:/work/app/src/A.java").as_deref(), Some("C:/work/app"));
+        assert_eq!(owning_root("C:/work/app/../x/A.java"), None);
+    }
+
+    #[test]
     fn reads_the_project_and_applies_open_documents() {
         let host = MockHost::install();
         host.add_file("src/A.java", "a b c");
@@ -695,7 +783,7 @@ mod tests {
         indexes.for_cached_document("/project/src/Open.java", "one two");
         let generation = indexes.cached("/project/src/Open.java").unwrap().generation();
         assert_eq!(indexes.cached("/project/src/Open.java").unwrap().generation(), generation);
-        indexes.for_cached_document("/project/src/Open.java", "one two");
+        indexes.for_cached_document("/project/src/Open.java", "one two three");
         assert_ne!(indexes.cached("/project/src/Open.java").unwrap().generation(), generation);
     }
 

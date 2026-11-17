@@ -4,24 +4,16 @@
 //! Java configuration. Text-based: names match as written.
 
 use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
-use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
+use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
 use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
 use spring_text::{beans, config, contains, java, range, xml};
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 mod scope;
 mod xml_rules;
-// One admission policy for the merged owner and its embedded Batch cache.
-#[path = "../../../src/xml_namespaces.rs"]
-mod xml_namespaces;
-#[path = "../../../src/source_scope.rs"]
-mod source_scope;
-#[path = "../../../src/source_provenance.rs"]
-mod source_provenance;
 
 const NAMESPACE: &str = "http://www.springframework.org/schema/batch";
 /// Elements a transition can lead to.
@@ -125,7 +117,7 @@ fn owned_batch_context(elements:&[xml::Element], mut at:usize)->bool {
     true
 }
 pub fn parse_xml(text: &str) -> (Vec<Name>, Vec<Link>) {
-    if !text.contains("www.springframework.org/schema/") || !xml_namespaces::document_valid(text) {
+    if !text.contains("www.springframework.org/schema/") || !spring_text::xml::analysis_valid(text) {
         return Default::default();
     }
     let els = xml::elements(text);
@@ -194,11 +186,11 @@ pub fn parse_source(path: &str, text: &str) -> Vec<Name> {
     let supported=!(kotlin && tokens.iter().any(|t|matches!(t.s,"as"|"typealias")) || !kotlin && text.contains("\\u"))
         && file.types.iter().all(|owner|owner.supers().next().is_none() && !text[owner.at+owner.name.len()..].trim_start().starts_with('<'));
     let mut out: Vec<Name> = java::bean_names(&file).into_iter().map(|b| {
-        let kind=if supported && source_provenance::source_bean_owned(&file,text,&b,kotlin) {Kind::Bean}else{Kind::UnresolvedBean};
+        let kind=if supported && spring_text::provenance::source_bean_owned(&file,text,&b,kotlin) {Kind::Bean}else{Kind::UnresolvedBean};
         name(b.name,kind,b.at,b.at+b.len)
     }).collect();
     if !supported {out.push(name(String::new(),Kind::UnresolvedBean,0,0));}
-    out.extend(file.types.iter().filter(|t| supported && t.annotations.iter().any(|a|a.name=="SpringBootApplication" && text.get(a.at+1..a.name_at+a.name.len()).is_some_and(|written|source_provenance::source_type_owned(&file,written,"org.springframework.boot.autoconfigure.SpringBootApplication")))).map(|t| {
+    out.extend(file.types.iter().filter(|t| supported && t.annotations.iter().any(|a|a.name=="SpringBootApplication" && text.get(a.at+1..a.name_at+a.name.len()).is_some_and(|written|spring_text::provenance::source_type_owned(&file,written,"org.springframework.boot.autoconfigure.SpringBootApplication")))).map(|t| {
         name(t.name.clone(), Kind::BootApp, t.at, t.at + t.name.len())
     }));
     if !text.contains("Builder") {
@@ -238,7 +230,7 @@ const PARAMETER_ADDERS: [&str; 5] = ["addString", "addLong", "addDouble", "addDa
 fn job_parameters(path: &str, text: &str) -> Vec<Name> {
     let mut out = Vec::new();
     if path.ends_with(".xml") {
-        if !xml_namespaces::document_valid(text) {return Vec::new();}
+        if !spring_text::xml::analysis_valid(text) {return Vec::new();}
         let elements=xml::elements(text);const BEANS:&str="http://www.springframework.org/schema/beans";
         for (index,element) in elements.iter().enumerate() {
             let batch=xml::namespace(&elements,index)==Some(NAMESPACE) && owned_batch_context(&elements,index);
@@ -257,7 +249,7 @@ fn job_parameters(path: &str, text: &str) -> Vec<Name> {
         let supported=!(kotlin && tokens.iter().any(|t|matches!(t.s,"as"|"typealias")) || !kotlin && text.contains("\\u")) && file.types.iter().all(|t|t.supers().next().is_none());
         for annotation in file.types.iter().flat_map(|t|t.members.iter()).flat_map(|m|m.annotations.iter().chain(m.params.iter().flat_map(|p|p.annotations.iter()))).filter(|a|a.name=="Value" && supported) {
             let Some(written)=text.get(annotation.at+1..annotation.name_at+annotation.name.len()) else{continue;};
-            if !source_provenance::source_type_owned(&file,written,"org.springframework.beans.factory.annotation.Value") {continue;}
+            if !spring_text::provenance::source_type_owned(&file,written,"org.springframework.beans.factory.annotation.Value") {continue;}
             let [arg]=annotation.args.as_slice() else{continue;};if arg.name!="value" {continue;}
             let [literal]=arg.strings.as_slice() else{continue;};
             if java::tokens(&arg.text).len()!=1 || arg.text.trim_start().starts_with("\"\"\"") || literal.value.contains('\\') || kotlin && literal.value.contains('$') || text.get(literal.at..literal.end)!=Some(literal.value.as_str()) {continue;}
@@ -275,7 +267,7 @@ fn job_parameters(path: &str, text: &str) -> Vec<Name> {
                 if let Some(at)=tokens.iter().position(|t|t.at==c.at) {
                     let mut start=at;while start>=2 && tokens[start-1].s=="." && tokens[start-2].is_ident(){start-=2;}
                     let written=tokens[start..=at].iter().map(|t|t.s).collect::<String>();
-                    if source_provenance::source_type_owned(&file,&written,"org.springframework.batch.core.JobParametersBuilder") && !tokens.iter().find(|t|t.at>=c.end).is_some_and(|t|t.s=="{") {ends.push(c.end);}
+                    if spring_text::provenance::source_type_owned(&file,&written,"org.springframework.batch.core.JobParametersBuilder") && !tokens.iter().find(|t|t.at>=c.end).is_some_and(|t|t.s=="{") {ends.push(c.end);}
                 }
             } else if PARAMETER_ADDERS.contains(&c.name.as_str()) && c.chained && ends.iter().any(|end|*end<=c.at && text[*end..c.at].trim()==".") {
                 if let Some(s)=c.args.first().filter(|a|!a.text.trim_start().starts_with("\"\"\"")).and_then(|a|a.string.as_ref()).filter(|s|!s.value.contains('\\') && !(kotlin && s.value.contains('$')) && text.get(s.at..s.end)==Some(s.value.as_str())) {
@@ -419,31 +411,30 @@ pub struct Batch {
 
 impl Default for Batch {
     fn default() -> Self {
-        Self { indexes: Indexes::new(&beans::GLOBS, index_file) }
+        Self { indexes: Indexes::new(&beans::GLOBS, index_file).excluding_nested_projects() }
     }
 }
 
 impl Batch {
     pub fn warm_project(&mut self, project: &Project, budget: std::time::Duration) {
-        let index=self.indexes.get(project,budget);
-        if let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) {scope.prune(index);}
+        self.indexes.get(project,budget);
     }
     pub fn reset_live(&mut self) { self.indexes.reset(); }
+    pub fn on_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
+        self.indexes.on_events(events, deadline);
+    }
     /// Literal, source-proved job names (XML `<job id>` and owned `new JobBuilder("name", ..)`), sorted; empty until the project is scanned and owned.
     pub fn job_names(&mut self, project: &Project) -> Vec<String> {
+        if spring_text::index::scoped_root(project).is_none() {return Vec::new();}
         let index=self.indexes.get(project,COMMAND_BUDGET);
-        let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return Vec::new();};
-        if !scope.prune(index) {return Vec::new();}
         all(index).filter(|(_,n)|n.kind==Kind::Job && !n.name.is_empty()).map(|(_,n)|n.name.clone()).collect::<BTreeSet<_>>().into_iter().collect()
     }
 
     /// Owner calls this for live results. It never discovers or reads project files.
     pub fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
         let Some(kind) = file_kind(doc) else { return Vec::new() };
-        let Some(scope)=source_scope::Scope::for_path(&doc.path) else{return Vec::new();};
+        if spring_text::index::owning_root(&doc.path).is_none() {return Vec::new();}
         let Some(index) = self.indexes.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
-        let Some(scope)=scope.refresh_for_path(&doc.path) else{return Vec::new();};
-        if !scope.prune(index) {return Vec::new();}
         match kind {
             "xml" => {
                 let mut found = xml_problems(&doc.text, index);
@@ -464,9 +455,9 @@ impl Batch {
     }
 
     fn index(&mut self, doc: &Document) -> Option<&Index<Vec<Name>>> {
-        let scope=source_scope::Scope::for_path(&doc.path)?;
+        spring_text::index::owning_root(&doc.path)?;
         let index=self.indexes.for_document(&doc.path,&doc.text,PROVIDER_BUDGET)?;
-        let scope=scope.refresh_for_path(&doc.path)?;scope.prune(index).then_some(&*index)
+        Some(&*index)
     }
 }
 
@@ -653,30 +644,6 @@ impl Providers for Batch {
         }
     }
 
-    fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let kind = file_kind(doc);
-        let Some(index) = kind.and_then(|_| self.index(doc)) else { return Vec::new() };
-        let problems = match kind {
-            Some("xml") => {
-                let mut found = xml_problems(&doc.text, index);
-                if host::setting_bool("springBatch.checkChunk").unwrap_or(true) {
-                    found.extend(chunk_problems(&doc.text));
-                }
-                found.extend(xml_rules::configured_problems(&doc.text,host::setting_string("springBatch.xmlCompatibility").as_deref()));
-                found.extend(scope::xml_problems(&doc.text));
-                found
-            }
-            Some("java") => {
-                let mut found = java_problems(&doc.text, all(index).any(|(_, n)| n.kind == Kind::BootApp));
-                found.extend(scope::java_problems(&doc.text));
-                found
-            }
-            Some("kotlin") => Vec::new(),
-            _ => config_problems(doc, index),
-        };
-        publish(&doc.path, &problems);
-        Vec::new()
-    }
 }
 
 const VIEW: &str = "diagram";
@@ -723,9 +690,8 @@ impl Batch {
     pub fn diagram_snapshot(&mut self, ctx: &Invocation) -> Result<(Vec<Node>,Vec<Edge>,Vec<(String,Location)>,String),Error> {
         let project=ctx.project().ok_or(Error::Stale)?;
         if project.root()?.is_empty(){return Err(Error::Stale);}
+        spring_text::index::scoped_root(&project).ok_or(Error::Stale)?;
         let index=self.indexes.get(&project,COMMAND_BUDGET);
-        let scope=source_scope::Scope::current(&project.root()?).ok_or(Error::Stale)?;
-        if !scope.prune(index) {return Err(Error::Stale);}
         if index.scanning(){refresh(&id(VIEW));}
         let (nodes,edges)=diagram_of(index);
         let sources=index.iter().flat_map(|(path,names)|names.iter().filter(|n|matches!(n.kind,Kind::Job|Kind::State)).map(move|name|(location_key(path,name.range),Location{path:path.into(),range:name.range}))).collect();
@@ -739,9 +705,8 @@ impl Views for Batch {
         (|| -> Result<View, Error> {
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
             let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its batch jobs.").button(refresh)) };
+            if spring_text::index::scoped_root(&project).is_none() {return Ok(View::message("Current project source ownership is unavailable.").button(refresh));}
             let index = self.indexes.get(&project, COMMAND_BUDGET);
-            let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return Ok(View::message("Current project source ownership is unavailable.").button(refresh));};
-            if !scope.prune(index) {return Ok(View::message("Current project source ownership is not ready; refresh this project.").button(refresh));}
             let complete = index.complete();
             if index.scanning() {
                 self::refresh(&id(VIEW));
@@ -757,7 +722,9 @@ impl Views for Batch {
             ViewEvent::Button(b) if b == "refresh" => {
                 // Resetting a scan in progress would throw away what it has read.
                 if let Some(project) = ctx.project()
-                    && self.indexes.get(&project, std::time::Duration::ZERO).complete()
+                    && let index = self.indexes.get(&project, std::time::Duration::ZERO)
+                    && index.complete()
+                    && !index.scanning()
                 {
                     self.indexes.reset();
                 }
@@ -770,9 +737,8 @@ impl Views for Batch {
         let project = ctx.project().ok_or(Error::Stale)?;
         let root = project.root()?;
         if root.is_empty() { return Err(Error::Stale); }
+        spring_text::scope::scope_path(&root).ok_or(Error::Stale)?;
         let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let scope=source_scope::Scope::current(&root).ok_or(Error::Stale)?;
-        if !scope.prune(index) {return Err(Error::Stale);}
         let (nodes, _) = diagram_of(index);
         if nodes.iter().filter(|node| node.id == key).count() != 1 { return Err(Error::Stale); }
         let mut parts = key.splitn(4, ':');
@@ -803,48 +769,18 @@ pub const WINDOW_SECTION: &str = "batch";
 const OWNER_WINDOW: &str = "structure";
 
 fn id(name: &str) -> String {
-    if cfg!(feature = "embedded") { format!("{WINDOW_SECTION}.{name}") } else { name.to_owned() }
+    format!("{WINDOW_SECTION}.{name}")
 }
 
-fn window(view: &str) -> &str {
-    if cfg!(feature = "embedded") { OWNER_WINDOW } else { view }
+fn window(_view: &str) -> &str {
+    OWNER_WINDOW
 }
 
 pub(crate) fn refresh(view: &str) {
     host::refresh_view(window(view));
 }
 
-thread_local! {
-    static PROBLEMS: RefCell<Vec<Diagnostic>> = const { RefCell::new(Vec::new()) };
-}
 
-/// The diagnostics belong to the owner plugin, which publishes every module's together: a publish replaces the whole file.
-fn publish(path: &str, problems: &[Diagnostic]) {
-    if cfg!(feature = "embedded") {
-        PROBLEMS.set(problems.to_vec());
-        return;
-    }
-    let _ = host::publish_diagnostics(path, problems);
-}
-
-pub fn take_problems() -> Vec<Diagnostic> {
-    PROBLEMS.take()
-}
-
-const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 8] = ["spring-batch", "starter-batch", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
-
-/// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
-pub fn applies(project: &Project) -> bool {
-    let Ok(root) = project.root() else { return true };
-    BUILD_FILES
-        .iter()
-        .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
-        .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
-}
-
-#[cfg(not(feature = "embedded"))]
-openidea_plugin::register_plugin!(Batch, providers, views);
 
 #[cfg(test)]
 mod tests {
@@ -923,11 +859,13 @@ public class BatchConfig {
     #[test]
     fn cached_batch_xml_requires_the_same_complete_envelope_as_the_owner() {
         let prefix="<beans xmlns='http://www.springframework.org/schema/beans' xmlns:b='http://www.springframework.org/schema/batch'>";
-        for text in [format!("{prefix}<b:job id='j'/>") ,format!("{prefix}<b:job id='j'/></beans><other/>"),format!("<!DOCTYPE beans>{prefix}<b:job id='j'/></beans>"),format!("{prefix}<b:job id='j&amp;k'/></beans>")] {
+        for text in [format!("{prefix}<b:job id='j'/>") ,format!("{prefix}<b:job id='j'/></beans><other/>")] {
             let (names,links)=parse_xml(&text);assert!(names.is_empty() && links.is_empty(),"{text}");
         }
         let (names,links)=parse_xml(&format!("{prefix}<b:job id='j'><b:step id='a' next='b'/><b:step id='b'/></b:job></beans>"));
         assert!(names.iter().any(|name|name.kind==Kind::Job && name.name=="j"));assert_eq!(links.len(),1);
+        let (names,_)=parse_xml(&format!("<!DOCTYPE beans>{prefix}<b:job id='j'/><!-- a &lt; b --></beans>"));
+        assert!(names.iter().any(|name|name.kind==Kind::Job && name.name=="j"),"a DOCTYPE and entities keep the file analysable");
     }
 
     fn doc(path: &str, language: &str, text: &str) -> Document {
@@ -1022,20 +960,6 @@ public class BatchConfig {
         assert!(beans.contains(&"dbWriter".to_owned()) && beans.contains(&"csvReader".to_owned()) && beans.contains(&"app".to_owned()));
     }
 
-    #[cfg(not(feature = "embedded"))]
-    #[test]
-    fn reports_unknown_targets_and_beans() {
-        let host = setup();
-        let mut b = Batch::default();
-        b.line_markers(&doc(XML_PATH, "xml", JOB_XML));
-        let found: Vec<_> =
-            host.diagnostics()[XML_PATH].iter().map(|d| (d.range.start.line, d.code.clone().unwrap(), d.severity)).collect();
-        assert_eq!(found, [
-            (6, "unknown-bean".into(), Severity::Warning),
-            (11, "unknown-transition-target".into(), Severity::Error),
-        ]);
-        assert!(host.diagnostics()[XML_PATH][0].message.contains("'missingProcessor'"));
-    }
 
     fn chunk_codes(text: &str) -> Vec<(u32, u32)> {
         chunk_problems(text).iter().map(|d| (d.range.start.line, d.range.start.character)).collect()
@@ -1144,73 +1068,8 @@ public class BatchConfig {
         assert!(b.completion(&j, after(PARAMS_JAVA, "inputFile'"), None).is_empty(), "closed key");
     }
 
-    #[cfg(not(feature = "embedded"))]
-    #[test]
-    fn fixed_file_publishes_empty_list() {
-        let host = MockHost::install();
-        host.add_file("a.xml", CHUNKLESS);
-        let mut b = Batch::default();
-        b.line_markers(&doc("/project/a.xml", "xml", CHUNKLESS));
-        let chunks = || {
-            host.diagnostics()["/project/a.xml"]
-                .iter()
-                .filter(|d| d.code.as_deref() == Some("chunk-missing-commit-interval"))
-                .count()
-        };
-        assert_eq!(chunks(), 1);
-        let fixed = CHUNKLESS.replace("reader=", "commit-interval=\"5\" reader=");
-        b.line_markers(&doc("/project/a.xml", "xml", &fixed));
-        assert_eq!(chunks(), 0);
-    }
 
-    #[cfg(not(feature = "embedded"))]
-    #[test]
-    fn flags_spring_batch_5_migrations() {
-        let host = setup();
-        let mut b = Batch::default();
-        let legacy=JOB_CONFIG.replace("new JobBuilder(\"legacyJob\", repo)","jobBuilderFactory.get(\"legacyJob\")");
-        b.line_markers(&doc(JAVA_PATH, "java", &legacy));
-        let found: Vec<_> = host.diagnostics()[JAVA_PATH]
-            .iter()
-            .map(|d| (d.range.start.line, d.code.clone().unwrap(), d.deprecated))
-            .collect();
-        assert_eq!(found, [
-            (8, "deprecated-builder-factory".into(), true),
-            (17, "deprecated-builder-factory".into(), true),
-            (6, "enable-batch-processing-with-boot".into(), false),
-        ]);
-        let get = &host.diagnostics()[JAVA_PATH][1];
-        assert_eq!((get.range.start.character, get.range.end.character), (15, 36));
-        assert!(get.message.contains("new JobBuilder(name, jobRepository)"));
 
-        let no_boot = java_problems(JOB_CONFIG, false);
-        assert!(no_boot.iter().all(|d| d.code.as_deref() != Some("enable-batch-processing-with-boot")));
-    }
-
-    #[cfg(not(feature = "embedded"))]
-    #[test]
-    fn links_the_job_name_property() {
-        let host = setup();
-        let mut b = Batch::default();
-        b.line_markers(&doc(XML_PATH, "xml", JOB_XML));
-        let props = "spring.batch.job.name=importJob, nightlyJob\n";
-        let path = "/project/src/main/resources/application.properties";
-        let d = doc(path, "properties", props);
-        let found = b.definition(&d, at(props, "importJob"));
-        assert_eq!((found[0].path.as_str(), found[0].range.start.line), (XML_PATH, 3));
-        b.line_markers(&d);
-        let problems = &host.diagnostics()[path];
-        assert_eq!(problems.len(), 1);
-        assert!(problems[0].message.contains("'nightlyJob'"));
-        assert_eq!(problems[0].range.start.character, 33);
-
-        let yaml = "spring:\n  batch:\n    job:\n      name: \n";
-        let d = doc("/project/src/main/resources/application.yml", "yaml", yaml);
-        let items = b.completion(&d, Position::new(3, 12), None);
-        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, ["exportJob", "importJob", "legacyJob"]);
-        assert!(b.completion(&doc(path, "properties", "server.port=1\n"), Position::new(0, 13), None).is_empty());
-    }
 
     #[test]
     fn batch_diagram_has_expected_nodes_and_edges() {
@@ -1269,28 +1128,6 @@ public class BatchConfig {
         let view = Batch::default().render(VIEW, None, &host.invocation()).unwrap();
         let Body::Html(page) = view.body else { panic!("html expected") };
         assert!(page.contains("No batch jobs found."));
-    }
-
-    #[test]
-    fn applies_follows_the_root_build_file() {
-        let host = MockHost::install();
-        let project = &host::projects().unwrap()[0];
-        assert!(!applies(project), "no build file");
-        host.add_file("pom.xml", "<project><artifactId>spring-boot-starter-web</artifactId></project>");
-        assert!(!applies(project));
-        host.add_file("pom.xml", "<project><artifactId>spring-boot-starter-batch</artifactId></project>");
-        assert!(applies(project));
-        host.add_file("pom.xml", "<project><modules><module>app</module></modules></project>");
-        assert!(applies(project), "multi-module is unsure");
-        host.add_file("pom.xml", "<project><build><plugins><include>**/*Test.java</include></plugins></build></project>");
-        assert!(!applies(project), "surefire include is not a module");
-        host.add_file("pom.xml", "");
-        host.add_file("build.gradle.kts", "includeBuild(\"tools\")\ndependencies { implementation(\"org.slf4j:slf4j-api\") }");
-        assert!(!applies(project), "gradle without the dependency");
-        host.add_file("build.gradle.kts", "dependencies { implementation(libs.spring.thing) }");
-        assert!(applies(project), "version catalog is unsure");
-        host.add_file("build.gradle.kts", "include(\"app\")");
-        assert!(applies(project), "gradle multi-module is unsure");
     }
 
     #[cfg(feature = "embedded")]

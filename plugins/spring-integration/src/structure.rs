@@ -12,18 +12,41 @@ use ui_kit::sections::{SectionDef, Switcher};
 
 const SECTIONS: &[SectionDef] = &[
     SectionDef { id: "channels", label: "Channels" },
+    SectionDef { id: "channel-table", label: "Channel Table" },
     SectionDef { id: "batch", label: "Batch" },
     SectionDef { id: "modules", label: "Modules" },
     SectionDef { id: "diagram", label: "Diagram" },
 ];
 const SECTION_KEY: &str = "structure.section";
 const APPLIES_TTL: Duration = Duration::from_secs(30);
+const EVENT_BUDGET: Duration = Duration::from_millis(500);
+
+fn is_build_file(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name == "pom.xml" || name.ends_with(".gradle") || name.ends_with(".gradle.kts")
+}
+
+fn builds_changed(event: &openidea_plugin::Event) -> bool {
+    match event {
+        openidea_plugin::Event::FileSaved(path) => is_build_file(path),
+        openidea_plugin::Event::FilesChanged(batch) => batch.created.iter().chain(&batch.modified).chain(&batch.removed).any(|path| is_build_file(path)),
+        _ => false,
+    }
+}
 
 #[derive(Clone, Copy, Default)]
 struct Applies {
     integration: bool,
     batch: bool,
     modulith: bool,
+}
+
+fn applies_of(project: &openidea_plugin::Project) -> Applies {
+    Applies {
+        integration: spring_text::build::applies(project, "-integration"),
+        batch: spring_text::build::applies(project, "-batch"),
+        modulith: spring_text::build::applies(project, "spring-modulith"),
+    }
 }
 
 pub struct Structure {
@@ -80,7 +103,7 @@ impl Structure {
         }
 
         let applies =
-            Applies { integration: crate::applies(&project), batch: batch::applies(&project), modulith: modulith::applies(&project) };
+            applies_of(&project);
         self.applies.insert(root, (Instant::now(), applies));
         applies
     }
@@ -104,7 +127,7 @@ fn module_data(module: &str, action: CodeAction) -> CodeAction {
 
 impl Providers for Structure {
     fn completion(&mut self, doc: &Document, at: Position, trigger: Option<&str>) -> Vec<CompletionItem> {
-        if doc.language=="xml" && !crate::xml_namespaces::document_valid(&doc.text) {return Vec::new();}
+        if doc.language=="xml" && !spring_text::xml::analysis_valid(&doc.text) {return Vec::new();}
         if let Some(items)=crate::batch_navigation::completion(doc,at){return items;}
         let mut items = Vec::new();
         if self.wants_integration(doc) {
@@ -121,7 +144,7 @@ impl Providers for Structure {
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
         if let Some(found)=crate::java_hover::definition(doc,at) {return found;}
-        if doc.language == "xml" && !crate::xml_namespaces::document_valid(&doc.text) { return vec![]; }
+        if doc.language == "xml" && !spring_text::xml::analysis_valid(&doc.text) { return vec![]; }
         if let Some(found) = crate::navigation::definition(doc, at) { return found; }
         if let Some(found)=crate::batch_navigation::definition(doc,at){return found;}
         let mut found = Vec::new();
@@ -160,7 +183,7 @@ impl Providers for Structure {
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        if doc.language=="xml" && !crate::xml_namespaces::document_valid(&doc.text) {return Vec::new();}
+        if doc.language=="xml" && !spring_text::xml::analysis_valid(&doc.text) {return Vec::new();}
         // Batch/Modulith's old marker methods only published diagnostics. The
         // registered owner now returns those through one versioned producer.
         if self.wants_integration(doc) { self.integration.line_markers(doc) } else { Vec::new() }
@@ -188,6 +211,7 @@ impl Views for Structure {
             }
             let inner = match active {
                 "modules" => self.modulith.render(&module_view(modulith::WINDOW_SECTION, active), viewport, ctx)?,
+                "channel-table" => self.integration.render_table(ctx)?,
                 _ => self.integration.render(&module_view(crate::WINDOW_SECTION, "diagram"), viewport, ctx)?,
             };
             Ok(self.source_status(self.sections.buttons(inner, &[])))
@@ -238,9 +262,12 @@ impl Views for Structure {
 impl Structure {
     fn warm_live(&mut self, project: &openidea_plugin::Project) {
         let Some(root) = project.root().ok().filter(|r| !r.is_empty()) else { return };
-        let applies =
-            Applies { integration: crate::applies(project), batch: batch::applies(project), modulith: modulith::applies(project) };
-        self.applies.insert(root, (Instant::now(), applies));
+        let cached = self.applies.get(&root).filter(|(at, _)| at.elapsed() < APPLIES_TTL).map(|(_, applies)| *applies);
+        let applies = cached.unwrap_or_else(|| {
+            let applies = applies_of(project);
+            self.applies.insert(root, (Instant::now(), applies));
+            applies
+        });
         let budget = Duration::from_millis(20);
         if applies.integration {
             self.integration.warm_project(project, budget);
@@ -266,7 +293,7 @@ impl DiagnosticsProvider for Structure {
         if doc.text.len() > 256 << 10 {
             return Vec::new();
         }
-        if doc.language=="xml" && !crate::xml_namespaces::document_valid(&doc.text) {return Vec::new();}
+        if doc.language=="xml" && !spring_text::xml::analysis_valid(&doc.text) {return Vec::new();}
         let Some(root) = project_of(&doc.path).and_then(|p| p.root().ok()).filter(|r| !r.is_empty()) else { return Vec::new() };
         // Gating itself is cached. Do not call applicable(), which reads build files.
         let Some((_, applies)) = self.applies.get(&root).copied() else { return Vec::new() };
@@ -340,8 +367,13 @@ impl Plugin for Structure {
                 _ => {}
             }
         }
-        if invalidate {
+        if events.iter().any(builds_changed) {
             self.reset_live();
+        } else if invalidate {
+            let deadline = Instant::now() + EVENT_BUDGET;
+            self.integration.on_events(events, deadline);
+            self.batch.on_events(events, deadline);
+            self.modulith.on_events(events, deadline);
         }
         let mut roots = std::collections::BTreeSet::new();
         for path in paths.into_iter().take(64) {
@@ -412,6 +444,95 @@ mod tests {
 
     fn doc(path: &str, language: &str, text: &str) -> Document {
         Document { path: path.into(), language: language.into(), version: 1, text: text.into() }
+    }
+
+    const GHOST_XML: &str = "<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:service-activator input-channel='orders' output-channel='ghost'/></beans>";
+    fn codes(found: Vec<Diagnostic>) -> Vec<String> {
+        found.into_iter().filter_map(|d| d.code).collect()
+    }
+    #[test]
+    fn xml_channel_definition_cross_file() {
+        let host = setup(INTEGRATION_POM);
+        let mut owner = Structure::default();
+        let java = "/project/src/main/java/com/acme/Channels.java";
+        host.add_file(java, "package com.acme; import org.springframework.context.annotation.Bean; import org.springframework.messaging.MessageChannel; class Channels { @Bean MessageChannel audit(){return null;} }");
+        let text = "<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:bridge input-channel='audit' output-channel='done'/></beans>";
+        let document = doc("/project/src/main/resources/bridge.xml", "xml", text);
+        host.add_file(&document.path, text);
+        owner.warm_live(&host.invocation().project().unwrap());
+        let found = owner.definition(&document, position(text, text.find("audit").unwrap() + 1));
+        assert!(found.iter().any(|location| location.path == java), "{found:?}");
+    }
+    #[test]
+    fn runnable_service_does_not_silence_unconsumed_channel() {
+        let host = setup(INTEGRATION_POM);
+        let mut owner = Structure::default();
+        host.add_file("/project/src/main/java/com/acme/Svc.java", "package com.acme; import org.springframework.stereotype.Service; @Service class Svc implements Runnable { public void run(){} }");
+        let document = doc("/project/src/main/resources/ghost.xml", "xml", GHOST_XML);
+        host.add_file(&document.path, GHOST_XML);
+        owner.warm_live(&host.invocation().project().unwrap());
+        assert!(codes(owner.diagnostics(&document)).iter().any(|c| c == "unconsumed-channel"));
+    }
+    #[test]
+    fn unresolved_source_candidates_silence_only_the_names_they_could_declare() {
+        let host = setup(INTEGRATION_POM);
+        let mut owner = Structure::default();
+        host.add_file("/project/src/main/java/com/acme/Odd.java", "package com.acme; import org.springframework.stereotype.Service; @Service class Odd<T> { String name = \"ghost\"; String \\u0061 = \"x\"; }");
+        let document = doc("/project/src/main/resources/ghost.xml", "xml", GHOST_XML);
+        host.add_file(&document.path, GHOST_XML);
+        owner.warm_live(&host.invocation().project().unwrap());
+        assert!(codes(owner.diagnostics(&document)).is_empty(), "the file spells ghost and cannot be read");
+        let other = GHOST_XML.replace("ghost", "phantom");
+        assert!(codes(owner.diagnostics(&doc(&document.path, "xml", &other))).iter().any(|c| c == "unconsumed-channel"));
+    }
+    #[test]
+    fn spel_lt_entity_keeps_features() {
+        let host = setup(INTEGRATION_POM);
+        let mut owner = Structure::default();
+        let text = "<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:channel id='orders'/><i:filter input-channel='orders' expression=\"payload.size() &lt; 5\" output-channel='ghost'/></beans>";
+        let document = doc("/project/src/main/resources/lt.xml", "xml", text);
+        host.add_file(&document.path, text);
+        owner.warm_live(&host.invocation().project().unwrap());
+        assert!(codes(owner.diagnostics(&document)).iter().any(|c| c == "unconsumed-channel"));
+        let at = position(text, text.find("input-channel='orders'").unwrap() + 18);
+        assert_eq!(owner.definition(&document, at).len(), 1);
+        assert!(!owner.line_markers(&document).is_empty() || owner.completion(&document, at, None).iter().any(|item| item.label == "orders"));
+    }
+    #[test]
+    fn save_keeps_absence_diagnostics() {
+        let host = setup(INTEGRATION_POM);
+        let mut owner = Structure::default();
+        let document = doc("/project/src/main/resources/ghost.xml", "xml", GHOST_XML);
+        host.add_file(&document.path, GHOST_XML);
+        let consumer = "/project/src/main/resources/consumer.xml";
+        let consuming = "<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:bridge input-channel='ghost'/></beans>";
+        host.add_file(consumer, consuming);
+        owner.handle_events(&[openidea_plugin::Event::FileOpened(document.path.clone())], &host.invocation());
+        assert!(!codes(owner.diagnostics(&document)).iter().any(|c| c == "unconsumed-channel"));
+        host.add_file(consumer, "<beans/>");
+        owner.handle_events(&[openidea_plugin::Event::FileSaved(document.path.clone())], &host.invocation());
+        assert!(!codes(owner.diagnostics(&document)).iter().any(|c| c == "unconsumed-channel"), "a save re-reads only the saved file");
+        owner.handle_events(&[openidea_plugin::Event::FileSaved(consumer.into())], &host.invocation());
+        assert!(codes(owner.diagnostics(&document)).iter().any(|c| c == "unconsumed-channel"));
+    }
+    #[test]
+    fn gradle_subproject_dependency_detected() {
+        let host = setup("<project/>");
+        host.add_file("settings.gradle", "include 'app'");
+        let mut structure = Structure::default();
+        assert!(!structure.line_markers(&doc(XML_PATH, "xml", XML)).is_empty());
+    }
+    #[test]
+    fn windows_root_has_scope() {
+        let host = MockHost::install();
+        host.set_project_root(Some("C:/project"));
+        host.add_file("pom.xml", INTEGRATION_POM);
+        host.add_file("src/main/resources/integration.xml", XML);
+        let mut structure = Structure::default();
+        let path = "C:/project/src/main/resources/integration.xml";
+        assert!(!structure.line_markers(&doc(path, "xml", XML)).is_empty());
+        structure.warm_live(&host.invocation().project().unwrap());
+        assert!(!structure.integration.indexes.get(&host.invocation().project().unwrap(), Duration::ZERO).files().is_empty());
     }
 
     #[test]
@@ -661,11 +782,12 @@ mod tests {
         host.add_file(path,"package com.acme; import org.springframework.context.annotation.*; class Producer { @Bean String helper(){return null;} }");
         let text="<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:service-activator input-channel='orders' output-channel='ghost' ref='helper'/></beans>";
         let document=doc("/project/src/main/resources/ref.xml","xml",text);host.add_file(&document.path,text);owner.warm_live(&host.invocation().project().unwrap());
-        assert!(owner.diagnostics(&document).is_empty(),"a complete file scan is not a complete supported Bean model");
+        let codes=|found:Vec<Diagnostic>|found.into_iter().filter_map(|d|d.code).collect::<Vec<_>>();
+        assert!(!codes(owner.diagnostics(&document)).iter().any(|c|c=="unknown-bean"),"a complete file scan is not a complete supported Bean model");
         host.add_file(path,"package com.acme; import org.springframework.context.annotation.Bean; class Producer { @Bean String helper(){return null;} }");
         owner.handle_events(&[openidea_plugin::Event::FileSaved(path.into())],&host.invocation());
         let found=owner.diagnostics(&document);assert_eq!(found.len(),1);assert_eq!(found[0].code.as_deref(),Some("unconsumed-channel"));
-        assert!(found[0].message.contains("supported indexed literal") && found[0].message.contains("runtime wiring is unresolved"));
+        assert!(found[0].message.contains("No consumer or declaration for channel"));
     }
     #[test]
     fn registered_bean_alias_array_admission_remains_bounded_and_complete_for_supported_source() {
@@ -866,13 +988,13 @@ mod tests {
         let view = structure.render("structure", None, &host.invocation()).unwrap();
         assert!(matches!(view.body, Body::Html(_)));
         let ids: Vec<_> = view.toolbar.iter().map(|b| b.id.as_str()).collect();
-        assert_eq!(&ids[..4], ["section:channels", "section:batch", "section:modules", "section:diagram"]);
+        assert_eq!(&ids[..5], ["section:channels", "section:channel-table", "section:batch", "section:modules", "section:diagram"]);
 
         structure.handle("structure", ViewEvent::Button("section:modules".into()), &host.invocation()).unwrap();
         assert_eq!(host.refreshed_views(), ["structure"]);
         let view = structure.render("structure", None, &host.invocation()).unwrap();
         assert!(matches!(view.body, Body::Tree(_) | Body::Message(_)));
-        assert!(view.toolbar[2].label.starts_with('\u{25cf}'));
+        assert!(view.toolbar[3].label.starts_with('\u{25cf}'));
         assert_eq!(host.storage()[SECTION_KEY], "modules");
 
         structure.handle("structure", ViewEvent::Button("section:diagram".into()), &host.invocation()).unwrap();
@@ -880,6 +1002,19 @@ mod tests {
         assert!(matches!(view.body, Body::Html(_)));
     }
 
+    #[test]
+    fn channel_table_section_lists_and_opens_channels() {
+        let host = setup(INTEGRATION_POM);
+        let mut structure = Structure::default();
+        structure.handle("structure", ViewEvent::Button("section:channel-table".into()), &host.invocation()).unwrap();
+        let view = structure.render("structure", None, &host.invocation()).unwrap();
+        let Body::Table(table) = view.body else { panic!("channel table") };
+        assert_eq!(table.columns, ["Channel", "Declarations", "Producers", "Consumers", "File"]);
+        assert_eq!(table.rows, [["orders", "1", "1", "1", "integration.xml"], ["shipping", "0", "1", "1", "integration.xml"]]);
+        let event = ViewEvent::Other { kind: "table-activate".into(), data: r#"{"row":0}"#.into() };
+        structure.handle("structure", event, &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations()[0].0, XML_PATH);
+    }
     #[test]
     fn refresh_in_a_section_refreshes_the_structure_window() {
         let host = setup(INTEGRATION_POM);

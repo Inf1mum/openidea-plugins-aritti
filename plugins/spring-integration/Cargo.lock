@@ -182,6 +182,7 @@ dependencies = [
  "openidea-plugin-aritti-spring-batch",
  "openidea-plugin-aritti-spring-modulith",
  "quick-xml",
+ "serde_json",
  "sha2",
  "spring-text",
  "ui-kit",

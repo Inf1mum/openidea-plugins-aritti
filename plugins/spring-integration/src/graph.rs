@@ -337,9 +337,8 @@ impl Integration {
                 return Ok(View::message("Project identity is unavailable.").button(refresh));
             }
         };
+        if spring_text::scope::scope_path(&root).is_none() {self.graph=External::default();return Ok(View::message("Current project source ownership is unavailable.").button(refresh));}
         let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let Some(scope)=crate::source_scope::Scope::current(&root) else {self.graph=External::default();return Ok(View::message("Current project source ownership is unavailable.").button(refresh));};
-        if !scope.prune(index) {self.graph=External::default();return Ok(View::message("Current project source ownership is not ready; refresh this project.").button(refresh));}
         if index.scanning() {
             crate::refresh(&id(VIEW));
         }
@@ -397,9 +396,8 @@ impl Integration {
         {
             return Err(Error::Stale);
         }
+        spring_text::scope::scope_path(&root).ok_or(Error::Stale)?;
         let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let scope=crate::source_scope::Scope::current(&root).ok_or(Error::Stale)?;
-        if !scope.prune(index) {return Err(Error::Stale);}
         let (nodes, _) = diagram_of(index);
         if nodes.iter().filter(|n| n.id == key).count() != 1 {
             return Err(Error::Stale);

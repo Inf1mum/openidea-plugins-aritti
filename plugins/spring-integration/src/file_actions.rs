@@ -67,7 +67,7 @@ fn target(doc: &Document, at: usize) -> Option<Target> {
                 if depth == 0 {
                     roots += 1;
                 }
-                if !crate::xml_namespaces::valid(&reader, &element) {
+                if !spring_text::xml::namespace_valid(&reader, &element) {
                     return None;
                 }
                 depth += 1;
@@ -76,7 +76,7 @@ fn target(doc: &Document, at: usize) -> Option<Target> {
                 if depth == 0 {
                     roots += 1;
                 }
-                if !crate::xml_namespaces::valid(&reader, &element) {
+                if !spring_text::xml::namespace_valid(&reader, &element) {
                     return None;
                 }
             }
@@ -320,7 +320,7 @@ fn inventory_inner(
         if path.ends_with(".xml") {
             let elements=xml::elements(&source);
             if source.contains("www.springframework.org/schema/") || elements.first().is_some_and(|root|root.local()=="beans") {
-                if !crate::xml_namespaces::document_valid(&source) {return Err("Unsupported XML envelope/entities prevent a complete literal collision check.".into());}
+                if !spring_text::xml::generation_valid(&source) {return Err("Unsupported XML envelope/entities prevent a complete literal collision check.".into());}
                 // Collision safety intentionally overincludes raw candidate IDs
                 // even when the read-only source model cannot prove ownership.
                 references.extend(xml::bean_ids(&elements).into_iter().map(|attribute|Ref{name:attribute.value.clone(),role:Role::BeanCandidate,what:"XML collision candidate".into(),range:range(&source,attribute.value_at,attribute.value_end),checked:false,owner:0}));

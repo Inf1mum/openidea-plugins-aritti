@@ -234,7 +234,7 @@ pub(crate) struct Contexts {
     tainted: BTreeSet<usize>,
 }
 
-pub(crate) fn build(index: &Index<Vec<Ref>>) -> Contexts {
+fn build(index: &Index<Vec<Ref>>) -> Contexts {
     let mut types: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (path, refs) in index.iter() {
         for r in refs.iter().filter(|r| r.role == Role::Edge && r.what == "type") {
@@ -317,6 +317,22 @@ pub(crate) fn build(index: &Index<Vec<Ref>>) -> Contexts {
     contexts
 }
 
+thread_local! {
+    static CACHE: std::cell::RefCell<Option<(String, u64, std::rc::Rc<Contexts>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The contexts of the index holding `path`, built once per index generation.
+pub(crate) fn cached(index: &Index<Vec<Ref>>, path: &str) -> std::rc::Rc<Contexts> {
+    let root = spring_text::index::owning_root(path).unwrap_or_default();
+    let generation = index.generation();
+    if let Some(found) = CACHE.with_borrow(|cache| cache.as_ref().filter(|(r, g, _)| *r == root && *g == generation).map(|(_, _, contexts)| contexts.clone())) {
+        return found;
+    }
+    let contexts = std::rc::Rc::new(build(index));
+    CACHE.with_borrow_mut(|cache| *cache = Some((root, generation, contexts.clone())));
+    contexts
+}
+
 impl Contexts {
     /// Definitions visible from `usage`'s effective contexts plus how many contexts
     /// they span (0 when no ownership claim is made).
@@ -368,6 +384,16 @@ mod tests {
     }
     fn def<'a>(index: &'a Index<Vec<Ref>>, path: &str) -> (&'a str, &'a Ref) {
         index.iter().find(|(p, _)| *p == path).map(|(p, r)| (p, r.iter().find(|r| r.role == Role::Bean).unwrap())).unwrap()
+    }
+
+    #[test]
+    fn contexts_are_built_once_per_generation() {
+        let _host = openidea_plugin::mock::MockHost::install();
+        let mut index = index(&[(&format!("{R}a.xml"), &bean_xml("a"))]);
+        let first = cached(&index, "/project/src/a.xml");
+        assert!(std::rc::Rc::ptr_eq(&first, &cached(&index, "/project/src/a.xml")));
+        index.update(&format!("{R}b.xml"), &bean_xml("b"));
+        assert!(!std::rc::Rc::ptr_eq(&first, &cached(&index, "/project/src/a.xml")));
     }
 
     #[test]

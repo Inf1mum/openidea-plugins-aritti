@@ -24,7 +24,7 @@ fn snapshot(pending:&Pending)->Result<(String,Model),Error> {
     if host::project_of(&pending.doc.path).and_then(|p|p.root().ok()).as_deref()!=Some(pending.root.as_str())||host::project_of(&pending.target.path).and_then(|p|p.root().ok()).as_deref()!=Some(pending.root.as_str()) {return Err(Error::Stale);}
     let project=host::project_of(&pending.doc.path).ok_or(Error::Stale)?;
     if project.read_file(&pending.doc.path)?!=pending.doc.text {return Err(Error::Stale);}
-    let mut index=Index::new(&["**/*.java","**/*.kt"],scan);index.scan(&project,Duration::from_millis(150));let scope=source_scope::Scope::current(&pending.root).ok_or(Error::Stale)?;if !scope.prune(&mut index) {return Err(Error::Stale);}
+    spring_text::scope::scope_path(&pending.root).ok_or(Error::Stale)?;let mut index=Index::new(&["**/*.java","**/*.kt"],scan).excluding_nested_projects();index.scan(&project,Duration::from_millis(150));
     if target(&index,&pending.doc,pending.selection).as_ref()!=Some(&pending.target) {return Err(Error::Stale);}
     let source=project.read_file(&pending.target.path)?;if source.len()>64*1024 {return Err(Error::Invalid("Target class exceeds the reviewed source limit.".into()));}
     Ok((source,Model::build(&index)))

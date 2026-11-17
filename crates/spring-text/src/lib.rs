@@ -13,6 +13,7 @@ pub mod index;
 pub mod java;
 pub mod kotlin;
 pub mod metadata;
+pub mod provenance;
 pub mod scope;
 pub mod sibling;
 pub mod text;

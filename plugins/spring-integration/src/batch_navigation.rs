@@ -55,7 +55,7 @@ fn model(doc: &Document, at: Position) -> Option<Model> {
                 if depth == 0 {
                     roots += 1;
                 }
-                if !crate::xml_namespaces::valid(&reader, &e) {
+                if !spring_text::xml::namespace_valid(&reader, &e) {
                     return Some(empty());
                 }
                 depth += 1;
@@ -64,7 +64,7 @@ fn model(doc: &Document, at: Position) -> Option<Model> {
                 if depth == 0 {
                     roots += 1;
                 }
-                if !crate::xml_namespaces::valid(&reader, &e) {
+                if !spring_text::xml::namespace_valid(&reader, &e) {
                     return Some(empty());
                 }
             }

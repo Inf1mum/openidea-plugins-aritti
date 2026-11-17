@@ -1,7 +1,8 @@
-// Pure source-origin admission shared by merged Integration and embedded Batch.
-use spring_text::{beans,java::Annotation};
+//! Source-origin admission: whether a written annotation or type name is the
+//! framework's, given the file's imports and local types.
+use crate::{beans, java::Annotation};
 use std::collections::BTreeSet;
-pub(crate) fn source_type_owned(file: &spring_text::java::JavaFile, written: &str, qualified: &str) -> bool {
+pub fn source_type_owned(file: &crate::java::JavaFile, written: &str, qualified: &str) -> bool {
     if written==qualified {
         return !file.types.iter().any(|t|t.name=="org")
             && !file.imports.iter().any(|i|i.path.rsplit('.').next()==Some("org"));
@@ -15,7 +16,7 @@ fn bean_literal_names(annotation:&Annotation, default:&str, arrays:bool,kotlin:b
     let mut seen=BTreeSet::new();if annotation.args.iter().any(|a|!seen.insert(a.name.as_str())) {return None;}
     let selected=annotation.args.iter().filter(|a|matches!(a.name.as_str(),"name"|"value")).collect::<Vec<_>>();
     let [argument]=selected.as_slice() else {return selected.is_empty().then(||vec![default.into()]);};
-    let tokens=spring_text::java::tokens(&argument.text);
+    let tokens=crate::java::tokens(&argument.text);
     let strings=if tokens.len()==1 {tokens.as_slice()} else if arrays && tokens.len()>=3 && matches!((tokens.first()?.s,tokens.last()?.s),("{","}")|("[","]")) {&tokens[1..tokens.len()-1]} else{return None;};
     let mut names=Vec::new();let mut expect_string=true;
     for token in strings {
@@ -27,10 +28,10 @@ fn bean_literal_names(annotation:&Annotation, default:&str, arrays:bool,kotlin:b
     }
     (!names.is_empty()).then_some(names)
 }
-pub(crate) fn source_bean_owned(file:&spring_text::java::JavaFile,text:&str,bean:&spring_text::java::BeanName,kotlin:bool)->bool {
+pub fn source_bean_owned(file:&crate::java::JavaFile,text:&str,bean:&crate::java::BeanName,kotlin:bool)->bool {
     for owner in &file.types {
         let (annotations,qualified,default,arrays)=if owner.at==bean.at {
-            let annotations=owner.annotations.iter().filter(|a|spring_text::java::STEREOTYPES.contains(&a.name.as_str())).collect::<Vec<_>>();
+            let annotations=owner.annotations.iter().filter(|a|crate::java::STEREOTYPES.contains(&a.name.as_str())).collect::<Vec<_>>();
             let [annotation]=annotations.as_slice() else{return false;};
             let qualified=match annotation.name.as_str() {
                 "Component"|"Service"|"Repository"|"Controller"=>format!("org.springframework.stereotype.{}",annotation.name),
@@ -40,7 +41,7 @@ pub(crate) fn source_bean_owned(file:&spring_text::java::JavaFile,text:&str,bean
                 "TestConfiguration"=>"org.springframework.boot.test.context.TestConfiguration".into(),
                 _=>return false,
             };
-            (annotations,qualified,spring_text::decapitalize(&owner.name),false)
+            (annotations,qualified,crate::decapitalize(&owner.name),false)
         } else if let Some(method)=owner.methods().find(|m|m.at==bean.at) {
             (method.annotations.iter().filter(|a|a.name=="Bean").collect::<Vec<_>>(),"org.springframework.context.annotation.Bean".into(),method.name.clone(),true)
         } else {continue;};
@@ -49,4 +50,13 @@ pub(crate) fn source_bean_owned(file:&spring_text::java::JavaFile,text:&str,bean
         return source_type_owned(file,written,&qualified) && bean_literal_names(annotation,&default,arrays,kotlin).is_some_and(|names|names.contains(&bean.name));
     }
     false
+}
+
+/// Whether `value` is a plain channel or bean spelling: at most 128 bytes, a
+/// letter or `_` first, then letters, digits, `_`, `.` or `-`.
+pub fn literal(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    value.len() <= 128
+        && bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }

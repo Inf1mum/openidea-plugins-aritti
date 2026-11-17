@@ -23,7 +23,7 @@ impl Profile {
   let kind=if resource.ends_with(".java")||resource.ends_with(".kt") {
    if context.is_empty()||context.len()>512||context.contains(['/', '\\', ':'])||context.chars().any(char::is_control)||context.split('.').any(str::is_empty){return Err(invalid("Use a fully qualified top-level JVM context class."));}
    let file=spring_text::parse_source(&source_path,&source);if file.types.iter().filter(|t|t.outer.is_none()&&format!("{}.{}",file.package,t.name)==context).count()!=1{return Err(invalid("Context source does not declare the exact selected JVM class."));}"java"
-  }else if resource.ends_with(".xml")&&profile=="runner-5.2.6"&&relative(&context)&&context.ends_with(".xml")&&crate::xml_namespaces::document_valid(&source){"xml"}else{return Err(invalid("Runner supports Java/Kotlin classes or XML resources; Operator requires a declared JVM context class."));}.into();
+  }else if resource.ends_with(".xml")&&profile=="runner-5.2.6"&&relative(&context)&&context.ends_with(".xml")&&spring_text::xml::analysis_valid(&source){"xml"}else{return Err(invalid("Runner supports Java/Kotlin classes or XML resources; Operator requires a declared JVM context class."));}.into();
   let configured=host::setting_string("springBatch.runtimeClasspath").unwrap_or_default();let entries:Vec<_>=configured.lines().filter(|line|!line.trim().is_empty()).collect();if entries.is_empty()||entries.len()>32{return Err(invalid("List 1–32 explicit project-relative classpath entries, one per line; no wildcards."));}
   let mut classpath=Vec::new();for entry in entries {
    if !relative(entry)||entry.trim()!=entry{return Err(invalid("Classpath entries must be literal project-relative paths without wildcards, parent traversal or leading/trailing whitespace."));}
