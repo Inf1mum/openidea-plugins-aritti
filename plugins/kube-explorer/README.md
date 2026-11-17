@@ -170,7 +170,7 @@ To silence checks for YAML files that aren't Kubernetes (Compose files, CI files
 
 - **Go to Declaration** and gutter markers link Pods and workloads to the ConfigMaps, Secrets, Services, claims and service accounts they use, and back.
 - Ingress backends and TLS Secrets, `metadata.namespace` (to the Namespace) and HPA scale targets are linked too.
-- Label selectors link to the resources they match, including affinity and topology spread terms. Rename on a label key updates matching keys.
+- Label selectors link to the resources they match, including affinity and topology spread terms. When a selector line matches several resources, its gutter icon opens a chooser (up to 200 targets). Rename on a label key updates matching keys.
 - Helm `include` / `template` names jump to their `define`. `.Values.a.b` jumps to the key in `values.yaml`.
 - Kustomize patches, replacements, generators, `helmCharts` `valuesFile` and resource/component paths jump to their targets. Paths complete too.
 - **Kube Explorer: Find Local Label or Data-Key Occurrences** (editor right-click) lists where a label or ConfigMap/Secret key is used.
