@@ -700,7 +700,7 @@ impl Batch {
         if index.scanning(){refresh(&id(VIEW));}
         let (nodes,edges)=diagram_of(index);
         let sources=index.iter().flat_map(|(path,names)|names.iter().filter(|n|matches!(n.kind,Kind::Job|Kind::State)).map(move|name|(location_key(path,name.range),Location{path:path.into(),range:name.range}))).collect();
-        let status=format!("{} nodes · {} transitions{} · cached lexical Batch source model",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"});
+        let status=format!("{} nodes · {} transitions{}",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"});
         Ok((nodes,edges,sources,status))
     }
 }
@@ -710,7 +710,7 @@ impl Batch {
         (|| -> Result<View, Error> {
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
             let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its batch jobs.").button(refresh)) };
-            if spring_text::index::scoped_root(&project).is_none() {return Ok(View::message("Current project source ownership is unavailable.").button(refresh));}
+            if spring_text::index::scoped_root(&project).is_none() {return Ok(View::message("This project's folder path can't be read. Open the project from a local folder.").button(refresh));}
             let index = source.project(&project, COMMAND_BUDGET);
             let index = &index;
             let complete = index.complete();

@@ -196,7 +196,7 @@ fn parse_source(path: &str, text: &str) -> Vec<Ref> {
     out
 }
 fn parse_source_refs(path: &str, text: &str, file: &spring_text::java::JavaFile) -> Vec<Ref> {
-    if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"Source exceeds admission bound".into(),range:Range::default(),checked:false,owner:0}];}
+    if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"File too large (over 512 KiB) to analyse".into(),range:Range::default(),checked:false,owner:0}];}
     let mut out = Vec::new();
     let kotlin=path.ends_with(".kt");
     let bean_names=spring_text::java::bean_names(&file);
@@ -275,7 +275,7 @@ fn xml_alias_spans(value:&str)->Vec<(usize,usize)> {
     if let Some(from)=start {result.push((from,value.len()));}result
 }
 fn parse_xml(text: &str) -> Vec<Ref> {
-    if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"XML source exceeds admission bound".into(),range:Range::default(),checked:false,owner:0}];}
+    if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"XML file too large (over 512 KiB) to analyse".into(),range:Range::default(),checked:false,owner:0}];}
     let els = xml::elements(text);
     let spring=text.contains("www.springframework.org/schema/") || els.first().is_some_and(|root|root.local()=="beans" && matches!(xml::namespace(&els,0),None|Some("http://www.springframework.org/schema/beans")));
     if !spring {return Vec::new();}

@@ -26,7 +26,7 @@ fn snapshot(pending:&Pending)->Result<(String,Model),Error> {
     if project.read_file(&pending.doc.path)?!=pending.doc.text {return Err(Error::Stale);}
     spring_text::scope::scope_path(&pending.root).ok_or(Error::Stale)?;let mut index=spring_text::index::Index::new(&["**/*.java","**/*.kt"],scan).excluding_nested_projects();index.scan(&project,Duration::from_millis(150));let index=index.view(|unit|Some(unit));
     if target(&index,&pending.doc,pending.selection).as_ref()!=Some(&pending.target) {return Err(Error::Stale);}
-    let source=project.read_file(&pending.target.path)?;if source.len()>64*1024 {return Err(Error::Invalid("Target class exceeds the reviewed source limit.".into()));}
+    let source=project.read_file(&pending.target.path)?;if source.len()>64*1024 {return Err(Error::Invalid("The imported class is too large to edit (over 64 KiB).".into()));}
     Ok((source,Model::build(&index)))
 }
 fn insertion(path:&str,source:&str,qualified:&str,name:&str)->Result<(String,TextEdit),Error> {

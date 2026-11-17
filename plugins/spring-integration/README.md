@@ -15,7 +15,7 @@ This plugin replaces `aritti.spring-batch` and `aritti.spring-modulith`. They ar
 
 1. Install the plugin ([how](../../README.md#install-a-plugin)). Uninstall `aritti.spring-batch` and `aritti.spring-modulith` if you have them.
 2. Open a Spring project whose root build file lists `spring-integration`, `spring-batch` or `spring-modulith`.
-3. Open the **Spring Structure** tool window (right side bar). Pick **Channels**, **Batch**, **Modules** or **Diagram** at the top.
+3. Open the **Spring Structure** tool window (right side bar, or **Spring Structure: Show Spring Structure Window**). Pick **Channels**, **Channel Table**, **Batch**, **Modules** or **Diagram** at the top.
 4. Click a node to open its source. In the editor, use Go to Definition on a channel name, a Batch `next` or an `allowedDependencies` entry.
 5. Press ⌥⏎ on a channel, step or import to see the rename and generate actions.
 
@@ -23,9 +23,10 @@ This plugin replaces `aritti.spring-batch` and `aritti.spring-modulith`. They ar
 
 ### Browse the structure
 
-The **Spring Structure** window has four sections:
+The **Spring Structure** window has five sections:
 
 - **Channels**: a diagram of message channels and the endpoints between them (input channel → endpoint → output channel). Declared channels are accented.
+- **Channel Table**: one row per channel with its declaration, producer and consumer counts and file, with search and a file filter. Click a row to open its source.
 - **Batch**: Spring Batch jobs, steps, flows, splits and decisions as a diagram.
 - **Modules**: Spring Modulith application modules, their named interfaces, and allowed and actual dependencies.
 - **Diagram**: the module dependency diagram. **Spring Modulith: Copy Module Diagram (PlantUML)** copies it.
@@ -47,7 +48,7 @@ Channels are found in Java and Kotlin `@Bean` methods, `MessageChannels` factori
 
 ### Find and rename channels in XML
 
-- **Spring Integration: Current File Channel Occurrences** lists every declaration and reference of the channel under the caret in the current XML file. Pick one to jump to it.
+- **Spring Integration: Find Channel Usages in This File** lists every declaration and reference of the channel under the caret in the current XML or Java file. Pick one to jump to it.
 - **Spring Integration: Find Channel Usages in XML Import Tree** does the same across the XML files the current one imports.
 - On a channel ID, press ⌥⏎ › **Rename literal channel in this document…** to rename it in one file.
 - ⌥⏎ › **Rename channel in this XML import tree…** renames it across the imported XML files, including aliases.
@@ -99,15 +100,15 @@ It never touches the database itself.
 
 For teams that want to start, stop or inspect jobs from the IDE through an exact Spring Batch distribution:
 
-1. In Settings › Plugins › Spring Structure Tools, set **Optional Batch CLI profile** to `runner-5.2.6` or `operator-6.0.6`.
-2. Fill **Batch classpath** (one project-relative directory or JAR per line), the context class and its source file.
+1. In Settings › Plugins › Spring Structure Tools, set **Batch command-line runner** to `runner-5.2.6` or `operator-6.0.6`.
+2. Fill **Batch run classpath** (one project-relative directory or JAR per line), **Batch application context class** and **Batch application context source file**.
 3. Allow `process:java`.
 4. Run **Spring Batch: Validate Configured CLI Profile**.
 5. Run **Spring Batch: Run Job Operation…**. Runner supports start, next, stop, restart and abandon. Operator also supports recover.
 
 Then use **Spring Batch: Poll CLI Output** to read output, **Spring Batch: Cancel CLI Process** to end a local process, and **Spring Batch: Inspect Execution Repository State** to look up one execution ID.
 
-Cancel ends the local process only. It doesn't send a Batch stop. Running the context also runs its startup code and opens its configured database connections.
+Poll and Cancel are available only while a CLI process runs. Cancel asks first and ends the local process only. It doesn't send a Batch stop. Running the context also runs its startup code and opens its configured database connections.
 
 ### Check Spring Modulith boundaries
 
@@ -124,17 +125,18 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**
 
 | Command | What it does |
 |---|---|
-| **Spring Integration: Current File Channel Occurrences** | Lists the declarations and references of the channel under the caret in the current XML file. |
+| **Spring Integration: Find Channel Usages in This File** | Lists the declarations and references of the channel under the caret in the current XML or Java file. |
 | **Spring Integration: Find Channel Usages in XML Import Tree** | Lists the channel's usages across the XML files imported from the current one. |
 | **Spring Batch: Find Step or Decision Usages in This Document** | Lists the declaration and references of the step or decision under the caret. |
 | **Spring Batch: Generate Job Launch Command…** | Builds a reviewed `java -jar` launch command and opens it in a terminal. |
 | **Spring Batch: Validate Configured CLI Profile** | Checks the configured profile, classpath and context without running your code. |
 | **Spring Batch: Run Job Operation…** | Shows and then runs one job operation (start, next, stop, restart, abandon, recover). |
-| **Spring Batch: Poll CLI Output** | Shows output from the CLI processes this plugin started. |
-| **Spring Batch: Cancel CLI Process** | Ends one local CLI process. It doesn't send a Batch stop. |
+| **Spring Batch: Poll CLI Output** | Shows output from the CLI processes this plugin started. Available only while one runs. |
+| **Spring Batch: Cancel CLI Process** | Ends one local CLI process after you confirm. It doesn't send a Batch stop. Available only while one runs. |
 | **Spring Batch: Inspect Execution Repository State** | Looks up one execution ID through the configured context's repository. |
 | **Spring Modulith: Copy Module Diagram (PlantUML)** | Copies the module dependency diagram as PlantUML. |
 | **Spring Structure: Refresh** | Reloads the Spring Structure window. |
+| **Spring Structure: Show Spring Structure Window** | Opens the Spring Structure window. |
 
 ## Settings
 
@@ -144,10 +146,10 @@ Settings › Plugins › Spring Structure Tools.
 |---|---|---|---|
 | Warn when an XML chunk has neither a commit-interval nor a chunk-completion-policy | `springBatch.checkChunk` | on | Turns the chunk warning and Batch migration hints on or off. |
 | Spring Batch XML compatibility | `springBatch.xmlCompatibility` | `auto` | `auto` runs shared checks only. `5` or `6` adds version-specific migration checks. |
-| Optional Batch CLI profile (exact supported distribution) | `springBatch.runtimeProfile` | `disabled` | `runner-5.2.6` or `operator-6.0.6` turns on the CLI commands. |
-| Batch classpath: project-relative directories/JARs, one per line; no wildcards | `springBatch.runtimeClasspath` | empty | The classpath the CLI uses. |
-| Exact compiled JVM context class (or Runner XML classpath resource) | `springBatch.runtimeContext` | empty | The context the CLI starts. |
-| Project-relative Java/Kotlin/XML source for the selected runtime context | `springBatch.runtimeContextSource` | empty | The source file of that context. |
+| Batch command-line runner | `springBatch.runtimeProfile` | `disabled` | `runner-5.2.6` or `operator-6.0.6` turns on the CLI commands. |
+| Batch run classpath | `springBatch.runtimeClasspath` | empty | The classpath the CLI uses. |
+| Batch application context class | `springBatch.runtimeContext` | empty | The context the CLI starts. |
+| Batch application context source file | `springBatch.runtimeContextSource` | empty | The source file of that context. |
 
 Settings from the old `aritti.spring-batch` and `aritti.spring-modulith` plugins are not carried over.
 
@@ -178,10 +180,10 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Copying the module diagram needs the clipboard permission. Allow it in Settings › Plugins › Spring Structure Tools." | Allow `clipboard` in Settings › Plugins › Spring Structure Tools. |
 | "No literal Batch job name is proved in this project's source." | Define the job with a literal name (XML `<job id>` or a Spring `JobBuilder` with a string literal). |
 | "The JAR does not exist in this project." | Build the JAR first, then enter its project-relative path. |
-| "Configure an optional Spring Batch runtime profile, explicit classpath, context and source before operating jobs." | Fill the four CLI settings above. |
+| "Spring Batch job runs are not set up…" | Fill the four Batch settings above. |
 | "This profile requires Java 17 or newer." | Point the IDE at Java 17 or newer. |
-| "Runtime context on disk differs from the reviewed source, or the profile changed; save/rebuild and validate again." | Save, rebuild, then run **Spring Batch: Validate Configured CLI Profile**. |
-| "Three launch processes are active…" or "Four owned Batch CLI processes are active…" | Run **Spring Batch: Poll CLI Output** to collect finished ones, or **Spring Batch: Cancel CLI Process**. |
+| "The compiled context does not match its source file, or the settings changed…" | Save, rebuild, then run **Spring Batch: Validate Configured CLI Profile**. |
+| "Three jobs are already running…" or "Four CLI processes are already running…" | Run **Spring Batch: Poll CLI Output** to collect finished ones, or **Spring Batch: Cancel CLI Process**. |
 | "Current project source ownership is not ready; refresh this project." | Click **Refresh** in **Spring Structure**. |
 
 ## Limitations
@@ -225,7 +227,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 ### Current-file occurrences and renames
 
-- **Current File Channel Occurrences** works on the current unsaved XML document (caret on a supported ID/reference). It lists source order, role, line and UTF-16 column, and opens only a listed location in that same unchanged document. It requires one local channel declaration and refuses known competing bean, alias or core endpoint registrations. Cancel, denied optional `editor.read`, stale source or project ownership produce no navigation.
+- **Find Channel Usages in This File** works on the current unsaved XML document (caret on a supported ID/reference). It lists source order, role, line and UTF-16 column, and opens only a listed location in that same unchanged document. It requires one local channel declaration and refuses known competing bean, alias or core endpoint registrations. Cancel, denied optional `editor.read`, stale source or project ownership produce no navigation.
 - Java Go to Declaration and this picker use current-text, explicitly owned declarations and literal names, without a warmed project index.
 - **Rename literal channel in this document…** works on a channel ID or bridge reference in a simple XML channel/bridge document. It validates a unique new name and shows the complete before/after document before returning undoable edits. It also covers literal channel-valued attributes on flat service activator, transformer, filter, splitter and aggregator endpoints. Handler `ref`/`method` values are preserved. Dynamic expressions, unsupported attributes or a handler reference colliding with the selected channel withhold the action. Imports, profiles, nested endpoints and competing registrations are excluded.
 - **Find Channel Usages in XML Import Tree** follows literal relative imports and alias chains from the active XML root, then navigates exact physical occurrences.

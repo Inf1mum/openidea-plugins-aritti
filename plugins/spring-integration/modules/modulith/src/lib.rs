@@ -597,7 +597,7 @@ impl ModulithTools {
         let sources=model.modules.values().filter_map(|m|m.location.as_ref().map(|at|(key(&model,&m.name,""),at.clone()))).collect();
         let status=if model.modules.is_empty(){
             if !index.complete(){"Scanning application-module source…".into()}else if model.roots.is_empty(){"No @SpringBootApplication or @Modulithic source root found.".into()}else{"No application-module source candidates.".into()}
-        }else{format!("{} modules · {} dependencies{} · cached lexical Modulith source model",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"})};
+        }else{format!("{} modules · {} dependencies{}",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"})};
         let status=if model.uncertain {format!("{status} · unresolved package/alias metadata; boundary diagnostics withheld")}else{status};
         Ok((nodes,edges,sources,status))
     }
