@@ -757,6 +757,40 @@ fn check_out_fetches_and_tracks_the_source_branch() {
     assert_eq!(plugin.status.as_deref(), Some("Checked out feature."));
 }
 
+fn fork_host(branch_exists: bool) -> MockHost {
+    let host = setup();
+    host.on_fetch(|r| match r.url.split('?').next() == Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {
+        true => ok(&MR.replace("\"source_project_id\": 5", "\"source_project_id\": 9")),
+        false => gitlab(r),
+    });
+    host.on_process("git", move |args, _| match args[0] == "rev-parse" {
+        true => Ok(ProcessOutput { status: Some(if branch_exists { 0 } else { 1 }), stdout: String::new(), stderr: String::new() }),
+        false => git_ok(args, None),
+    });
+    host
+}
+
+#[test]
+fn fork_checkout_confirms_existing_branch() {
+    let host = fork_host(true);
+    let mut plugin = selected(&host);
+    plugin.handle(DETAILS, ViewEvent::Button("checkout".into()), &host.invocation()).unwrap();
+    let runs = git_runs(&host);
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert!(runs[0].starts_with("rev-parse --verify --quiet refs/heads/fork/"), "{runs:?}");
+
+    let host = fork_host(true);
+    let mut plugin = selected(&host);
+    host.answer_next_prompt(Some(&["ok"]));
+    plugin.handle(DETAILS, ViewEvent::Button("checkout".into()), &host.invocation()).unwrap();
+    assert!(git_runs(&host).iter().any(|r| r.starts_with("fetch -- origin +refs/merge-requests/7/head:refs/heads/fork/")), "{:?} {:?}", git_runs(&host), plugin.status);
+
+    let host = fork_host(false);
+    let mut plugin = selected(&host);
+    plugin.handle(DETAILS, ViewEvent::Button("checkout".into()), &host.invocation()).unwrap();
+    assert!(git_runs(&host).iter().any(|r| r.starts_with("fetch -- origin +refs/merge-requests/7/head:")));
+}
+
 #[test]
 fn check_out_without_git_says_so() {
     let without_git: Vec<&str> = CAPS.iter().copied().filter(|c| *c != "process:git").collect();

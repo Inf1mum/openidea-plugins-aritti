@@ -158,6 +158,15 @@ pub fn checkout(project: &Project, remote: &str, mr: &MergeRequest) -> Result<St
 
     if mr.source_project_id != mr.target_project_id {
         // ponytail: forks come from the target's refs/merge-requests/<iid>/head, never a fork remote.
+        let exists = git(project, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{local}")])?.status == Some(0);
+        if exists
+            && !host::confirm(
+                "Overwrite local branch",
+                &format!("The local branch {local} already exists. Checking out this merge request resets it, and commits only on it become unreachable. Continue?"),
+            )?
+        {
+            return Ok(format!("Left {local} unchanged."));
+        }
         git_ok(project, &["fetch", "--", remote, &format!("+refs/merge-requests/{}/head:refs/heads/{local}", mr.iid)])?;
         git_ok(project, &["checkout", &local])?;
         return Ok(format!("Checked out {local}."));

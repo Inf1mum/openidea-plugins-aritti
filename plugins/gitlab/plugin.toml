@@ -8,7 +8,9 @@ license = "MIT"
 change-notes = """\
 Asks before sending your GitLab token to a self-hosted server, and again if the server changes. \
 Fixes a crash when completing in .gitlab-ci.yml after a non-ASCII character. \
-Fixes crashes on merge request threads that have no comments."""
+Fixes crashes on merge request threads that have no comments. \
+Asks before a fork checkout overwrites an existing local branch. \
+Fixes links to branches with # or ? in their names."""
 categories = ["vcs"]
 icon = "icon.svg"
 engines.openidea = "^1.9"

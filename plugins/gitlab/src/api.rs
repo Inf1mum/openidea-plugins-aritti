@@ -320,6 +320,10 @@ pub fn encode(s: &str) -> String {
         .collect()
 }
 
+fn encode_segments(revision: &str) -> String {
+    revision.split('/').map(encode).collect::<Vec<_>>().join("/")
+}
+
 /// `group/sub/name` of a remote on the configured server (`https://`, `ssh://` or `git@host:path`).
 pub fn project_path(remote: &str) -> Option<String> {
     let (authority, path) = match remote.split_once("://") {
@@ -345,7 +349,7 @@ pub fn project_path(remote: &str) -> Option<String> {
 /// optional 0-based inclusive line range (`#L3-L5`).
 pub fn blob_url(project: &str, revision: &str, path: &str, lines: Option<(u32, u32)>) -> String {
     let path: Vec<String> = path.split('/').map(encode).collect();
-    let url = format!("{server}/{project}/-/blob/{revision}/{}", path.join("/"), server = server());
+    let url = format!("{server}/{project}/-/blob/{}/{}", encode_segments(revision), path.join("/"), server = server());
 
     match lines {
         Some((first, last)) if first != last => format!("{url}#L{}-L{}", first + 1, last + 1),
@@ -357,7 +361,7 @@ pub fn blob_url(project: &str, revision: &str, path: &str, lines: Option<(u32, u
 pub fn tree_url(project: &str, revision: &str, path: &str) -> String {
     let path: Vec<String> = path.split('/').map(encode).collect();
 
-    format!("{server}/{project}/-/tree/{revision}/{}", path.join("/"), server = server())
+    format!("{server}/{project}/-/tree/{}/{}", encode_segments(revision), path.join("/"), server = server())
 }
 
 pub fn new_merge_request_url(project: &str, source_branch: &str) -> String {
@@ -1117,6 +1121,13 @@ mod tests {
         assert_eq!(blob_url("g/p", "abc", "src/a b.rs", None), base);
         assert_eq!(blob_url("g/p", "abc", "src/a b.rs", Some((2, 2))), format!("{base}#L3"));
         assert_eq!(blob_url("g/p", "abc", "src/a b.rs", Some((2, 4))), format!("{base}#L3-L5"));
+    }
+
+    #[test]
+    fn blob_url_encodes_hash_in_branch() {
+        let _host = openidea_plugin::mock::MockHost::install();
+        assert_eq!(blob_url("g/p", "fix/a#b?c", "a.rs", None), "https://gitlab.com/g/p/-/blob/fix/a%23b%3Fc/a.rs");
+        assert_eq!(tree_url("g/p", "fix/a#b", "src"), "https://gitlab.com/g/p/-/tree/fix/a%23b/src");
     }
 
     #[test]
