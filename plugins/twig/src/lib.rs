@@ -744,7 +744,7 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, indexing, language_features, file_actions);
+openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, language_features, file_actions);
 
 const KEYWORDS: &[&str] =
     &["and", "or", "not", "in", "is", "matches", "starts", "ends", "with", "as", "only", "ignore", "missing", "if", "else", "for"];

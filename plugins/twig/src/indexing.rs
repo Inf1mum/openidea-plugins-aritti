@@ -2,7 +2,7 @@
 //! access are deliberately not admitted; equal spellings do not imply identity.
 //! Models are private: API1.4 cannot validate arbitrary native Rename replacements.
 use super::*;
-use openidea_plugin::indexing::{Anchor, Document as IndexedDocument, DocumentIndexer, Edges};
+use openidea_plugin::indexing::{Anchor, Document as IndexedDocument, Edges};
 struct Binding {
     name: String,
     at: Range<usize>,
@@ -201,13 +201,6 @@ pub(crate) fn source_edges(doc: &IndexedDocument) -> Edges {
     edges
 }
 
-impl DocumentIndexer for Twig {
-    fn index(&mut self, _doc: &IndexedDocument) -> Edges {
-        // API1.4 applies arbitrary Rename replacements to every Anchor. Keep
-        // source models private until the host exposes name-policy/read-only hooks.
-        Edges::default()
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,12 +283,5 @@ mod tests {
         ] {
             assert!(source_edges(&doc(text)).definitions.is_empty(), "{text}");
         }
-    }
-    #[test]
-    fn published_kinds_are_rename_closed() {
-        let _host = openidea_plugin::mock::MockHost::install();
-        let text = "{% extends 'base.html.twig' %}{% include 'a.twig' %}{% for item in items %}{{ item }}{% endfor %}";
-        let edges = DocumentIndexer::index(&mut Twig::default(), &doc(text));
-        assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.markers.is_empty());
     }
 }
