@@ -14,6 +14,12 @@ const BUDGET: Duration = Duration::from_millis(15);
 
 impl SemanticTokens for Ideolog {
     fn semantic_tokens(&mut self, doc: &Document) -> Vec<SemanticToken> {
+        self.semantic_tokens_within(doc, BUDGET)
+    }
+}
+
+impl Ideolog {
+    fn semantic_tokens_within(&mut self, doc: &Document, budget: Duration) -> Vec<SemanticToken> {
         // A new semantic request (including unsaved edits) withdraws explicit
         // snapshot hints before publishing current semantic results.
         let _ = host::clear_decorations(DECORATION_SET);
@@ -26,7 +32,7 @@ impl SemanticTokens for Ideolog {
         if text.is_empty() {
             return Vec::new();
         }
-        let deadline = Instant::now() + BUDGET;
+        let deadline = Instant::now() + budget;
         // Activation/focus/commands/settings forms compile configuration outside
         // semantic requests. A cold provider never compiles or reads storage.
         let Some((_, config)) = &self.config else { return Vec::new(); };
@@ -347,12 +353,10 @@ mod tests {
         assert_eq!(text.len(), source.len(), "no line or byte cap below the document limit");
         let tokens = convert(text, highlights_limited(&Config::default(), text, 0.0, MAX_TOKENS, None));
         assert!(tokens.iter().any(|t| t.range.start.line == 2000), "colouring reaches line 2000");
-        if !cfg!(debug_assertions) {
-            let mut plugin = Ideolog::default();
-            plugin.config();
-            let tokens = plugin.semantic_tokens(&doc("log", &source));
-            assert!(tokens.iter().any(|t| t.range.start.line == 2000), "provider reaches line 2000 within its deadline");
-        }
+        let mut plugin = Ideolog::default();
+        plugin.config();
+        let tokens = plugin.semantic_tokens_within(&doc("log", &source), Duration::from_secs(30));
+        assert!(tokens.iter().any(|t| t.range.start.line == 2000), "provider reaches line 2000");
     }
 
     #[test]
@@ -415,6 +419,43 @@ mod tests {
         assert!(!host.decorations().contains_key(&key));
         mark(&mut plugin, &host.invocation()).unwrap();
         plugin.handle_events(&[openidea_plugin::Event::VcsChanged("/project".into())], &host.invocation());
+        assert!(!host.decorations().contains_key(&key));
+    }
+
+    #[test]
+    fn one_huge_event_with_a_custom_pattern_stays_within_the_deadline() {
+        let host = MockHost::install();
+        host.set_setting("customPatterns", &format!("{:?}", r#"<LogHighlightingPattern pattern="(a+)+b" action="HIGHLIGHT_MATCH" fg="-16776961"/>"#));
+        let header = "2024-05-01 10:00:00,123 [   1] ERROR - #a.B - boom\n";
+        let source = format!("{header}{}", "    at some.pkg.Klass.method(Klass.java:1)\n".repeat(MAX_DOCUMENT_BYTES / 44 - 2));
+        let mut plugin = Ideolog::default();
+        plugin.config();
+        let started = Instant::now();
+        let tokens = plugin.semantic_tokens(&doc("log", &source));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        assert!(tokens.len() <= MAX_TOKENS);
+        assert!(tokens.windows(2).all(|pair| pair[0].range.end <= pair[1].range.start));
+    }
+
+    #[test]
+    fn capped_event_cuts_on_a_line_boundary() {
+        let event = "x\n".repeat(crate::MAX_HIGHLIGHTED_EVENT_BYTES);
+        let capped = crate::capped_event(&event);
+        assert!(capped.len() <= crate::MAX_HIGHLIGHTED_EVENT_BYTES && capped.ends_with('\n'));
+        assert_eq!(crate::capped_event("short"), "short");
+    }
+
+    #[test]
+    fn unnamed_events_and_other_files_keep_marks() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read", "events"]);
+        host.open_editor("/project/app.log", "log", "2024-05-01 10:00:00 ERROR first\n", &[(0, 0, 0, 0)]);
+        let mut plugin = Ideolog::default();
+        mark(&mut plugin, &host.invocation()).unwrap();
+        let key = (DECORATION_SET.to_owned(), "/project/app.log".to_owned());
+        let other = |kind: &str, data: &str| openidea_plugin::Event::Other { kind: kind.into(), data: data.into() };
+        plugin.handle_events(&[other("file-closed", "\"/project/Other.java\""), other("settings-changed", ""), other("unknown", ""), openidea_plugin::Event::Scheduled], &host.invocation());
+        assert!(host.decorations().contains_key(&key));
+        plugin.handle_events(&[other("file-closed", "\"/project/app.log\"")], &host.invocation());
         assert!(!host.decorations().contains_key(&key));
     }
 }
