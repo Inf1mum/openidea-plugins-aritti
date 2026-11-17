@@ -95,6 +95,8 @@ struct Upgrade {
     edit: TextEdit,
     before: String,
     name: String,
+    /// The whole document with the edit applied, for the diff view.
+    upgraded: String,
 }
 
 fn safe_version(value: &str) -> bool {
@@ -142,8 +144,9 @@ fn plan(root: &str, row: &Row, doc: Document) -> Result<Upgrade, Error> {
     if !safe_version(after.trim_start_matches(['^', '~', 'v'])) {
         return Err(Error::Invalid("The replacement is not a supported literal version.".into()));
     }
+    let upgraded = format!("{}{after}{}", &doc.text[..from], &doc.text[to..]);
     let edit = TextEdit { range: range(&doc.text, from, to), text: after };
-    Ok(Upgrade { root: root.into(), doc, edit, before, name: row.name.clone() })
+    Ok(Upgrade { root: root.into(), doc, edit, before, name: row.name.clone(), upgraded })
 }
 
 fn preview(upgrade: &Upgrade) -> String {
@@ -204,6 +207,15 @@ impl DependencyAudit {
             return Err(Error::Stale);
         }
         let upgrade = plan(&root, row, doc)?;
+        // The diff is a view only; the confirmation below still decides, and a host without it keeps the text preview.
+        let diff = openidea_plugin::ContentDiff {
+            left: upgrade.doc.text.clone(),
+            right: upgrade.upgraded.clone(),
+            left_label: Some("Current".into()),
+            right_label: Some(format!("{} upgraded to {}", upgrade.name, upgrade.edit.text)),
+            title: Some(format!("Preview upgrade: {}", upgrade.name)),
+        };
+        let _ = host::open_diff(&diff, upgrade.doc.path.rsplit('/').next());
         if !ui_kit::prompts::confirm_exact("Preview dependency upgrade", &preview(&upgrade))? {
             return Ok(None);
         }
@@ -273,6 +285,11 @@ mod tests {
         assert_eq!(host.editor_text(), current.replace("4.17.15", "4.17.21"));
         assert_eq!(host.editor_version(), 2);
         assert!(host.requests().is_empty());
+        let diffs = host.opened_diffs();
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].0.left.as_deref(), Some(current.as_str()));
+        assert_eq!(diffs[0].0.right, Some(current.replace("4.17.15", "4.17.21")));
+        assert_eq!(diffs[0].1.as_deref(), Some("package.json"));
     }
 
     #[test]

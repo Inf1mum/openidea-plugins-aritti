@@ -1652,3 +1652,24 @@ fn report_age_shows_a_readable_utc_time() {
     assert_eq!(resources::utc(1_795_427_400), "2026-11-23 09:50 UTC");
     assert_eq!(resources::utc(951_782_400), "2000-02-29 00:00 UTC");
 }
+
+#[test]
+fn scan_notes_files_and_decorates_declarations_then_rescan_clears_them() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = scanned(&host);
+    let notes: Vec<_> = host.file_notes().into_iter().map(|((_, path), (note, _))| (path, note)).collect();
+    assert_eq!(notes, [
+        ("/project/pom.xml".to_string(), "1 vulnerability (1 high or critical)".to_string()),
+        ("/project/web/package.json".to_string(), "1 vulnerability (1 high or critical)".to_string()),
+    ]);
+    let decorations = host.decorations();
+    let lodash = decorations.iter().find(|((_, path), _)| path == "/project/web/package.json").unwrap().1;
+    assert_eq!(lodash[0].after.as_deref(), Some("  GHSA-35jh-r3h4-6jhm · fixed in 4.17.21"));
+    assert_eq!(lodash[0].range.start, lodash[0].range.end);
+    host.add_file("pom.xml", "<project/>");
+    host.add_file("web/package.json", "{}");
+    host.add_file("web/package-lock.json", "{}");
+    plugin.run_command("scan", &host.invocation(), None).unwrap();
+    assert!(host.file_notes().is_empty());
+    assert!(host.decorations().values().all(Vec::is_empty));
+}

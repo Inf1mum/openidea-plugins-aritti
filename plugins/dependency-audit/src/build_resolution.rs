@@ -441,9 +441,9 @@ fn ide_evidence(project: &Project, root: &str) -> Result<Option<Evidence>, Error
     }))
 }
 impl State {
-    /// After a scan: audit the IDE's resolved graph when it has one, else run
-    /// mvn/gradle when `run_tool` allows it.
-    pub(crate) fn after_scan(&mut self, ctx: &Invocation, run_tool: bool) -> Result<(), Error> {
+    /// Audit the IDE's resolved graph when it has one, else run mvn/gradle when
+    /// `run_tool` allows it (after a scan: the setting; the explicit command: always).
+    pub(crate) fn resolve(&mut self, ctx: &Invocation, run_tool: bool, focus: bool) -> Result<(), Error> {
         let project = ctx.project().ok_or(Error::Stale)?;
         let root = project.root()?;
         let nothing_resolved = match ide_evidence(&project, &root) {
@@ -454,6 +454,9 @@ impl State {
                     "Resolved by the IDE: {count} Maven/Gradle dependencies audited from its last Maven reload or Dependency Analyzer read. No build tool ran."
                 ));
                 crate::refresh(VIEW);
+                if focus {
+                    crate::reveal(VIEW)?;
+                }
                 return Ok(());
             }
             Ok(None) => true,
@@ -462,7 +465,7 @@ impl State {
         if !run_tool {
             return Ok(());
         }
-        self.start(ctx, false)?;
+        self.start(ctx, focus)?;
         if nothing_resolved {
             self.message.push_str(IDE_HINT);
             crate::refresh(VIEW);
@@ -983,7 +986,7 @@ mod tests {
             node("com.fasterxml.jackson.core", "jackson-databind", "2.12.3", "compile", DependencyStatus::Resolved, Some(0)),
         ]);
         let mut state = State::default();
-        state.after_scan(&h.invocation(), true).unwrap();
+        state.resolve(&h.invocation(), true, false).unwrap();
         assert!(h.process_runs().is_empty() && state.run.is_none());
         assert!(state.ide_note.as_ref().unwrap().starts_with("Resolved by the IDE"));
         let report = stored_report(&h.invocation().project().unwrap()).unwrap().unwrap();
@@ -995,16 +998,32 @@ mod tests {
         let h = ide_host(IDE_CAPABILITIES);
         h.set_build_dependencies(vec![node("fixture", "project", "1", "", DependencyStatus::Resolved, None)]);
         let mut state = State::default();
-        state.after_scan(&h.invocation(), false).unwrap();
+        state.resolve(&h.invocation(), false, false).unwrap();
         assert!(h.process_runs().is_empty() && state.run.is_none());
         h.answer_next_prompt(Some(&[]));
-        state.after_scan(&h.invocation(), true).unwrap();
+        state.resolve(&h.invocation(), true, false).unwrap();
         assert!(state.running() && state.message.ends_with(IDE_HINT));
         let h = ide_host(&IDE_CAPABILITIES[..6]);
         let mut state = State::default();
         h.answer_next_prompt(Some(&[]));
-        state.after_scan(&h.invocation(), true).unwrap();
+        state.resolve(&h.invocation(), true, false).unwrap();
         assert!(state.running() && !state.message.contains(IDE_HINT));
+    }
+    #[test]
+    fn resolve_command_prefers_the_ide_graph_and_runs_the_tool_only_without_one() {
+        let h = ide_host(IDE_CAPABILITIES);
+        h.set_setting("autoResolveBuilds", "false");
+        h.set_build_dependencies(vec![
+            node("fixture", "project", "1", "", DependencyStatus::Resolved, None),
+            node("com.fasterxml.jackson.core", "jackson-databind", "2.12.3", "compile", DependencyStatus::Resolved, Some(0)),
+        ]);
+        let mut plugin = crate::DependencyAudit::default();
+        plugin.run_command("resolve-build-dependencies", &h.invocation(), None).unwrap();
+        assert!(h.process_runs().is_empty() && !plugin.build_resolution.running());
+        assert!(plugin.build_resolution.ide_note.as_ref().unwrap().starts_with("Resolved by the IDE"));
+        h.set_build_dependencies(vec![node("fixture", "project", "1", "", DependencyStatus::Resolved, None)]);
+        plugin.run_command("resolve-build-dependencies", &h.invocation(), None).unwrap();
+        assert!(plugin.build_resolution.running() && plugin.build_resolution.message.ends_with(IDE_HINT));
     }
     #[test]
     fn profiles_accept_only_recorded_official_tool_versions() {

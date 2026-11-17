@@ -217,7 +217,86 @@ fn persist_report(project: &Project, report: &Report) -> Result<(), Error> {
     if stored.len() > MAX_REPORT_BYTES {
         return Err(Error::Invalid("The new report exceeds the 8 MiB saved-report limit; previous report retained.".into()));
     }
-    host::storage::set(&rows_key(project)?, &stored)
+    host::storage::set(&rows_key(project)?, &stored)?;
+    present_findings(project);
+    Ok(())
+}
+
+/// One project's tree-note and editor decoration set: clearing a set reaches every project.
+fn findings_set(root: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    root.hash(&mut hasher);
+    format!("osv-{:016x}", hasher.finish())
+}
+
+/// Replaces this project's project-tree notes ("2 vulnerabilities (1 high or critical)") on files
+/// with findings and the inline advisory text on their declaration lines. Reads the stored
+/// report, so ignores apply; nothing is shown without one.
+fn present_findings(project: &Project) {
+    let Ok(root) = project.root() else { return };
+    let set = findings_set(&root);
+    let _ = host::clear_file_decorations(&set);
+    let _ = host::clear_decorations(&set);
+    let Ok(Some(report)) = stored_report(project) else { return };
+    let mut counts: std::collections::BTreeMap<&str, (usize, usize)> = std::collections::BTreeMap::new();
+    let mut lines: std::collections::BTreeMap<&str, std::collections::BTreeMap<u32, (Vec<String>, Vec<String>)>> = std::collections::BTreeMap::new();
+    for row in &report.rows {
+        let details: Vec<Option<osv::Advisory>> =
+            row.advisories.iter().map(|id| row.details.iter().find(|a| a.id == *id).cloned().or_else(|| cached_advisory(id))).collect();
+        let high = details.iter().filter(|a| level(a.as_ref().and_then(|a| a.severity.as_deref())) == Severity::Error).count();
+        let count = counts.entry(&row.path).or_default();
+        count.0 += row.advisories.len();
+        count.1 += high;
+        let Some(first) = row.advisories.first() else { continue };
+        let shown = details[0].as_ref().and_then(|a| a.aliases.iter().find(|alias| alias.starts_with("CVE-"))).unwrap_or(first);
+        let more = if row.advisories.len() > 1 { format!(" +{}", row.advisories.len() - 1) } else { String::new() };
+        let fix = row.fix.as_ref().map_or_else(|| "no fix".to_owned(), |fix| format!("fixed in {fix}"));
+        let text = format!("{shown}{more} · {fix}");
+        let hover = format!("{} {}: {}", row.name, row.version, row.advisories.join(", "));
+        // Exact spans only: manifest declarations from the scan and declarations bound by name.
+        let declared = row.sources.iter().filter(|s| {
+            s.evidence.contains(binding::DECLARED) || s.evidence.starts_with("Manifest declaration") && !s.evidence.contains("not bound")
+        });
+        for source in declared {
+            // A transitive finding sits on its direct dependency's line: name the vulnerable package.
+            let text = if source.evidence.contains("transitive") || source.evidence.contains("workspace") {
+                format!("{} {}: {text}", row.name, row.version)
+            } else {
+                text.clone()
+            };
+            let (texts, hovers) = lines.entry(&source.path).or_default().entry(source.line).or_default();
+            if !texts.contains(&text) {
+                texts.push(text);
+                hovers.push(hover.clone());
+            }
+        }
+    }
+    for (path, (total, high)) in counts.iter().take(500) {
+        let noun = if *total == 1 { "vulnerability" } else { "vulnerabilities" };
+        let note = if *high > 0 { format!("{total} {noun} ({high} high or critical)") } else { format!("{total} {noun}") };
+        if host::set_file_note(path, &set, &note, Some("From the last Dependency Audit scan")).is_err() {
+            break;
+        }
+    }
+    for (path, by_line) in lines.iter().take(200) {
+        let Ok(text) = project.read_file(path) else { continue };
+        let source: Vec<&str> = text.lines().collect();
+        let items: Vec<_> = by_line
+            .iter()
+            .take(1000)
+            .filter_map(|(line, (texts, hovers))| {
+                let end = openidea_plugin::Position::new(*line, source.get(*line as usize)?.encode_utf16().count() as u32);
+                Some(openidea_plugin::Decoration {
+                    range: Range::new(end, end),
+                    style: "warning".into(),
+                    hover: Some(hovers.join("\n")),
+                    after: Some(format!("  {}", texts.join("; "))),
+                })
+            })
+            .collect();
+        let _ = host::set_decorations(path, &set, &items);
+    }
 }
 
 fn stored_report(project: &Project) -> Result<Option<Report>, Error> {
@@ -608,7 +687,7 @@ impl Plugin for DependencyAudit {
         if matches!(id,"preview-upgrade" | "open-advisory" | "open-declaration") { return self.resource_command(id,ctx,arg); }
         if id == "resolve-sbt-dependencies"{self.sbt_resolution.start(ctx)?;return Ok(None);}
         if id == "analyze-vulnerable-calls"{self.call_analysis.start(ctx)?;return Ok(None);}
-        if id == "resolve-build-dependencies"{self.build_resolution.start(ctx,true)?;return Ok(None);}
+        if id == "resolve-build-dependencies"{self.build_resolution.resolve(ctx,true,true)?;return Ok(None);}
         if id == "inspect-npm-graph" { self.npm_graph=Some(npm_graph::Snapshot::capture(ctx)?);reveal(npm_graph::VIEW)?;return Ok(None); }
         if id != "scan" {
             return Err(Error::NotFound(format!("command {id}")));
@@ -857,9 +936,9 @@ mod tests;
 
 impl DependencyAudit {
     fn auto_resolve(&mut self, ctx: &Invocation, deadline: Instant) {
-        let run_tool = host::setting_bool("autoResolveBuilds") != Some(false)
+        let run_tool = host::setting_bool("autoResolveBuilds") == Some(true)
             && deadline.saturating_duration_since(Instant::now()) >= MIN_RESOLVE_TIME;
-        let _ = self.build_resolution.after_scan(ctx, run_tool);
+        let _ = self.build_resolution.resolve(ctx, run_tool, false);
     }
     fn resolution_tick(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {
         let request: serde_json::Value = serde_json::from_str(raw).map_err(|_| Error::Stale)?;
