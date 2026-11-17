@@ -26,45 +26,83 @@ fn health_text(s: &str, max: usize) -> String {
 
 /// A bound or reported value as it may be shown: sensitive keys hidden, URL userinfo masked, bounded.
 pub fn masked_value(key: &str, raw: &str) -> String {
-    if sensitive_key(key) { MASK.to_owned() } else { health_text(&mask_userinfo(raw), 200) }
+    if sensitive_key(key) {
+        return MASK.to_owned();
+    }
+    let command_line = matches!(key, "sun.java.command" | "JAVA_TOOL_OPTIONS" | "JDK_JAVA_OPTIONS" | "_JAVA_OPTIONS");
+    let raw = if command_line { mask_arguments(raw) } else { raw.to_owned() };
+    health_text(&mask_userinfo(&raw), 200)
 }
 
-/// Boot's Sanitizer rule: the last word of the last key segment names a secret.
+/// `--db.password=x -Dapi.key=y` becomes `--db.password=****** -Dapi.key=******`, as InputArguments are shown.
+fn mask_arguments(raw: &str) -> String {
+    raw.split(' ')
+        .map(|arg| match arg.split_once('=') {
+            Some((key, _)) if sensitive_key(key) => format!("{key}={MASK}"),
+            _ => arg.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Boot's Sanitizer rule, widened: the last word of the last key segment names a secret.
+/// Words split on `-`, `_` and camel/acronym boundaries (`ABCKey` is `ABC`, `Key`).
 pub fn sensitive_key(key: &str) -> bool {
+    const ENDINGS: [&str; 6] = ["password", "passwd", "secret", "token", "credentials", "credential"];
+    const KEYS: [&str; 8] = ["key", "apikey", "accesskey", "secretkey", "privatekey", "signingkey", "encryptionkey", "masterkey"];
     let segment = key.rsplit('.').next().unwrap_or(key);
     let segment = segment.split('[').next().unwrap_or(segment);
+    let chars: Vec<char> = segment.chars().collect();
     let mut last_word = String::new();
-    let mut previous_lower = false;
-    for c in segment.chars() {
+    for (i, &c) in chars.iter().enumerate() {
         if matches!(c, '-' | '_') {
             last_word.clear();
-            previous_lower = false;
             continue;
         }
-        if c.is_uppercase() && previous_lower {
+        let previous = i.checked_sub(1).map(|p| chars[p]);
+        let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+        let camel = previous.is_some_and(|p| p.is_lowercase() || p.is_ascii_digit());
+        let acronym_end = previous.is_some_and(char::is_uppercase) && next_lower;
+        if c.is_uppercase() && (camel || acronym_end) {
             last_word.clear();
         }
-        previous_lower = c.is_lowercase();
         last_word.extend(c.to_lowercase());
     }
-    matches!(last_word.as_str(), "password" | "passwd" | "secret" | "token" | "credentials" | "credential" | "key")
+    ENDINGS.iter().any(|e| last_word.ends_with(e)) || last_word == "authorization" || KEYS.contains(&last_word.as_str())
 }
 
-/// `scheme://user:pw@host` becomes `scheme://******@host`.
+/// `scheme://user:pw@host` becomes `scheme://******@host`, also when the password holds `/`, `?` or `#`.
 pub(crate) fn mask_userinfo(v: &str) -> String {
     let mut masked = String::new();
     let mut rest = v;
     while let Some(i) = rest.find("://") {
         masked.push_str(&rest[..i + 3]);
         rest = &rest[i + 3..];
-        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-        if let Some(at) = authority.rfind('@') {
+        if let Some(at) = userinfo_end(rest) {
             masked.push_str(MASK);
             rest = &rest[at..];
         }
     }
     masked.push_str(rest);
     masked
+}
+
+/// Where the userinfo of the text after `://` ends (its last `@`), if it has one.
+fn userinfo_end(after_scheme: &str) -> Option<usize> {
+    let token = after_scheme.split(char::is_whitespace).next().unwrap_or("");
+    let authority = token.split(['/', '?', '#']).next().unwrap_or("");
+    if let Some(at) = authority.rfind('@') {
+        return Some(at);
+    }
+    // ponytail: `user:pa/ss@host` is told apart from `host:5432/db?u=a@b` only by a non-numeric text after the colon;
+    // an all-digit password cut by `/`, `?` or `#` still shows.
+    let first_at = token.find('@')?;
+    let (_, after_colon) = authority.rsplit_once(':')?;
+    if after_colon.is_empty() || after_colon.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let host = token[first_at + 1..].split(['/', '?', '#']).next().unwrap_or("");
+    Some(host.rfind('@').map_or(first_at, |j| first_at + 1 + j))
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -95,9 +133,9 @@ pub struct Snapshot {
     /// Endpoints whose data came from the previous refresh because this one could not reach them.
     #[serde(default)]
     pub kept: Vec<String>,
-    /// The raw `spring.datasource.password` of the highest-precedence source; memory only, never stored.
+    /// The raw `spring.datasource.password` of the highest-precedence source that had one, with that source's index; memory only, never stored.
     #[serde(skip)]
-    pub datasource_password: Option<String>,
+    pub datasource_password: Option<(usize, String)>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -306,7 +344,7 @@ impl Snapshot {
                     for (k, p) in entries(&s["properties"]) {
                         let raw = text(&p["value"]);
                         if k == "spring.datasource.password" && self.datasource_password.is_none() && !raw.is_empty() && !raw.chars().all(|c| c == '*') {
-                            self.datasource_password = Some(raw.clone());
+                            self.datasource_password = Some((self.sources.len(), raw.clone()));
                         }
                         props.push((k.clone(), masked_value(k, &raw)));
                     }
@@ -735,6 +773,32 @@ mod env_secret_tests {
     }
 
     #[test]
+    fn userinfo_masked_when_password_holds_url_delimiters() {
+        assert_eq!(mask_userinfo("jdbc:mysql://u:pa/ss@h/db"), "jdbc:mysql://******@h/db");
+        assert_eq!(mask_userinfo("http://u:p?w#x@h/x"), "http://******@h/x");
+        assert_eq!(mask_userinfo("http://u:p@w@h/x?a=b@c"), "http://******@h/x?a=b@c");
+        assert_eq!(mask_userinfo("jdbc:postgresql://h:5432/db?user=a@b"), "jdbc:postgresql://h:5432/db?user=a@b");
+        assert_eq!(mask_userinfo("http://h/path@x"), "http://h/path@x");
+    }
+
+    #[test]
+    fn command_line_values_mask_secret_arguments() {
+        let shown = masked_value("sun.java.command", "app.jar --spring.datasource.password=hunter2 --server.port=8080");
+        assert_eq!(shown, "app.jar --spring.datasource.password=****** --server.port=8080");
+        assert_eq!(masked_value("JAVA_TOOL_OPTIONS", "-Dapi.key=abc -Xmx1g"), "-Dapi.key=****** -Xmx1g");
+    }
+
+    #[test]
+    fn sensitive_key_masks_compound_and_acronym_secret_names() {
+        for key in ["APIKEY", "apikey", "secretkey", "accesskey", "PRIVATEKEY", "AWSKey", "ABCKey", "jwtsecret", "authtoken", "dbpassword", "x.authorization", "signingKey", "x.encryption-key", "masterkey", "key", "my.credential"] {
+            assert!(sensitive_key(key), "{key} should be masked");
+        }
+        for key in ["monkey", "keyStoreType", "oauth2.authorization-uri", "turkey", "keyAlias", "x.token-uri"] {
+            assert!(!sensitive_key(key), "{key} should show");
+        }
+    }
+
+    #[test]
     fn env_password_masked_in_tree_and_tooltip() {
         let s = env_snapshot();
         assert!(!serde_json::to_string(&s.sources).unwrap().contains("s3cret"));
@@ -750,7 +814,7 @@ mod env_secret_tests {
 
     #[test]
     fn datasource_password_available_in_memory() {
-        assert_eq!(env_snapshot().datasource_password.as_deref(), Some("s3cret"));
+        assert_eq!(env_snapshot().datasource_password, Some((0, "s3cret".to_owned())));
         let mut s = Snapshot::default();
         s.read("env", &json!({"propertySources":[{"name":"a","properties":{"spring.datasource.password":{"value":"******"}}}]}));
         assert_eq!(s.datasource_password, None);

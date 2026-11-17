@@ -61,8 +61,10 @@ public class SpringRuntimeJmx {
                 flatten(out, key + "[" + i + "]", item, depth + 1);
                 i++;
             }
-        } else {
+        } else if (v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Enum<?>) {
             out.append(out.length() > 1 ? "," : "").append(esc(key)).append(':').append(esc(String.valueOf(v)));
+        } else {
+            out.append(out.length() > 1 ? "," : "").append(esc(key)).append(':').append(esc("(value not shown)"));
         }
     }
 

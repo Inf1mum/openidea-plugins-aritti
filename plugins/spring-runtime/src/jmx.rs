@@ -130,6 +130,12 @@ mod tests {
     }
 
     #[test]
+    fn operation_leaves_are_scalars_or_a_placeholder() {
+        assert!(HELPER.contains("v instanceof String || v instanceof Number || v instanceof Boolean || v instanceof Enum<?>"));
+        assert!(HELPER.contains("esc(\"(value not shown)\")"));
+    }
+
+    #[test]
     fn input_arguments_are_masked_and_output_bounded() {
         let out = r#"{"java.lang:type=Runtime#InputArguments":["-Ddb.password=hunter2","-Dx=jdbc://u:pw@h/db","-Xmx1g"],"java.lang:type=Threading#ThreadCount":"13"}"#;
         let text = render_result(out).unwrap();
