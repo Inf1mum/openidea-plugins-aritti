@@ -45,11 +45,8 @@ impl Cache {
         if self.resources.get(&kind).is_some_and(|snapshot|snapshot.root==root){self.resources.remove(&kind);}
         let scope=forward::Scope::capture_for_project(context,namespace,&project)?;
         let resolved_namespace=scope.args(&[]).into_iter().find_map(|arg|arg.strip_prefix("--namespace=").map(str::to_owned)).ok_or(Error::Stale)?;
-        let out=project.run_process("kubectl",&scope.args(&["get",resource,"-o","name",REQUEST_TIMEOUT]),None).map_err(|error|match error {
-            Error::Denied(_)|Error::Cancelled=>error,
-            _=>Error::Failed("Resource name query failed; raw tool errors withheld.".into()),
-        })?;
-        if out.status!=Some(0){return Err("Resource name query failed; no completion snapshot accepted.".into());}
+        let out=project.run_process("kubectl",&scope.args(&["get",resource,"-o","name",REQUEST_TIMEOUT]),None).map_err(|error|crate::tool_error("Reading resource names",context,error))?;
+        if out.status!=Some(0){return Err(Error::Failed(crate::failure_reason("Reading resource names",context,&out.stderr)));}
         let names=parse_resources(&out.stdout,resource)?;
         if forward::owner(Some(ctx))?.1!=root||!scope.configuration_current()
             ||forward::Scope::capture_for_project(context,namespace,&project)?!=scope{return Err(Error::Stale);}

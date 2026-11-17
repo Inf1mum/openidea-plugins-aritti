@@ -111,15 +111,39 @@ fn done(title: &str, edits: Vec<(String, Vec<TextEdit>)>, operations: Vec<FileOp
 impl Liquibase {
     pub(crate) fn generator_entry(&mut self, ctx: &Invocation, id: &str) -> Result<Option<String>, Error> {
         const UNAVAILABLE: &str = "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first.";
-        let editor = ctx.editor().ok_or(UNAVAILABLE)?;
         let project = ctx.project().ok_or("Open a project first.")?;
-        let prefix = if id == SET { "Add Liquibase changeset" } else { "Create Liquibase changelog" };
-        self.command_resolving = true;
-        let applied = ui_kit::command_file_action::run_titled(self, &project, &editor, prefix, TITLE);
-        self.command_resolving = false;
-        if !applied? {
+        let applied = match ctx.editor() {
+            Some(editor) => {
+                let prefix = if id == SET { "Add Liquibase changeset" } else { "Create Liquibase changelog" };
+                self.command_resolving = true;
+                let applied = ui_kit::command_file_action::run_titled(self, &project, &editor, prefix, TITLE);
+                self.command_resolving = false;
+                applied?
+            }
+            None => false,
+        };
+        if applied {
+            return Ok(None);
+        }
+        if id == SET {
             return Err(UNAVAILABLE.into());
         }
+        self.first_changelog(&project)
+    }
+    /// New Changelog… without a changelog open: asks for a path and creates a standalone changelog there.
+    fn first_changelog(&self, project: &Project) -> Result<Option<String>, Error> {
+        const DEFAULT: &str = "src/main/resources/db/changelog/db.changelog-master.yaml";
+        let root = root(project)?;
+        let Some(answer) = host::input("New changelog path (.xml, .yaml, .sql or .json)", Some(DEFAULT))? else { return Ok(None) };
+        let target = path(&root, answer.trim())?;
+        let format = [Format::Xml, Format::Yaml, Format::Sql, Format::Json]
+            .into_iter()
+            .find(|f| target.ends_with(&format!(".{}", generate::extension(*f))))
+            .ok_or("End the changelog path with .xml, .yaml, .sql or .json.")?;
+        vacant(project, &target)?;
+        let source = generate::changelog_source(format, &suggested_author(self))?;
+        project.write_file(&target, &source).map_err(|e| ui_kit::denied::map(e, "Creating a changelog", "project.write", TITLE))?;
+        let _ = host::open_editor(&target, None);
         Ok(None)
     }
 }
@@ -424,6 +448,28 @@ mod tests {
         host.open_editor("/project/notes.txt", "text", "", &[]);
         let error = plugin.run_command("new-changeset", &host.invocation(), None).unwrap_err().to_string();
         assert_eq!(error, "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first.");
+    }
+    #[test]
+    fn new_changelog_without_an_open_changelog_asks_for_a_path_and_creates_it() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut plugin = Liquibase::default();
+        host.answer_next_prompt(Some(&["db/two.xml"]));
+        let denied = plugin.run_command("new-changelog", &host.invocation(), None).unwrap_err().to_string();
+        assert!(denied.contains("needs the project.write permission"), "{denied}");
+        let host = host.with_capabilities(&["project.read", "project.write", "editor.read"]);
+        host.add_file("db/existing.xml", "");
+        for (answer, error) in [("db/notes.txt", "End the changelog path"), ("db/existing.xml", "already exists"), ("../outside.xml", "inside the project")] {
+            host.answer_next_prompt(Some(&[answer]));
+            let message = plugin.run_command("new-changelog", &host.invocation(), None).unwrap_err().to_string();
+            assert!(message.contains(error), "{answer}: {message}");
+        }
+        host.answer_next_prompt(None);
+        plugin.run_command("new-changelog", &host.invocation(), None).unwrap();
+        let project = host.invocation().project().unwrap();
+        assert!(!project.exists("src/main/resources/db/changelog/db.changelog-master.yaml").unwrap());
+        host.answer_next_prompt(Some(&["src/main/resources/db/changelog/db.changelog-master.yaml"]));
+        plugin.run_command("new-changelog", &host.invocation(), None).unwrap();
+        assert!(project.read_file("src/main/resources/db/changelog/db.changelog-master.yaml").unwrap().contains("databaseChangeLog"));
     }
     #[test]
     fn registered_xml_mutation_preserves_legal_unicode_namespace_prefix() {

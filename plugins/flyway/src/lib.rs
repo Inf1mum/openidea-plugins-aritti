@@ -83,6 +83,8 @@ pub struct Flyway {
     local_targets: BTreeMap<String, String>,
     /// Whether migration files carry notes from the accepted Info result.
     info_noted: bool,
+    /// Table cells by migrations row key (`l:` local, `m:` Info), for the packaged view's columns.
+    row_cells: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -383,7 +385,7 @@ impl Flyway {
             self.targets.clear();
             self.targets_root = Some(root.clone());
             let view = if let Some(error) = finished.info_error {
-                View::message(error).button(Button::new("refresh", "Refresh…").icon("refresh"))
+                View::message(error).button(Button::new("refresh", "Run Info…").icon("refresh"))
             } else {
                 self.accept_info(&project, finished.output, &finished.redactor)
             };
@@ -609,21 +611,21 @@ impl Flyway {
     }
 
     fn migrations_view(&mut self, project: &Project) -> View {
-        let Some(root) = open_root(project) else {return View::message("Current project identity is unavailable; cached Flyway info withheld.");};
+        let Some(root) = open_root(project) else {return View::message("This project is not open in this window. Reopen it to see its Flyway migrations.");};
         if self.info_cache.as_ref().is_some_and(|(owner, _)| owner == &root) && !self.info_scope.as_ref().is_some_and(|scope| scope.settings_current(&root)) {
             self.clear_info_notes();
         }
         let shown = match self.info_cache.as_ref().filter(|(owner, _)| owner == &root && self.info_scope.as_ref().is_some_and(|scope|scope.settings_current(&root))) {
             Some((_, cached)) => {
                 let mut shown = cached.clone();
-                shown.status = Some(format!("Captured Info · {}s ago · {}", self.info_at.map(|at|at.elapsed().as_secs()).unwrap_or(0), shown.status.as_deref().unwrap_or("source-linked rows")));
+                shown.status = Some(format!("Flyway Info from {}s ago · {}", self.info_at.map(|at|at.elapsed().as_secs()).unwrap_or(0), shown.status.as_deref().unwrap_or("Run Info… to update")));
                 shown
             }
             None => self.local_view(project, &root),
         };
         let mut shown = shown;
         if let Some(status) = self.execution.migration_status(&root) {
-            shown.status = Some(format!("{} · Command status: {status}",shown.status.as_deref().unwrap_or("No accepted Info snapshot")));
+            shown.status = Some(format!("{} · Command status: {status}",shown.status.as_deref().unwrap_or("No Info result yet")));
         }
         shown.button(Button::new("execution-output", "Output").icon("terminal"))
     }
@@ -632,12 +634,12 @@ impl Flyway {
         if !self.local.contains_key(root) && self.flyway_project(project) {
             self.scan(project);
         }
-        let refresh = Button::new("refresh", "Refresh…").icon("refresh");
+        let refresh = Button::new("refresh", "Run Info…").icon("refresh");
         let Some(local) = self.local.get(root) else { return View::message("Could not list local migrations.").button(refresh) };
         let mut rows = Vec::new();
         for path in &local.files {
             let file_name = path.rsplit('/').next().unwrap_or(path);
-            let (rank, order, label, kind_name) = match parse(file_name, &local.naming) {
+            let (rank, order, label, kind_name, version, description) = match parse(file_name, &local.naming) {
                 Name::Migration { kind, version, description } => {
                     let (prefix, kind_name) = match kind {
                         Kind::Versioned => (&local.naming.versioned, "Versioned"),
@@ -646,36 +648,39 @@ impl Flyway {
                         Kind::Repeatable => (&local.naming.repeatable, "Repeatable"),
                     };
                     let text = format!("{prefix}{version} {}", description.replace('_', " ")).trim_end().to_owned();
-                    (usize::from(kind == Kind::Repeatable), numeric_key(&version), text, kind_name)
+                    (usize::from(kind == Kind::Repeatable), numeric_key(&version), text, kind_name, version, description.replace('_', " "))
                 }
-                Name::Invalid(_) => (2, Vec::new(), file_name.to_owned(), "Invalid"),
+                Name::Invalid(_) => (2, Vec::new(), file_name.to_owned(), "Invalid", String::new(), file_name.to_owned()),
                 Name::Callback | Name::NotMigration => continue,
             };
             let detail = match local.results.get(path).and_then(|problems| problems.first()) {
                 Some(problem) => format!("Problems · {}", problem.message),
                 None => kind_name.to_owned(),
             };
-            rows.push(((rank, order, path.clone()), label, detail));
+            let problem = local.results.get(path).and_then(|problems| problems.first()).map_or(String::new(), |problem| problem.message.clone());
+            rows.push(((rank, order, path.clone()), label, detail, vec![version, description, kind_name.to_owned(), problem]));
         }
         if rows.is_empty() {
             return View::message(&format!(
-                "No local Flyway migrations in {}. Refresh… runs Flyway Info; opening this view never connects to a database.",
+                "No local Flyway migrations in {}. Create one with New…, or press Run Info… to read the database's migration history.",
                 local.locations.join(", ")
             ))
             .button(refresh);
         }
         rows.sort();
-        let problems = rows.iter().filter(|(_, _, detail)| detail.starts_with("Problems · ")).count();
+        let problems = rows.iter().filter(|(_, _, detail, _)| detail.starts_with("Problems · ")).count();
         let mut status = format!("{} local migrations, {problems} with problems", rows.len());
         if let Some((indexed, total)) = self.table_navigation.coverage(root).filter(|(indexed, total)| indexed < total) {
             status.push_str(&format!(" · table navigation covers {indexed} of {total} migrations"));
         }
-        status.push_str(" · Refresh… adds the database state from Flyway Info");
+        status.push_str(" · Run Info… adds the database state");
         self.local_targets.clear();
         self.local_root = Some(root.to_owned());
+        self.row_cells.retain(|key, _| !key.starts_with("l:"));
         let mut items = Vec::new();
-        for (index, ((_, _, path), label, detail)) in rows.into_iter().enumerate() {
+        for (index, ((_, _, path), label, detail, cells)) in rows.into_iter().enumerate() {
             let key = format!("l:{index}");
+            self.row_cells.insert(key.clone(), cells);
             let icon = if detail.starts_with("Problems · ") { "warning" } else { "file" };
             items.push(TreeItem::new(&key, &label).detail(&detail).icon(icon));
             self.local_targets.insert(key, path);
@@ -684,7 +689,7 @@ impl Flyway {
     }
 
     fn accept_info(&mut self, project: &Project, output: openidea_plugin::ProcessOutput, redactor: &execution::Redactor) -> View {
-        let refresh = Button::new("refresh", "Refresh…").icon("refresh");
+        let refresh = Button::new("refresh", "Run Info…").icon("refresh");
         if output.status != Some(0) {
             let reason = output.stderr.trim();
             let reason = if reason.is_empty() { output.stdout.trim() } else { reason };
@@ -698,12 +703,13 @@ impl Flyway {
             Err(message) => return View::message(&message).button(refresh),
         };
         if migrations.is_empty() {
-            return View::message("Flyway reports no migrations.").button(refresh);
+            return View::message("Flyway reports no migrations. Create one with Flyway: New Migration…, then Run Info… again.").button(refresh);
         }
 
         let config = load(project);
         let files = migration_files(project, &config);
         self.targets.clear();
+        self.row_cells.retain(|key, _| !key.starts_with("m:"));
         let mut items = Vec::new();
         let mut notes = BTreeMap::new();
         for (index, migration) in migrations.iter().enumerate() {
@@ -717,6 +723,8 @@ impl Flyway {
                 self.targets.insert(key.clone(), path);
             }
             items.push(TreeItem::new(&key, &redactor.label(&migration.label)).detail(migration.state).icon(migration.icon));
+            let kind = match migration.kind { Kind::Versioned => "Versioned", Kind::Undo => "Undo", Kind::Baseline => "Baseline", Kind::Repeatable => "Repeatable" };
+            self.row_cells.insert(key, vec![redactor.label(&migration.version), redactor.label(&migration.description), kind.into(), migration.state.into(), migration.installed_on.clone().unwrap_or_default()]);
         }
 
         self.show_info_notes(&notes);
@@ -734,7 +742,7 @@ impl Views for Flyway {
             let Some(project) = ctx.project() else {
                 return Ok(View::message("Open a project to see its Flyway migrations."));
             };
-            let Some(root) = open_root(&project) else {return Ok(View::message("Current project identity is unavailable; cached Flyway state withheld."));};
+            let Some(root) = open_root(&project) else {return Ok(View::message("This project is not open in this window. Reopen it to see its Flyway migrations."));};
             self.poll_owned(&project, &root);
             if view == execution::VIEW {
                 return Ok(self.execution.view(&root));
@@ -1014,6 +1022,7 @@ mod tests {
         assert!(host.terminals().is_empty());
 
         host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["clean"]));
         flyway.run_command("clean", &host.invocation(), None).unwrap();
         assert_eq!(host.terminals()[0].args, ["clean"]);
     }
@@ -1146,7 +1155,7 @@ mod tests {
         host.on_process("flyway", |_, _| {
             Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "{\"migrations\":[]}".into(), stderr: String::new() })
         });
-        assert_eq!(message(&host), "Flyway reports no migrations.");
+        assert_eq!(message(&host), "Flyway reports no migrations. Create one with Flyway: New Migration…, then Run Info… again.");
 
         host.on_process("flyway", |_, _| {
             Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "not json".into(), stderr: String::new() })
@@ -1300,6 +1309,18 @@ mod custom_group_tests {
         value["channel"]=json!("ui-kit");value["sequence"]=json!(1);value["project"]=json!("/project");
         plugin.handle("migrations",ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
         serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+    }
+    #[test]
+    fn packaged_migrations_view_shows_local_migrations_as_columns() {
+        let host=MockHost::install().with_capabilities(&["storage","project.read"]);
+        host.add_file("flyway.conf","flyway.locations=filesystem:db/migration");
+        host.add_file("db/migration/V1__create_users.sql","select 1;");
+        let mut plugin=Flyway::default();
+        let rendered=request(&mut plugin,&host,json!({"op":"render"}));
+        let body=&rendered["model"]["body"];
+        assert_eq!(body["kind"],"resources","{rendered}");
+        assert_eq!(body["columns"],json!(["Version","Description","Type","Problems"]));
+        assert_eq!(body["items"][0]["cells"],json!(["1","create users","Versioned",""]));
     }
     #[test]
     fn one_custom_container_routes_tabs_and_rejects_hidden_tab_mutations_without_cli() {

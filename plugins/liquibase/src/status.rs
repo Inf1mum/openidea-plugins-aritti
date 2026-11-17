@@ -97,7 +97,7 @@ fn ago(at: Instant) -> String {
 impl Liquibase {
     pub(crate) fn show_pending(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let args = vec!["status".to_owned(), "--verbose".to_owned()];
-        let Some(reviewed) = execution_review::review(ctx, args.clone(), "Liquibase: status", EFFECT)? else { return Ok(()) };
+        let Some(reviewed) = execution_review::review(ctx, args.clone(), "Check pending changesets in {db}?", EFFECT)? else { return Ok(()) };
         let project = ctx.project().ok_or(Error::Stale)?;
         self.drop_status();
         // ponytail: blocking run inside the 60 s task budget; move to host::start + Poll if real databases need longer.

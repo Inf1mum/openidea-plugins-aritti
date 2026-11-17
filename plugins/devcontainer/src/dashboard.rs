@@ -33,7 +33,7 @@ pub fn parse_containers(stdout: &str) -> Vec<Container> {
         .collect()
 }
 
-fn list(project: &Project, root: &str) -> Result<Vec<Container>, Error> {
+pub(crate) fn list(project: &Project, root: &str) -> Result<Vec<Container>, Error> {
     let args = ["ps", "-a", "--filter", &format!("label=devcontainer.local_folder={root}"), "--format", "{{json .}}"].map(str::to_owned);
     let output = project.run_process("docker", &args, None)?;
     if output.status != Some(0) {
@@ -78,7 +78,7 @@ impl Views for Main {
                 let selected = selected.as_ref();
                 let running = selected.is_some_and(|id| running_ids.contains(id));
                 view.button(Button::new("refresh", "Refresh").icon("refresh"))
-                    .button(Button::new("up", "Start Container…").icon("run").enabled(empty))
+                    .button(Button::new("up", "Create and Start Container…").icon("plus").enabled(empty))
                     .button(Button::new("shell", "Open Shell").icon("terminal").enabled(running))
                     .button(Button::new("stop", "Stop").icon("stop").enabled(running))
                     .button(Button::new("start", "Start").icon("run").enabled(selected.is_some() && !running))
@@ -87,7 +87,13 @@ impl Views for Main {
             };
             if empty {
                 self.running.clear();
-                return Ok(toolbar(status_view("No dev container for this project yet. Start Container… creates one from the configuration."), &self.running));
+                let configured = !host::setting_string("configFile").unwrap_or_default().trim().is_empty()
+                    || crate::configs::discover(&project).map_or(true, |found| !found.is_empty());
+                let message = match configured {
+                    true => "No dev container for this project yet. Create and Start Container… builds one from the configuration.",
+                    false => "This project has no devcontainer.json. Create one with New › Dev Container Configuration, then Create and Start Container….",
+                };
+                return Ok(toolbar(status_view(message), &self.running));
             }
 
             let running: std::collections::BTreeSet<String> = containers.iter().filter(|c| c.running).map(|c| c.id.clone()).collect();
@@ -105,6 +111,12 @@ impl Views for Main {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        self.handle_event(view, event, ctx).map_err(crate::explain_denial)
+    }
+}
+
+impl Main {
+    fn handle_event(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if view == crate::run_target::REVIEW {
             return match event {
                 ViewEvent::Button(key) => self.run_target.commit(ctx, &key),
@@ -169,13 +181,17 @@ impl Views for Main {
                 if !container.running {
                     return Err("This container is already stopped. Refresh Services.".into());
                 }
-                self.run_target.clear_for(&project.root()?);
-                host::unregister_run_target(&project, crate::run_target::ID);
-                host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
+                let body = "Runs docker stop on this container. Unsaved work in a container shell is lost.\nAny Dev Container run target for this project is removed too.";
+                if !host::confirm(&format!("Stop {}?", container.name), body)? {
+                    return Ok(());
+                }
                 let stopped = project.run_process("docker", &["stop".to_owned(), container.id.clone()], None)?;
                 if stopped.status != Some(0) {
                     return Err(format!("docker stop failed: {}", stopped.stderr.trim()).into());
                 }
+                self.run_target.clear_for(&project.root()?);
+                host::unregister_run_target(&project, crate::run_target::ID);
+                host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
                 self.selected = None;
                 host::notify(NotificationLevel::Info, "Dev Container", &format!("Stopped container {}. {RUN_TARGET_REMOVED}", container.name));
                 host::refresh_view(view);
@@ -271,11 +287,11 @@ impl openidea_plugin::details::Details for Main {
         }
         if key == STATUS_KEY {
             return Ok(vec![Tab::new("status", "Dev Containers", Pane::Message(
-                "This is an inventory status row, not a container. Open the owning project and allow process:docker in Settings › Plugins › Dev Container CLI, then Refresh. If the inventory is empty, use Dev Container: Start Container or choose a configuration.".into(),
+                "This row shows a status message, not a container. Open a project and allow process:docker in Settings › Plugins › Dev Container CLI, then Refresh. If the list is empty, use Dev Container: Start Container or choose a configuration.".into(),
             ))]);
         }
         let project = self.bind_project(ctx)?;
-        let containers = list(&project, &project.root()?)?;
+        let containers = list(&project, &project.root()?).map_err(crate::explain_denial)?;
         let Some(container) = containers.iter().find(|c| c.id == key) else {
             return Ok(vec![Tab::new(
                 "container",
@@ -358,11 +374,38 @@ mod services_tests {
         assert_eq!(ids, ["refresh", "up", "rebuild", "configuration"]);
     }
 
+    fn status_detail(view: &View) -> String {
+        let Body::List(rows) = &view.body else { panic!("a status row") };
+        rows[0].detail.clone().unwrap_or_default()
+    }
+
+    #[test]
+    fn empty_inventory_without_configuration_points_to_the_new_menu_template() {
+        let (host, mode) = mutable_host();
+        mode.set(1);
+        let view = Main::default().render("containers", None, &host.invocation()).unwrap();
+        assert!(status_detail(&view).contains("New › Dev Container Configuration"));
+        host.add_file(".devcontainer/devcontainer.json", "{}");
+        let view = Main::default().render("containers", None, &host.invocation()).unwrap();
+        assert!(status_detail(&view).starts_with("No dev container for this project yet."));
+    }
+
+    #[test]
+    fn declining_the_stop_confirm_keeps_the_container_running() {
+        let (host, _) = mutable_host();
+        let mut plugin = Main::default();
+        plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+        plugin.handle("containers", ViewEvent::Button("stop".into()), &host.invocation()).unwrap();
+        no_mutations(&host);
+        assert!(host.notifications().is_empty());
+    }
+
     #[test]
     fn stopping_names_the_container_and_the_removed_run_target() {
         let (host, _) = mutable_host();
         let mut plugin = Main::default();
         plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
         plugin.handle("containers", ViewEvent::Button("stop".into()), &host.invocation()).unwrap();
         assert_eq!(host.notifications()[0].body, format!("Stopped container app. {}", crate::RUN_TARGET_REMOVED));
     }

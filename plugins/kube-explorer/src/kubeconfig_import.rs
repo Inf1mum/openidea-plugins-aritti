@@ -124,7 +124,7 @@ pub(super) fn bounded_structure(raw: &str) -> Result<(), Error> {
         .load(&mut guard, true)
         .map_err(|_| invalid("Kubeconfig YAML/JSON is malformed; no credentials were stored."))?;
     if guard.bad || guard.docs != 1 {
-        return Err(invalid("Kubeconfig must be one bounded document without duplicates, aliases, anchors, tags or complex keys."));
+        return Err(invalid("Paste one kubeconfig document without duplicate keys, aliases, anchors, tags or complex keys."));
     }
     Ok(())
 }
@@ -196,7 +196,7 @@ fn server(value: &str) -> bool {
 }
 fn entries<'a>(config: &'a Value, key: &str, item_key: &str) -> Result<BTreeMap<&'a str, &'a Value>, Error> {
     let array =
-        config[key].as_array().filter(|v| v.len() <= 64).ok_or_else(|| invalid("Kubeconfig collections must be bounded arrays."))?;
+        config[key].as_array().filter(|v| v.len() <= 64).ok_or_else(|| invalid("The kubeconfig clusters, contexts and users must be lists of at most 64 entries."))?;
     let mut result = BTreeMap::new();
     for entry in array {
         fields(entry, &["name", item_key])?;
@@ -376,18 +376,18 @@ fn profiles() -> Result<Vec<Value>, Error> {
         let id = meta["id"]
             .as_str()
             .filter(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()))
-            .ok_or_else(|| invalid("Imported profile identity is invalid."))?;
+            .ok_or_else(|| invalid("This imported kubeconfig is damaged. Delete it and import it again."))?;
         let path = format!("{directory}/{FILE_PREFIX}{id}.json");
         if key != format!("{PREFIX}{id}") || meta["path"] != path {
-            return Err(invalid("Imported profile owner/path does not match private storage."));
+            return Err(invalid("This imported kubeconfig does not match its saved location. Delete it and import it again."));
         }
         let stat = host::fs::stat(&path)?;
         if stat.kind != FileKind::File || stat.size > MAX_RECORD as u64 {
-            return Err(invalid("Imported private profile is not a bounded plain file."));
+            return Err(invalid("This imported kubeconfig is not a regular file or is too large. Delete it and import it again."));
         }
         let payload = host::fs::read_bytes(&path)?;
         if payload.len() > MAX_RECORD || digest(&payload) != id {
-            return Err(invalid("Imported profile content identity does not match."));
+            return Err(invalid("This imported kubeconfig changed on disk. Delete it and import it again."));
         }
         let record: Value = serde_json::from_slice(&payload).map_err(|_| invalid("Imported private profile is unreadable."))?;
         fields(&record, &["schema", "name", "config"])?;
@@ -482,7 +482,7 @@ pub fn import() -> Result<(), Error> {
         }
     } else {
         if private_count >= 64 {
-            return Err(invalid("Private import files reached the bounded profile/orphan limit."));
+            return Err(invalid("Too many imported kubeconfigs. Delete some with Kube Explorer: Delete Imported Kubeconfig, then try again."));
         }
         host::fs::write_bytes(&path, payload.as_bytes())?;
     }
@@ -930,7 +930,7 @@ mod boundary_regressions {
         let host = MockHost::install().with_capabilities(&["storage"]);
         let id = "0".repeat(64);
         host::storage::set(&format!("{PREFIX}{id}"), &json!({"schema":1,"id":id,"path":"/outside/credentials"}).to_string()).unwrap();
-        assert!(profiles().err().unwrap().to_string().contains("owner/path"));
+        assert!(profiles().err().unwrap().to_string().contains("saved location"));
         assert!(host.process_runs().is_empty());
         assert!(host.requests().is_empty());
     }

@@ -99,11 +99,11 @@ impl Liquibase {
             "browser-status" => return self.show_pending(ctx).map(|()| true),
             "browser-actions" => {
                 let actions = [
-                                    ("offline-diff", "Review offline diff…"),
-            ("choose-sources", "Choose browser sources…"),
-            ("clear-sources", "Browse all project changelogs"),
-            ("update-confirmed", "Update database…"),
-            ("rollback-count", "Roll back changesets…")
+                                    ("offline-diff", "Review Offline Snapshot Diff"),
+            ("choose-sources", "Choose Sources…"),
+            ("clear-sources", "Browse All Changelogs"),
+            ("update-confirmed", "Update Database…"),
+            ("rollback-count", "Rollback Count…")
                 ];
                 let items: Vec<_> = actions.iter().map(|(id,label)| openidea_plugin::PickItem::new(id,label)).collect();
                 let Some(chosen) = host::pick("More migration actions", &items)? else { return Ok(true) };

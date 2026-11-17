@@ -23,10 +23,7 @@ fn choices(context: &Option<String>, namespace: &Option<String>) -> Choices {
 }
 fn capture(ctx: &Invocation, context: Option<&str>, namespace: Option<&str>) -> Result<forward::Scope, Error> {
     let (project, _) = forward::owner(Some(ctx))?;
-    forward::Scope::capture_for_project(context, namespace, &project).map_err(|error| match error {
-        Error::Denied(_) | Error::Cancelled => error,
-        _ => Error::Failed("Selected Kubernetes scope could not be inspected; raw tool errors are withheld.".into()),
-    })
+    forward::Scope::capture_for_project(context, namespace, &project)
 }
 #[derive(Clone)]
 struct Spec {

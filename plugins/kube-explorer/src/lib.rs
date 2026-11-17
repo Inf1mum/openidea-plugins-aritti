@@ -253,7 +253,7 @@ impl KubeExplorer {
     fn split_scope(&self, kind: &str, row: &str) -> Result<(Option<String>, String), Error> {
         if !self.all_namespaces() {
             if row.is_empty() || row.starts_with('-') || matches!(row,"."|"..") || row.chars().any(|c|c.is_control()||c.is_whitespace()||matches!(c,'/'|'%'|',')) {
-                return Err(format!("Refusing the name \"{row}\": it is not one literal resource name.").into());
+                return Err(format!("Refusing the name \"{row}\": it is not a single resource name.").into());
             }
             return Ok((self.namespace.clone(), row.to_owned()));
         }
@@ -593,7 +593,7 @@ impl KubeExplorer {
                 Some(0) => Ok("No differences with the cluster.".into()),
                 Some(1) => {
                     self.show(format!("Diff: {path}"), out.stdout, "diff")?;
-                    Ok("The differences are shown in Kube Explorer (Secret values masked).".into())
+                    Ok("The differences are shown in Kube Explorer Details (Secret values masked).".into())
                 }
                 status => Err(failure(KUBECTL, &out.stderr, status)),
             };
@@ -659,6 +659,16 @@ impl KubeExplorer {
         Ok(format!("Delete {kind}/{name}{scope} on context {context}?"))
     }
 
+    /// Asks before `kubectl replace` overwrites the live object; the body names kind, name, namespace and context.
+    fn confirm_replace(&self, kind: &str, row: &str) -> Result<(), Error> {
+        let question = self.delete_question(kind, row)?.replacen("Delete ", "Replace the live ", 1);
+        let (_, name) = self.split_scope(kind, row)?;
+        if host::confirm(&format!("Replace {kind}/{name}?"), &format!("{question}\nYour edits overwrite the object in the cluster; the previous version is not kept."))? {
+            return Ok(());
+        }
+        Err(Error::Cancelled)
+    }
+
     fn save(&self) {
         for (key, value) in [("context", &self.context), ("namespace", &self.namespace)] {
             let _ = match value {
@@ -692,7 +702,7 @@ impl KubeExplorer {
             if let Some(root) = self.rich_owner.clone() {
                 match self.yaml_editors.open(&root,self.context.as_deref(),namespace.as_deref(),kind,&name) {
                     Ok(()) => return Ok(()),
-                    Err(_) => host::notify(NotificationLevel::Info,"Private YAML editor","Private source-owned editor unavailable for this resource/scope; using the panel. No private copy was applied."),
+                    Err(_) => host::notify(NotificationLevel::Info,"Edit YAML","This resource can't be edited in the editor, so it opens in Kube Explorer Details. Nothing was applied."),
                 }
             }
         }
@@ -735,6 +745,7 @@ impl KubeExplorer {
         };
         if kind=="secrets"&&!Self::reveal_allowed(){self.expire_secret_visibility();return Err(Error::Stale);}
         let (namespace, _) = self.split_scope(&kind, &row)?;
+        self.confirm_replace(&kind, &row)?;
         let _task = host::begin_task(&format!("Applying {kind}/{row}"), false);
         let result=self.kubectl_in(namespace.as_deref(), &["replace", "-f", "-"], Some(yaml));
         let result=if kind=="secrets" {result.map_err(|error|secrets::command_error("save",error))}else{result};
@@ -801,13 +812,14 @@ impl KubeExplorer {
     fn render_forward(&self, target: &str, ports: &str) -> View {
         let field = Field::new("ports", "Ports (local:remote, separated by spaces)", FieldValue::Text(ports.into()));
         let owner = self.forward.as_ref().and_then(|draft| draft.owner_root.as_deref());
+        let managed = match owner {
+            Some(root) => format!("Start Managed Session runs it for the project {root} and stops it when you switch project, context, namespace or resource, after about five idle minutes, or when the window closes."),
+            None => "Start Managed Session needs an open project and the project.read permission.".to_owned(),
+        };
         let lifetime = Field::new(
             "forward-lifetime",
-            "Session lifetime",
-            FieldValue::readonly_text(
-                &format!("Managed project owner: {}. Start in Terminal is the durable option. Managed Stop/Restart needs an open project and project.read permission; project/scope/selection changes retire it. Idle reclamation (about five idle minutes), window close or plugin stop also ends it.", owner.unwrap_or("unavailable; grant project.read or open a project")),
-                true,
-            ),
+            "How long it runs",
+            FieldValue::readonly_text(&format!("Start in Terminal keeps forwarding until you close the terminal. {managed}"), true),
         );
         View::new(Body::Form(vec![field, lifetime]))
             .status(&format!("Port forward to {target}"))
@@ -888,7 +900,7 @@ impl KubeExplorer {
 
         // Group only former roots; keep all existing child/resource keys and owners.
         let parent = TreeItem::new("kube:cluster", &format!("Kubernetes — {context}"))
-            .icon(k8s!("cluster")).detail(&format!("Selected context · namespace {namespace}; cached CLI view"))
+            .icon(k8s!("cluster")).detail(&format!("Current context · namespace {namespace}. Refresh to update."))
             .expandable(!self.cluster_collapsed);
         if self.cluster_collapsed { items.clear(); }
         else {
@@ -1057,7 +1069,7 @@ impl KubeExplorer {
                 }
                 _ => {
                     if let Some((kind, name)) = self.checked_resource(&key)? {
-                        if self.rich_owner.is_none() { return Err(Error::Denied("project.read: open a project and allow project.read for cached rich details.".into())); }
+                        if self.rich_owner.is_none() { return Err(rich_details_unavailable()); }
                         self.describe(&kind, &name)?;
                     }
                 }
@@ -1112,7 +1124,7 @@ impl KubeExplorer {
         if ctx.is_some() {
             self.expire_rich_context(ctx);
             if matches!(button, "show-secret" | "edit-secret" | "create-secret" | "describe" | "yaml") && self.rich_owner.is_none() {
-                return Err(Error::Denied("project.read: open a project and allow project.read to own cached rich details and Secret plaintext.".into()));
+                return Err(rich_details_unavailable());
             }
             let missing = match button {
                 "add-secret-key" | "submit-secret" => self.draft.is_none(),
@@ -1182,6 +1194,15 @@ impl KubeExplorer {
             "start-managed-forward" => return self.start_managed_forward(ctx.ok_or_else(|| Error::Invalid("Managed forwarding needs a project invocation.".into()))?),
             "confirm-delete-manifest" => {
                 self.single_namespace_gate("Delete Manifest Resources")?;
+                if self.pending_delete.is_none() {
+                    return Ok(());
+                }
+                let listed = self.details.as_ref().map_or(0, |d| d.text.lines().filter(|line| !line.trim().is_empty()).count());
+                let (context, namespace) = self.target_parts();
+                let body = format!("Context: {context}\nNamespace: {namespace}\n{listed} resource(s) listed in the preview are deleted from the cluster. This cannot be undone.");
+                if !host::confirm(&format!("Delete {listed} resource(s) on {context}/{namespace}?"), &body)? {
+                    return Err(Error::Cancelled);
+                }
                 let Some(manifest) = self.pending_delete.take() else {
                     return Ok(());
                 };
@@ -1358,6 +1379,42 @@ fn output_tail(text: &str) -> String {
     let tail = lines[lines.len().saturating_sub(20)..].join("\n");
     let extra = tail.chars().count().saturating_sub(2000);
     tail.chars().skip(extra).collect()
+}
+
+/// A kubectl failure users can act on: a denial becomes the permission message; anything else a
+/// classified reason naming the context, plus a next step.
+pub(crate) fn tool_error(feature: &str, context: Option<&str>, error: Error) -> Error {
+    match error {
+        Error::Cancelled => Error::Cancelled,
+        Error::Denied(capability) => Error::Invalid(ui_kit::denied::message(feature, &capability, "Kube Explorer")),
+        other => Error::Failed(failure_reason(feature, context, &other.to_string())),
+    }
+}
+
+pub(crate) fn failure_reason(feature: &str, context: Option<&str>, detail: &str) -> String {
+    let on = context.filter(|context| !context.is_empty()).map_or_else(|| "the current context".to_owned(), |context| format!("context {context}"));
+    let lower = detail.to_ascii_lowercase();
+    if ["unauthorized", "expired", "must be logged in", "invalid_grant", "getting credentials", "exec plugin"].iter().any(|m| lower.contains(m)) {
+        return format!("{feature} failed: the login for {on} has expired or was rejected. Sign in to the cluster again, then retry.");
+    }
+    if connection_failure(detail) {
+        return format!("{feature} failed: {on} cannot be reached. Check the network or VPN, then retry.");
+    }
+    if lower.contains("forbidden") {
+        return format!("{feature} failed: your account on {on} is not allowed to do this. Ask for access or switch context.");
+    }
+    if lower.contains("has been modified") || lower.contains("conflict") {
+        return format!("{feature} failed: the object changed on {on} since it was opened. Reopen it, then retry.");
+    }
+    if lower.contains("notfound") || lower.contains("not found") {
+        return format!("{feature} failed: not found on {on}. Refresh Kube Explorer, then retry.");
+    }
+    // Unclassified output is not echoed: kubeconfig and auth-plugin errors can carry credentials.
+    format!("{feature} failed on {on}. Run kubectl with that context in a terminal to see why, or pick another context with Kube Explorer: Choose Kubeconfig.")
+}
+
+fn rich_details_unavailable() -> Error {
+    Error::Invalid(format!("{} Open a project first if none is open.", ui_kit::denied::message("Resource details", "project.read", "Kube Explorer")))
 }
 
 fn failure(program: &str, stderr: &str, status: Option<i32>) -> Error {
@@ -1811,12 +1868,12 @@ impl KubeExplorer {
             "open-resource-watch" => { crate::ui_group::reveal_view(watch::VIEW)?; return Ok(None); }
             "cache-cluster-resources" => {
                 let count=self.cluster_completion.read_resources(ctx,self.context.as_deref(),self.namespace.as_deref())?;
-                host::notify(NotificationLevel::Info,"Resource completion snapshot",&format!("Captured {count} resource names for 60 seconds. Providers do not query kubectl; source deployment target remains unresolved."));
+                host::notify(NotificationLevel::Info,"Resource completion snapshot",&format!("Completion now offers {count} resource names from the cluster for the next 60 seconds."));
                 return Ok(None);
             }
             "cache-cluster-namespaces" => {
                 let count = self.cluster_completion.read(ctx, self.context.as_deref(), self.namespace.as_deref())?;
-                host::notify(NotificationLevel::Info, "Namespace completion snapshot", &format!("Captured {count} namespace names for 60 seconds. Providers do not query kubectl; source deployment target is unresolved."));
+                host::notify(NotificationLevel::Info, "Namespace completion snapshot", &format!("Completion now offers {count} namespace names from the cluster for the next 60 seconds."));
                 return Ok(None);
             }
             "import-pasted-kubeconfig" => return kubeconfig_import::import().map(|()| None),
@@ -1915,15 +1972,15 @@ impl KubeExplorer {
         match id {
             "delete-manifest" => {
                 let out = self.kubectl(&["delete", "--dry-run=server", "-f", "-"], Some(&manifest))?;
-                self.show("Delete these resources?".into(), out, "text")?;
+                self.show(format!("Delete these resources from {}?", self.target()), out, "text")?;
                 self.pending_delete = Some(manifest);
-                Ok("Review the resources in Kube Explorer, then click Confirm Delete.".into())
+                Ok("Review the resources in Kube Explorer Details, then click Confirm Delete.".into())
             }
             "kustomize-render" => {
                 let dir = parent(&path);
                 let out = self.kubectl(&["kustomize", dir], None)?;
                 self.show(format!("Kustomize: {dir}"), out, "yaml")?;
-                Ok("The rendered YAML is shown in Kube Explorer.".into())
+                Ok("The rendered YAML is shown in Kube Explorer Details.".into())
             }
             "kustomize-apply" => {
                 self.confirm_apply(&format!("the kustomization in {}", parent(&path)))?;
@@ -1951,9 +2008,9 @@ impl KubeExplorer {
                 if id == "helm-lint" {
                     self.show(format!("Helm lint: {release}"), format!("{}{}", out.stdout, out.stderr), "text")?;
                     return Ok(if out.status == Some(0) {
-                        "The chart passed lint. The output is shown in Kube Explorer."
+                        "The chart passed lint. The output is shown in Kube Explorer Details."
                     } else {
-                        "The chart has lint errors. The output is shown in Kube Explorer."
+                        "The chart has lint errors. The output is shown in Kube Explorer Details."
                     }
                     .into());
                 }
@@ -1962,18 +2019,20 @@ impl KubeExplorer {
                 }
                 if id == "helm-template" {
                     self.show(format!("Helm template: {release}"), out.stdout, "yaml")?;
-                    return Ok("The rendered YAML is shown in Kube Explorer.".into());
+                    return Ok("The rendered YAML is shown in Kube Explorer Details.".into());
                 }
                 Ok(out.stdout.trim().to_owned())
             }
             "apply" => {
-                let choices = [PickItem::new("apply", "Apply"), PickItem::new("diff", "Show Diff with Cluster First (applies nothing)")];
+                let choices = [PickItem::new("apply", "Apply"), PickItem::new("diff", "Show Diff with Cluster First")];
                 match host::pick(&self.apply_question(&path), &choices)?.as_deref() {
                     Some("apply") => {}
                     Some("diff") => {
                         let shown = self.diff_manifest(&manifest, &path)?;
-                        host::notify(NotificationLevel::Info, "Nothing applied", &format!("{shown} Run Apply again to apply."));
-                        return Err(Error::Cancelled);
+                        let name = path.rsplit('/').next().unwrap_or(&path);
+                        if !host::confirm(&format!("Apply {name}?"), &format!("{shown}\n{}", self.apply_question(&path)))? {
+                            return Err(Error::Cancelled);
+                        }
                     }
                     _ => return Err(Error::Cancelled),
                 }
@@ -2354,10 +2413,38 @@ mod tests {
         kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
         kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
 
+        host.answer_next_prompt(Some(&[]));
         kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod # edited")), &host.invocation()).unwrap();
 
         assert!(host.process_runs().iter().any(|r| r.args.ends_with(&["replace".into(), "-f".into(), "-".into()])));
         assert!(page(&mut kube, &host).contains("name: web-1"));
+    }
+
+    #[test]
+    fn tool_failures_name_the_context_and_a_reason_without_raw_output() {
+        let reason = |detail: &str| failure_reason("Reading logs", Some("prod"), detail);
+        assert!(reason("error: You must be logged in to the server (Unauthorized)").contains("login for context prod has expired"));
+        assert!(reason("dial tcp 10.0.0.1:443: connect: connection refused").contains("context prod cannot be reached"));
+        assert!(reason("Error from server (Forbidden): pods is forbidden").contains("not allowed"));
+        assert!(reason("Error from server (NotFound): pods \"web\" not found").contains("not found on context prod"));
+        let other = reason("token=abc123 parser failure");
+        assert!(other.contains("context prod") && !other.contains("abc123"), "{other}");
+        assert!(matches!(tool_error("Reading logs", None, Error::Denied("process:kubectl".into())), Error::Invalid(m) if m == ui_kit::denied::message("Reading logs", "process:kubectl", "Kube Explorer")));
+    }
+
+    #[test]
+    fn declining_the_replace_confirm_runs_nothing() {
+        let host = host();
+        let mut kube = KubeExplorer::default();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
+
+        host.answer_next_prompt(None);
+        let result = kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod # edited")), &host.invocation());
+
+        assert!(matches!(result, Err(Error::Cancelled)));
+        assert!(!host.process_runs().iter().any(|r| r.args.iter().any(|a| a == "replace")));
+        assert!(kube.details.is_some());
     }
 
     #[test]
@@ -2368,6 +2455,7 @@ mod tests {
         kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
         let refreshes = host.refreshed_views().len();
 
+        host.answer_next_prompt(Some(&[]));
         kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod # conflict")), &host.invocation()).unwrap();
 
         let reply:serde_json::Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
@@ -2515,8 +2603,24 @@ mod tests {
         let deletes = || host.process_runs().into_iter().filter(|r| r.args.contains(&"delete".to_owned())).collect::<Vec<_>>();
         assert!(deletes()[0].args.contains(&"--dry-run=server".to_owned()));
 
+        host.answer_next_prompt(Some(&[]));
         kube.handle(TREE, ViewEvent::Button(kube.test_control_key("confirm-delete-manifest")), &host.invocation()).unwrap();
         assert!(deletes()[1].args.ends_with(&["delete".into(), "-f".into(), "-".into()]));
+    }
+
+    #[test]
+    fn declining_the_manifest_delete_confirm_deletes_nothing() {
+        let host = host();
+        host.open_editor("/project/web.yaml", "yaml", "kind: Deployment", &[]);
+        let mut kube = KubeExplorer { namespace: Some("shop".into()), current_context: Some("minikube".into()), ..Default::default() };
+        kube.run_command("delete-manifest", &host.invocation(), None).unwrap();
+        assert!(kube.details.as_ref().unwrap().title.contains("minikube/shop"));
+
+        host.answer_next_prompt(None);
+        assert!(matches!(kube.button("confirm-delete-manifest"), Err(Error::Cancelled)));
+
+        assert!(!host.process_runs().iter().any(|r| r.args.contains(&"delete".to_owned()) && !r.args.contains(&"--dry-run=server".to_owned())));
+        assert!(kube.pending_delete.is_some());
     }
 
     #[test]
@@ -2973,6 +3077,7 @@ mod tests {
         host.open_editor("/project/web.yaml", "yaml", "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n", &[]);
 
         host.answer_next_prompt(Some(&["diff"]));
+        host.answer_next_prompt(None);
         assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
 
         assert!(!kubectl_calls(&host).iter().any(|args| args.contains(&"apply".to_owned()) && !args.contains(&"--dry-run=server".to_owned())));
@@ -2980,7 +3085,19 @@ mod tests {
         assert_eq!(diff.left.as_deref(), Some("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n"));
         assert_eq!(diff.left_label.as_deref(), Some("Cluster (minikube/(default))"));
         assert_eq!(name.as_deref(), Some("web.yaml"));
-        assert_eq!(host.notifications()[0].title, "Nothing applied");
+    }
+
+    #[test]
+    fn apply_after_the_diff_asks_once_more_and_then_applies() {
+        let host = host();
+        host.open_editor("/project/web.yaml", "yaml", "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n", &[]);
+
+        host.answer_next_prompt(Some(&["diff"]));
+        host.answer_next_prompt(Some(&[]));
+        KubeExplorer::default().run_command("apply", &host.invocation(), None).unwrap();
+
+        assert_eq!(host.opened_diffs().len(), 1);
+        assert!(kubectl_calls(&host).iter().any(|args| args.ends_with(&["apply".into(), "-f".into(), "-".into()])));
     }
 
     #[test]
@@ -3608,6 +3725,7 @@ mod tests {
         let mut kube = all_mode();
         press(&mut kube, "pods", "team-a/web", "yaml", &host).unwrap();
 
+        host.answer_next_prompt(Some(&[]));
         kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod")), &host.invocation()).unwrap();
         kube.button("reload-yaml").unwrap();
 
@@ -3759,6 +3877,7 @@ mod tests {
 
             assert_eq!(kubectl_calls(&host)[0], expected, "{command}");
             if command == "delete-manifest" {
+                host.answer_next_prompt(Some(&[]));
                 kube.button("confirm-delete-manifest").unwrap();
                 assert_eq!(kubectl_calls(&host).last().unwrap(), &["--namespace=shop", "delete", "-f", "-"]);
             }
@@ -3987,9 +4106,9 @@ mod rich_panel_owner_tests {
     fn absent_or_revoked_owner_refuses_plaintext_and_clears_existing_cache() {
         let (host,mut kube)=setup();host.set_project_root(None);
         kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo", &host.invocation())),&host.invocation()).unwrap();
-        assert!(matches!(kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()),Err(Error::Denied(_))));
+        assert!(matches!(kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()),Err(Error::Invalid(m)) if m.starts_with("Resource details needs the project.read permission. Allow it in Settings › Plugins › Kube Explorer.")));
         assert!(host.process_runs().is_empty());
-        assert!(matches!(kube.handle(TREE,ViewEvent::Activate(kube.test_resource_key("res:pods/web", &host.invocation())),&host.invocation()),Err(Error::Denied(_))));
+        assert!(matches!(kube.handle(TREE,ViewEvent::Activate(kube.test_resource_key("res:pods/web", &host.invocation())),&host.invocation()),Err(Error::Invalid(m)) if m.contains("project.read")));
         assert!(host.process_runs().is_empty());host.set_project_root(Some("/project"));
         kube.render(TREE,None,&host.invocation()).unwrap();
         kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo",&host.invocation())),&host.invocation()).unwrap();

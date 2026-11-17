@@ -28,7 +28,7 @@
         "managed"
       ],
       "default": "terminal",
-      "description": "CLI command output ownership (managed is instance-lifetime, Refresh Status/Cancel; terminal uses native controls/raw output)"
+      "description": "terminal: run Flyway in the project's terminal. managed: run it in the background and follow it in the Command Output tab with Refresh Output and Cancel; output is kept until the plugin restarts."
     }
   }
 }

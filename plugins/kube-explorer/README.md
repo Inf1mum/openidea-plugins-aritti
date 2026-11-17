@@ -45,7 +45,7 @@ Select a resource and use the toolbar, or right-click it.
 - Pods, workloads and Services: **Port Forward**.
 - Less common pod and log actions are in the **More Resource Actions** picker.
 
-The **Kubernetes** panel on the right shows tabs for the selected resource:
+The **Kube Explorer Details** panel on the right shows tabs for the selected resource:
 
 - **Resource**, **Describe**, **YAML** and **Events**. They load only when you open them.
 - **Logs** streams live, with **Timestamps**. Pods add **All Containers** and **Previous Container**. Workloads combine all their pods and containers, with a source prefix on each line.
@@ -70,14 +70,14 @@ Secret values stay hidden until you turn on **allowRevealSecrets** in the settin
 
 - **Show Secret…** decodes the values and shows them only in the panel. Values clear when you click **Back** or turn the setting off.
 - **Create Secret…** (right-click the Secrets group) builds an Opaque Secret from a name and key/value pairs. Click **Add Key** for more. It fails if the name exists. Pick a single namespace first.
-- **Edit Secret…** shows the decoded keys in a form. Edit values, add keys, or list keys to remove, then **Save**. If someone changed the Secret since you opened it, nothing is saved: click **Back** and open it again.
+- **Edit Secret…** shows the decoded keys in a form. Edit values, add keys, or list keys to remove, then **Save**, which asks first and names the Secret, namespace and context. If someone changed the Secret since you opened it, nothing is saved: click **Back** and open it again.
 - With the setting off, **YAML** on a Secret is refused; **Describe** still works.
 
 The form fields aren't masked, so typed values are visible on screen.
 
 ### Edit resource YAML
 
-- **YAML** (or **Edit YAML…**) opens the resource in the editable panel. Click **Apply** there to send your changes.
+- **YAML** (or **Edit YAML…**) opens the resource in the editable panel. Click **Apply** there to send your changes; it asks first and names the kind, name, namespace and context it replaces.
 - With **yamlInEditor** on, supported built-in kinds open in a private editor copy with schema completion instead. Secrets and other kinds stay in the panel.
 
 In a private editor copy, **Save** is local only. To send changes to the cluster:
@@ -113,10 +113,10 @@ The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop
 
 Right-click in a YAML editor, or use Search Everywhere:
 
-- **Kube Explorer: Apply Manifest to Cluster** asks first and names the target context and namespace. Choose **Apply**, or **Show Diff with Cluster First** to review without applying. When it succeeds, the notification offers **Show in Kube Explorer**.
-- **Kube Explorer: Diff Manifest with Cluster** opens the IDE diff viewer: the cluster's objects on the left, what the cluster would store after applying the open file on the right (a server dry run, which changes nothing). Both sides drop `status`, `managedFields`, `resourceVersion`, `uid`, `creationTimestamp`, `generation`, `selfLink` and the last-applied annotation, sort their keys and list one document per object by kind, namespace and name, so only real changes remain. Resources not yet in the cluster show only the right side. If the server refuses the dry run (validation, an admission webhook, or no patch permission), the right side is the open file in the same layout and the notification says why. Manifests with a Secret or a List show a masked diff in Kube Explorer instead, unless **allowRevealSecrets** is on.
+- **Kube Explorer: Apply Manifest to Cluster** asks first and names the target context and namespace. Choose **Apply**, or **Show Diff with Cluster First** to review the changes, then confirm or cancel the apply. When it succeeds, the notification offers **Show in Kube Explorer**.
+- **Kube Explorer: Diff Manifest with Cluster** opens the IDE diff viewer: the cluster's objects on the left, what the cluster would store after applying the open file on the right (a server dry run, which changes nothing). Both sides drop `status`, `managedFields`, `resourceVersion`, `uid`, `creationTimestamp`, `generation`, `selfLink` and the last-applied annotation, sort their keys and list one document per object by kind, namespace and name, so only real changes remain. Resources not yet in the cluster show only the right side. If the server refuses the dry run (validation, an admission webhook, or no patch permission), the right side is the open file in the same layout and the notification says why. Manifests with a Secret or a List show a masked diff in Kube Explorer Details instead, unless **allowRevealSecrets** is on.
 - **Kube Explorer: Validate Manifest (Server Dry Run)** checks the manifest against the cluster without changing it.
-- **Kube Explorer: Delete Manifest Resources from Cluster…** lists what would be deleted (server dry run), then waits for **Confirm Delete**.
+- **Kube Explorer: Delete Manifest Resources from Cluster…** lists what would be deleted (server dry run) under a title naming the context and namespace. **Confirm Delete** asks once more with the context, namespace and number of resources.
 - **Kube Explorer: Reload Manifest from Cluster** replaces each document with the cluster's current version. Leading comments stay; one undo reverts it. Documents the cluster doesn't have are left alone. Needs `editor.write`.
 - **Kube Explorer: Render Kustomization** and **Apply Kustomization to Cluster** use the file's folder. Apply asks first, naming the context and namespace.
 - **Kube Explorer: Preview Helm Template**, **Lint Helm Chart** and **Update Helm Dependencies** use the chart around the file. **Configure Helm Parameters** sets the release name, values file and `--set` overrides for template and lint.
@@ -209,7 +209,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer**; bin
 | **Kube Explorer: Apply Manifest to Cluster** (*Editor*) | Applies the open manifest, after asking (or shows the diff first). | None |
 | **Kube Explorer: Validate Manifest (Server Dry Run)** | Validates it with a server dry run. | None |
 | **Kube Explorer: Diff Manifest with Cluster** (*Editor*) | Opens the diff with the cluster's objects. | None |
-| **Kube Explorer: Delete Manifest Resources from Cluster…** | Lists the resources, then deletes after **Confirm Delete**. | None |
+| **Kube Explorer: Delete Manifest Resources from Cluster…** | Lists the resources, then deletes after **Confirm Delete** and a confirmation. | None |
 | **Kube Explorer: Reload Manifest from Cluster** (*Editor*) | Replaces the documents with the cluster's versions. | None |
 | **Kube Explorer: Render Kustomization** | Renders the file's folder with Kustomize. | None |
 | **Kube Explorer: Apply Kustomization to Cluster** | Applies the file's folder with Kustomize, after asking. | None |
@@ -331,6 +331,11 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Authentication fails for GKE, EKS or similar | Put the auth plugin (`gke-gcloud-auth-plugin`, `aws`, …) on the IDE's `PATH`. |
 | *To show them, turn on "Allow Show Secret and YAML on a secret" in Settings › Plugins › Kube Explorer.* | Turn on **Allow Show Secret and YAML on a secret** in the settings. Off: secret data is never read; on: secret YAML is shown unstripped. |
 | *Refusing … in All namespaces…* or Apply/Create Secret refused | Switch from **All namespaces** to a single namespace. |
+| *… failed: the login for context … has expired or was rejected* | Sign in again with your cloud CLI or auth plugin, then retry. |
+| *… failed: context … cannot be reached* | Check the network or VPN to the cluster. |
+| *… failed: your account on context … is not allowed to do this* | Ask for access, or switch context. |
+| *… failed on context …. Run kubectl with that context in a terminal…* | Run the same `kubectl` command with `--context` in a terminal to see the full error; Kube Explorer doesn't show raw kubectl output because it can contain credentials. |
+| *This resource is no longer listed. Refresh the group.* | Right-click the group and choose **Refresh Group**. |
 | *Select one namespace before watching.* | Pick a single namespace, then start the watch. |
 | *The secret changed in the cluster since it was opened…* | Click **Back** and open **Edit Secret…** again. Nothing was saved. |
 | *Kube Explorer is not allowed to run helm…* | Allow `process:helm`. |
@@ -339,7 +344,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *Helm dependency search failed; run Update Helm Repositories…* | Run **Kube Explorer: Update Helm Repositories**, then read the catalog again. |
 | *Reloading a manifest needs the editor.write permission. Allow it in Settings › Plugins › Kube Explorer.* | Allow `editor.write`. |
 | *Allow the optional clipboard capability to copy the shown lines.* | Allow `clipboard`. |
-| *Project access is unavailable…* | Allow `project.read`. Kubernetes also works in a window with no open project. |
+| *Project access is unavailable…* or *Resource details needs the project.read permission…* | Allow `project.read` and open a project. Kubernetes also works in a window with no open project. |
 | *At most 16 private editor leases…* | Run **Kube Explorer: End Private YAML Editing Session** on copies you no longer need. |
 | No problems shown in a manifest | Allow `events` and `project.read`. Check the file isn't matched by **nonKubernetesGlobs**. |
 | Problems shown in a non-Kubernetes YAML file | Add it to **nonKubernetesGlobs**. |
@@ -364,7 +369,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 <details>
 <summary>Services tree and actions</summary>
 
-The tree is one stable `kube:cluster` parent labelled **Kubernetes — selected context**. Root expand/collapse only changes presentation: it discovers nothing, changes no selection and issues no kubectl call. **Custom Resources** uses `kubectl api-resources`, without core and built-in groups. In **All namespaces** mode, custom resources that are cluster-scoped or whose name isn't a DNS name are listed but take no action. Editing and terminal workflows open the existing Kubernetes panel or terminal; native read-only details stay beside the Services tree. Without the `process:kubectl` grant, a non-resource status row explains the missing grant and the private import workflow; selecting it shows read-only help and activates no cluster. Context menus follow the row kind; the toolbar shows applicable native icon buttons with tooltips. Actions validate the current scoped row key and refuse stale keys, mismatched kinds, changed targets/scope and foreign-view callbacks.
+The tree is one stable `kube:cluster` parent labelled **Kubernetes — selected context**. Root expand/collapse only changes presentation: it discovers nothing, changes no selection and issues no kubectl call. **Custom Resources** uses `kubectl api-resources`, without core and built-in groups. In **All namespaces** mode, custom resources that are cluster-scoped or whose name isn't a DNS name are listed but take no action. Editing and terminal workflows open the existing Kube Explorer Details panel or terminal; native read-only details stay beside the Services tree. Without the `process:kubectl` grant, a non-resource status row explains the missing grant and the private import workflow; selecting it shows read-only help and activates no cluster. Context menus follow the row kind; the toolbar shows applicable native icon buttons with tooltips. Actions validate the current scoped row key and refuse stale keys, mismatched kinds, changed targets/scope and foreign-view callbacks.
 
 Describe/YAML/Events run only when opened, with bounded request timeouts. Events target the exact built-in kind/name and row namespace; unknown custom kinds don't guess an event kind. Secrets omit the native YAML tab; the explicit Show/Edit/YAML actions keep their reveal gate. Workload logs use a bounded concurrent stream count. The host cancels the active stream when its pane is hidden or its target changes. Watch preparation needs an invoking project and a single namespace.
 
