@@ -167,9 +167,16 @@ impl Plugin for Tasks {
                 let _ = host::reveal_view(VIEW);
             }
             "open-task" => {
-                self.selected = None;
-                self.button("find", ctx)?;
+                let previous = self.selected.take();
+                let result = self.button("find", ctx);
+                if self.selected.is_none() {
+                    self.selected = previous;
+                }
+                result?;
                 refresh_tasks_view();
+                if self.form.is_some() {
+                    let _ = host::reveal_view(VIEW);
+                }
             }
             "refresh" => refresh_issues(&project, false)?,
             "search-issues" => self.search_issues(&project, &tasks, ctx)?,
@@ -1314,6 +1321,26 @@ mod tests {
         let (host,mut plugin)=seeded();
         plugin.run_command("new-task",&host.invocation(),None).unwrap();
         assert!(matches!(plugin.form,Some(Form::New{..})));
+    }
+    #[test]
+    fn open_task_command_reveals_the_window_for_the_branch_form() {
+        let host=MockHost::install().with_capabilities(&["project.read","storage","process:git"]);
+        let _git=fake_git(&host);
+        let mut plugin=plugin(&host);
+        update("/project",|tasks,_| { tasks.issues=vec![Task::issue("github","tool-12","Crash","https://github.com/x","https://api.github.com/x")]; Ok(()) }).unwrap();
+        host.answer_next_prompt(Some(&["issue:tool-12"]));
+        plugin.run_command("open-task",&host.invocation(),None).unwrap();
+        assert!(matches!(plugin.form,Some(Form::Open{..})));
+        assert_eq!(host.revealed_views(),["tasks"]);
+    }
+    #[test]
+    fn cancelled_open_task_picker_keeps_the_selection() {
+        let (host,mut plugin)=seeded();
+        plugin.run_command("refresh",&host.invocation(),None).ok();
+        plugin.selected=Some("task:LOCAL-00001".into());
+        host.answer_next_prompt(Some(&[]));
+        plugin.run_command("open-task",&host.invocation(),None).unwrap();
+        assert_eq!(plugin.selected.as_deref(),Some("task:LOCAL-00001"));
     }
     #[test]
     fn open_task_command_picks_and_activates_a_task() {
