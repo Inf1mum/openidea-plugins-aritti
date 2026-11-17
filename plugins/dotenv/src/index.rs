@@ -317,6 +317,15 @@ impl Index {
     /// explicitly referenced files leave discovery incomplete.
     pub fn add_compose_env_files(&mut self, project: &Project, root: &str, compose_path: &str, text: &str) {
         self.compose_env_files_before(project, root, compose_path, text, Instant::now() + std::time::Duration::from_secs(1));
+        if !self.complete {
+            self.held_complete = false;
+        }
+    }
+
+    /// Something could not be read: a walk in progress must not finish complete.
+    pub fn mark_incomplete(&mut self) {
+        self.complete = false;
+        self.held_complete = false;
     }
 
     fn compose_env_files_before(&mut self, project: &Project, root: &str, compose_path: &str, text: &str, deadline: Instant) {
@@ -660,6 +669,22 @@ mod tests {
         assert_eq!(batches, total.div_ceil(part));
         assert_eq!(index.usages.len(), 10, "no file read twice");
         assert!(index.complete && !index.walk_in_progress());
+    }
+
+    #[test]
+    fn an_incomplete_mark_during_a_cut_walk_survives_the_resume() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        for n in 0..6 {
+            host.add_file(&format!("f{n}.py"), "os.getenv('K')\n");
+        }
+        let project = host.invocation().project().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut index = Index::begin(&project, "/p", deadline);
+        index.resume_limited(&project, "/p", deadline, 2);
+        index.mark_incomplete();
+        index.resume(&project, "/p", deadline);
+        assert!(index.walked && !index.complete);
     }
 
     #[test]

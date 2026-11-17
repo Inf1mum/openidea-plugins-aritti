@@ -30,6 +30,8 @@ const SCAN_BUDGET: Duration = Duration::from_secs(3);
 pub struct DotEnv {
     /// Each open project's index, by root.
     projects: HashMap<String, Index>,
+    /// Changed paths an over-budget batch left unread, finished by the next batch.
+    backlog: Vec<(String, bool)>,
     updates: source_update::Updates,
 }
 
@@ -194,14 +196,20 @@ impl Plugin for DotEnv {
 
 impl DotEnv {
     fn apply_events(&mut self, events: &[Event]) {
+        self.apply_events_before(events, Instant::now() + SCAN_BUDGET);
+    }
+
+    fn apply_events_before(&mut self, events: &[Event], deadline: Instant) {
         if events.iter().any(|e| matches!(e, Event::Other { kind, .. } if kind == EventKind::ExtensionsChanged.name())) {
             index::set_extra_sources(contributed_sources());
             watch_files();
             self.projects.clear();
         }
         self.index_projects();
-        let deadline = Instant::now() + SCAN_BUDGET;
-        for (path, removed) in changed_paths(events) {
+        let mut pending = std::mem::take(&mut self.backlog);
+        pending.extend(changed_paths(events));
+        let mut pending = pending.into_iter();
+        while let Some((path, removed)) = pending.next() {
             if !Index::indexes(&path) {
                 continue;
             }
@@ -212,7 +220,8 @@ impl DotEnv {
                 continue;
             };
             if Instant::now() >= deadline {
-                index.walked = false;
+                self.backlog.push((path, removed));
+                self.backlog.extend(pending);
                 break;
             }
             let read = match removed {
@@ -227,10 +236,11 @@ impl DotEnv {
                     index.add_compose_env_files(&project, &root, &path, &text);
                 }
                 Err(Error::NotFound(_)) => index.update(&path, None),
-                Err(_) => index.complete = false,
+                Err(_) => index.mark_incomplete(),
             }
             for compose in owners.iter().filter(|c| **c != path) {
                 if let Ok(text) = project.read_file(compose) {
+                    index.touched(compose);
                     index.update(compose, Some(&text));
                     index.add_compose_env_files(&project, &root, compose, &text);
                 }
@@ -598,6 +608,39 @@ mod tests {
         let items = DotEnv::default().completion(&php, Position::new(0, 16), None);
         assert!(items.iter().all(|i| i.detail.as_deref() != Some("= ••••")));
         assert!(!index::is_secret_like("DB_PASSWORD", ""));
+    }
+
+    #[test]
+    fn owner_compose_reread_during_a_walk_is_not_added_twice() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "X=1\n");
+        host.add_file("compose.yaml", "services:\n  web:\n    build:\n      context: .\n      args:\n        A: ${X}\n    image: ${X}\n");
+        host.add_file("Dockerfile", "FROM php\nARG A\n");
+        let mut plugin = DotEnv::default();
+        let (root, project) = project_of("/p/.env").unwrap();
+        let mut index = Index::begin(&project, &root, Instant::now() + Duration::from_secs(60));
+        index.update("/p/compose.yaml", Some(&project.read_file("/p/compose.yaml").unwrap()));
+        plugin.projects.insert(root, index);
+        plugin.apply_events(&[Event::FileSaved("/p/Dockerfile".into())]);
+        assert!(plugin.projects["/p"].walked);
+        let image_usages = plugin.projects["/p"].usages.iter().filter(|u| u.key == "X" && u.location.path == "/p/compose.yaml" && u.location.range.start.line == 6).count();
+        assert_eq!(image_usages, 1);
+    }
+
+    #[test]
+    fn over_budget_events_finish_on_the_next_batch_without_a_relist() {
+        let host = project();
+        let mut plugin = walked();
+        host.add_file("unevented.py", "os.getenv('UNEVENTED')\n");
+        host.add_file("worker.py", "os.getenv('W')\n");
+        plugin.apply_events_before(&[Event::FileSaved("/p/worker.py".into())], Instant::now() - Duration::from_secs(1));
+        assert!(plugin.projects["/p"].walked, "no re-walk is forced");
+        assert!(plugin.projects["/p"].usages.iter().all(|u| u.key != "W"));
+        plugin.apply_events(&[]);
+        assert!(plugin.projects["/p"].usages.iter().any(|u| u.key == "W"));
+        assert!(plugin.projects["/p"].usages.iter().all(|u| u.key != "UNEVENTED"), "never re-listed");
+        assert!(plugin.backlog.is_empty());
     }
 
     #[test]
