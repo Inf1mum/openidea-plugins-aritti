@@ -783,22 +783,12 @@ impl Plugin for SpringOsgi {
 
 // Generator ownership is independent of the navigation/source cache.
 fn generation_owner(doc: &Document) -> Result<String, Error> {
-    if doc.language != "xml"
-        || !doc.path.ends_with(".xml")
-        || !doc.path.starts_with('/')
-        || doc.path.len() > 1024
-        || doc.path.contains('\\')
-        || doc.path.chars().any(char::is_control)
-        || doc.path.split('/').any(|p| matches!(p, "." | ".."))
-    {
+    if doc.language != "xml" || !doc.path.ends_with(".xml") || doc.path.len() > 1024 {
         return Err(Error::Stale);
     }
-    let root = host::project_of(&doc.path).and_then(|p| p.root().ok()).ok_or(Error::Stale)?;
-    if !doc.path.strip_prefix(root.trim_end_matches('/')).is_some_and(|tail| tail.starts_with('/')) {
-        return Err(Error::Stale);
-    }
-    Ok(root)
+    spring_text::index::owning_root(&doc.path).ok_or(Error::Stale)
 }
+
 fn validate_generation_xml(text: &str) -> Result<(), Error> {
     if xml::generation_valid(text) {
         return Ok(());
@@ -1793,6 +1783,28 @@ public class AuditListener implements OsgiServiceLifecycleListener {
         d.version -= 1;
         d.path = "/project/other.xml".into();
         assert!(plugin.resolve_file_action(&d, action).is_err());
+    }
+
+    #[test]
+    fn generation_works_under_a_windows_drive_root() {
+        let host = MockHost::install();
+        host.set_project_root(Some(r"C:\work\app"));
+        let path = "C:/work/app/ctx.xml";
+        host.add_file(path, EMPTY_CONTEXT);
+        let d = Document { path: path.into(), language: "xml".into(), version: 1, text: EMPTY_CONTEXT.into() };
+        let mut plugin = SpringOsgi::default();
+        let action = plugin.file_actions(&d, Range::new(Position::new(2, 0), Position::new(2, 0))).pop().expect("offered under C:");
+        for answer in [Some(&["reference"][..]), Some(&["a.Api"][..]), Some(&[][..])] {
+            host.answer_next_prompt(answer);
+        }
+        assert_eq!(plugin.resolve_file_action(&d, action).unwrap().edits.len(), 1);
+    }
+
+    #[test]
+    fn ownership_scopes_windows_roots() {
+        let roots = vec![r"C:\work".to_owned(), r"C:\work\app".to_owned()];
+        let scope = ownership::Scope::new(Some(roots), r"c:\work\app\ctx.xml");
+        assert!(scope.known());
     }
 
     #[test]
