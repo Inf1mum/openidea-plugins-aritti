@@ -85,7 +85,7 @@ impl Integration {
             return Ok(View::message("Open a project to see its message channels.").button(refresh));
         };
         let Some(root) = spring_text::index::scoped_root(&project) else {
-            return Ok(View::message("Project identity is unavailable.").button(refresh));
+            return Ok(View::message("This project's folder path can't be read. Open the project from a local folder.").button(refresh));
         };
         let index = self.indexes.get(&project, COMMAND_BUDGET);
         let note = spring_text::index::coverage_note(index);
@@ -95,7 +95,7 @@ impl Integration {
         }
         let rows = rows(&index.view(shared::refs_of));
         if rows.is_empty() {
-            let text = spring_text::index::empty_message("No message channels found", scanning, note.as_deref());
+            let text = spring_text::index::empty_message("No message channels found. Add spring-integration to the root build file, then declare channels as MessageChannel @Bean methods, Java DSL flows or <int:channel> in XML", scanning, note.as_deref());
             return Ok(View::message(&text).button(refresh));
         }
         let status = match note {

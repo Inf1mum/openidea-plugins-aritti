@@ -370,7 +370,7 @@ mod refresh_command_tests {
             nav.run_command("refresh-models", &h.invocation(), None)
                 .unwrap()
                 .as_deref(),
-            Some("XML and XPath source models refreshed.")
+            Some("Schemas and endpoints refreshed.")
         );
         assert_eq!(nav.definition(&doc, at).len(), 1);
         assert!(h.requests().is_empty() && h.process_runs().is_empty());

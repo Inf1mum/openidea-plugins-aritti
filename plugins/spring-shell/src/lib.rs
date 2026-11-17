@@ -588,7 +588,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
                             rules::literal_range(text, s),
                             Severity::Warning,
                             "availability-method-reference",
-                            "No zero-argument indicator method has this literal name in the class or its project superclass chain.".into(),
+                            "Neither this class nor its superclasses have a method with this name and no parameters.".into(),
                         )),
                         _ => {}
                     }

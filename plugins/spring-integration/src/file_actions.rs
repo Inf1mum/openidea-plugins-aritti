@@ -192,7 +192,7 @@ fn inventory_inner(
     for path in paths {
         if started.elapsed() > COMMAND_BUDGET {
             return Err(
-                "Source inventory deadline reached; cannot prove name availability.".into(),
+                "Ran out of time checking that the name is free. Try again.".into(),
             );
         }
         if beans::ignored(&path) {
@@ -214,7 +214,7 @@ fn inventory_inner(
         let source = project.read_file(&path)?;
         bytes = bytes.saturating_add(source.len());
         if source.len() > 512 * 1024 || bytes > 8 * 1024 * 1024 {
-            return Err("Source inventory byte budget exceeded.".into());
+            return Err("The project sources are too large to check that the name is free (over 512 KiB in one file or 8 MiB in total).".into());
         }
         let mut extra_names=Vec::new();
         if path.ends_with(".java") || path.ends_with(".kt") {
@@ -257,7 +257,7 @@ fn inventory_inner(
                         type_bytes = type_bytes.saturating_add(item.0.len() + item.1.len());
                     }
                     if types.len() > 8192 || type_bytes > 1024 * 1024 {
-                        return Err("Source type inventory budget exceeded.".into());
+                        return Err("The project has too many types to check that the name is free (over 8,192).".into());
                     }
                 }
             }
@@ -309,7 +309,7 @@ fn inventory_inner(
                     name_bytes = name_bytes.saturating_add(name.len());
                 }
                 if names.len() > 8192 || name_bytes > 1024 * 1024 {
-                    return Err("Source name inventory budget exceeded.".into());
+                    return Err("The project has too many bean names to check that the name is free (over 8,192).".into());
                 }
             }
         }
@@ -852,7 +852,7 @@ mod tests {
             );
         }
         assert!(
-            matches!(names(&host.invocation().project().unwrap(),&doc),Err(Error::Failed(message)) if message.contains("byte budget"))
+            matches!(names(&host.invocation().project().unwrap(),&doc),Err(Error::Failed(message)) if message.contains("too large to check that the name is free"))
         );
     }
     #[test]

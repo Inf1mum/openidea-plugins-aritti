@@ -263,11 +263,11 @@ fn source_paths(project: &openidea_plugin::Project) -> Result<BTreeSet<String>, 
     for glob in ["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl"] {
         let found = project.find_files(glob, (MAX_FILES + 1) as u32)?;
         if found.len() > MAX_FILES {
-            return Err("Generation source inventory capped.".into());
+            return Err(format!("The project has too many source files to check for conflicts (over {MAX_FILES}).").into());
         }
         paths.extend(found);
         if paths.len() > MAX_FILES {
-            return Err("Generation source inventory capped.".into());
+            return Err(format!("The project has too many source files to check for conflicts (over {MAX_FILES}).").into());
         }
     }
     Ok(paths)
@@ -282,7 +282,7 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
     let mut qnames = 0;
     for path_ in paths {
         if Instant::now() >= deadline {
-            return Err("Generation source inventory timed out.".into());
+            return Err("Ran out of time checking the project for conflicts. Try again.".into());
         }
         if !path(&path_) || !path_.strip_prefix(root).is_some_and(|tail| tail.starts_with('/')) {
             return Err(Error::Stale);
@@ -293,14 +293,14 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
         let text = project.read_file(&path_)?;
         bytes += text.len();
         if text.len() > MAX_SCHEMA_BYTES || bytes > 8 * 1024 * 1024 {
-            return Err("Generation source inventory byte limit exceeded.".into());
+            return Err("The project sources are too large to check for conflicts (over 128 KiB in one file or 8 MiB in total).".into());
         }
         if path_.ends_with(".xsd") || path_.ends_with(".wsdl") {
-            let declarations = declarations(&text).ok_or("A schema document is unsupported/malformed; QName uniqueness is unknown.")?;
+            let declarations = declarations(&text).ok_or("A schema file can't be parsed, so the element can't be checked for duplicates. Fix that schema first.")?;
             qnames += declarations.iter().filter(|(other, _, _, _)| other == qname).count();
         } else {
             if text.contains("\\u") || text.contains('`') {
-                return Err("Escaped source identifiers are outside this generation collision proof.".into());
+                return Err("Unicode escapes or backticks in a source file prevent checking for conflicts.".into());
             }
             let file = parse_source(&path_, &text);
             let ownership = annotation_owners::Owners::new(&file, &text, path_.ends_with(".kt"));
@@ -312,7 +312,7 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
                     {
                         let members = payload_annotations(annotation, &text, path_.ends_with(".kt"));
                         if members.is_empty() {
-                            return Err("Dynamic or malformed payload mappings prevent proving QName availability.".into());
+                            return Err("A @PayloadRoot mapping can't be read, so existing handlers can't be checked.".into());
                         }
                         for member in members {
                             let local = member
@@ -320,12 +320,12 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
                                 .iter()
                                 .find(|arg| arg.name == "localPart")
                                 .and_then(literal)
-                                .ok_or("Dynamic localPart mapping is unresolved.")?;
+                                .ok_or("A @PayloadRoot localPart is not a plain string, so existing handlers can't be checked.")?;
                             if local != qname.local {
                                 continue;
                             }
                             let namespace = match member.args.iter().find(|arg| arg.name == "namespace") {
-                                Some(arg) => literal(arg).ok_or("Nonliteral payload namespace mapping is unresolved.")?,
+                                Some(arg) => literal(arg).ok_or("A @PayloadRoot namespace is not a plain string, so existing handlers can't be checked.")?,
                                 None => String::new(),
                             };
                             result.mappings.insert((namespace, local));
@@ -349,10 +349,10 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
         result.files.push((path_, text));
     }
     if qnames != 1 {
-        return Err("The selected QName is absent/duplicated in the inventoried schemas; generation withheld.".into());
+        return Err("The element must be declared exactly once in the project's schemas.".into());
     }
     if result.mappings.contains(&(qname.namespace.clone(), qname.local.clone())) {
-        return Err("A source payload mapping already handles this QName.".into());
+        return Err("An endpoint method already handles this element.".into());
     }
     result.packages.sort_by(|a, b| a.directory.cmp(&b.directory));
     result.packages.dedup_by(|a, b| a.directory == b.directory);
@@ -382,23 +382,23 @@ fn vacant(project: &openidea_plugin::Project, root: &str, package: &Package, cla
         current.push('/');
         current.push_str(part);
         if project.stat(&current)?.kind != FileKind::Directory {
-            return Err("Target package path is not a supported project directory.".into());
+            return Err("The package folder can't hold a new file.".into());
         }
     }
     let target = format!("{directory}/{class}.java");
     if !path(&target) {
-        return Err("Target path exceeds supported bounds.".into());
+        return Err("The new file path is too long.".into());
     }
     for ext in ["java", "kt"] {
         let path = format!("{directory}/{class}.{ext}");
         match project.stat(&path) {
             Err(Error::NotFound(_)) => {}
-            Ok(_) => return Err("Target file/directory already exists; no overwrite.".into()),
+            Ok(_) => return Err("A file with this class name already exists in this package.".into()),
             Err(error) => return Err(error),
         }
         match project.read_file(&path) {
             Err(Error::NotFound(_)) => {}
-            Ok(_) => return Err("A source/buffer with this target name already exists; no overwrite.".into()),
+            Ok(_) => return Err("An open editor already uses this file name.".into()),
             Err(error) => return Err(error),
         }
     }
@@ -464,41 +464,38 @@ impl FileActions for WsTools {
             .enumerate()
             .map(|(index, package)| PickItem::new(&index.to_string(), &format!("{} — {}", package.name, package.directory)))
             .collect();
-        let Some(choice) = host::pick("Existing source-established Spring-WS package", &choices)? else {
+        let Some(choice) = host::pick("Package for the new endpoint", &choices)? else {
             return Err(Error::Cancelled);
         };
         let package = before.packages.get(choice.parse::<usize>().map_err(|_| Error::Stale)?).ok_or(Error::Stale)?;
-        let Some(class) = host::input("New Java endpoint class (source scaffold only)", Some("PayloadEndpoint"))? else {
+        let Some(class) = host::input("Endpoint class name", Some("PayloadEndpoint"))? else {
             return Err(Error::Cancelled);
         };
         if !ident(&class) {
-            return Err("Use a non-keyword ASCII Java class identifier up to 128 bytes.".into());
+            return Err("Use a valid Java class name: ASCII letters, digits and _, not a keyword, up to 128 characters.".into());
         }
-        let Some(method) = host::input("One-way DOM handler method", Some("handlePayload"))? else {
+        let Some(method) = host::input("Handler method name", Some("handlePayload"))? else {
             return Err(Error::Cancelled);
         };
         if !ident(&method) {
-            return Err("Use a non-keyword ASCII Java method identifier up to 128 bytes.".into());
+            return Err("Use a valid Java method name: ASCII letters, digits and _, not a keyword, up to 128 characters.".into());
         }
         if class == "org" || before.types.contains(&format!("{}.org", package.name)) {
-            return Err("A local org type would shadow the fully-qualified annotation/DOM package; generation withheld.".into());
+            return Err("A class named org in this package would hide the org.* names the endpoint uses. Choose another package.".into());
         }
         if before.types.contains(&format!("{}.{class}", package.name)) {
-            return Err("A declared source type already has this package/name.".into());
+            return Err("A class with this name already exists in this package.".into());
         }
         let target = vacant(&project, &pending.root, package, &class)?;
         let content = scaffold(&package.name, &class, &method, &pending.qname, if doc.text.contains("\r\n") { "\r\n" } else { "\n" });
         current(&pending, doc)?;
         let preview = format!(
-            "Source XSD: {}\nVersion: {}\nExact global QName: {{{}}}{}\nExisting endpoint package evidence: {}\nTarget: {target}\n\nExplicit ONE-WAY DOM scaffold: void means no response. This does not infer JAXB/WS types, XSD body validation, a WSDL operation/response, business logic, component scanning/adapter registration or effective classpath. It requires the standard Spring-WS annotation/DOM adapter contract. Invoking XSD is unchanged.\n\nExact Java content ({} bytes):\n{content}\nOne host-managed non-overwriting Create; review the contract before applying.",
-            doc.path,
-            doc.version,
+            "Element: {{{}}}{}\nSchema: {}\nNew file: {target}\n\nThe handler takes the request as a DOM Element and returns nothing (one-way). Add the response and the business logic yourself.\n\n{content}",
             pending.qname.namespace,
             pending.qname.local,
-            package.source,
-            content.len()
+            doc.path
         );
-        if !ui_kit::prompts::confirm_exact("Create one-way Spring-WS DOM scaffold?", &preview)? {
+        if !ui_kit::prompts::confirm_exact(&format!("Create endpoint {class}?"), &preview)? {
             return Err(Error::Cancelled);
         }
         current(&pending, doc)?;

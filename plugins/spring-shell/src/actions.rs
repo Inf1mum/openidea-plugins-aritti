@@ -75,7 +75,7 @@ impl FileActions for ShellTools {
                 let token = format!("shell-component:{:016x}{:016x}", random.hash_one(0u8), random.hash_one(1u8));
                 self.actions.pending.insert(token.clone(), Pending { root: root.clone(), doc: doc.clone(), class_at, start });
                 FileAction {
-                    title: "Preview add explicit ShellComponent annotation…".into(),
+                    title: "Add @ShellComponent…".into(),
                     kind: Some("quickfix".into()),
                     data: Some(token),
                     ..FileAction::default()

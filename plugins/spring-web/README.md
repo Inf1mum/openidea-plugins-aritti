@@ -17,7 +17,7 @@ This plugin replaces five older plugins: `aritti.spring-websocket`, `aritti.spri
 1. Install the plugin ([how](../../README.md#install-a-plugin)). Uninstall the five older Spring plugins listed above if you have them.
 2. Open a Spring project.
 3. Open the **Spring Endpoints** tool window on the right side and pick the **HTTP** section.
-4. Click a route to open its handler. Right-click it for **Copy as curl** or **Create HTTP Request File**.
+4. Click a route to open its handler. Right-click it for **Copy Endpoint as cURL** or **Create HTTP Request File**.
 5. In a controller, press ⌥⏎ on a method for generators and quick fixes.
 
 ## Features
@@ -37,7 +37,7 @@ Click a row to open its source. **Refresh** rescans. The window remembers the la
 
 ### Try an endpoint
 
-- **Copy as curl** (right-click a route) copies a curl command.
+- **Copy Endpoint as cURL** (right-click a route) copies a curl command.
 - **Create HTTP Request File** asks for the base URL, then writes `http/<verb>-<path>.http` under the project root and opens it. An existing file is opened unchanged.
 - Run either from Search Everywhere and it first asks which endpoint to use.
 - Above each mapping method, the **HTTP request: GET /path** code lens does the same from the source. Mappings without a fixed method ask you to pick one.
@@ -86,13 +86,13 @@ Sending requests stays with the IDE's built-in HTTP client.
 - Handler methods (`@QueryMapping`, `@SchemaMapping`…) link to their schema field, and fields link back.
 - Client documents under `graphql-documents/` navigate to the schema.
 - Handlers for fields the schema doesn't declare get a warning.
-- **Prepare GraphQL Subscription from Handler** writes an editable `.graphql` subscription document. **Start GraphQL Subscription…** runs it and shows a review screen before connecting. While it runs, **Read GraphQL Subscription Output** and **Cancel GraphQL Subscription** appear in the Tools menu.
+- **Prepare GraphQL Subscription from Handler** writes an editable `.graphql` subscription document. **Start GraphQL Subscription…** runs it and shows a review screen before connecting. **Read GraphQL Subscription Output** and **Cancel GraphQL Subscription** are available only while a subscription runs.
 
 ### Edit Web Flow definitions
 
 - `to`, `then`, `else`, `start-state`, `subflow` and `parent` complete and navigate.
 - Unknown states, duplicate state ids and unknown subflows are reported.
-- ⌥⏎ **Add reviewed local Web Flow transition…** adds a transition to a view state after you review it.
+- ⌥⏎ **Add Web Flow transition…** adds a transition to a view state after you review it.
 
 ### Work with Spring Cloud
 
@@ -107,7 +107,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Endpoints**; 
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Spring Endpoints: Copy Endpoint as cURL** | Copies a curl command for a route. From a route's right-click menu (**Copy as curl**), or from Search Everywhere, where it asks which endpoint. | — |
+| **Spring Endpoints: Copy Endpoint as cURL** | Copies a curl command for a route. From a route's right-click menu, or from Search Everywhere, where it asks which endpoint. | — |
 | **Spring Endpoints: Create HTTP Request File for Endpoint** | Writes `http/<verb>-<path>.http` for a route and opens it. From a route's right-click menu (**Create HTTP Request File**), or from Search Everywhere, where it asks which endpoint. | — |
 | **Spring Endpoints: Copy as OpenAPI** | Copies an OpenAPI 3.0.3 document of all routes and confirms in a notification. Also in the Tools menu. | — |
 | **Spring Endpoints: Create HTTP Request from Endpoint Source** | Writes a request file for a mapping method in the active editor. Asks which endpoint when there are several. | — |
@@ -115,8 +115,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Endpoints**; 
 | **Spring Endpoints: Create HTTP Request from Feign Client** | Writes a request file for a Feign client method. | — |
 | **Spring Endpoints: Prepare GraphQL Subscription from Handler** | Writes an editable `.graphql` subscription document from a subscription handler. | — |
 | **Spring Endpoints: Start GraphQL Subscription…** | Connects the current `.graphql`/`.gql` subscription document after a review screen. Also in the Tools menu. | — |
-| **Spring Endpoints: Read GraphQL Subscription Output** | Shows the output received so far. Also in the Tools menu while a subscription runs. | — |
-| **Spring Endpoints: Cancel GraphQL Subscription** | Ends the running subscription. Also in the Tools menu while a subscription runs. | — |
+| **Spring Endpoints: Read GraphQL Subscription Output** | Shows the output received so far. Available only while a subscription runs; also in the Tools menu. | — |
+| **Spring Endpoints: Cancel GraphQL Subscription** | Ends the running subscription. Available only while a subscription runs; also in the Tools menu. | — |
 
 ## Settings
 
@@ -133,9 +133,9 @@ Settings › Plugins › Spring Endpoints Tools (section **Spring Endpoints**). 
 | Warn when a @SendTo or messaging template destination is outside the configured broker prefixes | `springWebsocket.checkBrokerPrefixes` | on | STOMP broker prefix warning. |
 | Warn when a mapping handler names a field the project's GraphQL schema does not declare | `springGraphql.checkUnmatchedMapping` | on | Unknown schema field warning. |
 | Warn when a @BatchMapping method returns a type Spring for GraphQL does not accept | `springGraphql.checkBatchMappingReturn` | on | `@BatchMapping` return type check. |
-| Report (Info) a field with arguments on a schema type that no controller method or data fetcher serves | `springGraphql.reportUnmappedFields` | on | Unmapped field Info. |
-| Hint when a StreamBridge destination or binder-specific key names a Stream binding that no configuration declares | `springCloud.checkStreamBindings` | on | Unbound channel hint. |
-| Warn when a bootstrap file is ignored because spring-cloud-starter-bootstrap is missing (Spring Boot 2.4+) | `springCloud.checkBootstrap` | on | Ignored bootstrap file warning. |
+| Report schema fields with arguments that no controller serves | `springGraphql.reportUnmappedFields` | on | Unmapped field Info. |
+| Flag Stream bindings that no configuration declares | `springCloud.checkStreamBindings` | on | Unbound channel hint. |
+| Warn about ignored bootstrap files | `springCloud.checkBootstrap` | on | Ignored bootstrap file warning. |
 | Check legacy @StreamListener / @SendTo channels, return values and @BootstrapConfiguration classes | `springCloud.checkLegacyStream` | on | Legacy Stream checks and handler signature checks. |
 
 The settings of the five older plugins keep their keys (`springWeb.*`, `springWebsocket.*`, `springGraphql.*`, `springCloud.*`). Their old values are not migrated, so set them again here.
@@ -147,7 +147,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | Permission | Used for | Without it |
 |---|---|---|
 | `project.write` | Writing `.http` request files and `.graphql` subscription drafts. | The request or document is copied to the clipboard instead (if `clipboard` is allowed). |
-| `clipboard` | **Copy as curl**, **Copy as OpenAPI**, and the fallback above. | Copy as curl shows "Copying the curl command needs the clipboard capability." The OpenAPI export fails. |
+| `clipboard` | **Copy Endpoint as cURL**, **Copy as OpenAPI**, and the fallback above. | Copy Endpoint as cURL shows "Copy Endpoint as cURL needs the clipboard permission…". The OpenAPI export fails. |
 | `editor.read` | The **from … Source/Handler/Client** commands and the request code lenses, which read the active editor. | Those commands can't find the source. |
 | `events` | Keeping the indexes fresh when files change, open or save. | Checks that report something *missing* (unresolved views, unmapped fields, Stream bindings) stay quiet. |
 | `storage` | Remembering the last section of the Spring Endpoints window. | The window opens on its default section. |
@@ -162,16 +162,17 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Windows or completions appear twice | Uninstall `aritti.spring-websocket`, `aritti.spring-messaging`, `aritti.spring-graphql`, `aritti.spring-webflow` and `aritti.spring-cloud`. |
 | The **Spring Endpoints** window or its Tools menu entries are missing | They appear only when the project root has a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. Open the folder that holds the build file. |
 | "No Spring endpoints found. This project doesn't look like a Spring project…" | The project root has no `pom.xml` or `build.gradle`. Open the module's folder. |
-| "No Spring endpoints found in this project." when copying curl or creating a request file | The endpoint list is empty. See the next row. |
+| "No Spring endpoints found. Add a @RestController…" when copying curl or creating a request file | The endpoint list is empty. See the next row. |
+| "Still indexing endpoints. Try again in a moment." | The project is still being read. Wait a few seconds and run the command again. |
 | The HTTP section says "No routes found in this project." | Routes need literal paths in a `@Controller`/`@RestController`, or functional routes. Paths built from constants, concatenation or `${…}` are not read. Check the root build file mentions Spring. |
-| "Copy as curl needs the clipboard permission. Allow it in Settings › Plugins › Spring Endpoints Tools." | Allow `clipboard` in Settings › Plugins › Spring Endpoints Tools. |
+| "Copy Endpoint as cURL needs the clipboard permission. Allow it in Settings › Plugins › Spring Endpoints Tools." | Allow `clipboard` in Settings › Plugins › Spring Endpoints Tools. |
 | **Create HTTP Request File** copies the request instead of creating a file | Allow `project.write`. |
 | "Spring route index is incomplete; refresh after indexing." | Wait for indexing to finish, then click **Refresh** in the window. |
 | "GraphQL schema index is incomplete; refresh before generating a request." | Wait for indexing, then try again. |
 | "Endpoint changed; refresh its HTTP request lens." | The source changed since the lens appeared. Use the refreshed lens. |
-| "Source OpenAPI export exceeds its 1 MiB clipboard budget." | The project has too many routes for one export. |
+| "The OpenAPI document is too large to copy (over 1 MiB)." | The project has too many routes for one export. |
 | "Install/approve Node22 or newer with its built-in WebSocket available." | Install Node.js 22+ on the `PATH` the IDE sees and allow `process:node`. |
-| "Poll or cancel the existing owned subscription before starting another." | Run **Read GraphQL Subscription Output** or **Cancel GraphQL Subscription** first. |
+| "A subscription is already running…" | Run **Read GraphQL Subscription Output** or **Cancel GraphQL Subscription** first. |
 | A "missing" check never fires (unresolved view, unmapped field, unknown binding) | These wait until the whole project is read. Allow `events`. They also stay quiet when the project could provide the item another way (a custom `ViewResolver`, a `DataFetcher`…). |
 | JavaScript STOMP clients are not linked | Open one Java or Kotlin file of the backend once. This is needed when the root build file doesn't mention the WebSocket dependency. |
 | SpEL is not highlighted in Thymeleaf templates | Turn on **Enable Thymeleaf SpringEL support** and install the Spring Beans plugin. |
@@ -205,7 +206,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 Spring MVC helpers for Java controllers, Kotlin controllers included.
 
-- **Endpoints list** (HTTP section): a flat list with the generic native endpoint icon, the path, then grey text `[METHOD] Controller`. *Filter* narrows the list to one controller (the status line says which); *Clear* restores it; *Flat/Tree* groups rows by controller. Row actions: *Copy as curl* and *Create HTTP Request File*. Limits: the grey text follows the path rather than sitting in a column; there is no request panel beside the list and no gutter icon on the handler. These wait on upstream OpenIDEA requests.
+- **Endpoints list** (HTTP section): a flat list with the generic native endpoint icon, the path, then grey text `[METHOD] Controller`. *Filter* narrows the list to one controller (the status line says which); *Clear* restores it; *Flat/Tree* groups rows by controller. Row actions: *Copy Endpoint as cURL* and *Create HTTP Request File*. Limits: the grey text follows the path rather than sitting in a column; there is no request panel beside the list and no gutter icon on the handler. These wait on upstream OpenIDEA requests.
 - **Path variables**: in `@Controller`/`@RestController` handler methods, a `@PathVariable` whose name (`value`/`name`, else the parameter name) is missing from one of the method's mapped paths (class `@RequestMapping` prefix included) is an error. When exactly one template variable is left unbound, a quick fix renames the parameter's variable to it. A `{variable}` of a method mapping that no `@PathVariable` takes is a warning, unless a `@PathVariable Map` or a form object (`@ModelAttribute`, or an unannotated parameter of a non-framework type) may bind it. The `{name}`, `{name:regex}` and `{*name}` forms are supported.
 - **API versions**: a request mapping that sets `version` (Spring Framework 7) is a warning when the project configures no API versioning. It stays quiet unless every source and `application*` file was read, at least one `application*` file exists, and none mentions `apiversion` (`spring.mvc.apiversion.*`) or `ApiVersion…`/`configureApiVersioning`. Setting `springWeb.checkApiVersioning`. In tests, a Hint on `apiVersion(...)` when no file of the project mentions `ApiVersionInserter` or `spring.mvc.apiversion.*`.
 - **@InitBinder**: an `@InitBinder` method that returns a value is an error (Spring throws). One that takes no `WebDataBinder`/`DataBinder` parameter is a warning. Setting `springWeb.checkInitBinder`.
@@ -308,7 +309,7 @@ Spring Web Flow 2 and 3 XML flow definitions: files whose root is `<flow>` in th
 - **Flows**: `subflow` of `<subflow-state>` and `parent` of `<flow>` (comma-separated) open the flow file and complete flow ids. `parent="flowId#stateId"` on a state opens the parent flow or its state, and completes that flow's states. A flow's id is its file name without `.xml`. A flow registry in the project's XML (`webflow-config` namespace) adds ids: `<flow-location id path>` names the file at that path, and `<flow-registry base-path>` names a flow in a subfolder after that folder (`/WEB-INF/flows/booking/booking-flow.xml` is `booking`). Java-config registries (`addFlowLocation`/`setBasePath`) are read too.
 - **Checks**: a transition, `then` or `else` naming no state of the flow or its parents is an error. So is a `start-state` naming no state, and a state id used twice. A `subflow` naming no known flow is a warning, once the whole project has been read. A flow without an `<end-state>` gets a note, unless it is abstract or has a parent. Expressions (`${…}`, `#{…}`) are never reported. State checks are skipped while a parent flow can't be found.
 - **Web Flow** section of the Endpoints window: the flow of the active editor as a diagram. Each state shows its id and kind, the start state is highlighted, and transitions are arrows labelled with their `on` event. A decision's arrows show the `test` of each `<if>` (cut short, full text on hover) and `else`. It follows the focused editor and the edits to the flow; Refresh redraws it. Global transitions aren't drawn. The graph renders bounded, well-formed flow XML with unique state ids (128 states/256 transitions). Unresolved, global and self edges omitted by the layout remain outside drawn-edge coverage. State clicks open their current source declaration; drawn transition/decision edges open their current target attribute. Forged or unknown ids, missing or changed project ownership and malformed or over-budget sources are refused. These are source links, not a runtime flow, inherited-state or reachability model.
-- **Add reviewed local Web Flow transition…**: a lazy file action (⌥⏎) in an XML editor on a supported view-state. Choose a direct state in the same file, enter a new literal event, then review the exact source replacement. It returns one undoable text edit, expanding a self-closing state when needed. No direct source write, file creation, process, network, build or database action occurs. Namespace prefixes, current unsaved text, UTF-16 ranges and CRLF are preserved. Ownership, full text, document version and project-visible source are checked around every prompt and the final confirmation. Inherited/abstract flows, global transitions, ambiguous ids, dynamic/wildcard or duplicate events, unknown state targets and complex state bodies stay quiet. The action only admits empty view-states or existing empty literal transitions. It keeps the XSD's child ordering (transitions before `on-exit` and `exception-handler`) without moving unknown content. This is a conservative source-local subset, not full XSD/schema/runtime validation, and it does not edit action, subflow, decision or global transitions.
+- **Add Web Flow transition…**: a lazy file action (⌥⏎) in an XML editor on a supported view-state. Choose a direct state in the same file, enter a new literal event, then review the exact source replacement. It returns one undoable text edit, expanding a self-closing state when needed. No direct source write, file creation, process, network, build or database action occurs. Namespace prefixes, current unsaved text, UTF-16 ranges and CRLF are preserved. Ownership, full text, document version and project-visible source are checked around every prompt and the final confirmation. Inherited/abstract flows, global transitions, ambiguous ids, dynamic/wildcard or duplicate events, unknown state targets and complex state bodies stay quiet. The action only admits empty view-states or existing empty literal transitions. It keeps the XSD's child ordering (transitions before `on-exit` and `exception-handler`) without moving unknown content. This is a conservative source-local subset, not full XSD/schema/runtime validation, and it does not edit action, subflow, decision or global transitions.
 
 Matching is text-based: ids as written in attributes. Flows registered with `FlowDefinitionRegistryBuilder`, in libraries or in other modules aren't seen. Not covered: view and bean references (`view`, `expression`, `evaluate`), flow input/output mappings and SpEL in expressions.
 

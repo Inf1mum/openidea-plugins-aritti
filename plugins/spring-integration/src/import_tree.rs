@@ -38,7 +38,7 @@ fn read_tree(root:&str,path:&str)->Result<Tree,Error> {
                 tree.sites.push(Site{path:path.clone(),from:name.value_at,to:name.value_end,name:name.value.clone(),declaration:false});
                 tree.sites.push(Site{path:path.clone(),from:alias.value_at,to:alias.value_end,name:alias.value.clone(),declaration:false});continue;
             }
-            if ns!=Some(NAMESPACE) {return Err(Error::Invalid("Only literal channels, supported endpoints, imports and aliases are admitted.".into()));}
+            if ns!=Some(NAMESPACE) {return Err(Error::Invalid("The import tree contains elements other than channels, Integration endpoints, imports and aliases, so it can't be searched safely.".into()));}
             let channel=matches!(e.local(),"channel"|"publish-subscribe-channel");
             let allowed:&[&str]=match e.local() {
                 "channel"|"publish-subscribe-channel"=>&["id"],
@@ -67,8 +67,8 @@ fn canonical<'a>(tree:&'a Tree,name:&'a str)->Option<&'a str> {
     (!tree.occupied.contains(target)&&tree.sites.iter().filter(|s|s.declaration&&s.name==target).count()==1&&!tree.aliases.contains_key(target)).then_some(target)
 }
 pub(crate) fn occurrences(ctx:&Invocation)->Result<Option<String>,Error> {
-    let root=ctx.project().ok_or(Error::Stale)?.root()?;
-    let editor=ctx.editor().ok_or("Open a literal XML import-tree root and grant optional editor.read.")?;
+    let root=ctx.project().ok_or("Open a project first.")?.root()?;
+    let editor=ctx.editor().ok_or_else(||format!("Open the XML file that imports the others first. {}",ui_kit::denied::message("Find Channel Usages in XML Import Tree","editor.read","Spring Structure Tools")))?;
     let source=editor.document()?;let doc=Document{path:editor.path(),language:editor.language(),text:source.text,version:source.version};
     if doc.language!="xml" {return Err(Error::Invalid("Open an XML import-tree root.".into()));}
     let selections=editor.selections()?;let [selection]=selections.as_slice() else{return Err(Error::Stale);};
