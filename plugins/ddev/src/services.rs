@@ -40,10 +40,15 @@ impl Views for Main {
             let cached = project
                 .root()
                 .is_ok_and(|root| self.snapshots.contains_key(&root));
-            let refreshing = cached && self.is_stale(&project);
+            let prefs = runtime::Prefs::load(&project);
+            let refreshing = cached && self.is_stale_with(&project, &prefs);
             let _task = (!cached).then(|| host::begin_task("Reading DDEV status", false));
-            let result = self.cached_description(&project).cloned();
-            let can_start = self.can_start_with(&project, false);
+            let result = self.load(&project, false, &prefs).cloned();
+            let can_start = self.can_start_with(&project, false, &prefs);
+            let last_known = project.root().ok().and_then(|root| {
+                self.snapshots.get(&root)?;
+                Some(runtime::now().saturating_sub(*self.refreshed_at.get(&root)?))
+            });
             let selected = self.selected.as_deref().unwrap_or(PROJECT);
             let desc = result.as_ref().ok();
             let state = desc.map_or(
@@ -105,7 +110,10 @@ impl Views for Main {
             let status = match &result {
                 Ok(d) if refreshing => format!("{} — {} (refreshing)", d.name, d.status),
                 Ok(d) => format!("{} — {}", d.name, d.status),
-                Err(e) => format!("{state}: {e}. Configuration and Help remain available."),
+                Err(e) => match last_known {
+                    Some(age) => format!("DDEV not reachable: {e} (last known status {age} s ago)"),
+                    None => format!("{state}: {e}. Configuration and Help remain available."),
+                },
             };
             Ok(View::new(Body::Tree(items))
                 .button(Button::new("refresh", "Refresh Status").icon("refresh"))
@@ -150,6 +158,10 @@ impl Views for Main {
         match event {
             ViewEvent::Select(key) => {
                 let project = ctx.project().ok_or("Open a project to use DDEV.")?;
+                let cached = project
+                    .root()
+                    .is_ok_and(|root| self.snapshots.contains_key(&root));
+                let _task = (!cached).then(|| host::begin_task("Reading DDEV status", false));
                 if key != PROJECT {
                     self.target(&project, Some(&key))?;
                 }
@@ -158,6 +170,10 @@ impl Views for Main {
             }
             ViewEvent::Activate(key) => {
                 let project = ctx.project().ok_or("Open a project to use DDEV.")?;
+                let cached = project
+                    .root()
+                    .is_ok_and(|root| self.snapshots.contains_key(&root));
+                let _task = (!cached).then(|| host::begin_task("Reading DDEV status", false));
                 let Ok(desc) = self.cached_description(&project) else {
                     return Ok(());
                 };

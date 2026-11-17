@@ -26,7 +26,7 @@ pub struct Main {
     live_selections: std::collections::BTreeMap<String, Option<String>>,
     current_root: Option<String>,
     refreshed_at: std::collections::BTreeMap<String, u64>,
-    failure: Option<(String, String)>,
+    failure: std::collections::BTreeMap<String, String>,
     reported_failures: std::collections::BTreeSet<String>,
     pending_configs: std::collections::BTreeMap<String, support::PendingConfig>,
     setup_drafts: std::collections::BTreeMap<String, support::SetupDraft>,
@@ -42,7 +42,7 @@ pub struct Main {
 impl Main {
     fn invalidate(&mut self) {
         self.snapshots.clear();
-        self.failure = None;
+        self.failure.clear();
         self.cli_available = None;
         host::refresh_view(VIEW);
     }
@@ -67,15 +67,11 @@ impl Main {
     }
 
     fn description(&mut self, project: &Project) -> Result<&Description, Error> {
-        self.load(project, true)
+        self.load(project, true, &runtime::Prefs::load(project))
     }
 
     fn cached_description(&mut self, project: &Project) -> Result<&Description, Error> {
-        self.load(project, false)
-    }
-
-    fn is_stale(&self, project: &Project) -> bool {
-        self.is_stale_with(project, &runtime::Prefs::load(project))
+        self.load(project, false, &runtime::Prefs::load(project))
     }
 
     fn is_stale_with(&self, project: &Project, prefs: &runtime::Prefs) -> bool {
@@ -87,27 +83,30 @@ impl Main {
                 >= 60
     }
 
-    fn load(&mut self, project: &Project, refresh: bool) -> Result<&Description, Error> {
+    fn load(
+        &mut self,
+        project: &Project,
+        refresh: bool,
+        prefs: &runtime::Prefs,
+    ) -> Result<&Description, Error> {
         self.sync_selection(project)?;
-        let prefs = runtime::Prefs::load(project);
-        self.check_target_preferences(project, &prefs);
+        self.check_target_preferences(project, prefs);
         let root = project.root()?;
         // Configuration can disappear while watching is disabled or before the
         // next filesystem event. Never return a cached runtime for that case.
         if !project.exists(CONFIG)? {
             self.sync_target(project, None);
             self.snapshots.remove(&root);
-            self.failure = None;
+            self.failure.remove(&root);
             self.cli_available = None;
             return Err(
                 "No .ddev/config.yaml in the project root. Run DDEV: Configure Project first."
                     .into(),
             );
         }
-        let expired = refresh && self.is_stale_with(project, &prefs);
+        let expired = refresh && self.is_stale_with(project, prefs);
         if !expired
-            && let Some((failed_root, message)) = &self.failure
-            && failed_root == &root
+            && let Some(message) = self.failure.get(&root)
         {
             return Err(message.clone().into());
         }
@@ -117,14 +116,14 @@ impl Main {
                 .and_then(|output| Description::parse(&output))
             {
                 Ok(desc) => {
-                    self.failure = None;
+                    self.failure.remove(&root);
                     desc
                 }
                 Err(error) => {
                     self.sync_target(project, None);
                     self.refreshed_at.insert(root.clone(), runtime::now());
                     self.report_failure(project, &error);
-                    self.failure = Some((root, error.to_string()));
+                    self.failure.insert(root, error.to_string());
                     return Err(error);
                 }
             };
@@ -134,7 +133,7 @@ impl Main {
             self.snapshots.insert(root.clone(), desc);
         }
         let desc = self.snapshots[&root].clone();
-        self.sync_target_with(project, Some(&desc), &prefs);
+        self.sync_target_with(project, Some(&desc), prefs);
         let desc = &self.snapshots[&root];
         // A windowless scheduled refresh can replace the snapshot without
         // entering the interactive load branch. Validate selection on reuse too.
@@ -158,11 +157,11 @@ impl Main {
     // Upstream permits Start when DDEV is installed and configured even when
     // describe fails (for example before the first successful project start).
     fn can_start(&mut self, project: &Project) -> bool {
-        self.can_start_with(project, true)
+        self.can_start_with(project, true, &runtime::Prefs::load(project))
     }
 
-    fn can_start_with(&mut self, project: &Project, refresh: bool) -> bool {
-        if let Ok(desc) = self.load(project, refresh) {
+    fn can_start_with(&mut self, project: &Project, refresh: bool, prefs: &runtime::Prefs) -> bool {
+        if let Ok(desc) = self.load(project, refresh, prefs) {
             return runtime::allowed(desc, "start");
         }
         if !project.exists(CONFIG).unwrap_or(false) {

@@ -166,20 +166,23 @@ impl Main {
 
     pub(crate) fn refresh_background(&mut self, project: &Project) {
         self.check_target_preferences(project, &Prefs::load(project));
-        if let Ok(output) = crate::run_json(project, "describe")
-            && let Ok(desc) = Description::parse(&output)
-        {
-            self.clear_failure_notice(project);
-            self.integrations(project, &desc, false);
-            if let Ok(root) = project.root() {
-                if self.failure.as_ref().is_some_and(|(failed, _)| failed == &root) {
-                    self.failure = None;
+        let result = crate::run_json(project, "describe").and_then(|o| Description::parse(&o));
+        let desc = match result {
+            Ok(desc) => desc,
+            Err(error) => {
+                self.sync_target(project, None);
+                if let Ok(root) = project.root() {
+                    self.failure.insert(root, error.to_string());
                 }
-                self.refreshed_at.insert(root.clone(), now());
-                self.snapshots.insert(root, desc);
+                return;
             }
-        } else {
-            self.sync_target(project, None);
+        };
+        self.clear_failure_notice(project);
+        self.integrations(project, &desc, false);
+        if let Ok(root) = project.root() {
+            self.failure.remove(&root);
+            self.refreshed_at.insert(root.clone(), now());
+            self.snapshots.insert(root, desc);
         }
     }
 

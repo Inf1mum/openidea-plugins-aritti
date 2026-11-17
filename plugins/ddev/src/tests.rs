@@ -2959,3 +2959,16 @@ fn activate_db_row_no_error() {
         .unwrap();
     assert_eq!(host.opened_urls(), ["http://localhost:9000"]);
 }
+
+#[test]
+fn background_failure_with_snapshot_shows_error_not_refreshing() {
+    let host = mock();
+    let mut plugin = Main::default();
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    host.on_process("ddev", |_, _| Err(Error::from("docker down")));
+    plugin.refresh_background(&host.invocation().project().unwrap());
+    plugin.refreshed_at.insert(ROOT.into(), 0);
+    let status = status_text(&mut plugin, &host);
+    assert!(status.contains("DDEV not reachable"), "{status}");
+    assert!(!status.contains("refreshing"), "{status}");
+}

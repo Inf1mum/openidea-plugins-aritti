@@ -8,6 +8,7 @@ use std::{
 
 pub const VERSION: &str = "DDEV v1.25.5";
 pub struct Schema {
+    // Never mutated after init, so the pointer-keyed condition cache stays valid.
     pub root: Value,
     pub validator: jsonschema::Validator,
     conditions: Mutex<BTreeMap<usize, Option<std::sync::Arc<jsonschema::Validator>>>>,
