@@ -74,7 +74,7 @@ Optional permissions are off until you allow them in Settings › Plugins › *S
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `project.read` | Reading your Java sources and other Spring XML files: the Service check, bean and class completion across files, hover, generation. | Only checks that need the current file alone run. Cross-file features stay quiet. |
+| `project.read` | Reading your Java sources and other Spring XML files: the Service check, bean and class completion across files, hover, generation. | Only checks that need the current file alone run. Cross-file features stay quiet, and the first Spring OSGi file you open says so once. |
 | `events` | Refreshing cached facts when files are opened, saved or changed. | Facts refresh when you navigate or complete. |
 
 ## Troubleshooting
