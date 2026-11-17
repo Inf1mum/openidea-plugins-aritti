@@ -326,7 +326,7 @@ impl State {
             }
             if prepared.at.elapsed() >= EXPIRY {
                 return View::message(
-                    "This registration expired. Start it again; nothing was changed.",
+                    "This registration expired. Prepare it again; nothing was changed.",
                 );
             }
             return View::new(Body::Form(vec![Field {

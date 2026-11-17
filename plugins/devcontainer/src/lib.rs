@@ -281,7 +281,20 @@ fn clone(root: &str) -> Result<Option<String>, Error> {
 }
 
 fn start_cloned(target: Option<&str>) -> Result<Option<String>, Error> {
-    let target = target.map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('-')).ok_or("Choose a cloned folder to start.")?;
+    let picked;
+    let target = match target.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(target) => target,
+        None => {
+            let Some(folder) = host::pick_directory("Choose the cloned folder to start", None)? else {
+                return Ok(None);
+            };
+            picked = folder;
+            picked.as_str()
+        }
+    };
+    if target.starts_with('-') {
+        return Err("Choose a cloned folder to start.".into());
+    }
     let args = ["up".to_owned(), "--workspace-folder".to_owned(), target.to_owned()];
     let body = format!("Run devcontainer with arguments:\n{}", serde_json::to_string_pretty(&args).unwrap_or_default());
     if !ui_kit::prompts::confirm_exact("Start cloned Dev Container", &body)? {
@@ -615,6 +628,21 @@ mod tests {
 
         let before = host.terminals().len();
         assert!(Main::default().run_command("start-cloned", &host.invocation(), Some("--x")).is_err());
+        assert_eq!(host.terminals().len(), before);
+    }
+
+    #[test]
+    fn start_cloned_without_argument_asks_for_a_folder() {
+        let host = host().with_capabilities(&["project.read", "process:devcontainer"]);
+
+        host.answer_next_prompt(Some(&["/work/picked"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        Main::default().run_command("start-cloned", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals()[0].args, ["up", "--workspace-folder", "/work/picked"]);
+
+        host.answer_next_prompt(None);
+        let before = host.terminals().len();
+        Main::default().run_command("start-cloned", &host.invocation(), None).unwrap();
         assert_eq!(host.terminals().len(), before);
     }
 

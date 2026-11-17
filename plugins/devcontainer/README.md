@@ -65,7 +65,7 @@ Refresh Feature List also retains a bounded subset of the index's declared Boole
 
 ## Run Targets (experimental)
 
-Tools offers **Register Container as Run Target…** and **Prepare Project-root Tooling…**. Both inspect the running container on the local Docker endpoint, show what will be registered, and register only when you choose **Register**, after the project, configuration and container are checked again. Nothing is selected or launched for you. Registrations expire after 120 seconds. The registered container ID is remembered in plugin storage, and each Run or Test launch checks that exact container with `docker container inspect`: it is refused when the container was rebuilt, stopped or Docker is not reachable. Extra mounts below the project folder (such as a `node_modules` volume) are allowed. Absolute host paths and an arbitrary working directory are not supported.
+Tools offers **Register Container as Run Target…** and **Prepare Project-root Tooling…**. Both inspect the running container on the local Docker endpoint, show what will be registered, and register only when you choose **Register**, after the project, configuration and container are checked again. Nothing is selected or launched for you. The review expires after 120 seconds. The registered container ID is remembered in plugin storage, and each Run or Test launch checks that exact container with `docker container inspect`: it is refused when the container was rebuilt, stopped or Docker is not reachable. Extra mounts below the project folder (such as a `node_modules` volume) are allowed. Absolute host paths and an arbitrary working directory are not supported.
 
 ## Permissions
 
