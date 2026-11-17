@@ -96,7 +96,8 @@ fn remote_authority(authority: &str) -> bool {
     let port_ok = port.is_none_or(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().is_ok_and(|n| n > 0));
     let host_ok = host.len() <= 253
         && host.split('.').all(|l| !l.is_empty() && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
-    port_ok && host_ok
+    let public_name = host.contains('.') && host.rsplit('.').next().is_some_and(|tld| tld.bytes().any(|b| b.is_ascii_lowercase()));
+    port_ok && host_ok && public_name && host != "localhost"
 }
 /// With `ask` (net:ask granted), a literal `https://host[:port]` server is also accepted; the host asks the user
 /// at send time, so the spec never gains network reach the user has not approved.
@@ -646,6 +647,13 @@ mod tests {
         assert_eq!(h.requests().len(),1);assert!(sent["model"]["body"].to_string().contains("response body"));
         let replay=request(&mut p,serde_json::json!({"op":"event","targetView":"try-response","event":{"kind":"button","key":key}}));
         assert!(replay.get("error").is_some());assert_eq!(h.requests().len(),1);
+    }
+
+    #[test]
+    fn try_it_refuses_private_hosts() {
+        for u in ["https://169.254.169.254", "https://10.0.0.5/v1", "https://localhost", "https://intranet", "https://localhost:8443", "https://2130706433"] {
+            assert!(literal_base(u, true).is_err(), "{u}");
+        }
     }
 
     #[test]
