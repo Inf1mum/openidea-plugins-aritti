@@ -5,7 +5,7 @@ description = "Inspections and editing tools for .properties files. Reports dupl
 authors = ["Arnaud Ritti"]
 license = "MIT"
 change-notes = """\
-Next release: Kotlin and Java @PropertyKey keys resolve to bundle entries; edit several locales in one grid, and create up to 32 locale files at once; Copy Key and Copy Value editor menu entries; keys continued over a line break and form feeds around separators are read the way Java reads them, and the plugin starts only for .properties, Java, Kotlin, HTML and JSP files; one name per action and clearer messages. \
+Next release: Reformat File is in the editor context menu of .properties files. Kotlin and Java @PropertyKey keys resolve to bundle entries; edit several locales in one grid, and create up to 32 locale files at once; Copy Key and Copy Value editor menu entries; keys continued over a line break and form feeds around separators are read the way Java reads them, and the plugin starts only for .properties, Java, Kotlin, HTML and JSP files; one name per action and clearer messages. \
 0.3.0: locale file Rename and Remove, native source conversion. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "linters"]
@@ -65,6 +65,11 @@ category = "Properties"
 id = "reformat"
 title = "Properties: Reformat File"
 category = "Properties"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "reformat"
+when = "editorLangId == properties"
 
 [[contributes.commands]]
 id = "find-unused"
