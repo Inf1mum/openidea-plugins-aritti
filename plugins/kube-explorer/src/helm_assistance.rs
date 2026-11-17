@@ -19,7 +19,7 @@ struct Chart {
 }
 #[derive(Default)]
 pub(crate) struct Cache {
-    charts: BTreeMap<String, Chart>,
+    charts: crate::lru::Lru<String, Chart>,
     catalogs: BTreeMap<String, Catalog>,
 }
 struct Catalog {
@@ -427,6 +427,15 @@ impl Cache {
         self.charts.clear();
         self.catalogs.clear();
     }
+    pub(crate) fn evict(&mut self, path: &str) {
+        let Some((directory, file)) = path.rsplit_once('/') else {
+            return;
+        };
+        if matches!(file, "Chart.yaml" | "values.yaml" | "values.schema.json") {
+            self.charts.remove(directory);
+            self.catalogs.remove(directory);
+        }
+    }
     pub(crate) fn warm_file(&mut self, path: &str) {
         if let Some(project) = host::project_of(path) {
             if let Ok(source) = project.read_file(path) {
@@ -481,9 +490,6 @@ impl Cache {
             None => None,
         };
         let values = read("values.yaml");
-        if self.charts.len() >= 64 {
-            self.charts.clear();
-        }
         self.charts.insert(
             directory.into(),
             Chart {
@@ -493,6 +499,7 @@ impl Cache {
                 schema,
                 values,
             },
+            64,
         );
     }
     fn chart(&self, doc: &Document) -> Option<&Chart> {

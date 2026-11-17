@@ -4,7 +4,7 @@
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker};
 use openidea_plugin::{Location, Position, Range, host, text};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use yaml_rust2::{
     parser::{Event, MarkedEventReceiver, Parser},
     scanner::{Marker, TScalarStyle},
@@ -180,9 +180,9 @@ impl MarkedEventReceiver for Reader<'_> {
         }
     }
 }
-/// Inner end offset of a single-line quoted scalar opening at `open`, only
-/// when its unescaped text equals the parser's `value`.
-fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
+/// The unescaped text of a single-line quoted scalar opening at `open`, and
+/// the offset of its closing quote.
+pub(crate) fn unquote(source: &str, open: usize) -> Option<(String, usize)> {
     let quote = *source.as_bytes().get(open)?;
     let rest = source.get(open + 1..)?;
     let mut raw = String::new();
@@ -195,9 +195,9 @@ fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
                     chars.next();
                     raw.push('\'');
                 }
-                _ => return (raw == value).then_some(open + 1 + i),
+                _ => return Some((raw, open + 1 + i)),
             },
-            (b'"', '"') => return (raw == value).then_some(open + 1 + i),
+            (b'"', '"') => return Some((raw, open + 1 + i)),
             (b'"', '\\') => raw.push(match chars.next()?.1 {
                 '\\' => '\\',
                 '"' => '"',
@@ -211,6 +211,11 @@ fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
         }
     }
     None
+}
+/// Inner end offset of a single-line quoted scalar opening at `open`, only
+/// when its unescaped text equals the parser's `value`.
+fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
+    unquote(source, open).filter(|(raw, _)| raw == value).map(|(_, end)| end)
 }
 fn spells(source: &str, start: usize, end: usize, key: &str) -> bool {
     let Some(raw) = source.get(start..end) else {
@@ -574,7 +579,10 @@ fn facts(path: &str, source: &str) -> Option<Facts> {
         let group = if api == "v1" {
             ""
         } else {
-            api.split_once('/')?.0
+            let Some((group, _)) = api.split_once('/') else {
+                continue;
+            };
+            group
         };
         let Some(kind) = string(node.get("kind")) else {
             continue;
@@ -1684,7 +1692,7 @@ struct Cached {
 }
 #[derive(Default)]
 pub(crate) struct Cache {
-    files: BTreeMap<(String, String), Cached>,
+    files: crate::lru::Lru<(String, String), Cached>,
 }
 impl Cache {
     pub(crate) fn file_actions(
@@ -1890,6 +1898,9 @@ impl Cache {
     pub(crate) fn clear(&mut self) {
         self.files.clear();
     }
+    pub(crate) fn evict(&mut self, path: &str) {
+        self.files.retain(|(_, p), _| p != path);
+    }
     pub(crate) fn warm_file(&mut self, path: &str) {
         if let Some(project) = host::project_of(path)
             && let Ok(source) = project.read_file(path)
@@ -1913,15 +1924,13 @@ impl Cache {
         let Some(facts) = facts(path, source) else {
             return;
         };
-        if self.files.len() >= MAX_FILES {
-            self.files.clear();
-        }
         self.files.insert(
             (root, path.into()),
             Cached {
                 digest: Sha256::digest(source.as_bytes()).into(),
                 facts,
             },
+            MAX_FILES,
         );
     }
     fn current(&self, doc: &Document) -> Option<Vec<(String, Facts)>> {
@@ -3233,6 +3242,12 @@ mod tests {
                 text::position(POD, POD.find("server}").unwrap() + 6)
             ))
         );
+    }
+    #[test]
+    fn slashless_api_version_keeps_other_docs() {
+        let source = format!("apiVersion: weird\nkind: Thing\nmetadata: {{name: a, namespace: app}}\n---\n{POD}");
+        let found = facts("/p/a.yaml", &source).unwrap();
+        assert_eq!(found.labels.len(), 2);
     }
     #[test]
     fn secret_plaintext_is_not_retained_in_cached_facts() {

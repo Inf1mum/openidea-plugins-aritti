@@ -9,7 +9,7 @@ use crate::{KubeExplorer, REQUEST_TIMEOUT, is_dns_subdomain, without_resource_ve
 fn position(text: &str, offset: usize) -> Position {
     let before = &text[..offset];
     let line = before.matches('\n').count();
-    let column = before.rsplit('\n').next().map_or(0, |last| last.chars().count());
+    let column = before.rsplit('\n').next().map_or(0, |last| last.chars().map(char::len_utf16).sum::<usize>());
     Position::new(line as u32, column as u32)
 }
 
@@ -119,6 +119,13 @@ mod tests {
             Ok(ProcessOutput { status: Some(0), stdout: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  resourceVersion: \"9\"\nspec:\n  replicas: 3\n".into(), stderr: String::new() })
         });
         (host, runs)
+    }
+
+    #[test]
+    fn reload_range_utf16_with_emoji() {
+        let text = "a😀b: 1";
+        assert_eq!(position(text, text.find('b').unwrap()), Position::new(0, 3));
+        assert_eq!(position("x\n😀y", "x\n😀".len()), Position::new(1, 2));
     }
 
     #[test]

@@ -34,12 +34,23 @@ pub(crate) struct Cache {
     files: BTreeMap<(String, String), Cached>,
     order: VecDeque<(String, String)>,
     bytes: usize,
+    transformers: crate::indexer::TransformerFlags,
 }
 impl Cache {
     pub(crate) fn clear(&mut self) {
         self.files.clear();
         self.order.clear();
         self.bytes = 0;
+        self.transformers.clear();
+    }
+    pub(crate) fn forget_transformers(&mut self) {
+        self.transformers.clear();
+    }
+    pub(crate) fn evict(&mut self, path: &str) {
+        let keys: Vec<_> = self.files.keys().filter(|(_, p)| p == path).cloned().collect();
+        for key in keys {
+            self.remove(&key);
+        }
     }
     fn remove(&mut self, key: &(String, String)) {
         if let Some(old) = self.files.remove(key) {
@@ -57,7 +68,7 @@ impl Cache {
         if let Ok(text) = project.read_file(path) {
             self.warm(path, &text);
         } else {
-            self.clear();
+            self.evict(path);
         }
     }
     pub(crate) fn warm(&mut self, path: &str, text: &str) {
@@ -73,7 +84,7 @@ impl Cache {
             return;
         }
         // Discovery happens only in index/open-save work, never provider calls.
-        let isolated = deployment_isolation(path).unwrap_or(true);
+        let isolated = deployment_isolation(path, &mut self.transformers).unwrap_or(true);
         let graph: Graph = edges_in(path, text, isolated).into();
         let bytes = graph.definitions.iter().chain(&graph.references).chain(&graph.markers).map(|(key, _)| key.len() + 128).sum::<usize>()
             + path.len()
@@ -175,7 +186,6 @@ mod tests {
     use crate::KubeExplorer;
     use openidea_plugin::{
         Event, Plugin,
-        indexing::{Document as Indexed, DocumentIndexer},
         mock::MockHost,
         providers::{Document, Providers},
         text,
@@ -189,8 +199,7 @@ mod tests {
         Document { path: format!("/project/{path}"), language: "yaml".into(), version: 4, text: source.into() }
     }
     fn warm(kube: &mut KubeExplorer, path: &str, source: &str) {
-        let edges = kube.index(&Indexed { path: format!("/project/{path}"), text: source.into(), symbols: Vec::new() });
-        assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.aliases.is_empty() && edges.markers.is_empty());
+        kube.navigation.warm(&format!("/project/{path}"), source);
     }
     fn host() -> MockHost {
         MockHost::install().with_capabilities(&["project.read"])
@@ -298,7 +307,8 @@ mod tests {
             warm(&mut kube, &path, SECRET);
         }
         assert!(kube.navigation.files.len() <= MAX_FILES && kube.navigation.bytes <= MAX_BYTES);
-        kube.handle_events(&[Event::FilesChanged(Default::default())], &h.invocation());
+        let removed = (0..MAX_FILES + 3).map(|n| format!("/project/s{n}.yaml")).collect();
+        kube.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed, ..Default::default() })], &h.invocation());
         assert!(kube.navigation.files.is_empty());
         let huge = format!("{}{SECRET}", " ".repeat(MAX_TEXT));
         h.add_file("huge.yaml", &huge);
@@ -310,6 +320,20 @@ mod tests {
         warm(&mut kube, "unknown.yaml", &custom);
         assert!(kube.navigation.files.is_empty());
         assert!(h.process_runs().is_empty());
+    }
+    #[test]
+    fn files_changed_evicts_only_named_paths() {
+        let h = host();
+        let mut kube = KubeExplorer::default();
+        for path in ["a.yaml", "b.yaml"] {
+            h.add_file(path, SECRET);
+            warm(&mut kube, path, SECRET);
+        }
+        assert_eq!(kube.navigation.files.len(), 2);
+        let changed = openidea_plugin::FilesChanged { removed: vec!["/project/a.yaml".into()], ..Default::default() };
+        kube.handle_events(&[Event::FilesChanged(changed)], &h.invocation());
+        let left: Vec<_> = kube.navigation.files.keys().map(|(_, path)| path.as_str()).collect();
+        assert_eq!(left, ["/project/b.yaml"]);
     }
     #[test]
     fn many_equal_source_candidates_do_not_turn_target_validation_into_an_unbounded_read() {

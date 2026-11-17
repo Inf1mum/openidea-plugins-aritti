@@ -22,6 +22,7 @@ mod crd_export;
 mod helm_assistance;
 mod json_assistance;
 mod label_refs;
+mod lru;
 mod cluster_completion;
 mod watch;
 mod process_scope;
@@ -146,6 +147,7 @@ pub struct KubeExplorer {
     navigation: navigation::Cache,
     label_refs: label_refs::Cache,
     kustomize_paths: kustomize::Cache,
+    kustomize_graph: kustomize_graph::Cache,
     crd_schema: crd_schema::Cache,
     helm_assistance: helm_assistance::Cache,
     cluster_completion: cluster_completion::Cache,
@@ -518,11 +520,25 @@ impl KubeExplorer {
         self.children.clear();
         self.current_context = None;
         self.kubectl_failed = false;
+        let mut first_failure: Option<String> = None;
         for key in self.expanded.clone() {
-            let loaded = self.load(&key);
+            let loaded = match &first_failure {
+                Some(failure) => Err(failure.clone()),
+                None => self.load(&key),
+            };
+            if let Err(failure) = &loaded {
+                first_failure.get_or_insert_with(|| failure.clone());
+            }
             self.children.insert(key, loaded);
         }
         crate::refresh_views();
+    }
+
+    fn confirm_apply(&self, what: &str) -> Result<(), Error> {
+        if host::confirm("Apply to the cluster", &format!("Apply {what} to {}?", self.target()))? {
+            return Ok(());
+        }
+        Err(Error::Cancelled)
     }
 
     /// `context/namespace` the cluster calls go to, for messages.
@@ -624,14 +640,18 @@ impl KubeExplorer {
     }
 
     fn render_details(&self, details: &Details) -> View {
-        let page = PAGE
-            .replace("{{callback}}", &details.callback)
-            .replace("{{lang}}", details.lang)
-            .replace("{{name}}", &escape_html(&details.title.replace('/', "-")))
-            .replace("{{readonly}}", if details.editing.is_some() { "" } else { "readonly" })
-            .replace("{{nojs}}", if details.editing.is_some() { NO_SCRIPTS } else { "" })
-            .replace("{{highlighted}}", &highlight(&details.text, details.lang))
-            .replace("{{text}}", &escape_html(&details.text));
+        let page = fill(
+            PAGE,
+            &[
+                ("callback", &details.callback),
+                ("lang", details.lang),
+                ("name", &escape_html(&details.title.replace('/', "-"))),
+                ("readonly", if details.editing.is_some() { "" } else { "readonly" }),
+                ("nojs", if details.editing.is_some() { NO_SCRIPTS } else { "" }),
+                ("highlighted", &highlight(&details.text, details.lang)),
+                ("text", &escape_html(&details.text)),
+            ],
+        );
         let status = match &details.note {
             Some(note) => format!("{} · {note}", details.title),
             None => details.title.clone(),
@@ -1374,12 +1394,21 @@ fn project_of(path: &str) -> Option<(String, openidea_plugin::Project)> {
         .max_by_key(|(root, _)| root.len())
 }
 
-/// Publishes the manifest problems of an opened or saved YAML file of an open project.
-fn inspect_text(path: &str, text: &str, cache: &crd_schema::Cache, crossfile:bool) -> Vec<openidea_plugin::Diagnostic> {
-    if !(path.ends_with(".yaml") || path.ends_with(".yml") || path.ends_with(".tpl")) || config::is_non_kubernetes(path) {
+fn manifest_file(path: &str) -> bool {
+    (path.ends_with(".yaml") || path.ends_with(".yml") || path.ends_with(".tpl")) && !config::is_non_kubernetes(path)
+}
+
+fn check_enabled(code: &str) -> bool {
+    let setting = checks::SETTINGS.iter().find(|(c, _)| *c == code).map(|(_, s)| *s);
+    setting.and_then(host::setting_bool) != Some(false)
+}
+
+/// The manifest problems the diagnostics provider returns while the user types.
+fn inspect_text(path: &str, text: &str, crd: &crd_schema::Cache, graph: &kustomize_graph::Cache) -> Vec<openidea_plugin::Diagnostic> {
+    if !manifest_file(path) {
         return Vec::new();
     }
-    let Some((root, project)) = project_of(path) else {
+    let Some((_, project)) = project_of(path) else {
         return Vec::new();
     };
     if text.len() > MAX_BYTES {
@@ -1390,23 +1419,36 @@ fn inspect_text(path: &str, text: &str, cache: &crd_schema::Cache, crossfile:boo
     let patch_context = ["kustomization.yaml", "kustomization.yml", "Kustomization"]
         .iter()
         .any(|name| project.read_file(&format!("{directory}/{name}")).is_ok());
-    let enabled = |code: &str| {
-        let setting = checks::SETTINGS.iter().find(|(c, _)| *c == code).map(|(_, s)| *s);
-        setting.and_then(host::setting_bool) != Some(false)
-    };
-    let mut findings = checks::for_file(path, &text, in_chart, patch_context);
-    if crossfile && in_chart && chart_file(path).is_some_and(|chart| chart.ends_with("/Chart.yaml")) {
-        let chart_dir = chart_file(path).map(|chart| chart.trim_end_matches("/Chart.yaml").to_owned()).unwrap_or_default();
-        findings.extend(helm::check(&text, &helm::Chart::load(&project, &root, &chart_dir, &text)));
-    }
-    let mut diagnostics: Vec<_> = findings.iter().filter(|finding| enabled(finding.code)).map(|finding| finding.diagnostic(&text)).collect();
-    diagnostics.extend(cache.diagnostics(&Document {path:path.into(),language:"yaml".into(),version:0,text:text.into()}));
-    diagnostics.extend(kustomize_graph::diagnostics(&Document {path:path.into(),language:"yaml".into(),version:0,text:text.into()}));
+    let findings = checks::for_file(path, text, in_chart, patch_context);
+    let mut diagnostics: Vec<_> = findings.iter().filter(|finding| check_enabled(finding.code)).map(|finding| finding.diagnostic(text)).collect();
+    let doc = Document { path: path.into(), language: "yaml".into(), version: 0, text: text.into() };
+    diagnostics.extend(crd.diagnostics(&doc));
+    diagnostics.extend(kustomize_graph::diagnostics(&doc, graph));
     diagnostics
 }
-fn inspect(path: &str, cache:&crd_schema::Cache) {
-    if let Some(project)=host::project_of(path) && let Ok(text)=project.read_file(path) {
-        let _=host::publish_diagnostics(path,&inspect_text(path,&text,cache,true));
+
+/// The problems of a chart template that need the chart's `Chart.yaml`, which a provider must not read.
+fn chart_diagnostics(path: &str, text: &str) -> Vec<openidea_plugin::Diagnostic> {
+    if !manifest_file(path) || text.len() > MAX_BYTES {
+        return Vec::new();
+    }
+    let Some((root, project)) = project_of(path) else {
+        return Vec::new();
+    };
+    let Some(chart) = chart_file(path).filter(|chart| project.read_file(chart).is_ok()) else {
+        return Vec::new();
+    };
+    let chart_dir = chart.trim_end_matches("/Chart.yaml");
+    let findings = helm::check(text, &helm::Chart::load(&project, &root, chart_dir, text));
+    findings.iter().filter(|finding| check_enabled(finding.code)).map(|finding| finding.diagnostic(text)).collect()
+}
+
+/// Publishes only what the provider cannot compute; the provider reports everything else.
+fn inspect(path: &str) {
+    if let Some(project) = host::project_of(path)
+        && let Ok(text) = project.read_file(path)
+    {
+        let _ = host::publish_diagnostics(path, &chart_diagnostics(path, &text));
     }
 }
 impl openidea_plugin::diagnostics::DiagnosticsProvider for KubeExplorer {
@@ -1414,13 +1456,73 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for KubeExplorer {
         if matches!(doc.language.as_str(),"json"|"jsonc"){
             let mut found=json_assistance::diagnostics(doc);found.extend(self.crd_schema.diagnostics(doc));return found;
         }
-        let mut found=inspect_text(&doc.path,&doc.text,&self.crd_schema,false);
+        let mut found=inspect_text(&doc.path,&doc.text,&self.crd_schema,&self.kustomize_graph);
         found.extend(self.helm_assistance.diagnostics(doc));found
     }
 }
 
+/// Replaces each `{{name}}` of `template` once, so a value that itself contains a placeholder stays literal.
+fn fill(template: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find("{{") {
+        let Some(close) = rest[open..].find("}}") else {
+            break;
+        };
+        let name = &rest[open + 2..open + close];
+        out.push_str(&rest[..open]);
+        match values.iter().find(|(key, _)| *key == name) {
+            Some((_, value)) => out.push_str(value),
+            None => out.push_str(&rest[open..open + close + 2]),
+        }
+        rest = &rest[open + close + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// Files a single change batch re-reads; the rest are evicted and warm again when opened or saved.
+const MAX_WARMED_PER_CHANGE: usize = 32;
+
+impl KubeExplorer {
+    fn warm_path(&mut self, path: &str) {
+        self.navigation.warm_file(path);
+        self.label_refs.warm_file(path);
+        self.kustomize_paths.warm(path);
+        self.crd_schema.warm_file(path);
+        self.helm_assistance.warm_file(path);
+        self.kustomize_graph.warm_file(path);
+    }
+
+    fn evict_path(&mut self, path: &str) {
+        self.navigation.evict(path);
+        self.label_refs.evict(path);
+        self.kustomize_paths.evict(path);
+        self.crd_schema.evict(path);
+        self.helm_assistance.evict(path);
+        self.kustomize_graph.evict(path);
+    }
+
+    fn files_changed(&mut self, changed: &openidea_plugin::FilesChanged) {
+        let all: Vec<&str> = changed.created.iter().chain(&changed.modified).chain(&changed.removed).map(String::as_str).collect();
+        let stale_kustomizations = self.kustomize_graph.affected_by(&all);
+        if changed.created.iter().chain(&changed.removed).any(|path| indexer::transformer_marker(path)) {
+            self.navigation.forget_transformers();
+        }
+        for path in &all {
+            self.evict_path(path);
+        }
+        for path in changed.created.iter().chain(&changed.modified).take(MAX_WARMED_PER_CHANGE) {
+            self.warm_path(path);
+        }
+        for path in stale_kustomizations.iter().take(MAX_WARMED_PER_CHANGE) {
+            self.kustomize_graph.warm_file(path);
+        }
+    }
 }
 
 impl Plugin for KubeExplorer {
@@ -1439,7 +1541,8 @@ impl Plugin for KubeExplorer {
         self.yaml_editors.clear();
         self.watch.clear();
         self.cluster_completion.clear();
-        self.crd_schema.clear(); self.helm_assistance.clear(); self.label_refs.clear(); self.kustomize_paths.clear();
+        self.navigation.clear();
+        self.crd_schema.clear(); self.helm_assistance.clear(); self.label_refs.clear(); self.kustomize_paths.clear(); self.kustomize_graph.clear();
         self.retire_forward("Plugin instance deactivated"); self.log_view = None;
         self.details = None; self.revealed = None; self.editing_secret = None; self.draft = None; self.pending_delete = None; self.rich_owner = None;
     }
@@ -1448,22 +1551,10 @@ impl Plugin for KubeExplorer {
         self.watch.closed_roots();
         for event in events {
             match event {
-                Event::FilesChanged(_) => {self.navigation.clear(); self.crd_schema.clear(); self.helm_assistance.clear(); self.label_refs.clear(); self.kustomize_paths.clear();},
-                Event::FileSaved(path) => {
-                    self.navigation.warm_file(path);
-                    self.label_refs.warm_file(path);
-                    self.kustomize_paths.warm(path);
-                    self.crd_schema.warm_file(path);
-                    self.helm_assistance.warm_file(path);
-                    inspect(path, &self.crd_schema);
-                }
-                Event::FileOpened(path) => {
-                    self.navigation.warm_file(path);
-                    self.label_refs.warm_file(path);
-                    self.kustomize_paths.warm(path);
-                    self.crd_schema.warm_file(path);
-                    self.helm_assistance.warm_file(path);
-                    inspect(path, &self.crd_schema);
+                Event::FilesChanged(changed) => self.files_changed(changed),
+                Event::FileSaved(path) | Event::FileOpened(path) => {
+                    self.warm_path(path);
+                    inspect(path);
                 }
                 _ => {}
             }
@@ -1617,6 +1708,7 @@ impl KubeExplorer {
                 Ok("The rendered YAML is shown in Kube Explorer.".into())
             }
             "kustomize-apply" => {
+                self.confirm_apply(&format!("the kustomization in {}", parent(&path)))?;
                 let out = self.kubectl(&["apply", "-k", parent(&path)], None)?;
                 let target = self.target();
                 self.reload();
@@ -1657,6 +1749,7 @@ impl KubeExplorer {
                 Ok(out.stdout.trim().to_owned())
             }
             "apply" => {
+                self.confirm_apply("this manifest")?;
                 let out = self.kubectl(&["apply", "-f", "-"], Some(&manifest))?;
                 let target = self.target();
                 self.reload();
@@ -1732,6 +1825,11 @@ impl Views for KubeExplorer {
                 Ok(rendered)
             })
         })().or_else(|error| match error {
+            Error::Denied(capability) if capability.starts_with("project.read") && view == TREE => Ok(View::new(Body::Tree(vec![
+                TreeItem::new("kube:status", "Kubernetes — project access needed")
+                    .icon(k8s!("cluster"))
+                    .detail("Allow project.read for Kube Explorer in Settings › Plugins."),
+            ]))),
             Error::Denied(capability) if capability.starts_with("project.read") => {
                 // A concrete invoking project must never silently downgrade to
                 // global CLI execution when its optional read grant is absent.
@@ -1807,7 +1905,7 @@ impl KubeExplorer {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(KubeExplorer, providers, views, indexing, details, diagnostics, file_actions);
+openidea_plugin::register_plugin!(KubeExplorer, providers, views, details, diagnostics, file_actions);
 
 #[cfg(test)]
 mod tests {
@@ -1818,6 +1916,40 @@ mod tests {
 
     fn ok(stdout: &str) -> Result<ProcessOutput, Error> {
         Ok(ProcessOutput { status: Some(0), stdout: stdout.into(), stderr: String::new() })
+    }
+
+    #[test]
+    fn reload_stops_after_first_failure() {
+        let host = MockHost::install().with_capabilities(&["process:kubectl", "storage"]);
+        host.on_process(KUBECTL, |_, _| {
+            Ok(ProcessOutput { status: Some(1), stdout: String::new(), stderr: "Unable to connect to the server\n".into() })
+        });
+        let mut kube = KubeExplorer { context: Some("c".into()), ..Default::default() };
+        for key in ["kind:pods", "kind:services", "kind:nodes"] {
+            kube.expanded.insert(key.into());
+        }
+        kube.reload();
+        assert_eq!(host.process_runs().len(), 1);
+        assert_eq!(kube.children.len(), 3);
+        assert!(kube.children.values().all(Result::is_err));
+    }
+
+    #[test]
+    fn literal_placeholder_text_not_substituted() {
+        let _host = host();
+        let details = Details {
+            callback: String::new(),
+            title: "cm/x".into(),
+            text: "SENTINEL {{text}} {{callback}}".into(),
+            lang: "yaml",
+            editing: None,
+            note: None,
+        };
+        let Body::Html(page) = KubeExplorer::default().render_details(&details).body else {
+            panic!("expected html");
+        };
+        assert_eq!(page.matches("SENTINEL").count(), 2);
+        assert!(page.contains("{{callback}}"));
     }
 
     fn host() -> MockHost {
@@ -2539,10 +2671,28 @@ mod tests {
     fn apply_sends_the_open_manifest() {
         let host = host();
         host.open_editor("/project/web.yaml", "yaml", "kind: Deployment", &[]);
+        host.answer_next_prompt(Some(&["ok"]));
 
         KubeExplorer::default().run_command("apply", &host.invocation(), None).unwrap();
 
         assert_eq!(host.notifications()[0].body, "minikube/(default): deployment.apps/web configured");
+    }
+
+    #[test]
+    fn apply_confirms_target() {
+        for command in ["apply", "kustomize-apply"] {
+            let host = host();
+            host.open_editor("/project/k/web.yaml", "yaml", "kind: Deployment", &[]);
+            let mut kube = KubeExplorer { current_context: Some("minikube".into()), ..Default::default() };
+
+            host.answer_next_prompt(None);
+            assert!(matches!(kube.run_command(command, &host.invocation(), None), Err(Error::Cancelled)), "{command}");
+            assert!(kubectl_calls(&host).iter().all(|call| !call.contains(&"apply".to_owned())), "{command}");
+
+            host.answer_next_prompt(Some(&["ok"]));
+            kube.run_command(command, &host.invocation(), None).unwrap();
+            assert!(kubectl_calls(&host).iter().any(|call| call.contains(&"apply".to_owned())), "{command}");
+        }
     }
 
     fn registered_templates() -> Vec<(String, String, String)> {
@@ -3174,6 +3324,7 @@ mod tests {
             host.open_editor("/project/k/web.yaml", "yaml", "kind: Deployment", &[]);
             let mut kube = KubeExplorer { namespace: Some("shop".into()), current_context: Some("minikube".into()), ..Default::default() };
 
+            host.answer_next_prompt(Some(&["ok"]));
             kube.run_command(command, &host.invocation(), None).unwrap();
 
             assert_eq!(kubectl_calls(&host)[0], expected, "{command}");
@@ -3449,11 +3600,16 @@ mod marker_icon_tests {
     #[test]
     fn marker_icons_are_declared_and_packaged() {
         let manifest = include_str!("../plugin.toml");
-        for icon in [crate::KUSTOMIZE_MARKER, crate::LABEL_MARKER, "icons/marker-users.svg"] {
+        for icon in [crate::KUSTOMIZE_MARKER, crate::LABEL_MARKER] {
             assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
             assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
         }
-        assert!(manifest.contains("markers = [\"kube-users:\"]"));
-        assert!(crate::indexer::users_key("kube:x").starts_with("kube-users:"));
+    }
+
+    #[test]
+    fn no_empty_indexer_or_unbacked_users_marker_is_declared() {
+        let manifest = include_str!("../plugin.toml");
+        assert!(!manifest.contains("documentIndexers"));
+        assert!(!manifest.contains("kube-users:"));
     }
 }

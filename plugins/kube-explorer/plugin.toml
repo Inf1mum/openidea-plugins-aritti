@@ -231,12 +231,6 @@ icon = "icons/marker-kustomize.svg"
 id = "label"
 icon = "icons/marker-label.svg"
 
-[[contributes.markerIcons]]
-id = "users"
-icon = "icons/marker-users.svg"
-markers = ["kube-users:"]
-tooltip = "Manifests using this resource"
-
 [[contributes.providers]]
 kinds = ["code-actions", "completion", "definition", "line-markers", "diagnostics"]
 languages = ["yaml", "json", "jsonc"]
@@ -260,9 +254,6 @@ command = "reload-from-cluster"
 
 
 
-
-[[contributes.documentIndexers]]
-extensions = ["yaml", "yml"]
 
 [contributes.settings]
 title = "Kube Explorer"
