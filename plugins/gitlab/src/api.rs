@@ -2,6 +2,7 @@
 //! plugin that OpenIDEA can host. The token never reaches the plugin: the IDE
 //! fills `{{secret:token}}` in the `Authorization` header.
 
+use openidea_plugin::host::storage;
 use openidea_plugin::{Error, HttpRequest, LogLevel, host};
 use std::cell::Cell;
 
@@ -402,9 +403,41 @@ fn error_message(body: &str) -> String {
     without_markup(&message)
 }
 
-/// The IDE fills the placeholder; the plugin never sees the token.
-pub(crate) fn authorization() -> String {
-    format!("Bearer {{{{secret:{}}}}}",token())
+const TOKEN_ORIGIN_KEY: &str = "token-origin";
+
+/// The IDE fills the placeholder; the plugin never sees the token. The token is for gitlab.com: any other server
+/// must be confirmed once (and again whenever it changes), and only from a command or view event, never a provider.
+pub(crate) fn authorization(server_origin: &str) -> Result<String, Error> {
+    let bearer = format!("Bearer {{{{secret:{}}}}}", token());
+    if server_origin == DEFAULT_SERVER || storage::get(TOKEN_ORIGIN_KEY)?.as_deref() == Some(server_origin) {
+        return Ok(bearer);
+    }
+
+    let host_name = server_host();
+    if !INTERACTIVE.get() {
+        return Err(Error::Invalid(format!("Token not sent to {host_name}. Confirm it from a GitLab command or view first.")));
+    }
+
+    let body = format!("Your GitLab access token will be sent to {server_origin} with every request.");
+    if !host::confirm(&format!("Send your GitLab token to {host_name}?"), &body)? {
+        return Err(Error::Invalid(format!("Token not sent to {host_name}")));
+    }
+
+    storage::set(TOKEN_ORIGIN_KEY, server_origin)?;
+    Ok(bearer)
+}
+
+/// Marks the commands and view events (never providers, renders or background events) that may ask the user.
+pub(crate) struct Interactive { previous: bool }
+impl Interactive {
+    pub(crate) fn start() -> Self {
+        Self { previous: INTERACTIVE.replace(true) }
+    }
+}
+impl Drop for Interactive {
+    fn drop(&mut self) {
+        INTERACTIVE.set(self.previous);
+    }
 }
 
 fn send(method: &str, url: String, body: Option<Value>) -> Result<Value, Error> {
@@ -412,7 +445,7 @@ fn send(method: &str, url: String, body: Option<Value>) -> Result<Value, Error> 
     let mut request = HttpRequest {
         method: method.into(),
         url,
-        headers: vec![("Authorization".into(), authorization())],
+        headers: vec![("Authorization".into(), authorization(&server())?)],
         body: None,
         timeout_ms: Some(callback_timeout_ms(20_000)?),
     };
@@ -449,6 +482,7 @@ const PAGING_BUDGET_SECS: u64 = 35;
 thread_local! {
     static DEADLINE: Cell<Option<u64>> = const { Cell::new(None) };
     static CALLBACK_DEADLINE: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
+    static INTERACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Content-tab actions expire after15s in the pinned host. Limit their remote
@@ -624,7 +658,10 @@ impl Project<'_> {
 
     /// Threads, system notes included ([`Discussion::is_system`]).
     pub fn discussions(&self, iid: u64) -> Result<Vec<Discussion>, Error> {
-        paged(&self.mr(iid, "/discussions"), 100)
+        let mut discussions: Vec<Discussion> = paged(&self.mr(iid, "/discussions"), 100)?;
+        discussions.retain(|d| !d.notes.is_empty());
+
+        Ok(discussions)
     }
 
     /// The cumulative changes, every page.
@@ -635,7 +672,7 @@ impl Project<'_> {
         let request = HttpRequest {
             method: "GET".into(),
             url,
-            headers: vec![("Authorization".into(), authorization())],
+            headers: vec![("Authorization".into(), authorization(&server())?)],
             body: None,
             timeout_ms: Some(callback_timeout_ms(20_000)?),
         };
@@ -675,7 +712,7 @@ impl Project<'_> {
         let timeout_ms=DEADLINE.get().map(|deadline|deadline.saturating_sub(now_secs()).saturating_mul(1000).min(20_000) as u32).unwrap_or(20_000);
         if timeout_ms==0 {return Err("Job trace request budget exhausted; retry explicitly.".into());}
         let timeout_ms=callback_timeout_ms(timeout_ms)?;
-        let response=host::fetch(&HttpRequest{method:"GET".into(),url:format!("{}/api/v4{}",server(),self.path(&format!("/jobs/{job_id}/trace"))),headers:vec![("Authorization".into(),authorization())],body:None,timeout_ms:Some(timeout_ms)}).map_err(|e|match e {Error::Denied(_)=>Error::Denied("Job trace request denied.".into()),_=>Error::Failed("Job trace request failed. Retry explicitly.".into())})?;
+        let response=host::fetch(&HttpRequest{method:"GET".into(),url:format!("{}/api/v4{}",server(),self.path(&format!("/jobs/{job_id}/trace"))),headers:vec![("Authorization".into(),authorization(&server())?)],body:None,timeout_ms:Some(timeout_ms)}).map_err(|e|match e {Error::Denied(_)=>Error::Denied("Job trace request denied.".into()),_=>Error::Failed("Job trace request failed. Retry explicitly.".into())})?;
         require_read_budget()?;
         if response.status!=200 {return Err(Error::Failed(format!("Job trace unavailable (HTTP {}). Retry explicitly or open on GitLab.",response.status)));}
         if response.body.len()>1<<20 {return Err("Job trace exceeds the1MiB plugin acceptance limit; host transfer cap is8MiB.".into());}
@@ -934,6 +971,91 @@ mod tests {
         assert!(Project("g/p").job_trace(1).is_err());
         let count=h.requests().len();assert!(Project("g/p").job_trace(1).is_err());assert_eq!(h.requests().len(),count);
     }
+    fn self_hosted(host: &openidea_plugin::mock::MockHost, origin: &str) {
+        host.set_setting("server", &format!("{origin:?}"));
+        host.on_fetch(|_| Ok(openidea_plugin::HttpResponse { status: 200, headers: vec![], body: b"{}".to_vec() }));
+    }
+
+    fn fresh_host() -> openidea_plugin::mock::MockHost {
+        let host = openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com", "net:git.corp.test", "net:other.corp.test", "secrets", "storage"]);
+        host.set_secret(TOKEN, "glpat-x");
+        host
+    }
+
+    #[test]
+    fn token_not_sent_to_new_server_without_confirm() {
+        let host = fresh_host();
+        self_hosted(&host, "https://git.corp.test");
+        let _interactive = Interactive::start();
+
+        let error = rest("GET", "/user", None).unwrap_err();
+
+        assert!(error.to_string().contains("Token not sent to git.corp.test"), "{error}");
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn confirmed_server_remembered() {
+        let host = fresh_host();
+        self_hosted(&host, "https://git.corp.test");
+        let _interactive = Interactive::start();
+        host.answer_next_prompt(Some(&[]));
+
+        rest("GET", "/user", None).unwrap();
+        rest("GET", "/user", None).unwrap();
+
+        assert_eq!(host.requests().len(), 2);
+    }
+
+    #[test]
+    fn changed_server_asks_again() {
+        let host = fresh_host();
+        self_hosted(&host, "https://git.corp.test");
+        let _interactive = Interactive::start();
+        host.answer_next_prompt(Some(&[]));
+        rest("GET", "/user", None).unwrap();
+
+        self_hosted(&host, "https://other.corp.test");
+
+        assert!(rest("GET", "/user", None).is_err());
+        assert_eq!(host.requests().len(), 1);
+    }
+
+    #[test]
+    fn provider_path_does_not_prompt_or_send() {
+        let host = fresh_host();
+        self_hosted(&host, "https://git.corp.test");
+        host.answer_next_prompt(Some(&[]));
+
+        assert!(rest("GET", "/user", None).is_err());
+        assert!(host.requests().is_empty());
+
+        let _interactive = Interactive::start();
+        rest("GET", "/user", None).unwrap();
+        assert_eq!(host.requests().len(), 1);
+    }
+
+    #[test]
+    fn gitlab_com_token_needs_no_confirmation() {
+        let host = fresh_host();
+        host.on_fetch(|_| Ok(openidea_plugin::HttpResponse { status: 200, headers: vec![], body: b"{}".to_vec() }));
+
+        rest("GET", "/user", None).unwrap();
+
+        assert_eq!(host.requests().len(), 1);
+    }
+
+    #[test]
+    fn discussions_drop_empty_notes() {
+        let host = fresh_host();
+        host.on_fetch(|_| Ok(openidea_plugin::HttpResponse { status: 200, headers: vec![], body: br#"[{"id":"a","notes":[]},{"id":"b","notes":[{"id":1}]}]"#.to_vec() }));
+
+        let discussions = Project("g/p").discussions(1).unwrap();
+
+        assert_eq!(discussions.len(), 1);
+        assert_eq!(discussions[0].id, "b");
+    }
+
     #[test]
     fn timeline_events() {
         let label = json!({"created_at": "t1", "user": {"username": "ann"}, "action": "add", "label": {"name": "bug"}});

@@ -899,7 +899,7 @@ fn the_token_never_appears_in_requests_logs_notifications_or_views() {
     host.set_vcs_remotes(&[("origin", "git@github.com:x/y.git")]);
     GitLab::default().run_command("share-project", &host.invocation(), None).unwrap();
 
-    assert_eq!(api::authorization(), "Bearer {{secret:token}}");
+    assert_eq!(api::authorization("https://gitlab.com").unwrap(), "Bearer {{secret:token}}");
     let requests = host.requests();
     assert!(requests.len() >= 5, "{requests:?}");
     for request in &requests {
@@ -1031,7 +1031,7 @@ fn second_page_is_fetched_when_first_is_full() {
 #[test]
 fn paging_stops_at_the_page_cap() {
     let host = setup();
-    host.on_fetch(|_| ok(&format!("[{}]", vec![r#"{"id": "d"}"#; 100].join(","))));
+    host.on_fetch(|_| ok(&format!("[{}]", vec![r#"{"id": "d", "notes": [{"id": 1}]}"#; 100].join(","))));
 
     let threads = api::Project("g/p").discussions(7).unwrap();
 
@@ -1228,7 +1228,7 @@ fn a_suggestion_reaching_past_the_file_is_not_offered() {
 #[test]
 fn paging_stops_at_the_deadline() {
     let host = setup();
-    host.on_fetch(|_| ok(&format!("[{}]", vec![r#"{"id": "d"}"#; 100].join(","))));
+    host.on_fetch(|_| ok(&format!("[{}]", vec![r#"{"id": "d", "notes": [{"id": 1}]}"#; 100].join(","))));
     let clock = std::cell::Cell::new(0);
     let now = || {
         clock.set(clock.get() + 20);
@@ -1322,7 +1322,7 @@ fn crlf_suggestion_on_a_last_line_without_newline_keeps_no_carriage_return() {
 #[test]
 fn second_list_in_the_same_task_respects_the_shared_deadline() {
     let host = setup();
-    host.on_fetch(|_| ok(&format!("[{}]", vec![r#"{"id": "d"}"#; 100].join(","))));
+    host.on_fetch(|_| ok(&format!("[{}]", vec![r#"{"id": "d", "notes": [{"id": 1}]}"#; 100].join(","))));
     let now = || if host.requests().is_empty() { 0 } else { 36 };
     api::begin_budget_at(0);
 
@@ -3211,6 +3211,18 @@ mod ci_aid_tests {
     }
 
     #[test]
+    fn completion_after_non_ascii_does_not_panic() {
+        labels("test:\n  script: echo café|");
+
+        let seeds = ["test:\n  script: echo café", "build:\n  script: $é${C", "café: 😀 $CI_"];
+        for seed in seeds {
+            for offset in (0..=seed.len()).filter(|o| seed.is_char_boundary(*o)) {
+                ci::completions(seed, Some(offset));
+            }
+        }
+    }
+
+    #[test]
     fn top_level_keys_complete_to_global_keywords() {
         assert_eq!(labels("sta|"), ["stages"]);
         assert!(labels("|").contains(&"include".to_owned()));
@@ -4491,8 +4503,8 @@ fn account_slots_use_declared_secret_placeholders_and_expire_previous_identity()
     assert!(plugin.me.is_none()&&plugin.projects.is_none()&&plugin.content_snapshots.is_empty());
     assert_ne!(selection_scope(&gitlab_project(&h.invocation()).unwrap()),previous);
     assert!(plugin.checked_selection(&gitlab_project(&h.invocation()).unwrap(),&h.invocation()).is_err());
-    assert_eq!(api::authorization(),"Bearer {{secret:secondary-token}}");
-    assert!(!api::authorization().contains("second-private-token"));
+    assert_eq!(api::authorization("https://gitlab.com").unwrap(),"Bearer {{secret:secondary-token}}");
+    assert!(!api::authorization("https://gitlab.com").unwrap().contains("second-private-token"));
 }
 #[test]
 fn account_slot_change_cannot_reuse_an_unsent_primary_comment() {
