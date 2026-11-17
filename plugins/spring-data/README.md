@@ -116,7 +116,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Data**; bind 
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Spring Data: Show Repository Inherited Members** | Shows, in a notification grouped by interface, the members the repository at the caret inherits from Spring Data interfaces (they live in library jars, so nothing opens). Also in the editor context menu of Java and Kotlin files. | – |
+| **Spring Data: Show Repository Inherited Members** | Lists, in a picker with the declaring interface beside each one, the members the repository at the caret inherits from Spring Data interfaces (they live in library jars, so nothing opens). Also in the editor context menu of Java and Kotlin files. | – |
 
 ## Settings
 
