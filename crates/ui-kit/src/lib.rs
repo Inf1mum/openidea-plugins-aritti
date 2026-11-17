@@ -8,3 +8,5 @@ pub mod web;
 pub mod navigation;
 
 pub mod prompts;
+
+pub mod denied;
