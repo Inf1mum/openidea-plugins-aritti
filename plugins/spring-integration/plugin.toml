@@ -5,7 +5,7 @@ description = "Spring Structure window and editor support for Spring Integration
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: New icon for channel producer and consumer markers, and a Channel Table section with search; SpEL and XPath expressions in Integration XML and the Java DSL are checked, and XML with character entities keeps its features; Go to Definition on an XML channel finds channels in other files, and the index survives saves and covers generic classes, Gradle subprojects and Windows project roots; Modulith warns about use of module-internal types, and an unreadable file silences missing-channel and missing-bean warnings only for its own names; new commands and menu entries for toolbar actions, one name per command, shorter hover text and clearer permission messages. \
+Next release: The Spring Structure window now appears only in Maven or Gradle projects, with plainer empty states and messages. New icon for channel producer and consumer markers, and a Channel Table section with search; SpEL and XPath expressions in Integration XML and the Java DSL are checked, and XML with character entities keeps its features; Go to Definition on an XML channel finds channels in other files, and the index survives saves and covers generic classes, Gradle subprojects and Windows project roots; Modulith warns about use of module-internal types, and an unreadable file silences missing-channel and missing-bean warnings only for its own names; new commands and menu entries for toolbar actions, one name per command, shorter hover text and clearer permission messages. \
 0.3.0: channel and bean navigation, flow checks. \
 0.2.0: plugin icon and channel markers."""
 categories = ["frameworks"]
@@ -36,6 +36,7 @@ title = "Spring Structure"
 icon = "icons/structure.svg"
 location = "right"
 web = "web/resources/hub.html"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts || workspaceContains:settings.gradle || workspaceContains:settings.gradle.kts"
 
 [[contributes.commands]]
 id = "batch.current-file-step-usages"
@@ -78,7 +79,7 @@ category = "Spring Batch"
 
 [[contributes.commands]]
 id = "batch.runtime-operate"
-title = "Spring Batch: Run Job Operation"
+title = "Spring Batch: Run Job Operation…"
 category = "Spring Batch"
 
 [[contributes.commands]]
