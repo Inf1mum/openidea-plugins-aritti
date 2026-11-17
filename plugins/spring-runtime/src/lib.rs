@@ -874,6 +874,15 @@ impl Providers for Runtime {
     }
 }
 
+const SETTINGS_PAGE: &str = "plugins.aritti-spring-runtime";
+
+fn open_settings() -> Result<(), Error> {
+    match host::execute_command("file.settings", Some(SETTINGS_PAGE)) {
+        Err(Error::Denied(_)) => Err("Open Settings › Plugins › Spring Runtime Insight. Allow the ide.commands permission to open it from this button.".into()),
+        result => result.map(drop),
+    }
+}
+
 impl Views for Runtime {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
         (|| -> Result<View, Error> {
@@ -889,7 +898,7 @@ impl Views for Runtime {
                     let url = host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into());
                     format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}. Change the URL in Settings › Plugins › Spring Runtime Insight.")
                 });
-                return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear Snapshot").icon("trash").enabled(self.error.is_some())));
+                return Ok(View::message(&text).button(refresh).button(Button::new("open-settings","Open Settings").icon("settings")).button(Button::new("clear","Clear Snapshot").icon("trash").enabled(self.error.is_some())));
             };
             self.targets.clear();
             let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets, bytes:0, limited:false };
@@ -970,6 +979,7 @@ impl Views for Runtime {
             // A failure is shown in the view.
             ViewEvent::Button(b) if b == "refresh" => {let project=ctx.project().ok_or("Open a project first.")?;drop(self.refresh(&project));},
             ViewEvent::Button(b) if b == "clear" => {let project=ctx.project().ok_or("Open a project first.")?;self.clear(&project)?;},
+            ViewEvent::Button(b) if b == "open-settings" => open_settings()?,
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
                 crate::refresh_view(view);
@@ -1382,5 +1392,20 @@ mod failure_recovery_tests {
         let view=Runtime::default().render(VIEW,None,&host.invocation()).unwrap();
         assert!(matches!(view.body,Body::Message(ref text) if text.contains("Settings › Plugins")));
         assert!(!view.toolbar.iter().any(|b|b.id=="clear"));
+    }
+    #[test]
+    fn open_settings_runs_the_settings_action_on_this_plugin_page_and_explains_a_denial() {
+        let host=MockHost::install().with_capabilities(&["project.read","storage"]);
+        let view=Runtime::default().render(VIEW,None,&host.invocation()).unwrap();
+        assert!(view.toolbar.iter().any(|b|b.id=="open-settings"));
+        let opened=std::rc::Rc::new(std::cell::RefCell::new(None));
+        let seen=opened.clone();
+        host.on_command("file.settings",move|arg|{*seen.borrow_mut()=arg.map(str::to_owned);Ok(None)});
+        let denied=Runtime::default().handle(VIEW,ViewEvent::Button("open-settings".into()),&host.invocation()).unwrap_err();
+        assert!(denied.to_string().contains("Settings › Plugins › Spring Runtime Insight"));
+        assert!(opened.borrow().is_none());
+        let host=host.with_capabilities(&["project.read","storage","ide.commands"]);
+        Runtime::default().handle(VIEW,ViewEvent::Button("open-settings".into()),&host.invocation()).unwrap();
+        assert_eq!(opened.borrow().as_deref(),Some(SETTINGS_PAGE));
     }
 }
