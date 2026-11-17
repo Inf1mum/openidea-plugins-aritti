@@ -2528,7 +2528,6 @@
     "native.artisan_docker.d92d98511b": "the saved Docker metadata changed while the container was verified",
     "native.artisan_docker.f2508eb86c": "Docker project directory must map exactly to this project through its most-specific bind mount, or be a DDEV project (com.ddev.approot) on its synced project volume.",
     "native.dockerRoute.745a724077": "No running container maps this project in a way that can be verified. Compose, Sail and DDEV bind mounts and DDEV synced project volumes are supported; other volume-only or Mutagen project roots, and mounts that hide the project, need a bind-mounted target.",
-    "native.dockerRoute.9d6bdab432": "the project or Docker target changed while the commands were refreshed",
     "native.dockerRoute.9617cadca8": "Saved the Docker target, but its Artisan commands could not be refreshed: {reason}"
   },
   "ja": {
@@ -5060,7 +5059,6 @@
     "native.artisan_docker.d92d98511b": "コンテナの検証中に保存済みの Docker メタデータが変更されました",
     "native.artisan_docker.f2508eb86c": "Docker のプロジェクトディレクトリは、最も具体的なバインドマウントでこのプロジェクトと完全に対応しているか、同期されたプロジェクトボリューム上の DDEV プロジェクト (com.ddev.approot) である必要があります。",
     "native.dockerRoute.745a724077": "このプロジェクトを検証可能な形で対応付けている稼働中のコンテナがありません。Compose、Sail、DDEV のバインドマウントと、DDEV の同期プロジェクトボリュームに対応しています。それ以外のボリュームのみや Mutagen のプロジェクトルート、またはプロジェクトを覆い隠すマウントには、バインドマウントされたターゲットが必要です。",
-    "native.dockerRoute.9d6bdab432": "コマンドの更新中にプロジェクトまたは Docker ターゲットが変更されました",
     "native.dockerRoute.9617cadca8": "Docker ターゲットを保存しましたが、Artisan コマンドを更新できませんでした: {reason}"
   },
   "ko": {
@@ -7592,7 +7590,6 @@
     "native.artisan_docker.d92d98511b": "컨테이너를 확인하는 동안 저장된 Docker 메타데이터가 변경되었습니다",
     "native.artisan_docker.f2508eb86c": "Docker 프로젝트 디렉터리는 가장 구체적인 바인드 마운트를 통해 이 프로젝트와 정확히 매핑되거나, 동기화된 프로젝트 볼륨에 있는 DDEV 프로젝트(com.ddev.approot)여야 합니다.",
     "native.dockerRoute.745a724077": "이 프로젝트를 검증 가능한 방식으로 매핑하는 실행 중 컨테이너가 없습니다. Compose, Sail, DDEV 바인드 마운트와 DDEV 동기화 프로젝트 볼륨이 지원됩니다. 그 밖의 볼륨 전용·Mutagen 프로젝트 루트나 프로젝트를 가리는 마운트에는 바인드 마운트된 대상이 필요합니다.",
-    "native.dockerRoute.9d6bdab432": "명령을 새로 고치는 동안 프로젝트 또는 Docker 대상이 변경되었습니다",
     "native.dockerRoute.9617cadca8": "Docker 대상을 저장했지만 Artisan 명령을 새로 고칠 수 없습니다: {reason}"
   },
   "zh-CN": {
@@ -10124,7 +10121,6 @@
     "native.artisan_docker.d92d98511b": "验证容器期间，已保存的 Docker 元数据发生了变化",
     "native.artisan_docker.f2508eb86c": "Docker 项目目录必须通过其最具体的绑定挂载精确映射到此项目，或者是位于其同步项目卷上的 DDEV 项目（com.ddev.approot）。",
     "native.dockerRoute.745a724077": "没有运行中的容器以可验证的方式映射此项目。支持 Compose、Sail 和 DDEV 绑定挂载以及 DDEV 同步项目卷；其他仅使用卷或 Mutagen 的项目根目录，以及遮蔽项目的挂载，需要绑定挂载目标。",
-    "native.dockerRoute.9d6bdab432": "刷新命令期间，项目或 Docker 目标发生了变化",
     "native.dockerRoute.9617cadca8": "已保存 Docker 目标，但无法刷新其 Artisan 命令：{reason}"
   }
 }

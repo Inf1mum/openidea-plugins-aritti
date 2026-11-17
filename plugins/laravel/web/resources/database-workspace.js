@@ -181,11 +181,13 @@
       menu.firstElementChild.focus();
     }
     function toggle(key) {
+      filterExpanded.delete(key);
       if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
       renderTables();
     }
     function setAll(open) {
       expanded.clear();
+      filterExpanded.clear();
       if (open) for (const table of state?.tables || []) {
         const key = `t:${table.name}`;
         expanded.add(key);
@@ -222,12 +224,18 @@
       else return;
       event.preventDefault();
     }
+    const filterExpanded = new Set();
     function filterTables() {
       const query = $('dbw-table-filter').value.trim().toLowerCase();
+      for (const key of filterExpanded) expanded.delete(key);
+      filterExpanded.clear();
       if (query) for (const table of state?.tables || []) {
         if (table.name.toLowerCase().includes(query) || !table.columns.some(column => column.name.toLowerCase().includes(query))) continue;
-        expanded.add(`t:${table.name}`);
-        expanded.add(`t:${table.name}:columns`);
+        for (const key of [`t:${table.name}`, `t:${table.name}:columns`]) {
+          if (expanded.has(key)) continue;
+          expanded.add(key);
+          filterExpanded.add(key);
+        }
       }
       renderTables();
     }
@@ -290,8 +298,6 @@
           if (row.children) tr_.addEventListener('click', () => toggle(row.key));
           tr_.addEventListener('contextmenu', event => {
             event.preventDefault();
-            // The ContextMenu key and Shift+F10 also fire this after rowKeys opened the menu.
-            if (menu && menuReturn === tr_) return;
             showMenu(event.clientX, event.clientY, row, tr_);
           });
           if (row.open) {

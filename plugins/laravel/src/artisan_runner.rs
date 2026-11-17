@@ -196,6 +196,33 @@ mod spill_tests {
     }
 
     #[test]
+    fn docker_terminal_exec_spills_without_a_second_interactive_flag() {
+        let mut args = docker(&["-r", "echo 1;", "mode"]);
+        args.insert(3, "-it".to_owned());
+        let (spilled, payload) = spill_script(args, Runner::Docker);
+        let mut expected = docker(&["-r", STDIN_LOADER]);
+        expected.insert(3, "-it".to_owned());
+        assert_eq!(spilled, expected);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&payload).unwrap()["input"], serde_json::json!(["mode"]));
+    }
+
+    #[test]
+    fn real_php_runs_the_spilled_script_with_its_input() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let script = "echo $argc, '|', $argv[1], '|', strlen($argv[2]), '|', isset($p) ? 'leak' : 'clean';";
+        let (args, payload) = spill_script(strings(&["-r", script, "mode", &"x".repeat(20_000)]), Runner::Php);
+        let Ok(mut child) = Command::new("php").args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() else {
+            eprintln!("php is not on PATH; skipping the real loader check");
+            return;
+        };
+        child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3|mode|20000|clean");
+    }
+
+    #[test]
     fn user_r_option_not_spilled() {
         let value = "v".repeat(MAX_ARG_BYTES + 1);
         let local = strings(&["artisan", "tinker", "-r", &value]);

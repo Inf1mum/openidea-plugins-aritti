@@ -345,9 +345,9 @@ fn discover_then(
         Err(error) => error,
     };
     let reason = match error {
-        Error::Cancelled => return Ok(None),
+        // A stale refresh has already said why (stale_reason); a second warning would repeat it.
+        Error::Cancelled | Error::Stale => return Ok(None),
         Error::Failed(message) | Error::Invalid(message) | Error::NotFound(message) => message,
-        Error::Stale => crate::ui_text::text("native.dockerRoute.9d6bdab432", "the project or Docker target changed while the commands were refreshed").to_owned(),
         other => other.to_string(),
     };
     host::notify(
@@ -424,6 +424,23 @@ mod tests {
         assert_eq!(notices.len(), 1, "{notices:?}");
         assert_eq!(notices[0].level, NotificationLevel::Warning);
         assert!(notices[0].body.contains("php artisan list exited 255"));
+    }
+    #[test]
+    fn stale_refresh_after_a_pick_warns_once() {
+        let host = setup();
+        host.answer_next_prompt(Some(&["target:0"]));
+        let mut calls = 0;
+        let result = discover_then(
+            &host.invocation(),
+            |_, _| {
+                calls += 1;
+                Ok(if calls == 1 { format!("{ID}\n") } else { raw().to_string() })
+            },
+            |_| Err(super::super::stale_reason("the container was restarted")),
+        );
+        assert_eq!(result, Ok(None));
+        assert!(host.storage().contains_key(&key("/project")));
+        assert_eq!(host.notifications().len(), 1, "{:?}", host.notifications());
     }
     #[test]
     fn explicit_metadata_discovery_picks_a_project_target_without_bootstrapping_php() {
