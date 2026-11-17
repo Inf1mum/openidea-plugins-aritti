@@ -6,7 +6,6 @@
     "laravel-request": "Request",
     "laravel-models": "Models",
     "laravel-database": "Database",
-    "laravel-schema": "Schema",
     "laravel-views": "Views",
     "laravel-components": "Components",
     "laravel-middleware": "Middleware",
@@ -121,11 +120,6 @@
         "icon": "table"
       },
       {
-        "id": "laravel-schema",
-        "label": "Schema",
-        "icon": "hierarchy"
-      },
-      {
         "id": "laravel-views",
         "label": "Views",
         "icon": "file-html"
@@ -182,8 +176,7 @@
     "laravel-generators",
     "laravel-processes",
     "laravel-models",
-    "laravel-database",
-    "laravel-schema"
+    "laravel-database"
   ],
   "toolbar_groups": {
     "laravel-models": [

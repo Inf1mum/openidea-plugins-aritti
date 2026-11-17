@@ -27,6 +27,7 @@
       return node;
     };
     const mode = root.querySelector('[data-database-workspace]').dataset.databaseWorkspace;
+    const hasDiagram = !!$('dbw-diagram');
     const projectKey = bridge.project || '';
     let disposed = false;
     let queue = [];
@@ -39,7 +40,7 @@
     const busy = () => queue.length > 0;
     function refreshControls() {
       const disabled = busy();
-      for (const id of ['dbw-compare', 'dbw-rows-load', 'dbw-refresh']) {
+      for (const id of ['dbw-compare', 'dbw-rows-load', 'dbw-refresh', 'dbw-table-refresh']) {
         const button = $(id);
         if (button) button.disabled = disabled;
       }
@@ -95,6 +96,84 @@
     function describeIndex(index) {
       return `${index.kind}(${index.columns.join(', ')})`;
     }
+    const expanded = new Set();
+    function icon(name) {
+      const node = el('span', null, 'dbw-icon');
+      node.dataset.uiIcon = name;
+      node.setAttribute('aria-hidden', '1');
+      return node;
+    }
+    function treeRows(table) {
+      const key = `t:${table.name}`;
+      const columnsKey = `${key}:columns`;
+      const indexesKey = `${key}:indexes`;
+      const foreignsKey = `${key}:foreigns`;
+      const details = [table.models.join(', '), `${table.columns.length} ${table.columns.length === 1 ? tr('column', 'column') : tr('columns', 'columns')}`].filter(Boolean).join(' · ');
+      const rows = [{key, depth: 0, icon: 'table', label: table.name, details, children: true, open: table.open}];
+      if (!expanded.has(key)) return rows;
+      rows.push({key: columnsKey, depth: 1, icon: 'folder', label: `${tr('columns', 'Columns')} (${table.columns.length})`, children: table.columns.length > 0});
+      if (expanded.has(columnsKey)) {
+        for (const column of table.columns) rows.push({key: `${columnsKey}:${column.name}`, depth: 2, badge: keyLabel(column.key), keyKind: column.key, label: column.name, details: column.kind});
+      }
+      if (table.indexes.length) {
+        rows.push({key: indexesKey, depth: 1, icon: 'folder', label: `${tr('indexes', 'Indexes')} (${table.indexes.length})`, children: true});
+        if (expanded.has(indexesKey)) for (const index of table.indexes) rows.push({key: `${indexesKey}:${describeIndex(index)}`, depth: 2, label: describeIndex(index), details: index.kind});
+      }
+      if (table.foreigns.length) {
+        rows.push({key: foreignsKey, depth: 1, icon: 'folder', label: `${tr('foreignKeys', 'Foreign keys')} (${table.foreigns.length})`, children: true});
+        if (expanded.has(foreignsKey)) for (const foreign of table.foreigns) rows.push({key: `${foreignsKey}:${foreign.column}`, depth: 2, badge: 'FK', keyKind: 'fk', label: foreign.column, details: `${foreign.on ?? '?'}.${foreign.references}`});
+      }
+      for (const row of rows) {
+        row.open = table.open;
+        if (!row.children || row.depth === 0) row.copy = row.depth === 0 ? table.name : row.label.replace(/ \(\d+\)$/, '');
+      }
+      return rows;
+    }
+    function copyText(text) {
+      const done = () => { $('dbw-status').textContent = tr('copied', 'Copied'); setTimeout(() => { if (!busy()) $('dbw-status').textContent = ''; }, 1200); };
+      try { navigator.clipboard.writeText(text).then(done, () => setError(tr('copyFailed', 'Copy is not available here.'))); } catch { setError(tr('copyFailed', 'Copy is not available here.')); }
+    }
+    let menu = null;
+    function closeMenu() { menu?.remove(); menu = null; }
+    function showMenu(event, row) {
+      event.preventDefault();
+      closeMenu();
+      const items = [];
+      if (row.children) items.push([expanded.has(row.key) ? tr('collapse', 'Collapse') : tr('expand', 'Expand'), expanded.has(row.key) ? 'chevron-up' : 'chevron-down', () => toggle(row.key)]);
+      if (row.open) items.push([tr('goToMigration', 'Go to Migration'), 'file-php', () => open(row.open)]);
+      if (row.copy) items.push([tr('copyName', 'Copy Name'), 'copy', () => copyText(row.copy)]);
+      items.push([tr('expandAll', 'Expand All'), 'expand-all', () => setAll(true)], [tr('collapseAll', 'Collapse All'), 'collapse-all', () => setAll(false)]);
+      menu = el('ul', null, 'dbw-menu');
+      menu.setAttribute('role', 'menu');
+      for (const [label, iconName, run] of items) {
+        const item = el('li', null, 'dbw-menu-item');
+        item.setAttribute('role', 'menuitem');
+        item.append(icon(iconName), el('span', label));
+        item.addEventListener('click', () => { closeMenu(); run(); });
+        menu.append(item);
+      }
+      const host = root.querySelector('[data-database-workspace]');
+      const box = host.getBoundingClientRect();
+      menu.style.left = `${Math.max(0, Math.min(event.clientX - box.left, box.width - 190))}px`;
+      menu.style.top = `${Math.max(0, Math.min(event.clientY - box.top, box.height - items.length * 26 - 8))}px`;
+      host.append(menu);
+      window.uiKitIcons?.enhance?.(menu);
+    }
+    function toggle(key) {
+      if (expanded.has(key)) expanded.delete(key); else expanded.add(key);
+      renderTables();
+    }
+    function setAll(open) {
+      expanded.clear();
+      if (open) for (const table of state?.tables || []) {
+        const key = `t:${table.name}`;
+        expanded.add(key);
+        expanded.add(`${key}:columns`);
+        expanded.add(`${key}:indexes`);
+        expanded.add(`${key}:foreigns`);
+      }
+      renderTables();
+    }
     function renderTables() {
       const query = $('dbw-table-filter').value.trim().toLowerCase();
       const all = state?.tables || [];
@@ -105,26 +184,50 @@
       $('dbw-table-count').textContent = query ? `${shown.length} / ${all.length}` : `${all.length}`;
       if (!all.length) return $('dbw-tables').replaceChildren(empty(tr('noTables', 'No table is created by the migrations of this project yet.')));
       if (!shown.length) return $('dbw-tables').replaceChildren(empty(tr('noMatches', 'No table matches the filter.')));
-      const rows = shown.map(table => {
-        const columns = el('details');
-        columns.append(el('summary', String(table.columns.length)));
-        const list = el('ul', null, 'dbw-columns');
-        for (const column of table.columns) {
-          const item = el('li');
-          item.append(el('span', keyLabel(column.key), `dbw-key dbw-key-${column.key || 'none'}`), el('span', column.name), el('span', column.kind, 'dbw-muted'));
-          list.append(item);
+      const table = el('table', null, 'ui-table dbw-table dbw-tree');
+      const head = el('tr');
+      head.append(el('th', tr('table', 'Table')), el('th', tr('details', 'Details')));
+      const thead = el('thead');
+      thead.append(head);
+      const body = el('tbody');
+      for (const source of shown) {
+        for (const row of treeRows(source)) {
+          const tr_ = el('tr', null, `dbw-tree-row dbw-depth-${row.depth}`);
+          tr_.tabIndex = 0;
+          const first = el('td');
+          const line = el('div', null, 'dbw-tree-cell');
+          line.style.paddingLeft = `${row.depth * 20}px`;
+          const slot = el('span', null, 'dbw-tree-slot');
+          if (row.children) {
+            slot.append(icon(expanded.has(row.key) ? 'chevron-down' : 'chevron-right'));
+            slot.addEventListener('click', event => { event.stopPropagation(); toggle(row.key); });
+          }
+          line.append(slot);
+          if (row.icon) line.append(icon(row.icon));
+          if (row.badge !== undefined) line.append(el('span', row.badge, `dbw-badge dbw-badge-${row.keyKind || 'none'}`));
+          line.append(el('span', row.label, 'dbw-tree-label'));
+          first.append(line);
+          const second = el('td', row.details || '', 'dbw-muted-cell');
+          tr_.append(first, second);
+          if (row.children) {
+            tr_.addEventListener('click', () => toggle(row.key));
+            tr_.addEventListener('keydown', event => {
+              if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(row.key); }
+              else if (event.key === 'ArrowRight' && !expanded.has(row.key)) toggle(row.key);
+              else if (event.key === 'ArrowLeft' && expanded.has(row.key)) toggle(row.key);
+            });
+          }
+          tr_.addEventListener('contextmenu', event => showMenu(event, row));
+          if (row.open) {
+            tr_.title = tr('openMigration', 'Open the migration');
+            tr_.addEventListener('dblclick', () => open(row.open));
+          }
+          body.append(tr_);
         }
-        columns.append(list);
-        const foreigns = table.foreigns.map(foreign => `${foreign.column} → ${foreign.on ?? '?'}.${foreign.references}`);
-        return [
-          openLink(table.name, table.open),
-          table.models.join(', '),
-          columns,
-          table.indexes.map(describeIndex).join(' · '),
-          foreigns.join(' · ')
-        ];
-      });
-      $('dbw-tables').replaceChildren(grid([tr('table', 'Table'), tr('models', 'Models'), tr('columns', 'Columns'), tr('indexes', 'Indexes'), tr('foreignKeys', 'Foreign keys')], rows));
+      }
+      table.append(thead, body);
+      $('dbw-tables').replaceChildren(table);
+      window.uiKitIcons?.enhance?.($('dbw-tables'));
     }
 
     /* ---------- Compare ---------- */
@@ -185,9 +288,34 @@
       table.classList.add('dbw-rows');
       table.querySelectorAll('thead th').forEach((th, index) => th.classList.toggle('dbw-masked', masked.has(reply.columns[index])));
     }
+    let tableNames = [];
+    let suggestIndex = -1;
     function renderTableChoices() {
       const names = new Set([...(state?.tables || []).map(table => table.name), ...(state?.live?.tables || [])]);
-      $('dbw-rows-tables').replaceChildren(...[...names].sort().map(name => { const option = el('option'); option.value = name; return option; }));
+      tableNames = [...names].sort();
+    }
+    function suggest(show = true) {
+      const input = $('dbw-rows-table');
+      const list = $('dbw-rows-tables');
+      const query = input.value.trim().toLowerCase();
+      const matches = tableNames.filter(name => !query || name.toLowerCase().includes(query)).slice(0, 50);
+      suggestIndex = -1;
+      list.replaceChildren(...matches.map(name => {
+        const item = el('li', name, 'dbw-suggest-item');
+        item.setAttribute('role', 'option');
+        item.addEventListener('mousedown', event => { event.preventDefault(); input.value = name; suggest(false); });
+        return item;
+      }));
+      const open = show && matches.length > 0;
+      list.hidden = !open;
+      input.setAttribute('aria-expanded', String(open));
+    }
+    function moveSuggest(step) {
+      const items = [...$('dbw-rows-tables').children];
+      if (!items.length) return;
+      suggestIndex = (suggestIndex + step + items.length) % items.length;
+      items.forEach((item, index) => item.classList.toggle('active', index === suggestIndex));
+      items[suggestIndex].scrollIntoView({block: 'nearest'});
     }
 
     /* ---------- Schema diagram ---------- */
@@ -341,29 +469,51 @@
     /* ---------- wiring ---------- */
     function render() {
       if (mode === 'schema') return drawDiagram();
+      if (!root.querySelector('[data-dbw-panel="schema"]').hidden) drawDiagram();
       renderTables();
       renderCompare();
       renderTableChoices();
       renderRows();
     }
-    if (mode === 'schema') {
+    document.addEventListener('pointerdown', event => { if (menu && !menu.contains(event.target)) closeMenu(); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenu(); });
+    if (hasDiagram) {
       $('dbw-diagram-filter').addEventListener('input', () => renderDiagram?.filter());
       $('dbw-fit').addEventListener('click', () => renderDiagram?.fit());
       $('dbw-zoom-in').addEventListener('click', () => renderDiagram?.zoom(1.25));
       $('dbw-zoom-out').addEventListener('click', () => renderDiagram?.zoom(1 / 1.25));
       $('dbw-refresh').addEventListener('click', () => send({op: 'state'}));
-    } else {
+    }
+    if (mode !== 'schema') {
       for (const tab of root.querySelectorAll('[data-dbw-tab]')) {
         tab.addEventListener('click', () => {
           for (const other of root.querySelectorAll('[data-dbw-tab]')) other.setAttribute('aria-selected', String(other === tab));
           for (const panel of root.querySelectorAll('[data-dbw-panel]')) panel.hidden = panel.dataset.dbwPanel !== tab.dataset.dbwTab;
+          if (tab.dataset.dbwTab === 'schema') drawDiagram();
         });
       }
       $('dbw-table-filter').addEventListener('input', renderTables);
+      $('dbw-table-refresh').addEventListener('click', () => send({op: 'state'}));
+      $('dbw-expand-all').addEventListener('click', () => setAll(true));
+      $('dbw-collapse-all').addEventListener('click', () => setAll(false));
       $('dbw-compare').addEventListener('click', () => send({op: 'compare'}));
       $('dbw-compare-status').addEventListener('change', renderCompare);
       $('dbw-rows-load').addEventListener('click', () => requestRows(0));
-      $('dbw-rows-table').addEventListener('keydown', event => { if (event.key === 'Enter') requestRows(0); });
+      const tableInput = $('dbw-rows-table');
+      tableInput.addEventListener('input', () => suggest());
+      tableInput.addEventListener('focus', () => suggest());
+      tableInput.addEventListener('blur', () => suggest(false));
+      tableInput.addEventListener('keydown', event => {
+        const list = $('dbw-rows-tables');
+        if (event.key === 'ArrowDown') { event.preventDefault(); if (list.hidden) suggest(); moveSuggest(1); }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); moveSuggest(-1); }
+        else if (event.key === 'Escape') suggest(false);
+        else if (event.key === 'Enter') {
+          if (!list.hidden && suggestIndex >= 0) tableInput.value = list.children[suggestIndex].textContent;
+          suggest(false);
+          requestRows(0);
+        }
+      });
       $('dbw-rows-prev').addEventListener('click', () => rowsReply && requestRows(rowsReply.page - 1));
       $('dbw-rows-next').addEventListener('click', () => rowsReply && requestRows(rowsReply.page + 1));
     }
@@ -381,6 +531,6 @@
     });
     render();
     send({op: 'state'});
-    return () => { disposed = true; };
+    return () => { disposed = true; closeMenu(); };
   }};
 })();

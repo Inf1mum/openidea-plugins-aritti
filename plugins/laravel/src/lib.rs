@@ -2293,7 +2293,7 @@ impl Main {
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-runtime"|"laravel-database"|"laravel-schema"|route_request::VIEW) && self.view_index(ctx).is_none() {
+        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-runtime"|"laravel-database"|route_request::VIEW) && self.view_index(ctx).is_none() {
             if let Some(pending)=self.pending_index_view(ctx) { return Ok(pending); }
         }
         (|| -> Result<View, Error> {
@@ -2314,8 +2314,8 @@ impl Views for Main {
             if view == generator_workspace::VIEW {
                 return Ok(View::new(Body::Html(generator_workspace::html())));
             }
-        if matches!(view, database_workspace::DATABASE_VIEW | database_workspace::SCHEMA_VIEW) {
-                return Ok(View::new(Body::Html(database_workspace::html(view))));
+        if view == database_workspace::DATABASE_VIEW {
+                return Ok(View::new(Body::Html(database_workspace::html())));
             }
         if view == managed_processes::VIEW {
                 return Ok(View::new(Body::Html(managed_processes::html())));
@@ -2478,7 +2478,7 @@ impl Views for Main {
             }
             return Ok(());
         }
-        if matches!(view, database_workspace::DATABASE_VIEW | database_workspace::SCHEMA_VIEW) {
+        if view == database_workspace::DATABASE_VIEW {
             if let ViewEvent::Message(message) = event {
                 let result = self.artisan_workspace.runner(ctx).and_then(|runner| {
                     let index = ctx.project().and_then(|project| project.root().ok()).and_then(|root| self.indexes.get(&root));
