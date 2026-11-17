@@ -55,6 +55,18 @@ Twig template support for OpenIDEA, which has no Twig grammar of its own. It add
 - On filters, functions and tests that the project registers in PHP (outside Symfony projects).
 - On variables passed by `->render('x.twig', [..])`, `renderView` or `#[Template('x.twig')]`: it opens the controller keys. Those variables also complete.
 
+### Gutter icons
+
+Click a gutter icon to jump to a related template or block. With one target it opens directly; with several the IDE lists them to pick from.
+
+| Icon | Where | Lists |
+|---|---|---|
+| Twig logo | The `{% extends %}` line, or the first line of a template that extends nothing | The parent template, the templates that extend this one, and the templates that include, embed, import (`import`, `from`) or `use` it |
+| Overriding (up arrow) | A `{% block %}` line | The same block in the nearest parent template that defines it |
+| Overridden (down arrow) | A `{% block %}` line | The same block in every template that extends this one, directly or through another child |
+
+Names resolve like Go to Declaration, `@namespace/` names included. Links from other templates come from a background scan of the project's `.twig` files (outside `vendor/` and `node_modules/`), refreshed when files are saved or changed. Blocks inside an `{% embed %}` belong to the embedded template and get no icon.
+
 ### Template namespaces
 
 - `@namespace/name.twig` names resolve through the **Twig loader namespaces** setting.
@@ -142,7 +154,7 @@ Optional permissions are off until you allow them in Settings › Plugins › *T
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `events` | Running inspections and refreshing PHP extension caches when files are opened, saved or changed. | Caches refresh at activation and on save only. |
+| `events` | Running inspections and refreshing PHP extension and template caches when files are opened, saved or changed. | Caches refresh at activation and on save only. |
 | `editor.read` | **Twig: Toggle Comment** and the formatter read the current editor. | Toggle Comment and formatting don't work. |
 | `editor.write` | **Twig: Toggle Comment** edits the current editor. | Toggle Comment doesn't work. |
 | `project.write` | Applying **Preview Rename Static Twig Symbol…**. | You can preview a rename but not apply it. |
@@ -163,6 +175,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Rename says "The new name captures, collides with or disconnects a Twig source binding" | Choose another name. |
 | A template name doesn't open | Use a plain literal name. Map `@namespace` names in **Twig loader namespaces**. Concatenated or filtered names don't resolve. |
 | Route, `path()` or `trans` completion is missing | In a Symfony project, install the Symfony plugin. It owns that completion. |
+| A gutter icon misses a template that extends or includes this one | Save that template, or wait for the project scan to finish. Only literal names count, and only the first 1,000 `.twig` files are read. |
 | Named-argument completion is missing | It needs Twig 3.15 or newer. An older Twig version in `composer.lock` turns it off. |
 
 ## Limitations
@@ -213,6 +226,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 **Reviewed rename.** **Preview Rename Static Twig Symbol…** is a reviewed FileAction for local loop bindings/import aliases and admitted macro/block source families. It validates a new non-reserved identifier (letters/digits/underscore, leading letter/underscore, at most 64 UTF-8 bytes), rejects quotes/interpolation, and builds a virtual rewritten source graph before returning edits. If occurrence identity changes, a name collides, a reference is captured or a binding disconnects, it refuses. The preview lists exact file/line/column replacements and spellings left unchanged outside the admitted scope; cancelling returns no edits. Source text, project ownership, inventory membership and settings are rechecked after review, and the host applies the edit atomically with undo. Dynamic imports/members, ambiguous/duplicate names, shadowing assignments, malformed/control imports and unsupported trait/embed/namespaced block models are excluded; conventional cross-template resolution remains with Symfony's configured loaders. **Preview Rename Macro Parameter…** is a separate reviewed action that refuses shadowed, string, comment and ambiguous cases.
 
 **Formatter.** The PHAR's SHA-256 must be exactly `4d099a3be74ea41b0c8f1b2a7033c53a77e7d0dfba36725c2bbaaa19453ed2e5`. The adapter calls the PHAR's in-memory `Fixer::fixFile` (the CLI's `fix` writes files); it doesn't download or install anything. PHP runs with `-n`, 128 MiB and a two-second limit; no project configuration, application autoload, formatter cache or external file is read or written. Current text is sent over stdin and one full-document edit is returned and applied transactionally. Active source text, project, settings and all literal HTML/string/Twig tokens are rechecked before returning an edit, and any semantic change is refused. Unicode and CRLF are preserved. PHP/tool denial, wrong release bytes, malformed input, stale source or unexpected output returns an error with no edit.
+
+**Gutter icons.** The `line-markers` provider reads only the open document and, for its parents, at most 8 templates up the `extends` chain. Reverse links (children, includers, overriding blocks below) come from an in-memory map of literal template references and top-level blocks, built in 40 ms slices at activation and on file events (at most 1,000 `.twig` files of 128 KiB each, sharing the extension scan's 12 MiB budget), with a 10 ms slice before each gutter request. A file is linked when one of the names it uses resolves to this template under the current `default_path`, `twig.paths` and **Twig loader namespaces**. Descendants are followed 8 levels deep, up to 64 templates; each line lists at most 64 targets. Nothing is published to the document index, so markers never become Find Usages or Rename anchors.
 
 **Bounds.** Highlighting/outline/folding skip documents over 256 KiB; highlight output is capped at 16,384 tokens; structure is suppressed above 4,096 tags and limited to 2,048 symbols/folds. Diagnostics accept at most 128 KiB, 4,096 recognised tags and 16,384 tokens, returning at most 500 findings. Provider input and imported sources are bounded to 128 KiB; declaration/import parsing is suppressed above 4,096 recognised tags. PHP extension discovery and definition checks require same-project concrete source files under `src/`, `app/` or `lib/` (at most 128 KiB each); definition lookup observes at most 16 cached registrations. Typed PHP files-changed notifications process at most 256 events/paths and 100 ms before conservative cache clearing; without the events grant, activation/saved-event fallbacks apply. Review scans at most 64 owned sources / 2 MiB, 128 local import bindings, 16 affected files and 256 spans; the exact preview must fit 15 KiB; each source is at most 64 KiB, parent chains at most 8, and each graph callback caches at most 16 sources / 1 MiB. Exceeding a bound refuses rather than truncating. Malformed inputs use the existing recovery rules; this is not a complete Twig AST, type resolver or injected PHP/HTML/CSS/JavaScript parser.
 
