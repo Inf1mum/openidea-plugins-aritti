@@ -5,18 +5,18 @@ description = "Checks Maven, Gradle, npm, yarn, pnpm, Composer, PyPI and Cargo d
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Findings show where a dependency is declared, with Go to declaration and the chain for indirect ones; scans pyproject.toml, pylock.toml, uv.lock and poetry.lock, and PyPI and Maven results show whether your code imports the package; packages from private registries are listed as private and never sent to OSV.dev; fixes for Yarn, pnpm, npm, Gradle and PyPI version parsing, and quick fixes skip versions shared by several packages and ask you to save first; build auto-resolve asks once per project before running Maven or Gradle, and messages name the permission to allow. \
+Next release: Files with findings show a vulnerability count in the project tree, vulnerable lines show the advisory and fixed version, and Preview Upgrade opens a diff first; Maven and Gradle versions come from the dependency graph the IDE already resolved, and mvn or gradle runs after a scan only when that setting is on and the IDE has none; findings show where a dependency is declared, with Go to declaration and the chain for indirect ones, and a project without dependency files lists the supported ones; scans pyproject.toml, pylock.toml, uv.lock and poetry.lock, PyPI and Maven results show whether your code imports the package, and private-registry packages are never sent to OSV.dev; version parsing fixes for Yarn, pnpm, npm, Gradle and PyPI, quick fixes ask you to save first, palette row commands let you pick a dependency, and messages name the permission to allow. \
 0.3.0: new hub window, dependency resolution and import-level evidence. \
 0.2.0: plugin icon, audit rows, and quick fix that audits every library sharing the bumped version."""
 categories = ["linters", "tools"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-event:file-opened", "on-event:file-saved", "on-view:vulnerabilities"]
 
 [capabilities]
 required = ["project.read", "storage"]
-optional = ["project.write", "process:sbt", "process:osv-scanner-macho", "process:osv-scanner", "process:mvn", "process:gradle", "editor.read", "editor.write", "events", "vcs.read", "net:api.osv.dev"]
+optional = ["project.write", "process:sbt", "process:osv-scanner-macho", "process:osv-scanner", "process:mvn", "process:gradle", "editor.read", "editor.write", "events", "vcs.read", "net:api.osv.dev", "build.read"]
 
 [[contributes.providers]]
 kinds = ["code-actions"]
@@ -37,22 +37,22 @@ category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "preview-upgrade"
-title = "Dependency Audit: Preview upgrade in open declaration"
+title = "Dependency Audit: Preview Upgrade…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "open-declaration"
-title = "Dependency Audit: Go to Declaration"
+title = "Dependency Audit: Go to Declaration…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "open-advisory"
-title = "Dependency Audit: Open advisory on OSV.dev"
+title = "Dependency Audit: Open Advisory on OSV.dev…"
 category = "Dependency Audit"
 
 [[contributes.commands]]
 id = "ignore-finding"
-title = "Dependency Audit: Ignore this exact finding with reason"
+title = "Dependency Audit: Ignore Finding with Reason…"
 category = "Dependency Audit"
 
 [[contributes.commands]]

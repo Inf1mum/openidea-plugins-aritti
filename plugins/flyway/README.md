@@ -6,7 +6,7 @@ The plugin never connects to a database on its own. It reads migration file name
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer.
+- OpenIDEA with plugin API 1.10 or newer.
 - To run Flyway commands: the Flyway CLI (`flyway`) or Maven (`mvn`) with the Flyway plugin, on the `PATH` the IDE sees.
 - For the migrations list in the tool window: Flyway 10 or newer (it needs JSON output).
 - For the optional Hibernate schema generator: a JDK (`java`) and the pinned Hibernate runtime. See the [adapter setup](adapters/README.md).
@@ -55,8 +55,8 @@ The same files give the naming scheme: `sqlMigrationPrefix`, `undoSqlMigrationPr
 
 - **Flyway: New Migration…** opens a naming form in the tool window. Pick the directory, category (Versioned, Undo, Baseline, Repeatable), version, description and suffix.
   - Description words use ASCII letters and digits joined by underscores. The preview shows any change the plugin makes.
-  - **Prepare editor action** checks the plan without writing a file.
-  - Then press ⌥⏎ in a project SQL or Flyway config file and choose **Create Flyway migration from prepared form…**. Confirm the target and content. The file is created in one undoable step and never overwrites an existing file.
+  - **Prepare…** checks the plan without writing a file. It opens the newest migration in the target folder.
+  - Then press ⌥⏎ in that file (or any project SQL or Flyway config file) and choose **Create Flyway migration from prepared form…**. Confirm the target and content. The file is created in one undoable step and never overwrites an existing file.
 - **Create Flyway SQL migration…** (⌥⏎ in the editor) is a shorter Versioned form: version, description and directory.
 - ⌥⏎ also offers Java and Kotlin migrations, and Java and SQL callbacks. You set the version, description, directory, package, events, class name and transaction handling.
 - **Flyway: Copy Next Migration Version** copies the next versioned prefix (`V3__`) and names the folder of the newest migration. Without the `clipboard` permission, the notification shows the name instead.
@@ -80,12 +80,14 @@ The **New** menu offers **Flyway SQL Migration**, **Flyway Java Migration**, **F
 
 **Flyway: Info**, **Flyway: Validate**, **Flyway: Migrate**, **Flyway: Repair** and **Flyway: Clean (Drops All Objects)…** run Flyway on your project.
 
-- Before launch, each command shows which project, runner and config files it will use.
+- Before launch, each command asks for confirmation. It leads with the effect (for example, Migrate may change the schema and data) and the target database, then the project, runner and config files it will use.
+- The target database comes from the project's Flyway config files, without credentials or URL parameters. It shows **UNKNOWN** when command-line arguments set the URL, several URLs are configured, or the URL can't be shown safely. The CLI or environment can still override it.
 - **Run Flyway commands with** picks `flyway` (the CLI, goal `info`) or `mvn` (goal `flyway:info`).
 - **Extra arguments** are added after the goal, split on spaces, for example `-environment=dev`.
 - **Clean** warns that it drops objects and always asks for confirmation. Flyway's own `cleanDisabled` setting still applies.
 - By default (**terminal** mode), Info and Validate use the IDE's Run, and the other commands open a terminal.
 - In **managed** mode, the output appears in the **Command Output** tab instead. See [Managed mode](#managed-mode).
+- In managed mode, a successful Migrate, Repair or Clean shows a notification with a **Refresh Info** button.
 - Running a program needs `process:flyway` or `process:mvn`. A notification asks you to allow it.
 
 The Run menu also offers **Flyway: info** and **Flyway: validate** for a `flyway.toml` or `flyway.conf` in the project root or in `conf/`. They follow **Run Flyway commands with**, run from the project root and support Stop and Rerun. They disappear when **Extra arguments** is set, so credentials are not saved in Run configurations. Migrate, Clean and Repair are never Run configurations: you review them each time.
@@ -103,6 +105,12 @@ The **Flyway** tab lists migrations grouped by status.
 - **Filter…** searches the rows. **Clear** removes the filter. Filters belong to the current project.
 - **More…** opens the other review and CLI actions.
 - The list is cached and shows how old it is. Changing a config or migration file clears it.
+
+After Info, migration files in the project tree show a short note with their state: `applied 2026-11-10`, `pending`, `failed` or `outdated`. The notes disappear when the Info result goes stale.
+
+### See the target database
+
+When the project has a Flyway config file (`flyway.toml` or `flyway.conf`), the status bar shows the target database from it, for example **Flyway: db.example:5432/app**. It shows just **Flyway** when the target is unknown. Click it, or run **Flyway: Show Migrations**, to open the **Flyway** tab.
 
 ### Complete placeholders and config keys
 
@@ -155,6 +163,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Flyway**; bind keys 
 | **Flyway: Repair** | Runs `flyway repair`. |
 | **Flyway: Clean (Drops All Objects)…** | Runs `flyway clean` after confirmation. Drops all objects in the target schemas. |
 | **Flyway: Refresh Status** | Reads new output from a command running in managed mode. |
+| **Flyway: Show Migrations** | Opens the **Flyway** tab of the tool window. |
 | **Flyway: Cancel Command** | Stops the command running in managed mode. |
 | **Flyway: Review Local Comparison Report…** | Opens a `diffText` JSON report for review. |
 | **Flyway: Generate Offline Hibernate Schema SQL…** | Builds SQL from compiled Hibernate entities. |
@@ -229,7 +238,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 
 - Before launch, the review records the invoking project, approved runner, option-token keys and observed source paths. All argv and config values are hidden.
 - Sources reviewed: four conventional Flyway config files, project-local `flyway.user.toml` overlays, up to 16 explicit owned `-configFiles=` (CLI) or `-Dflyway.configFiles=` (Maven) paths, and up to 32 discovered Spring application configs (64 KiB each). They are rechecked after confirmation.
-- The effective database target is shown as **UNKNOWN**. The CLI still resolves the effective configuration, environment and target.
+- The target database is a hint read from `flyway.url` or `[environments.*] url` in the project's Flyway config files. Only a single plain PostgreSQL, MySQL or MariaDB JDBC URL is shown, as host and database; anything else is **UNKNOWN**. The CLI still resolves the effective configuration, environment and target.
 - There is no unscoped "run twice" fallback for Clean.
 - Native Run configurations (API 1.4) cover Info and Validate only. They use the owning project root as working directory. Custom `arguments` withdraw them.
 

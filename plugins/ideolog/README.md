@@ -4,7 +4,7 @@ A log viewer. It detects the log format, colours each event by level, folds mult
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - The log must be inside the open project for navigation, snapshots and marks.
 - Optional: Java 17 or later on the `PATH` for **Ideolog: Capture JVM Regex and Date Observations** and **Ideolog: Open Live Log Tail**.
 - No accounts or network access.
@@ -26,6 +26,7 @@ A log viewer. It detects the log format, colours each event by level, folds mult
 - Multi-line events such as stack traces fold.
 - The structure view lists errors and warnings.
 - The status bar names the format (`Log: IntelliJ IDEA` or `Log: plain text`). Click it to open the patterns view.
+- On a large log, the status bar adds how much is coloured: `(first 1200 lines highlighted)` or `(too large to highlight)`. Over 512 KiB, its tooltip says folding, outline and stack-frame links are off.
 
 ### Spot pauses
 
@@ -38,6 +39,19 @@ Set **Mark time gaps (seconds)**. An event that comes at least that many seconds
 - **Ideolog: Extend Log Selection** grows the selection from a field to its line, its event and the whole document.
 
 An exception is an event whose text names an exception, or a Python traceback.
+
+### See log levels beside the editor
+
+The **Log Levels** panel sits beside each log editor (needs `editor.read`). It shows:
+
+- The detected format, and a **Formats & Highlighting** link to the patterns view.
+- How many **Errors**, **Warnings**, **Exceptions**, **Info**, **Debug**, **Trace** and **All entries** the log has. A level the format can't write has no row: syslog finds only errors and warnings in the message, and Python `logging` has no trace level.
+- Up and down buttons on each row to go to the previous or next one. They move the caret of the focused log, so click in the log first.
+- **Show level** and **Filter in snapshot**: capture the focused log into the **Log Snapshot** table showing only that level. The editor can't fold or hide entries for a plugin, so the filter lives in the table.
+
+Levels are read from the format's level column. `NOTICE` and `CONFIG` count as info, `FINE` as debug, `FINER`, `FINEST` and `VERBOSE` as trace. Single letters (`I`, `D`, `T`, `V`) count only in a format's own level column, as in Logcat, never as the first word of a plain log.
+
+On a large log, counts cover the first lines only and show a `+`. The note under the table says how many lines were counted; the buttons still search the whole log.
 
 ### Jump to source
 
@@ -71,13 +85,14 @@ Open logs pick up a change when you edit or reopen them.
 ### Highlight text you're looking for
 
 - Select text on one line, right-click and choose **Ideolog: Highlight Selection**. It becomes an escaped highlighting rule.
-- **Ideolog: Remove Custom Highlightings** deletes all of them after you confirm.
+- **Ideolog: Remove Custom Highlightings** deletes all of them after you confirm. The confirmation gives the count; custom log formats are kept.
 
 ### Review a log as a table
 
 1. Focus a log and run **Ideolog: Capture Active Log Snapshot**.
 2. The **Log Snapshot** tab opens in the bottom panel. Each event is one row with line, level, timestamp, category and message.
 3. Use **Previous** / **Next Events** to page. Activate a row to open that event in the log.
+4. Pick a level button (**All**, **Errors**, **Warnings**, **Info**, **Debug**, **Trace**, each with its count) to list only those events.
 
 **Ideolog: Open Captured Log Snapshot** reopens the last snapshot. A snapshot doesn't update; capture again after the log changes.
 
@@ -106,7 +121,7 @@ The captured timestamps, levels and categories then also colour the built-in **L
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Ideolog**; bind keys in Settings › Keymap.
+Find them in Search Everywhere › Actions (⇧⇧) under **Ideolog**; bind keys in Settings › Keymap. **Jump to Source**, the **Go to** commands and **Highlight Selection** show only while a **Log** or **Log (Ideolog)** editor has focus.
 
 | Command | What it does | Shortcut |
 |---|---|---|
@@ -118,8 +133,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ideolog**; bind keys
 | **Ideolog: Go to Previous Entry** | Moves to the previous event. | none |
 | **Ideolog: Extend Log Selection** | Grows the selection: field, line, event, document. | none |
 | **Ideolog: Custom Formats and Highlighting** | Opens the patterns view. | none |
-| **Ideolog: Highlight Selection** | Adds the selected text as a highlighting rule. Also in the editor context menu. | none |
-| **Ideolog: Remove Custom Highlightings** | Asks for confirmation, then deletes all highlighting rules. | none |
+| **Ideolog: Highlight Selection** | Adds the selected text as a highlighting rule. Also in the editor context menu of log files. | none |
+| **Ideolog: Remove Custom Highlightings** | Asks for confirmation, then deletes all highlighting rules. Custom log formats are kept. | none |
 | **Ideolog: Capture Active Log Snapshot** | Captures the focused log into the **Log Snapshot** tab. | none |
 | **Ideolog: Open Captured Log Snapshot** | Reopens the last snapshot. | none |
 | **Ideolog: Mark Current Log Source** | Paints errors, warnings and gaps in the built-in **Log** editor. | none |
@@ -145,7 +160,7 @@ Every permission is optional. Colouring works with none. Allow them in Settings 
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `editor.read` | Reading the log and caret for navigation, snapshots, marks and **Highlight Selection**. | Those commands fail. |
+| `editor.read` | Reading the log and caret for navigation, snapshots, marks, **Highlight Selection** and the **Log Levels** panel. | Those commands fail and the panel doesn't show. |
 | `project.read` | Opening source files, finding the source for **Jump to Source**, snapshots and marks. | Navigation and snapshots fail. |
 | `events` | Following the focused editor for the status bar item and refreshing marks and caches. | The status bar item doesn't update. |
 | `storage` | Saving patterns from the patterns view. | You can't save patterns there; the Settings text still works. |
@@ -166,6 +181,11 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Pattern not added: …" | Fix the reason shown, then try again. |
 | A change in the patterns view won't save | Allow `storage`. If another window changed the patterns, reopen the view and edit again. |
 | "Focus a Log editor, then Capture Active Log Snapshot." | Click into the log editor first. |
+| "This log is … KiB; snapshots are limited to 256 KiB and 8192 lines. Use the log editor for larger files." | Read the log in the editor, or capture a smaller excerpt. |
+| "Click in this log first: the panel moves the caret of the focused editor." | Click in the log, then use the **Log Levels** buttons again. |
+| "Click in this log first: the snapshot captures the focused editor." | Click in the log, then **Filter in snapshot** again. |
+| Ideolog commands are missing from Search Everywhere | Navigation and **Highlight Selection** show only while a log editor has focus. |
+| The status bar says `(too large to highlight)` or `(first … lines highlighted)` | Colouring stops at the first very long line or after 512 KiB. The **Go to** commands and **Log Levels** buttons still search the whole log. |
 | "Snapshot source changed; capture again before following a row." | Run **Ideolog: Capture Active Log Snapshot** again. |
 | "Add or import a custom Ideolog LogParsingPattern first. …" | JVM capture needs a custom format. Add one in the patterns view or Settings. |
 | "JVM observations support a nonempty log up to 64KiB/512 lines, each at most 4096 bytes." | Use a smaller log or an excerpt. |
@@ -193,6 +213,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 - Colours come from the theme's syntax colours (keyword, tag, string, number…), which approximate red, orange and green in the default schemes. Warnings and marked time gaps use `enum-member` because LSP semantic tokens have no `tag` or `constant` kind.
 - Syslog levels come from keywords.
+- Debug and trace keep the editor colour, and the structure view lists only errors and warnings; the **Log Levels** panel counts every level.
 - Numeric custom-level identifiers stay intact: `error2` is unclassified rather than normalized to `ERROR`.
 
 ### Time gaps
@@ -241,7 +262,7 @@ Zones are ignored. Supported ISO `Z`, `±HH:MM` and `±HHMM` offsets are normali
 ### Log Snapshot
 
 - Capturing needs `editor.read`/`project.read` and an existing file in the invoking owning project. No outside-project grant, process or network is used. Rendering never rereads the source or starts capture.
-- The snapshot reuses current format detection, event grouping, timestamp/category extraction and Error/Warning classification. Literal captured levels such as INFO/DEBUG/custom names are kept; otherwise severity is Error/Warning/Unclassified.
+- The snapshot reuses current format detection, event grouping, timestamp/category extraction and level classification. Literal captured levels such as INFO/DEBUG/custom names are kept; otherwise the level is Error/Warning/Info/Debug/Trace/Unclassified. The level filter counts and pages the kept events only.
 - Messages are limited to 512 characters, timestamp and category to 128 each. Multiline events stay one row. Row navigation is separate from Jump to Source and doesn't invent resolved source links.
 - Viewport requests page at most 100 rows (default 50), keeping position across tab switches. Row activation is restricted to the issued page and revalidates the current project and source text before opening.
 - A capture accepts at most 256 KiB of current text and 8192 physical lines, keeps the first 2048 parsed events, and reports kept versus parsed count, source version, age and format. Oversized files or buffers are refused, not presented as complete.

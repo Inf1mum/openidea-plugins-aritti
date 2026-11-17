@@ -6,12 +6,12 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ignore"
 license = "MIT"
 change-notes = """\
-Next release: New Ignore File creates the file directly, and template pickers list recently used templates first; whitelist patterns such as `*` with `!*/` get the right Ignored status, and an unclosed [ matches nothing, as in Git; patterns with many wildcards and large ignore files no longer slow the editor down, and path completion finds folders in large projects; unused-entry hints for non-ASCII patterns, problems show once instead of twice, and .hgignore no longer calls the same glob and regexp pattern a duplicate; one name per action and clearer messages. \
+Next release: The Git scan commands have plainer names. New Ignore File creates the file directly, and template pickers list recently used templates first; whitelist patterns such as `*` with `!*/` get the right Ignored status, and an unclosed [ matches nothing, as in Git; patterns with many wildcards and large ignore files no longer slow the editor down, and path completion finds folders in large projects; unused-entry hints for non-ASCII patterns, problems show once instead of twice, and .hgignore no longer calls the same glob and regexp pattern a duplicate; one name per action and clearer messages. \
 0.3.0: consolidated panels and more complete duplicate and unused-entry checks. \
 0.2.0: plugin icon and expanded checks."""
 categories = ["vcs", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:templates", "on-event:file-opened", "on-event:file-saved", "on-event:editor-focused"]
 
@@ -230,15 +230,15 @@ command = "preferences"
 
 [[contributes.commands]]
 id = "git-inventory-start"
-title = "Ignore: Start Git Ignored-File Observations (Asks First)…"
+title = "Ignore: Scan Git for Ignored Files…"
 category = "Ignore"
 [[contributes.commands]]
 id = "git-inventory-review"
-title = "Ignore: Review Cached Partial Git Observations"
+title = "Ignore: Show Last Git Scan of Ignored Files"
 category = "Ignore"
 [[contributes.commands]]
 id = "git-inventory-clear"
-title = "Ignore: Clear This Project’s Cached Git Observations"
+title = "Ignore: Clear Last Git Scan of Ignored Files"
 category = "Ignore"
 
 
@@ -254,11 +254,11 @@ iconDark = "icons/directory-pattern_dark.svg"
 
 [[contributes.commands]]
 id = "publish-git-sample-hints"
-title = "Ignore: Publish Cached Partial Git Sample Hints"
+title = "Ignore: Mark Ignored Files from Last Git Scan"
 category = "Ignore"
 [[contributes.commands]]
 id = "clear-git-sample-hints"
-title = "Ignore: Clear Partial Git Sample Hints"
+title = "Ignore: Clear Ignored-File Marks"
 category = "Ignore"
 
 [[contributes.commands]]

@@ -5,12 +5,12 @@ description = "Flyway database migrations in OpenIDEA. Checks migration file nam
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Migration browser with filter and actions lists local migrations and their problems before Info runs, and shows a finished Info right away; table names in migrations link to Kotlin and Java entities, also past 128 migrations; long Hibernate schema runs show progress, saving no longer reruns java, and Start comparison works with an installed Flyway CLI; projects without Flyway are no longer scanned or offered create actions, and hiding secrets in output no longer garbles ordinary words; placeholder markers have their own icon, with clearer permission messages, shorter setting titles and consistent command names. \
+Next release: Migration files show their Info state in the project tree, the status bar shows the target database, background runs offer Refresh Info, and Prepare opens the newest migration; run confirmations lead with the effect and target database, and a blocked runner permission shows how to allow it; the migration browser lists local migrations and their problems before Info runs and shows a finished Info right away; table names link to Kotlin and Java entities, long Hibernate schema runs show progress, and Start comparison works with an installed Flyway CLI; projects without Flyway are not scanned, hidden secrets no longer garble output, and placeholder markers have their own icon. \
 0.3.0: Kotlin table mappings, configured placeholder delimiters and a consolidated window. \
 0.2.0: plugin icon and expanded migration checks."""
 categories = ["frameworks", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-view:migrations"]
 
@@ -123,6 +123,11 @@ schema = "settings.schema.json"
 [[contributes.commands]]
 id = "status"
 title = "Flyway: Refresh Status"
+category = "Flyway"
+
+[[contributes.commands]]
+id = "show-migrations"
+title = "Flyway: Show Migrations"
 category = "Flyway"
 
 [[contributes.commands]]

@@ -52,11 +52,22 @@ impl Review {
         Ok(Self { project, root, defaults, args })
     }
     fn body(&self, effect: &str) -> String {
-        let config = self.defaults.as_ref().map_or_else(|| "Root liquibase.properties was not observed; ambient CLI configuration determines the target.".into(), |text| format!(
-            "Root source: liquibase.properties\nReviewed project/editor text SHA256: {}\nLiteral changelog hint: {}\nLiteral JDBC target hint: {}",
-            digest(text), hint(text, &["changeLogFile", "liquibase.command.changelogFile", "liquibase.command.changeLogFile"], false), hint(text, &["url", "liquibase.command.url"], true)
-        ));
-        format!("{effect}\n\nOwning project / requested terminal working directory (JSON): {}\nProgram: liquibase (host-approved executable)\nExact argv (JSON): {}\n\n{config}\n\nEffective database, contexts and labels: UNRESOLVED. These are source hints, not resolved CLI target identity. Unsaved editor text can differ from what the CLI reads on disk; environment, JVM properties, defaults, extensions and configuration precedence may override it. Browser root/config selection does not configure this command. No database credentials are read through secrets or displayed.\n\nThis starts the existing database-writing terminal command with the argv above. Review the CLI environment/target before accepting. Run it?", serde_json::to_string(&self.root).expect("root"), serde_json::to_string(&self.args).expect("args"))
+        let (target, config) = self.defaults.as_ref().map_or_else(
+            || ("UNRESOLVED (no root liquibase.properties; the CLI's own configuration decides)".to_owned(), String::new()),
+            |text| (
+                hint(text, &["url", "liquibase.command.url"], true),
+                format!(
+                    "Changelog (from liquibase.properties): {}\nReviewed liquibase.properties SHA256: {}\n\n",
+                    hint(text, &["changeLogFile", "liquibase.command.changelogFile", "liquibase.command.changeLogFile"], false),
+                    digest(text)
+                ),
+            ),
+        );
+        format!(
+            "{effect}\n\nTarget database (from liquibase.properties): {target}\nCommand: liquibase {}\nProject (terminal working directory): {}\n\n{config}Unsaved editor text, the environment, JVM properties, defaults and extensions can override these hints. Contexts and labels: UNRESOLVED. The browser's source selection does not configure this command. Database credentials are never read or shown.\n\nRun it?",
+            serde_json::to_string(&self.args).expect("args"),
+            serde_json::to_string(&self.root).expect("root")
+        )
     }
     fn unchanged(&self, ctx: &Invocation) -> Result<(), Error> {
         if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(self.root.as_str())
@@ -67,11 +78,32 @@ impl Review {
         Ok(())
     }
 }
-pub(crate) fn run(ctx: &Invocation, args: Vec<String>, title: &str, effect: &str) -> Result<(), Error> {
+/// What the user confirmed: the redacted source hints, never the effective database.
+pub(crate) struct Reviewed {
+    pub(crate) root: String,
+    pub(crate) properties: Option<String>,
+    /// Redacted JDBC target, `None` when unresolved.
+    pub(crate) target: Option<String>,
+    /// The changelog path from liquibase.properties, `None` when unresolved.
+    pub(crate) changelog: Option<String>,
+}
+pub(crate) fn properties(project: &Project) -> Result<Option<String>, Error> { defaults(project) }
+/// Shows the review and asks; `None` when declined. Nothing runs before this returns `Some`.
+pub(crate) fn review(ctx: &Invocation, args: Vec<String>, title: &str, effect: &str) -> Result<Option<Reviewed>, Error> {
     let review = Review::capture(ctx, args)?;
-    if confirmed(title, &review.body(effect))? {
-        review.unchanged(ctx)?;
-        run_liquibase(review.args)?;
+    if !confirmed(title, &review.body(effect))? { return Ok(None); }
+    review.unchanged(ctx)?;
+    let resolved = |names: &[&str], connection: bool| review.defaults.as_deref().map(|text| hint(text, names, connection)).filter(|value| !value.starts_with("UNRESOLVED"));
+    Ok(Some(Reviewed {
+        target: resolved(&["url", "liquibase.command.url"], true).map(|value| value.trim_end_matches(" (parameters omitted)").to_owned()),
+        changelog: resolved(&["changeLogFile", "liquibase.command.changelogFile", "liquibase.command.changeLogFile"], false),
+        root: review.root,
+        properties: review.defaults,
+    }))
+}
+pub(crate) fn run(ctx: &Invocation, args: Vec<String>, title: &str, effect: &str) -> Result<(), Error> {
+    if review(ctx, args.clone(), title, effect)?.is_some() {
+        run_liquibase(args)?;
     }
     Ok(())
 }
@@ -86,6 +118,8 @@ mod tests {
         let review = Review::capture(&host.invocation(), vec!["rollback-count".into(), "3".into()]).unwrap();
         let body = review.body("Roll back3");
         for expected in ["/project", "[\"rollback-count\",\"3\"]", "db/master.yaml", "jdbc:postgresql://db.example:5432/app", "parameters omitted", "UNRESOLVED", "SHA256", "Unsaved editor text"] { assert!(body.contains(expected), "{body}"); }
+        assert!(body.starts_with("Roll back3\n\nTarget database (from liquibase.properties): jdbc:postgresql://db.example:5432/app"), "{body}");
+        assert!(body.find("Command: liquibase").unwrap() < body.find("Unsaved editor text").unwrap());
         for secret in ["private", "password=", "TOKEN_439", "?user="] { assert!(!body.contains(secret), "{secret}: {body}"); }
     }
     #[test]

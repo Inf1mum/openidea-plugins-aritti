@@ -1,9 +1,10 @@
 //! The Dev Containers view: the containers of the project, found by the label the CLI puts on them.
 
 use openidea_plugin::views::{Body, Button, ListItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Error, Invocation, NotificationLevel, Project, host};
+use openidea_plugin::{Error, Invocation, NotificationAction, NotificationLevel, Project, host};
 
-use crate::{LOGIN_SHELL, Main};
+use crate::{LOGIN_SHELL, Main, RUN_TARGET_REMOVED};
+use openidea_plugin::Plugin;
 
 pub struct Container {
     pub id: String,
@@ -72,18 +73,21 @@ impl Views for Main {
                 self.selected = None;
             }
             let selected = self.selected.clone();
+            let empty = containers.is_empty();
             let toolbar = |view: View, running_ids: &std::collections::BTreeSet<String>| {
                 let selected = selected.as_ref();
                 let running = selected.is_some_and(|id| running_ids.contains(id));
                 view.button(Button::new("refresh", "Refresh").icon("refresh"))
+                    .button(Button::new("up", "Start Container…").icon("run").enabled(empty))
                     .button(Button::new("shell", "Open Shell").icon("terminal").enabled(running))
                     .button(Button::new("stop", "Stop").icon("stop").enabled(running))
                     .button(Button::new("start", "Start").icon("run").enabled(selected.is_some() && !running))
+                    .button(Button::new("rebuild", "Rebuild Container…").icon("rerun"))
                     .button(Button::new("configuration", "Choose Configuration").icon("settings"))
             };
-            if containers.is_empty() {
+            if empty {
                 self.running.clear();
-                return Ok(toolbar(status_view("No dev container for this project. Run Dev Container: Start Container."), &self.running));
+                return Ok(toolbar(status_view("No dev container for this project yet. Start Container… creates one from the configuration."), &self.running));
             }
 
             let running: std::collections::BTreeSet<String> = containers.iter().filter(|c| c.running).map(|c| c.id.clone()).collect();
@@ -134,6 +138,10 @@ impl Views for Main {
                 }
             }
             ViewEvent::Button(button) if button == "refresh" => host::refresh_view(view),
+            ViewEvent::Button(button) if matches!(button.as_str(), "up" | "rebuild") => {
+                self.run_command(&button, ctx, None)?;
+                host::refresh_view(view);
+            }
             ViewEvent::Button(button) if button == "configuration" => {
                 let project = self.bind_project(ctx)?;
                 if let Some(path) = crate::configs::choose(&project, true)? {
@@ -145,11 +153,7 @@ impl Views for Main {
             }
             ViewEvent::Button(button) if button == "shell" => {
                 if let Some(id) = self.selected.clone() {
-                    let (_, container) = self.container(ctx, &id)?;
-                    if !container.running {
-                        return Err("This container is stopped. Refresh Services before opening a shell.".into());
-                    }
-                    open_shell(&container.id)?;
+                    self.shell_into(ctx, &id)?;
                 }
             }
             ViewEvent::Button(button) if button == "start" => {
@@ -168,12 +172,12 @@ impl Views for Main {
                 self.run_target.clear_for(&project.root()?);
                 host::unregister_run_target(&project, crate::run_target::ID);
                 host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
-                let stopped = project.run_process("docker", &["stop".to_owned(), container.id], None)?;
+                let stopped = project.run_process("docker", &["stop".to_owned(), container.id.clone()], None)?;
                 if stopped.status != Some(0) {
                     return Err(format!("docker stop failed: {}", stopped.stderr.trim()).into());
                 }
                 self.selected = None;
-                host::notify(NotificationLevel::Info, "Dev Container", "Stopped the container.");
+                host::notify(NotificationLevel::Info, "Dev Container", &format!("Stopped container {}. {RUN_TARGET_REMOVED}", container.name));
                 host::refresh_view(view);
             }
             _ => {}
@@ -233,16 +237,29 @@ impl Main {
         if started.status != Some(0) {
             return Err(format!("docker start failed: {}", started.stderr.trim()).into());
         }
-        host::notify(NotificationLevel::Info, "Dev Container", "Started the container.");
+        let open_shell = NotificationAction::new("Open Shell", "shell").argument(id);
+        if host::notify_with_actions(NotificationLevel::Info, "Dev Container", "Started the container.", &[open_shell]).is_err() {
+            host::notify(NotificationLevel::Info, "Dev Container", "Started the container.");
+        }
         host::refresh_view(view);
         Ok(())
     }
+
+    /// Opens a shell in one of this project's running containers, rechecked by id.
+    pub(crate) fn shell_into(&mut self, ctx: &Invocation, id: &str) -> Result<(), Error> {
+        let (_, container) = self.container(ctx, id)?;
+        if !container.running {
+            return Err("This container is stopped. Refresh Services before opening a shell.".into());
+        }
+        open_shell(&container.id)
+    }
 }
 
+/// One terminal per container: opening it again focuses the running shell.
 fn open_shell(id: &str) -> Result<(), Error> {
-    let args = ["exec", "-it", id, "sh", "-c", LOGIN_SHELL].map(str::to_owned);
+    let command = host::Command::new("docker").args(["exec", "-it", id, "sh", "-c", LOGIN_SHELL]);
 
-    host::open_terminal("Dev Container: Shell", "docker", &args)
+    host::open_terminal_session(&format!("docker-shell-{id}"), "Dev Container: Shell", &command).map(drop)
 }
 
 impl openidea_plugin::details::Details for Main {
@@ -330,6 +347,24 @@ mod services_tests {
     fn no_mutations(host: &MockHost) {
         assert!(host.terminals().is_empty());
         assert!(host.process_runs().iter().all(|r| r.args[0] == "ps"));
+    }
+
+    #[test]
+    fn empty_inventory_offers_start_and_rebuild() {
+        let (host, mode) = mutable_host();
+        mode.set(1);
+        let view = Main::default().render("containers", None, &host.invocation()).unwrap();
+        let ids: Vec<_> = view.toolbar.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["refresh", "up", "rebuild", "configuration"]);
+    }
+
+    #[test]
+    fn stopping_names_the_container_and_the_removed_run_target() {
+        let (host, _) = mutable_host();
+        let mut plugin = Main::default();
+        plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+        plugin.handle("containers", ViewEvent::Button("stop".into()), &host.invocation()).unwrap();
+        assert_eq!(host.notifications()[0].body, format!("Stopped container app. {}", crate::RUN_TARGET_REMOVED));
     }
 
     #[test]

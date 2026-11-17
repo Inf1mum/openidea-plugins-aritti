@@ -6,8 +6,9 @@ This plugin replaces `aritti.spring-batch` and `aritti.spring-modulith`. They ar
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Java, Kotlin or XML Spring project. Each part turns on when the root build file lists its dependency: `spring-integration`, `spring-batch` or `spring-modulith`.
+- For the **Spring Structure** window: a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)` at the project root.
 - Only for the optional Batch run commands: a local `java` (Java 17 or newer) and the `process:java` permission.
 
 ## Quick start
@@ -102,7 +103,7 @@ For teams that want to start, stop or inspect jobs from the IDE through an exact
 2. Fill **Batch classpath** (one project-relative directory or JAR per line), the context class and its source file.
 3. Allow `process:java`.
 4. Run **Spring Batch: Validate Configured CLI Profile**.
-5. Run **Spring Batch: Run Job Operation**. Runner supports start, next, stop, restart and abandon. Operator also supports recover.
+5. Run **Spring Batch: Run Job Operation…**. Runner supports start, next, stop, restart and abandon. Operator also supports recover.
 
 Then use **Spring Batch: Poll CLI Output** to read output, **Spring Batch: Cancel CLI Process** to end a local process, and **Spring Batch: Inspect Execution Repository State** to look up one execution ID.
 
@@ -128,7 +129,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**
 | **Spring Batch: Find Step or Decision Usages in This Document** | Lists the declaration and references of the step or decision under the caret. |
 | **Spring Batch: Generate Job Launch Command…** | Builds a reviewed `java -jar` launch command and opens it in a terminal. |
 | **Spring Batch: Validate Configured CLI Profile** | Checks the configured profile, classpath and context without running your code. |
-| **Spring Batch: Run Job Operation** | Shows and then runs one job operation (start, next, stop, restart, abandon, recover). |
+| **Spring Batch: Run Job Operation…** | Shows and then runs one job operation (start, next, stop, restart, abandon, recover). |
 | **Spring Batch: Poll CLI Output** | Shows output from the CLI processes this plugin started. |
 | **Spring Batch: Cancel CLI Process** | Ends one local CLI process. It doesn't send a Batch stop. |
 | **Spring Batch: Inspect Execution Repository State** | Looks up one execution ID through the configured context's repository. |
@@ -169,6 +170,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | Windows or completions show twice | Uninstall `aritti.spring-batch` and `aritti.spring-modulith`. |
+| The **Spring Structure** window is missing | It appears only when the project root has a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. Open the folder that holds the build file. |
 | A section or the editor support stays idle | Add the dependency (`spring-integration`, `spring-batch`, `spring-modulith`) to the root build file. |
 | "Automatic source updates unavailable; use Refresh after source changes" | Allow `events`, or click **Refresh** after you edit files. |
 | No warnings for unused channels or unknown beans | They appear only after the first full project scan. Open **Spring Structure** or click **Refresh**. |

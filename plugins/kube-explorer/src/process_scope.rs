@@ -196,7 +196,7 @@ mod tests {
         h.open_editor("/project/charts/app/templates/pod.yaml","yaml","apiVersion: v1\nkind: Pod\nmetadata:\n  name: web\n  namespace: shop\n",&[]);
         host::storage::set("helm-values","values/relative.yaml").unwrap();
         for id in ["apply","dry-run","diff","kustomize-render","kustomize-apply","helm-template","helm-lint","helm-dependency-update","reload-from-cluster"] {
-            h.answer_next_prompt(Some(&["ok"]));
+            if matches!(id,"apply"|"kustomize-apply") {h.answer_next_prompt(Some(&["apply"]));}
             kube.run_command(id,&h.invocation(),None).unwrap();assert!(kube.process_scope.root().is_none());
         }
         assert!(h.process_runs().iter().all(|r|r.cwd.as_deref()==Some("/project")),"{:?}",h.process_runs());

@@ -4,8 +4,8 @@ Start a new Spring Boot project from a tool window, or add starters to an existi
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
-- A web browser for **Generate Project** and **Explore in Browser**.
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
+- A web browser for **Download ZIP** and **Explore in Browser**.
 - Optional tools:
   - Spring Boot CLI (`spring`) on the `PATH`, for **Generate with Spring Boot CLI**.
   - `python3` 3.8 or newer, for **Generate and Open…**.
@@ -17,7 +17,7 @@ Start a new Spring Boot project from a tool window, or add starters to an existi
 2. Allow `net:start.spring.io` in Settings › Plugins › Spring Initializr Launcher.
 3. Open the **Spring Initializr** tool window (right).
 4. Fill in group and artifact. Click **Dependencies (N)** and tick the starters you want.
-5. Click **Generate Project**. Your browser downloads the project ZIP.
+5. Click **Generate and Open…**, choose a parent folder, review the files and confirm. The new project opens. Without `process:python3` (or with a server other than start.spring.io), the button reads **Download ZIP** and your browser downloads the project ZIP instead.
 
 ## Features
 
@@ -48,13 +48,15 @@ The catalogue is only loaded from start.spring.io. For other servers, type the i
 
 ### Generate the project
 
-The **Generate Project** button is always on the toolbar. **More Actions…** lists the other ways to generate:
+The toolbar shows one main button. It is **Generate and Open…** when the server is start.spring.io and both `net:start.spring.io` and `process:python3` are allowed; otherwise it is **Download ZIP**. **More Actions…** lists the other ways to generate:
 
-- **Generate Project**: your browser downloads the ZIP. You extract it yourself. Works without an open project.
+- **Download ZIP**: your browser downloads the ZIP. You extract it yourself. Works without an open project.
 - **Explore in Browser**: opens the server's web page with the same options.
 - **Generate with Spring Boot CLI**: runs `spring init` in an IDE terminal. It creates a folder named after the artifact in the open project. Needs `process:spring`. Without it, the browser download runs instead.
 - **Review and Open Generated Folder…**: after the CLI finishes, shows every generated file and opens the folder as a project once you confirm.
-- **Generate and Open…** (also **Spring Initializr: Generate and Open…**): downloads the ZIP from start.spring.io, shows the destination and file list, then extracts it with `python3` and opens it. The folder can be anywhere, including outside the project. Needs `process:python3`.
+- **Generate and Open…** (also **Spring Initializr: Generate and Open…**): asks for a parent folder, downloads the ZIP from start.spring.io, then shows the destination and file list in one confirmation before extracting it with `python3` and opening it. The folder can be anywhere, including outside the project. Without `net:start.spring.io` or `process:python3`, a notification says which is missing and the browser download runs instead.
+
+The status line says what the main button will do, or what's wrong with the form. An artifact must be a plain folder name (letters, digits, `.`, `_` or `-`, not starting with `.`); the generate buttons stay hidden until it is.
 
 The CLI section also has a managed run: **Review and run CLI…**, **Check status / output** and **Cancel CLI**.
 
@@ -79,7 +81,7 @@ Supported builds:
 
 For a small Maven/Java/Jar project created inside the current project:
 
-1. Run **Spring Initializr: Prepare Maven Source-only Import** (also in the **Tools** menu).
+1. Run **Spring Initializr: Prepare Maven Project Import…** (also in the **Tools** menu).
 2. Choose a parent folder inside the project. The new project goes into a child folder named after the artifact.
 3. Press ⌥⏎ › **Preview Import Maven Sources…** to see every file and its content, then confirm.
 4. Run **Spring Initializr: Open Source Folder** to open it in a new window.
@@ -95,7 +97,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Initializr**;
 | **Spring Initializr: Open start.spring.io** | Opens the start.spring.io site. |
 | **Spring Initializr: Generate and Open…** | Downloads, reviews, extracts and opens a complete project. |
 | **Spring Initializr: Prepare Add Spring Boot Starters** | Loads starters for the open build file, ready for ⌥⏎ › **Preview Add Spring Boot Starters…**. Also in **Tools**. |
-| **Spring Initializr: Prepare Maven Source-only Import** | Downloads a Maven project into memory, ready for ⌥⏎ › **Preview Import Maven Sources…**. Also in **Tools**. |
+| **Spring Initializr: Prepare Maven Project Import…** | Downloads a Maven project into memory, ready for ⌥⏎ › **Preview Import Maven Sources…**. Also in **Tools**. |
 | **Spring Initializr: Open Source Folder** | Checks the imported files and opens the folder in a new window. Also in **Tools**. |
 
 ## Permissions
@@ -104,10 +106,10 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `net:start.spring.io` | The dependency catalogue, Boot versions, Add Starters, source-only import and **Generate and Open…**. | The tree shows a message. Type dependency ids by hand. Browser generation still works. |
+| `net:start.spring.io` | The dependency catalogue, Boot versions, Add Starters, source-only import and **Generate and Open…**. | The tree shows a message. Type dependency ids by hand. **Generate and Open…** downloads in the browser instead. |
 | `project.read` | CLI generation, Add Starters and source-only import (checks the project and destination). | Those actions refuse. |
 | `process:spring` | **Generate with Spring Boot CLI**. | A notification says so and the browser download runs instead. |
-| `process:python3` | Extracting the ZIP for **Generate and Open…**. | That action fails. |
+| `process:python3` | Extracting the ZIP for **Generate and Open…**. | The main button is **Download ZIP**; **Generate and Open…** downloads in the browser instead. |
 | `editor.read` | Reading the open build file for **Prepare Add Spring Boot Starters**. | Add Starters can't start. |
 
 ## Troubleshooting
@@ -117,6 +119,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | The status line says what's missing | Fill in an `http(s)` server URL, a group and an artifact. |
+| "The artifact must be a plain folder name…" | Use only letters, digits, `.`, `_` or `-` in the artifact, not starting with `.`. |
+| "Generate and Open needs the … capability; downloading … in the browser instead." | Allow the named permission (`net:start.spring.io` or `process:python3`) to generate and open in the IDE. |
 | "No saved catalogue. Refresh to load the server choices." | Allow `net:start.spring.io`, then click **Refresh** in **Dependencies**. |
 | "Catalogue access is limited to https://start.spring.io; custom-server compatibility is unverified." | With a custom server, type dependency ids by hand. |
 | "Catalogue refresh failed: …" | Check your connection and `net:start.spring.io`. The previous catalogue stays. |
@@ -124,7 +128,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "compatibility range unverified" | The server's range couldn't be parsed. The server still decides at generation. |
 | "The Spring Boot CLI path needs the process:spring capability…" | Allow `process:spring` and install the Spring Boot CLI on the `PATH`. |
 | "CLI destination already exists…" | Change the artifact or remove the existing folder. |
-| "Project type … is not supported by this Spring Boot CLI adapter." | Use **Generate Project** for that build type. |
+| "Project type … is not supported by this Spring Boot CLI adapter." | Use **Download ZIP** for that build type. |
 | "A generation terminal is still active…" | Close the previous terminal, or click **Cancel CLI**. |
 | "Archive adapter refused or failed. No project was opened…" | Check `python3` (3.8+) is allowed. The staging folder is kept for review. |
 | "Load verified Initializr metadata first." | Run **Spring Initializr: Prepare Add Spring Boot Starters** again (the cache lasts 15 minutes). |
@@ -165,7 +169,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 ### Browser generation
 
-- **Generate Project** opens `<server>/starter.zip?…`. **Explore in Browser** opens `<server>/#!…`. Blank options are left out.
+- **Download ZIP** opens `<server>/starter.zip?…`. **Explore in Browser** opens `<server>/#!…`. Blank options are left out.
 
 ### Spring Boot CLI
 

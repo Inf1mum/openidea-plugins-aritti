@@ -6,12 +6,12 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/gitlab"
 license = "MIT"
 change-notes = """\
-Next release: Unresolved review threads get their own gutter icon, and Copy Link menu entries; asks before sending your GitLab token to a self-hosted server, again if the server changes, and before a fork checkout overwrites a local branch; draft and diff comments no longer fail on unused line numbers, and fixed crashes in .gitlab-ci.yml completion and on threads with no comments; links to branches with # or ? in their names work; row commands say what to select, with clearer permission messages and command names. \
+Next release: Merge request Details drops the five duplicate attribute buttons and moves secondary actions into a More… menu, says when you cannot merge, and a repository without a GitLab remote offers Share Project. Unresolved review threads get their own gutter icon, and Copy Link menu entries; asks before sending your GitLab token to a self-hosted server, again if the server changes, and before a fork checkout overwrites a local branch; draft and diff comments no longer fail on unused line numbers, and fixed crashes in .gitlab-ci.yml completion and on threads with no comments; links to branches with # or ? in their names work; row commands say what to select, with clearer permission messages and command names. \
 0.3.0: commits, pipelines and job details with retry and cancel, snippet and merge request forms, self-hosted HTTPS servers. \
 0.2.0: Merge Request window sections, distinct window icons and plugin icon."""
 categories = ["vcs"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:merge-requests", "on-event:vcs-changed", "on-event:file-opened", "on-event:file-saved", "on-file:**/.gitlab-ci.yml", "on-file:**/*.gitlab-ci.yml"]
 

@@ -4,7 +4,7 @@ Edit OpenAPI 3 and Swagger 2 files in YAML and JSON: `$ref` completion and navig
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - Optional tools:
   - Git, for **OpenAPI: Compare With Last Revision**.
   - `swagger-codegen` 3.x (stable), installed by you, for code generation.
@@ -81,23 +81,31 @@ The **OpenAPI Endpoints** window lists `METHOD /path` for every OpenAPI file in 
 - **Refresh** rescans the project.
 - Row actions: **Copy as curl** and **Create HTTP Request File** (writes `http/<verb>-<path>.http` beside the spec).
 
+### Jump between operations
+
+An **Operations** panel sits beside the editor of an OpenAPI YAML or JSON file. It lists the file's operations (`METHOD /path`) grouped by tag.
+
+- Type in the filter to match a method, path, tag or operationId. Escape clears it.
+- Click an operation, or press Enter on it, to move the caret there. Arrow keys move between rows.
+- The list follows your edits after a short pause.
+
 ### Preview the API
 
 Swagger UI 5.34.1 opens beside the text for `openapi.*`, `swagger.*`, `*.openapi.*` and `*.swagger.*` files (`.yaml`, `.yml`, `.json`). For other files, use Open With › **API Preview**.
 
 - The preview follows your edits as you type. **Reload** fetches referenced files again.
 - Files the spec references directly are loaded too.
-- The **Redoc** button switches to Redoc 2.5.4 and back.
-- There is no Try it out in the preview: the frame has no network.
+- The **Redoc** button switches to Redoc 2.5.4 and back. The preview remembers your choice (with the `storage` permission).
+- **Try…** starts **OpenAPI: Try Local GET/HEAD Request…** for the spec shown. The preview itself has no network: the request is prepared in the **Request / Response** tab and sent only when you click **Send once**.
 
 ### Write HTTP requests
 
 - **OpenAPI: Write Requests for the HTTP Client** writes one request per operation to `<name>.http` beside the spec and opens it. It asks before replacing a file. The base URL comes from `servers[0].url` (OpenAPI 3) or `schemes`, `host` and `basePath` (Swagger 2), default `http://localhost`. Path parameters become `{{name}}` variables.
-- **OpenAPI: Copy as curl** and **OpenAPI: Create HTTP Request File** do the same for one endpoint.
+- **OpenAPI: Copy as cURL** and **OpenAPI: Create HTTP Request File** do the same for one endpoint. They ask for the base URL, suggesting the spec's server the same way.
 
 ### Try a local request
 
-**OpenAPI: Try Local GET/HEAD Request…** prepares a GET or HEAD request from a JSON OpenAPI 3.0/3.1 spec. It shows in the **Request / Response** tab. Nothing is sent until you click **Send once**.
+**OpenAPI: Try Local GET/HEAD Request…** prepares a GET or HEAD request from an OpenAPI 3.0/3.1 spec in JSON or YAML. Run it from the Command Palette or the preview's **Try…** button. It shows in the **Request / Response** tab. Nothing is sent until you click **Send once**.
 
 It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `net:ask`, a single literal `https://host` server works too; the IDE asks before the first request to each host.
 
@@ -128,7 +136,7 @@ It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `
 2. Review the plan. Generation runs in a staging folder (`.openidea/codegen-stage-*`) in a terminal.
 3. When it finishes, press ⌥⏎ in the spec › **Apply staged generated API directory…** to move it into place. One Undo reverses the move.
 
-**OpenAPI: Generate With Options or Templates…** adds generator options, a custom template folder, a template engine and an optional JSON config file. **OpenAPI: Forget Completed Generation Stage** stops tracking a stage and leaves its files.
+**OpenAPI: Generate With Options or Templates…** adds generator options, a custom template folder, a template engine and an optional JSON config file. **OpenAPI: Clear Finished Code Generation** stops tracking a finished stage and leaves its files.
 
 Input must be Swagger 2.0 or OpenAPI 3.0.
 
@@ -145,7 +153,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **OpenAPI**; bind keys
 | Command | What it does |
 |---|---|
 | **OpenAPI: Write Requests for the HTTP Client** | Writes a `.http` file with one request per operation. |
-| **OpenAPI: Copy as curl** | Copies a curl command for the selected endpoint. |
+| **OpenAPI: Copy as cURL** | Copies a curl command for the selected endpoint. |
 | **OpenAPI: Create HTTP Request File** | Writes a `.http` file for the selected endpoint. |
 | **OpenAPI: Try Local GET/HEAD Request…** | Prepares a local GET/HEAD request to review and send once. |
 | **OpenAPI: Write Self-Contained Spec** | Writes a bundled copy with external `$ref`s inlined into `components`. |
@@ -159,7 +167,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **OpenAPI**; bind keys
 | **OpenAPI: Draft Spec from Source Mappings…** | Writes `openapi-draft.yaml` from your controllers. |
 | **OpenAPI: Generate Client, Server or Documentation…** | Runs `swagger-codegen` into a staging folder. |
 | **OpenAPI: Generate With Options or Templates…** | Same, with generator options and custom templates. |
-| **OpenAPI: Forget Completed Generation Stage** | Stops tracking a finished stage. Files stay. |
+| **OpenAPI: Clear Finished Code Generation** | Stops tracking a finished stage. Files stay. |
 
 ## Settings
 
@@ -179,7 +187,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Op
 | `project.write` | Writing `.http`, bundled, comparison and report files, the draft spec and generated code. | Text-producing commands copy to the clipboard instead. Generation needs it. |
 | `clipboard` | Copy commands, and the fallback when writing is denied. | A warning asks you to allow writing or the clipboard. |
 | `process:git` | **OpenAPI: Compare With Last Revision**. | A warning asks you to allow git. |
-| `storage` | Remembers the endpoints list's Flat/Tree mode and tag filter. | The list resets each session. |
+| `storage` | Remembers the endpoints list's Flat/Tree mode and tag filter, and the preview's Swagger UI or Redoc choice. | The list and the preview reset each session. |
 | `net:127.0.0.1` | Sending a **Try Local GET/HEAD Request…**. | The request isn't sent. |
 | `net:ask` | Try requests to a single `https://` server; the IDE asks per host. | Only `127.0.0.1` servers work. |
 | `process:swagger-codegen` | Code generation. | Generation commands fail. |
@@ -200,7 +208,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "No other OpenAPI file in this project to compare with." | Add the other spec to the project. |
 | "Request denied by the host: it needs the net:127.0.0.1 permission (net:ask for other hosts)…" | Allow `net:127.0.0.1` (or `net:ask` for https), then prepare the request again. |
 | "Only literal 127.0.0.1 with an explicit port, or an https host when net:ask is granted, is supported." | Make `servers` a single literal URL such as `http://127.0.0.1:8080`. |
-| "A staged generation is pending…" | Apply it with ⌥⏎ › **Apply staged generated API directory…**, or run **OpenAPI: Forget Completed Generation Stage**. |
+| "A staged generation is pending…" | Apply it with ⌥⏎ › **Apply staged generated API directory…**, or run **OpenAPI: Clear Finished Code Generation**. |
 | "No exportable Spring, JAX-RS or Micronaut mappings found…" | The draft found no controllers it can read. |
 
 ## Limitations
@@ -212,7 +220,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - No indexed Rename or Find Usages, and no structure view.
 - The preview loads only files the spec references directly. Its dark theme is a colour inversion of the light one.
 - The endpoints list has no request panel and no gutter icon on the handler. The grey detail text follows the path instead of sitting in a column.
-- Try requests: no authentication, header/cookie parameters, request bodies, Swagger 2 or YAML.
+- Try requests: no authentication, header/cookie parameters, request bodies or Swagger 2. YAML with anchors, aliases, tags or merge keys is refused.
 - Code generation doesn't accept OpenAPI 3.1/3.2 and never installs tools.
 
 ## Technical details
@@ -291,7 +299,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 ### Try requests
 
 - Preparation never sends. **Send once** checks the fresh project/editor, exact source text/version and a single-use 120-second ticket. Editing the spec or switching source invalidates the preview.
-- JSON OpenAPI 3.0/3.1 up to 128 KiB. GET/HEAD and declared scalar path/query values. Refuses additional network grants. Referenced/variable servers are unsupported.
+- OpenAPI 3.0/3.1 up to 128 KiB, in a `.json` or `.yaml`/`.yml` editor. YAML is converted to the same JSON value, so every check below applies unchanged; one document only, and duplicate keys (including `200` and `'200'`), anchors, aliases, tags and merge keys are refused. GET/HEAD and declared scalar path/query values. Refuses additional network grants. Referenced/variable servers are unsupported.
 - API 1.4 may follow up to ten redirects within granted hosts; other hosts and HTTPS-to-HTTP downgrades are denied. Five-second timeout. At most 256 KiB accepted and 64 KiB shown as plain text, headers omitted.
 - After a failed Send, only a constant status (permission denial, unsupported request/response or generic failure) is kept for that source/version. Drift or a new preparation clears it. Nothing is sent automatically.
 

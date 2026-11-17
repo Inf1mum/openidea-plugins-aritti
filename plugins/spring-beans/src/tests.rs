@@ -413,9 +413,11 @@ fn views_list_and_draw_beans() {
     assert!(page.contains("<title>users (@Service)</title>"));
     let status = graph.status.unwrap();
     assert!(status.ends_with("dependencies · arrows point to dependencies"), "{status}");
+    n.handle(BEANS_VIEW, ViewEvent::Message(users.key.clone()), &host.invocation()).unwrap();
+    assert_eq!(host.opened_locations().len(), 1, "the first activation focuses the bean");
     let refreshed = host.refreshed_views().len();
     n.handle(BEANS_VIEW, ViewEvent::Message(users.key.clone()), &host.invocation()).unwrap();
-    assert_eq!(host.opened_locations().len(), 2);
+    assert_eq!(host.opened_locations().len(), 2, "activating the focused bean opens it");
     assert_eq!(host.refreshed_views().len(), refreshed, "a complete scan doesn't re-render");
 
     n.handle(BEANS_VIEW, ViewEvent::Button("refresh".into()), &host.invocation()).unwrap();
@@ -436,7 +438,22 @@ fn beans_window_has_three_sections() {
     n.handle(BEANS_VIEW, ViewEvent::Button("section:report".into()), &host.invocation()).unwrap();
     let report = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
     assert!(matches!(report.body, Body::Message(_)));
-    assert_eq!(toolbar_ids(&report), ["section:beans", "section:graph", "section:report"]);
+    assert_eq!(toolbar_ids(&report), ["section:beans", "section:graph", "section:report", "check"]);
+    n.handle(BEANS_VIEW, ViewEvent::Button("check".into()), &host.invocation()).unwrap();
+    let checked = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(!toolbar_ids(&checked).contains(&"check"));
+}
+
+#[test]
+fn empty_beans_view_says_when_the_project_has_no_build_file() {
+    let host = MockHost::install();
+    host.add_file("src/Plain.java", "class Plain {}");
+    let mut n = warmed_navigator();
+    let view = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(matches!(view.body, Body::Message(ref text) if text.contains("doesn't look like a Spring project")), "{:?}", view.body);
+    host.add_file("build.gradle.kts", "plugins {}");
+    let view = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(matches!(view.body, Body::Message(ref text) if text == "No Spring beans found."), "{:?}", view.body);
 }
 
 #[test]
@@ -461,15 +478,113 @@ fn graph_section_renders_the_bean_graph() {
 }
 
 #[test]
-fn graph_says_when_it_is_capped() {
+fn graph_over_the_cap_starts_with_a_search_prompt_and_focuses_the_first_match() {
     let host = MockHost::install();
     let beans: String = (0..MAX_GRAPH + 1).map(|i| format!("    @org.springframework.context.annotation.Bean Clock clock{i}() {{ return null; }}\n")).collect();
     host.add_file("src/main/java/com/acme/Many.java", &format!("@org.springframework.context.annotation.Configuration\nclass Many {{\n{beans}}}\n"));
     let mut n = warmed_navigator();
     n.sections.set(GRAPH_SECTION);
-    let graph = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
-    let status = graph.status.unwrap();
-    assert!(status.starts_with(&format!("{MAX_GRAPH} of {} beans shown · ", MAX_GRAPH + 2)), "{status}");
+    let total = MAX_GRAPH + 2;
+    let prompt = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert_eq!(prompt.status.as_deref(), Some(&*format!("0 of {total} beans shown · find a bean to focus")));
+    assert!(toolbar_ids(&prompt).contains(&graph::FIND));
+    let Body::Html(page) = prompt.body else { panic!("html expected") };
+    assert!(page.contains("Find a bean to show its neighbours.") && page.contains(&format!("has {total} beans")), "{page}");
+    assert!(!page.contains("<svg"));
+
+    host.answer_next_prompt(Some(&["  CLOCK7 "]));
+    n.handle(BEANS_VIEW, ViewEvent::Button(graph::FIND.into()), &host.invocation()).unwrap();
+    let focused = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    let Body::Html(page) = focused.body else { panic!("html expected") };
+    assert!(page.contains("Focused on <strong>clock7</strong>"), "{page}");
+    assert!(page.contains(&format!("11 of {total} beans match \u{201c}CLOCK7\u{201d}.")), "{page}");
+    assert!(page.contains("data-id=\"graph:all\">Clear Focus<"));
+    assert!(focused.status.unwrap().starts_with(&format!("1 of {total} beans shown · 0 dependencies")));
+
+    host.answer_next_prompt(None);
+    n.handle(BEANS_VIEW, ViewEvent::Button(graph::FIND.into()), &host.invocation()).unwrap();
+    assert!(n.graph.query.is_empty(), "Escape clears the search");
+    n.handle(BEANS_VIEW, ViewEvent::Message("graph:all".into()), &host.invocation()).unwrap();
+    let Body::Html(page) = n.render(BEANS_VIEW, None, &host.invocation()).unwrap().body else { panic!("html expected") };
+    assert!(page.contains("Find a bean to show its neighbours."));
+}
+
+fn graph_page(n: &mut Navigator, host: &MockHost) -> String {
+    let Body::Html(page) = n.render(BEANS_VIEW, None, &host.invocation()).unwrap().body else { panic!("html expected") };
+    page
+}
+
+fn bean_key(n: &mut Navigator, host: &MockHost, name: &str) -> String {
+    let index = n.indexes.cached(&host.invocation().project().unwrap()).unwrap();
+    World::new(index).beans().find(|b| b.1.name == name).map(|(p, b)| location_key(p, b.range)).unwrap()
+}
+
+fn drawn(page: &str) -> Vec<&str> {
+    page.match_indices("<g class=\"n").map(|(i, _)| &page[i + page[i..].find("<title>").unwrap() + 7..][..page[i + page[i..].find("<title>").unwrap() + 7..].find(" (").unwrap()]).collect()
+}
+
+#[test]
+fn focusing_a_bean_shows_its_dependencies_and_dependents() {
+    let host = setup();
+    let mut n = warmed_navigator();
+    n.sections.set(GRAPH_SECTION);
+    assert!(graph_page(&mut n, &host).contains("Select a bean to show only its dependencies and dependents."));
+    let users = bean_key(&mut n, &host, "users");
+    n.handle(BEANS_VIEW, ViewEvent::Message(users), &host.invocation()).unwrap();
+    let page = graph_page(&mut n, &host);
+    assert_eq!(drawn(&page), ["users", "mail", "userRepository", "sms", "userController", "legacy", "fake"]);
+    assert!(page.contains("<g class=\"n a\" data-id=\"b:"), "the focused bean is accented");
+    assert!(page.contains("aria-checked=\"true\">1 hop<") && page.contains("data-id=\"graph:all\">Show All<"));
+
+    n.handle(BEANS_VIEW, ViewEvent::Message("graph:hops:2".into()), &host.invocation()).unwrap();
+    let page = graph_page(&mut n, &host);
+    assert!(drawn(&page).contains(&"clock"), "userController's own dependency is two hops away");
+    assert!(!drawn(&page).contains(&"reports"));
+    assert!(page.contains("aria-checked=\"true\">2 hops<"));
+
+    n.handle(BEANS_VIEW, ViewEvent::Message("graph:open".into()), &host.invocation()).unwrap();
+    assert_eq!(host.opened_locations(), [(format!("{ROOT}/UserServiceImpl.java"), 7, 13)]);
+    n.handle(BEANS_VIEW, ViewEvent::Message("graph:all".into()), &host.invocation()).unwrap();
+    assert_eq!(drawn(&graph_page(&mut n, &host)).len(), 14);
+    assert!(matches!(n.handle(BEANS_VIEW, ViewEvent::Message("b:0:0:/project/Gone.java".into()), &host.invocation()), Err(Error::Stale)));
+}
+
+#[test]
+fn graph_search_matches_names_and_types_ignoring_case() {
+    let host = setup();
+    let mut n = warmed_navigator();
+    n.sections.set(GRAPH_SECTION);
+    host.answer_next_prompt(Some(&["serviceIMPL"]));
+    n.handle(BEANS_VIEW, ViewEvent::Button(graph::FIND.into()), &host.invocation()).unwrap();
+    let page = graph_page(&mut n, &host);
+    assert!(page.contains("Focused on <strong>users</strong> <span class=\"t\">UserServiceImpl · @Service</span>"), "{page}");
+    assert!(page.contains("1 of 14 beans match"));
+    n.handle(BEANS_VIEW, ViewEvent::Message("graph:all".into()), &host.invocation()).unwrap();
+
+    n.graph.query = "user".into();
+    let page = graph_page(&mut n, &host);
+    assert_eq!(drawn(&page), ["userController", "userRepository", "users"], "unfocused, the graph shows only the matches");
+    assert!(page.contains("3 of 14 beans match \u{201c}user\u{201d}. Select one to show its neighbours."));
+    n.handle(BEANS_VIEW, ViewEvent::Message("graph:clear".into()), &host.invocation()).unwrap();
+    assert_eq!(drawn(&graph_page(&mut n, &host)).len(), 14);
+
+    n.graph.query = "nothing-like-this".into();
+    let page = graph_page(&mut n, &host);
+    assert!(page.contains("No beans match") && page.contains("data-id=\"graph:clear\""));
+}
+
+#[test]
+fn focus_in_graph_row_action_opens_the_graph_on_that_bean() {
+    let host = setup();
+    let mut n = warmed_navigator();
+    let key = bean_key(&mut n, &host, "userController");
+    n.run_command("focus-in-graph", &host.invocation(), Some(&key)).unwrap();
+    assert_eq!(n.sections.active(), GRAPH_SECTION);
+    assert_eq!(host.revealed_views(), [BEANS_VIEW]);
+    assert!(graph_page(&mut n, &host).contains("Focused on <strong>userController</strong>"));
+    assert!(matches!(n.run_command("focus-in-graph", &host.invocation(), Some("b:1:1:/project/Gone.java")), Err(Error::Stale)));
+    let actions: serde_json::Value = serde_json::from_str(include_str!("ui_config.json")).unwrap();
+    assert_eq!(actions["actions"][0]["id"], "focus-in-graph");
 }
 
 #[test]
@@ -3294,7 +3409,7 @@ mod external_packaged_refresh_tests {
     #[test]
     fn cold_foreign_cache_and_irrelevant_event_do_not_scan_or_notify(){
         let host=setup();let mut nav=warmed_navigator();host.set_project_root(Some("/other"));let before=host.view_messages().len();
-        let model=nav.render(BEANS_VIEW,None,&host.invocation()).unwrap();assert!(matches!(model.body,Body::Message(text) if text.contains("cold")));
+        let model=nav.render(BEANS_VIEW,None,&host.invocation()).unwrap();assert!(matches!(model.body,Body::Message(text) if text.contains("Not scanned yet")));
         nav.handle_events(&[Event::EditorFocused(None)],&host.invocation());assert!(notices(&host,before).is_empty());
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
     }
@@ -3989,3 +4104,5 @@ fn providers_reuse_lookups_of_one_generation() {
     let rebuilt = nav.indexes.document(&source.path).unwrap().lookups(|| Lookups::build(&BTreeMap::new(), false, &RefCell::default()));
     assert!(!Rc::ptr_eq(&built, &rebuilt), "a changed cache gets new lookups");
 }
+
+

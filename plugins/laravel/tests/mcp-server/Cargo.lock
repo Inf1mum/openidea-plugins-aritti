@@ -610,7 +610,7 @@ dependencies = [
  "maybe-owned",
  "rustix",
  "rustix-linux-procfs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
  "winx",
 ]
 
@@ -1294,7 +1294,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1494,7 +1494,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3140,8 +3140,8 @@ checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
 name = "ide-agent"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "dunce",
@@ -3166,8 +3166,8 @@ dependencies = [
 
 [[package]]
 name = "ide-analysis"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ast-grep-core",
  "ide-core",
@@ -3181,8 +3181,8 @@ dependencies = [
 
 [[package]]
 name = "ide-build"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "chardetng",
@@ -3199,8 +3199,8 @@ dependencies = [
 
 [[package]]
 name = "ide-core"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dunce",
  "encoding_rs",
@@ -3216,8 +3216,8 @@ dependencies = [
 
 [[package]]
 name = "ide-coverage"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "ide-run",
@@ -3230,8 +3230,8 @@ dependencies = [
 
 [[package]]
 name = "ide-dap"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "base64 0.22.1",
  "futures",
@@ -3259,8 +3259,8 @@ dependencies = [
 
 [[package]]
 name = "ide-db"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "base64 0.22.1",
  "bb8",
@@ -3295,8 +3295,8 @@ dependencies = [
 
 [[package]]
 name = "ide-docker"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "serde",
@@ -3308,8 +3308,8 @@ dependencies = [
 
 [[package]]
 name = "ide-extension"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -3329,8 +3329,8 @@ dependencies = [
 
 [[package]]
 name = "ide-heap"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "libc",
@@ -3345,8 +3345,8 @@ dependencies = [
 
 [[package]]
 name = "ide-host"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -3370,6 +3370,7 @@ dependencies = [
  "ide-index",
  "ide-jsonrpc",
  "ide-jvm-attach",
+ "ide-jvm-inspect",
  "ide-language",
  "ide-lsp",
  "ide-mcp",
@@ -3382,6 +3383,7 @@ dependencies = [
  "ide-search",
  "ide-spell",
  "ide-ssh",
+ "ide-streams",
  "ide-syntax",
  "ide-terminal",
  "ide-text",
@@ -3416,8 +3418,8 @@ dependencies = [
 
 [[package]]
 name = "ide-http"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "ide-vfs",
@@ -3435,8 +3437,8 @@ dependencies = [
 
 [[package]]
 name = "ide-index"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "dunce",
@@ -3456,8 +3458,8 @@ dependencies = [
 
 [[package]]
 name = "ide-jdwp"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-jvm-inspect",
  "thiserror 2.0.21",
@@ -3467,8 +3469,8 @@ dependencies = [
 
 [[package]]
 name = "ide-jsonrpc"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "encoding_rs",
  "futures",
@@ -3484,8 +3486,8 @@ dependencies = [
 
 [[package]]
 name = "ide-jvm-attach"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "libc",
  "thiserror 2.0.21",
@@ -3493,19 +3495,20 @@ dependencies = [
 
 [[package]]
 name = "ide-jvm-inspect"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "futures",
  "serde",
+ "serde_json",
  "specta",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "ide-language"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "ide-core",
@@ -3561,8 +3564,8 @@ dependencies = [
 
 [[package]]
 name = "ide-lsp"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dunce",
  "futures",
@@ -3588,8 +3591,8 @@ dependencies = [
 
 [[package]]
 name = "ide-mcp"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "bytes",
  "dunce",
@@ -3607,8 +3610,8 @@ dependencies = [
 
 [[package]]
 name = "ide-notebook"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "futures",
  "ide-core",
@@ -3631,8 +3634,8 @@ dependencies = [
 
 [[package]]
 name = "ide-plugin"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "dunce",
@@ -3652,8 +3655,8 @@ dependencies = [
 
 [[package]]
 name = "ide-remote"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dunce",
  "futures",
@@ -3672,8 +3675,8 @@ dependencies = [
 
 [[package]]
 name = "ide-run"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dunce",
  "encoding_rs",
@@ -3695,8 +3698,8 @@ dependencies = [
 
 [[package]]
 name = "ide-scaffold"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "ide-tools",
@@ -3710,8 +3713,8 @@ dependencies = [
 
 [[package]]
 name = "ide-sdk"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dunce",
  "ide-core",
@@ -3732,8 +3735,8 @@ dependencies = [
 
 [[package]]
 name = "ide-search"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "globset",
  "grep-matcher",
@@ -3750,8 +3753,8 @@ dependencies = [
 
 [[package]]
 name = "ide-spell"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "parking_lot",
@@ -3763,8 +3766,8 @@ dependencies = [
 
 [[package]]
 name = "ide-ssh"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dirs",
  "flate2",
@@ -3788,9 +3791,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ide-streams"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
+dependencies = [
+ "ide-core",
+ "ide-syntax",
+ "serde",
+ "specta",
+ "tree-sitter",
+]
+
+[[package]]
 name = "ide-syntax"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "ide-language",
@@ -3804,8 +3819,8 @@ dependencies = [
 
 [[package]]
 name = "ide-terminal"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "libc",
@@ -3818,8 +3833,8 @@ dependencies = [
 
 [[package]]
 name = "ide-text"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "ide-core",
  "ropey",
@@ -3830,8 +3845,8 @@ dependencies = [
 
 [[package]]
 name = "ide-tools"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "flate2",
  "hex",
@@ -3851,8 +3866,8 @@ dependencies = [
 
 [[package]]
 name = "ide-vcs"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "dunce",
@@ -3873,8 +3888,8 @@ dependencies = [
 
 [[package]]
 name = "ide-vfs"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "chardetng",
  "dunce",
@@ -3898,8 +3913,8 @@ dependencies = [
 
 [[package]]
 name = "ide-web"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "dirs",
  "ide-core",
@@ -3914,8 +3929,8 @@ dependencies = [
 
 [[package]]
 name = "ide-workspace"
-version = "0.1.46"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.46#ac3c564249d5acd2466f9ef2c19d20ed4458d4c5"
+version = "0.1.47"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.47#0590a255e85e9f5d2bf0484092e9a9d6ac6911f3"
 dependencies = [
  "blake3",
  "dunce",
@@ -4643,7 +4658,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5340,7 +5355,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5827,7 +5842,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5896,7 +5911,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6362,7 +6377,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6773,10 +6788,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7595,7 +7610,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8226,7 +8241,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

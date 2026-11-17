@@ -50,7 +50,7 @@ use std::path::Path;
 
 use openidea_plugin::providers::{CodeAction, CompletionItem, Document, Providers};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Context, Error, Event, EventKind, Invocation, LogLevel, NotificationLevel, Plugin, Position, Range, host};
+use openidea_plugin::{Context, Error, Event, EventKind, FileDiff, Invocation, LogLevel, NotificationAction, NotificationLevel, PickItem, Plugin, Position, Range, StatusItem, host};
 
 pub const TREE: &str = "kube";
 const PANEL: &str = "resource-details";
@@ -66,6 +66,14 @@ fn refresh_views() {
 }
 
 const KUBECTL: &str = "kubectl";
+/// Status bar item naming the context and namespace kubectl calls go to.
+const CONTEXT_STATUS: &str = "kube-context";
+/// Reveals the cluster tree: the status item's and Apply notification's action.
+const SHOW_TREE: &str = "show-tree";
+/// The context shown when kubectl runs but no current context is set.
+const NO_CONTEXT: &str = "(no current context)";
+const KUBECTL_UNAVAILABLE: &str = "(kubectl unavailable)";
+const POD_SHELL: &str = "command -v bash >/dev/null && exec bash || exec sh";
 const HELM: &str = "helm";
 const DEFAULT_DEBUG_IMAGE: &str = "busybox:stable";
 /// Keeps reads under the 5 s call budget on an unreachable cluster.
@@ -518,6 +526,7 @@ impl KubeExplorer {
         self.children.clear();
         self.current_context = None;
         self.kubectl_failed = false;
+        self.update_context_status();
         let mut first_failure: Option<String> = None;
         for key in self.expanded.clone() {
             let loaded = match &first_failure {
@@ -535,23 +544,119 @@ impl KubeExplorer {
     }
 
     fn confirm_apply(&self, what: &str) -> Result<(), Error> {
-        if host::confirm("Apply to the cluster", &format!("Apply {what} to {}?", self.target()))? {
+        if host::confirm("Apply to the cluster", &self.apply_question(what))? {
             return Ok(());
         }
         Err(Error::Cancelled)
     }
 
-    /// `context/namespace` the cluster calls go to, for messages.
-    fn target(&self) -> String {
-        let current = || self.kubectl(&["config", "current-context"], None).ok().map(|out| out.trim().to_owned());
-        let context = self.context.clone().or_else(|| self.current_context.clone()).or_else(current);
-        let context = context.unwrap_or_else(|| "(kubectl unavailable)".into());
+    /// Shows `⎈ context / namespace` in the status bar, or nothing while the context is unknown.
+    fn update_context_status(&self) {
+        let context = self.context.as_deref().or(self.current_context.as_deref())
+            .filter(|context| !context.is_empty() && ![NO_CONTEXT, KUBECTL_UNAVAILABLE].contains(context));
+        let Some(context) = context else {
+            host::remove_status_item(CONTEXT_STATUS);
+            return;
+        };
         let namespace = match self.namespace.as_deref() {
             Some(ALL_NAMESPACES) => "(all namespaces)",
             Some(namespace) => namespace,
             None => "(default)",
         };
+        host::set_status_item(CONTEXT_STATUS, &StatusItem {
+            text: format!("⎈ {context} / {namespace}"),
+            tooltip: Some(format!("Kube Explorer runs kubectl against context {context}, namespace {namespace}. Click to show the cluster tree and switch.")),
+            command: Some(SHOW_TREE.into()),
+        });
+    }
+
+    /// One terminal per action and target: running it again focuses the open one.
+    fn open_pod_terminal(&self, action: &str, title: &str, args: Vec<String>) -> Result<(), Error> {
+        let context = self.context.as_deref().or(self.current_context.as_deref()).unwrap_or_default();
+        let key = terminal_key(action, context, &args);
+        let command = host::Command::new(KUBECTL).args(&args);
+        // A window without a project may have no keyed terminal; fall back to a plain one.
+        host::open_terminal_session(&key, title, &command).map(drop).or_else(|_| host::open_terminal(title, KUBECTL, &args))
+    }
+
+    #[cfg(test)]
+    fn shell_terminal_key(&self, namespace: Option<&str>, pod: &str) -> String {
+        let context = self.context.as_deref().or(self.current_context.as_deref()).unwrap_or_default();
+        terminal_key("shell", context, &self.args_in(namespace, &["exec", "-it", pod, "--", "sh", "-c", POD_SHELL]))
+    }
+
+    /// Opens the live objects next to the open manifest; Secrets stay masked unless Show Secret is allowed.
+    fn diff_manifest(&mut self, manifest: &str, path: &str) -> Result<String, Error> {
+        if !Self::reveal_allowed() && !secret_free(manifest) {
+            let out = self.process(KUBECTL, &self.args(&["diff", "-f", "-"]), Some(manifest))?;
+            return match out.status {
+                Some(0) => Ok("No differences with the cluster.".into()),
+                Some(1) => {
+                    self.show(format!("Diff: {path}"), out.stdout, "diff")?;
+                    Ok("The differences are shown in Kube Explorer (Secret values masked).".into())
+                }
+                status => Err(failure(KUBECTL, &out.stderr, status)),
+            };
+        }
+        let live = self.kubectl(&["get", "-f", "-", "-o", "yaml", "--ignore-not-found", REQUEST_TIMEOUT], Some(manifest))?;
+        let planned = self.process(KUBECTL, &self.args(&DIFF_DRY_RUN), Some(manifest))?;
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let new = live.trim().is_empty();
+        let (right, right_label, fallback) = match planned.status {
+            Some(0) => (cluster_objects(&planned.stdout).unwrap_or(planned.stdout), format!("After apply, server dry run ({name})"), String::new()),
+            // Validation, an admission webhook or read-only RBAC can refuse the dry run; the file still compares.
+            _ => {
+                let local = convert::source_documents(manifest).and_then(normalized_objects).unwrap_or_else(|| manifest.to_owned());
+                let reason = planned.stderr.lines().find(|line| !line.trim().is_empty()).unwrap_or("no details").trim().to_owned();
+                (local, format!("Local ({name})"), format!(" The server dry run failed ({reason}), so the file is shown as written."))
+            }
+        };
+        let diff = FileDiff {
+            left: (!new).then(|| cluster_objects(&live).unwrap_or(live)),
+            right: Some(right),
+            left_label: Some(format!("Cluster ({})", self.target())),
+            right_label: Some(right_label),
+            title: Some(format!("{name}: cluster and local")),
+        };
+        host::open_file_diff(&diff, Some(name))?;
+        let opened = if new { "These resources are not in the cluster yet." } else { "The diff with the cluster is open." };
+        Ok(format!("{opened}{fallback}"))
+    }
+
+    /// `context/namespace` the cluster calls go to, for messages.
+    fn target(&self) -> String {
+        let (context, namespace) = self.target_parts();
         format!("{context}/{namespace}")
+    }
+
+    fn target_parts(&self) -> (String, &str) {
+        let current = || self.kubectl(&["config", "current-context"], None).ok().map(|out| out.trim().to_owned());
+        let context = self.context.clone().or_else(|| self.current_context.clone()).or_else(current);
+        let context = context.unwrap_or_else(|| KUBECTL_UNAVAILABLE.into());
+        let namespace = match self.namespace.as_deref() {
+            Some(ALL_NAMESPACES) => "(all namespaces)",
+            Some(namespace) => namespace,
+            None => "(default)",
+        };
+        (context, namespace)
+    }
+
+    /// The question asked before applying `what` (a file or Kustomization directory).
+    fn apply_question(&self, what: &str) -> String {
+        let (context, namespace) = self.target_parts();
+        format!("Apply {what} to context {context}, namespace {namespace}?")
+    }
+
+    /// The question asked before deleting a resource row: kind, name, namespace and context.
+    fn delete_question(&self, kind: &str, row: &str) -> Result<String, Error> {
+        let (namespace, name) = self.split_scope(kind, row)?;
+        let context = self.context.as_ref().or(self.current_context.as_ref()).map_or("the current context", String::as_str);
+        let scope = match namespace.as_deref() {
+            _ if CLUSTER_SCOPED.contains(&kind) => String::new(),
+            Some(namespace) => format!(" in namespace {namespace}"),
+            None => " in the default namespace".into(),
+        };
+        Ok(format!("Delete {kind}/{name}{scope} on context {context}?"))
     }
 
     fn save(&self) {
@@ -743,8 +848,9 @@ impl KubeExplorer {
             // failed spawn offers the install hint.
             self.current_context = match self.process(KUBECTL, &self.args(&["config", "current-context"]), None) {
                 Ok(out) if out.status == Some(0) => Some(out.stdout.trim().to_owned()),
-                Ok(_) => Some("(kubectl unavailable)".into()),
+                Ok(_) => Some(NO_CONTEXT.into()),
                 Err(Error::Denied(_)) => {
+                    host::remove_status_item(CONTEXT_STATUS);
                     return Ok(View::new(Body::Tree(vec![
                         TreeItem::new("kube:status", "Kubernetes — permission required")
                             .icon(k8s!("cluster"))
@@ -753,10 +859,11 @@ impl KubeExplorer {
                 }
                 Err(_) => {
                     self.kubectl_failed = true;
-                    Some("(kubectl unavailable)".into())
+                    Some(KUBECTL_UNAVAILABLE.into())
                 }
             };
         }
+        self.update_context_status();
         let context = self.context.as_ref().or(self.current_context.as_ref()).cloned().unwrap_or_default();
         let namespace = match self.namespace.as_deref() {
             Some(ALL_NAMESPACES) => "All namespaces",
@@ -798,6 +905,9 @@ impl KubeExplorer {
         view = view.button(Button::new("refresh", "Refresh").icon("refresh"));
         if self.kubectl_failed {
             view = view.button(Button::new("how-to-install-kubectl", "How to Install kubectl").icon("help"));
+        }
+        if context == NO_CONTEXT {
+            view = view.button(Button::new("choose-kubeconfig", "Choose Kubeconfig…").icon("folder-open"));
         }
         Ok(self.actions(view))
     }
@@ -853,8 +963,8 @@ impl KubeExplorer {
         };
         self.protect_rich_view(view.button(Button::new("describe", "Describe").icon("info").enabled(self.selected.is_some()))
             .button(Button::new("yaml", "YAML").icon("file-yaml").enabled(self.selected.is_some()))
-            .button(Button::new("logs", "Logs").icon("file-log").enabled(logs))
-            .button(Button::new("log-view", "Log Viewer").icon("list-filter").enabled(logs))
+            .button(Button::new("logs", "Follow Logs (Terminal)").icon("file-log").enabled(logs))
+            .button(Button::new("log-view", "Log Snapshot…").icon("list-filter").enabled(logs))
             .button(Button::new("shell", "Shell").icon("terminal").enabled(pod_selected))
             .button(Button::new("attach", "Attach").icon("attach-to-process").enabled(pod_selected))
             .button(Button::new("show-secret", "Show Secret").icon("eye").enabled(kind == "secrets"))
@@ -1027,6 +1137,9 @@ impl KubeExplorer {
             notify_install_hint();
             return Ok(());
         }
+        if button == "choose-kubeconfig" {
+            return self.choose_kubeconfig();
+        }
         if button.starts_with("log-") && button != "log-view" {
             return self.log_button(button, ctx);
         }
@@ -1103,16 +1216,16 @@ impl KubeExplorer {
                 KUBECTL,
                 &args(&["logs", "-f", &target, "--all-pods=true", "--all-containers", "--max-log-requests=20", "--tail=200"]),
             )?,
-            "attach" => host::open_terminal(&format!("Attach: {row}"), KUBECTL, &args(&["attach", "-it", &name]))?,
+            "attach" => self.open_pod_terminal("attach", &format!("Attach: {row}"), args(&["attach", "-it", &name]))?,
             "debug" => self.debug_pod(&row)?,
             "show-secret" if kind == "secrets" => self.show_secret(&row)?,
             "edit-secret" if kind == "secrets" => self.edit_secret(&row)?,
             "log-view" => self.open_log_view(&kind, &row, ctx)?,
             "port-forward" => self.start_port_forward(&kind, &row, ctx)?,
-            "shell" => host::open_terminal(
+            "shell" => self.open_pod_terminal(
+                "shell",
                 &format!("Shell: {row}"),
-                KUBECTL,
-                &args(&["exec", "-it", &name, "--", "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"]),
+                args(&["exec", "-it", &name, "--", "sh", "-c", POD_SHELL]),
             )?,
             "delete" if !self.confirm_delete => {
                 self.new_rich_callback();
@@ -1293,6 +1406,97 @@ fn chart_dir(ctx: &Invocation, file: &str) -> Result<String, Error> {
         directory = candidate.rsplit_once('/').map(|(parent, _)| parent);
     }
     Err("The open file is not in a Helm chart (no Chart.yaml in its folder or above).".into())
+}
+
+/// True when every document names a kind and none is a Secret or a List (which could hold one).
+fn secret_free(manifest: &str) -> bool {
+    manifest::documents(manifest).iter().all(|doc| doc.kind.as_ref().is_some_and(|kind| kind.text != "Secret" && !kind.text.ends_with("List")))
+}
+
+/// What `kubectl apply` would store, computed by the server and never persisted.
+const DIFF_DRY_RUN: [&str; 7] = ["apply", "--dry-run=server", "-f", "-", "-o", "yaml", REQUEST_TIMEOUT];
+
+const SERVER_FIELDS: [&str; 6] = ["managedFields", "resourceVersion", "uid", "creationTimestamp", "generation", "selfLink"];
+
+/// kubectl `-o yaml` output (one object or a List) as [`normalized_objects`].
+fn cluster_objects(text: &str) -> Option<String> {
+    if text.len() > 16 * MAX_BYTES {
+        return None;
+    }
+
+    normalized_objects(yaml_rust2::YamlLoader::load_from_str(text).ok()?)
+}
+
+/// One document per object (List items flattened) ordered by kind, namespace and name, keys sorted,
+/// without status and server bookkeeping, so the cluster and the file line up field by field.
+fn normalized_objects(docs: Vec<yaml_rust2::Yaml>) -> Option<String> {
+    use yaml_rust2::Yaml;
+    let mut objects = Vec::new();
+    for doc in docs {
+        let list = doc["kind"].as_str().is_some_and(|kind| kind.ends_with("List"));
+        match doc {
+            Yaml::Null => {}
+            Yaml::Hash(mut fields) if list => objects.extend(fields.remove(&Yaml::String("items".into()))?.into_vec()?),
+            Yaml::Hash(_) => objects.push(doc),
+            _ => return None,
+        }
+    }
+    let sort_key = |object: &Yaml| [&object["kind"], &object["metadata"]["namespace"], &object["metadata"]["name"]].map(|v| v.as_str().unwrap_or_default().to_owned());
+    objects.sort_by_cached_key(sort_key);
+    let mut out = String::new();
+    for object in objects {
+        let mut emitter = yaml_rust2::YamlEmitter::new(&mut out);
+        emitter.multiline_strings(true);
+        emitter.dump(&sorted_keys(without_server_fields(object)?, 0)?).ok()?;
+        out.push('\n');
+    }
+    Some(out.strip_prefix("---\n").unwrap_or(&out).to_owned())
+}
+
+fn without_server_fields(object: yaml_rust2::Yaml) -> Option<yaml_rust2::Yaml> {
+    use yaml_rust2::Yaml;
+    let key = |name: &str| Yaml::String(name.into());
+    let Yaml::Hash(mut fields) = object else { return None };
+    fields.remove(&key("status"));
+    if let Some(Yaml::Hash(metadata)) = fields.get_mut(&key("metadata")) {
+        for field in SERVER_FIELDS {
+            metadata.remove(&key(field));
+        }
+        let mut no_annotations = false;
+        if let Some(Yaml::Hash(annotations)) = metadata.get_mut(&key("annotations")) {
+            annotations.remove(&key("kubectl.kubernetes.io/last-applied-configuration"));
+            no_annotations = annotations.is_empty();
+        }
+        if no_annotations {
+            metadata.remove(&key("annotations"));
+        }
+    }
+    Some(Yaml::Hash(fields))
+}
+
+fn sorted_keys(value: yaml_rust2::Yaml, depth: usize) -> Option<yaml_rust2::Yaml> {
+    use yaml_rust2::Yaml;
+    if depth > 64 {
+        return None;
+    }
+
+    Some(match value {
+        Yaml::Hash(fields) => {
+            let mut entries: Vec<_> = fields.into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            Yaml::Hash(entries.into_iter().map(|(k, v)| Some((k, sorted_keys(v, depth + 1)?))).collect::<Option<_>>()?)
+        }
+        Yaml::Array(items) => Yaml::Array(items.into_iter().map(|v| sorted_keys(v, depth + 1)).collect::<Option<_>>()?),
+        other => other,
+    })
+}
+
+/// A terminal session key (at most 128 bytes) for an action, context and argv.
+fn terminal_key(action: &str, context: &str, args: &[String]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (context, args).hash(&mut hasher);
+    format!("{action}-{:016x}", hasher.finish())
 }
 
 fn file_safe(s: &str) -> String {
@@ -1539,6 +1743,9 @@ impl Plugin for KubeExplorer {
         }
         self.context = host::storage::get("context").ok().flatten();
         self.namespace = host::storage::get("namespace").ok().flatten();
+        if self.context.is_some() {
+            self.update_context_status();
+        }
         Ok(())
     }
 
@@ -1568,6 +1775,7 @@ impl Plugin for KubeExplorer {
 
     /// The IDE drops a command's result text: it is shown in a notification.
     fn run_command(&mut self,id:&str,ctx:&Invocation,arg:Option<&str>)->Result<Option<String>,Error>{
+        if id==SHOW_TREE {host::reveal_view(TREE)?;return Ok(None);}
         if id=="source-occurrences" {return self.label_refs.show_occurrences(ctx);}
         if id=="helm-refresh-dependency-catalog" {
             let count=self.helm_assistance.refresh_dependency_catalog(ctx)?;
@@ -1641,7 +1849,10 @@ impl KubeExplorer {
         };
         let _task = host::begin_task(working, false);
         let text = self.command(id, ctx)?;
-        config::notify_success(done, &text);
+        match id {
+            "apply" | "kustomize-apply" => config::notify_success_with(done, &text, &[NotificationAction::new("Show in Kube Explorer", SHOW_TREE)]),
+            _ => config::notify_success(done, &text),
+        }
         Ok(None)
     }
 }
@@ -1660,7 +1871,7 @@ impl KubeExplorer {
         if !applies {
             return Err(format!("{action} does not apply to {kind}.").into());
         }
-        if action == "delete" && !host::confirm("Delete resource", &format!("Delete {kind}/{row}?"))? {
+        if action == "delete" && !host::confirm("Delete Resource", &self.delete_question(&kind, &row)?)? {
             return Ok(());
         }
         if action == "log-sources" {
@@ -1756,7 +1967,16 @@ impl KubeExplorer {
                 Ok(out.stdout.trim().to_owned())
             }
             "apply" => {
-                self.confirm_apply("this manifest")?;
+                let choices = [PickItem::new("apply", "Apply"), PickItem::new("diff", "Show Diff with Cluster First (applies nothing)")];
+                match host::pick(&self.apply_question(&path), &choices)?.as_deref() {
+                    Some("apply") => {}
+                    Some("diff") => {
+                        let shown = self.diff_manifest(&manifest, &path)?;
+                        host::notify(NotificationLevel::Info, "Nothing applied", &format!("{shown} Run Apply again to apply."));
+                        return Err(Error::Cancelled);
+                    }
+                    _ => return Err(Error::Cancelled),
+                }
                 let out = self.kubectl(&["apply", "-f", "-"], Some(&manifest))?;
                 let target = self.target();
                 self.reload();
@@ -1766,17 +1986,7 @@ impl KubeExplorer {
                 let out = self.kubectl(&["apply", "--dry-run=server", "-f", "-"], Some(&manifest))?;
                 Ok(out.trim().to_owned())
             }
-            "diff" => {
-                let out = self.process(KUBECTL, &self.args(&["diff", "-f", "-"]), Some(&manifest))?;
-                match out.status {
-                    Some(0) => Ok("No differences with the cluster.".into()),
-                    Some(1) => {
-                        self.show(format!("Diff: {}", editor.path()), out.stdout, "diff")?;
-                        Ok("The differences are shown in Kube Explorer.".into())
-                    }
-                    status => Err(failure(KUBECTL, &out.stderr, status)),
-                }
-            }
+            "diff" => self.diff_manifest(&manifest, &path),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
@@ -2291,7 +2501,8 @@ mod tests {
         kube.handle(TREE, ViewEvent::Button(kube.test_control_key("attach")), &host.invocation()).unwrap();
 
         assert!(host.terminals()[0].args.starts_with(&["logs".into(), "-f".into(), "deployments/web".into(), "--all-pods=true".into()]));
-        assert_eq!(host.terminals()[1].args, ["attach", "-it", "web-1"]);
+        let attach = ["attach", "-it", "web-1"].map(str::to_owned);
+        assert!(host.finish_terminal(&terminal_key("attach", "", &attach)).is_some());
     }
 
     #[test]
@@ -2502,6 +2713,9 @@ mod tests {
         let view = KubeExplorer::default().render_tree().unwrap();
 
         assert!(!toolbar(&view).contains(&"how-to-install-kubectl".to_owned()));
+        assert!(toolbar(&view).contains(&"choose-kubeconfig".to_owned()));
+        let Body::Tree(items) = &view.body else { panic!("tree") };
+        assert!(items.iter().any(|item| item.label == "Context: (no current context)"));
     }
 
     #[test]
@@ -2740,11 +2954,155 @@ mod tests {
     fn apply_sends_the_open_manifest() {
         let host = host();
         host.open_editor("/project/web.yaml", "yaml", "kind: Deployment", &[]);
-        host.answer_next_prompt(Some(&["ok"]));
+        host.answer_next_prompt(None);
 
+        assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
+        assert!(!host.process_runs().iter().any(|r| r.args.contains(&"apply".to_owned())));
+
+        host.answer_next_prompt(Some(&["apply"]));
         KubeExplorer::default().run_command("apply", &host.invocation(), None).unwrap();
 
         assert_eq!(host.notifications()[0].body, "minikube/(default): deployment.apps/web configured");
+        assert_eq!(host.notifications_with_actions()[0].actions, [NotificationAction::new("Show in Kube Explorer", SHOW_TREE)]);
+        assert_eq!(KubeExplorer::default().apply_question("/project/web.yaml"), "Apply /project/web.yaml to context minikube, namespace (default)?");
+    }
+
+    #[test]
+    fn apply_can_show_the_diff_first_without_applying() {
+        let host = host();
+        host.open_editor("/project/web.yaml", "yaml", "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n", &[]);
+
+        host.answer_next_prompt(Some(&["diff"]));
+        assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
+
+        assert!(!kubectl_calls(&host).iter().any(|args| args.contains(&"apply".to_owned()) && !args.contains(&"--dry-run=server".to_owned())));
+        let (diff, name) = &host.opened_diffs()[0];
+        assert_eq!(diff.left.as_deref(), Some("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n"));
+        assert_eq!(diff.left_label.as_deref(), Some("Cluster (minikube/(default))"));
+        assert_eq!(name.as_deref(), Some("web.yaml"));
+        assert_eq!(host.notifications()[0].title, "Nothing applied");
+    }
+
+    #[test]
+    fn diff_shows_a_new_resource_alone_and_keeps_secrets_masked() {
+        let host = host();
+        host.on_process(KUBECTL, |args, stdin| {
+            if args.contains(&"diff".to_owned()) {
+                return Ok(ProcessOutput { status: Some(1), stdout: "+ data: ***\n".into(), stderr: String::new() });
+            }
+            if args.contains(&"--dry-run=server".to_owned()) {
+                return ok(stdin.unwrap_or_default());
+            }
+            ok(if args.contains(&"current-context".to_owned()) { "minikube\n" } else { "" })
+        });
+        host.open_editor("/project/new.yaml", "yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: new\n", &[]);
+        KubeExplorer::default().run_command("diff", &host.invocation(), None).unwrap();
+        let (diff, _) = &host.opened_diffs()[0];
+        assert!(diff.left.is_none() && diff.right.as_deref().is_some_and(|r| r.contains("ConfigMap")));
+
+        host.open_editor("/project/secret.yaml", "yaml", "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n", &[]);
+        let before = kubectl_calls(&host).len();
+        KubeExplorer::default().run_command("diff", &host.invocation(), None).unwrap();
+        assert_eq!(host.opened_diffs().len(), 1);
+        let secret_calls = kubectl_calls(&host).split_off(before);
+        assert_eq!(secret_calls.len(), 1, "{secret_calls:?}");
+        assert!(secret_calls[0].contains(&"diff".to_owned()));
+    }
+
+    const LIVE_LIST: &str = "apiVersion: v1\nkind: List\nitems:\n- apiVersion: v1\n  kind: Service\n  metadata:\n    name: web\n    namespace: shop\n    uid: 1\n    resourceVersion: \"9\"\n    creationTimestamp: \"2026-01-01T00:00:00Z\"\n    annotations:\n      kubectl.kubernetes.io/last-applied-configuration: '{}'\n    managedFields:\n    - manager: kubectl\n  spec:\n    ports:\n    - port: 80\n  status:\n    loadBalancer: {}\n- apiVersion: v1\n  kind: ConfigMap\n  metadata:\n    name: web\n    namespace: shop\n    generation: 2\n    annotations:\n      team: a\n      kubectl.kubernetes.io/last-applied-configuration: '{}'\n  data:\n    b: \"2\"\n    a: \"1\"\n";
+
+    #[test]
+    fn cluster_objects_drop_server_fields_and_order_documents_by_kind_namespace_and_name() {
+        let normalized = cluster_objects(LIVE_LIST).unwrap();
+
+        assert_eq!(
+            normalized,
+            "apiVersion: v1\ndata:\n  a: \"1\"\n  b: \"2\"\nkind: ConfigMap\nmetadata:\n  annotations:\n    team: a\n  name: web\n  namespace: shop\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: web\n  namespace: shop\nspec:\n  ports:\n    - port: 80\n"
+        );
+        let local = "kind: Service\napiVersion: v1\nmetadata:\n  namespace: shop\n  name: web\nspec:\n  ports:\n  - port: 80\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: web\n  namespace: shop\n  annotations:\n    team: a\ndata:\n  a: \"1\"\n  b: \"2\"\n";
+        assert_eq!(convert::source_documents(local).and_then(normalized_objects).unwrap(), normalized);
+        assert_eq!(cluster_objects("apiVersion: v1\nkind: List\nitems: []\n").as_deref(), Some(""));
+        assert!(cluster_objects("not: [valid").is_none());
+    }
+
+    #[test]
+    fn diff_compares_live_objects_with_the_server_dry_run_both_normalized() {
+        let host = host();
+        host.on_process(KUBECTL, |args, _| match args.iter().find(|a| !a.starts_with("--")).map(String::as_str) {
+            Some("config") => ok("minikube\n"),
+            Some("get") => ok(LIVE_LIST),
+            Some("apply") => ok(&LIVE_LIST.replace("port: 80", "port: 8080").replace("uid: 1", "uid: 2")),
+            _ => ok(""),
+        });
+        host.open_editor("/project/web.yaml", "yaml", "apiVersion: v1\nkind: Service\nmetadata:\n  name: web\n", &[]);
+        let mut kube = KubeExplorer { namespace: Some("shop".into()), ..Default::default() };
+
+        kube.run_command("diff", &host.invocation(), None).unwrap();
+
+        let calls = kubectl_calls(&host);
+        let dry_run = calls.iter().find(|args| args.contains(&"apply".to_owned())).unwrap();
+        assert_eq!(dry_run, &["--namespace=shop", "apply", "--dry-run=server", "-f", "-", "-o", "yaml", "--request-timeout=4s"]);
+        assert_eq!(calls.iter().filter(|args| args.contains(&"apply".to_owned())).count(), 1);
+        let (diff, _) = &host.opened_diffs()[0];
+        let (left, right) = (diff.left.as_deref().unwrap(), diff.right.as_deref().unwrap());
+        assert_eq!(left, cluster_objects(LIVE_LIST).unwrap());
+        assert_eq!(right, left.replace("port: 80", "port: 8080"));
+        assert_eq!(diff.right_label.as_deref(), Some("After apply, server dry run (web.yaml)"));
+    }
+
+    #[test]
+    fn a_refused_dry_run_compares_the_normalized_file_and_says_why() {
+        let host = host();
+        host.on_process(KUBECTL, |args, _| match args.iter().find(|a| !a.starts_with("--")).map(String::as_str) {
+            Some("config") => ok("minikube\n"),
+            Some("apply") => Ok(ProcessOutput { status: Some(1), stdout: String::new(), stderr: "\nError: forbidden: cannot patch\n".into() }),
+            _ => ok(""),
+        });
+        let shown = KubeExplorer::default().diff_manifest("metadata:\n  name: new\nkind: ConfigMap\napiVersion: v1\n", "/project/new.yaml").unwrap();
+
+        assert_eq!(shown, "These resources are not in the cluster yet. The server dry run failed (Error: forbidden: cannot patch), so the file is shown as written.");
+        let (diff, _) = &host.opened_diffs()[0];
+        assert!(diff.left.is_none());
+        assert_eq!(diff.right.as_deref(), Some("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: new\n"));
+        assert_eq!(diff.right_label.as_deref(), Some("Local (new.yaml)"));
+    }
+
+    #[test]
+    fn status_bar_names_the_context_and_namespace_and_hides_without_one() {
+        let host = host();
+        let mut kube = KubeExplorer { namespace: Some("shop".into()), ..Default::default() };
+        kube.render(TREE, None, &host.invocation()).unwrap();
+        let item = &host.status_items()[CONTEXT_STATUS];
+        assert_eq!(item.text, "⎈ minikube / shop");
+        assert_eq!(item.command.as_deref(), Some(SHOW_TREE));
+
+        kube.current_context = Some(NO_CONTEXT.into());
+        kube.update_context_status();
+        assert!(!host.status_items().contains_key(CONTEXT_STATUS));
+    }
+
+    #[test]
+    fn repeating_open_shell_focuses_the_same_terminal() {
+        let host = host();
+        let mut kube = KubeExplorer { current_context: Some("minikube".into()), ..Default::default() };
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("shell")), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("shell")), &host.invocation()).unwrap();
+
+        assert!(host.terminals().is_empty());
+        let key = kube.shell_terminal_key(None, "web-1");
+        assert!(host.finish_terminal(&key).is_some());
+        assert!(host.finish_terminal(&key).is_none());
+    }
+
+    #[test]
+    fn delete_question_names_kind_name_namespace_and_context() {
+        let _host = host();
+        let kube = KubeExplorer { context: Some("prod-eu".into()), namespace: Some("shop".into()), ..Default::default() };
+        assert_eq!(kube.delete_question("pods", "web-1").unwrap(), "Delete pods/web-1 in namespace shop on context prod-eu?");
+        assert_eq!(kube.delete_question("nodes", "node-a").unwrap(), "Delete nodes/node-a on context prod-eu?");
+        let all = KubeExplorer { namespace: Some(ALL_NAMESPACES.into()), current_context: Some("minikube".into()), ..Default::default() };
+        assert_eq!(all.delete_question("pods", "shop/web-1").unwrap(), "Delete pods/web-1 in namespace shop on context minikube?");
     }
 
     #[test]
@@ -2758,7 +3116,7 @@ mod tests {
             assert!(matches!(kube.run_command(command, &host.invocation(), None), Err(Error::Cancelled)), "{command}");
             assert!(kubectl_calls(&host).iter().all(|call| !call.contains(&"apply".to_owned())), "{command}");
 
-            host.answer_next_prompt(Some(&["ok"]));
+            host.answer_next_prompt(Some(&["apply"]));
             kube.run_command(command, &host.invocation(), None).unwrap();
             assert!(kubectl_calls(&host).iter().any(|call| call.contains(&"apply".to_owned())), "{command}");
         }
@@ -3377,8 +3735,8 @@ mod tests {
             all_mode().run_command(command, &host.invocation(), None).unwrap();
 
             let calls = kubectl_calls(&host);
-            assert_eq!(calls.len(), 1, "{command}");
-            assert!(!calls[0].iter().any(|a| a.starts_with("--namespace")), "{command}: {calls:?}");
+            assert_eq!(calls.len(), if command == "diff" { 2 } else { 1 }, "{command}");
+            assert!(!calls.iter().flatten().any(|a| a.starts_with("--namespace")), "{command}: {calls:?}");
         }
     }
 
@@ -3392,6 +3750,9 @@ mod tests {
             let host = host();
             host.open_editor("/project/k/web.yaml", "yaml", "kind: Deployment", &[]);
             let mut kube = KubeExplorer { namespace: Some("shop".into()), current_context: Some("minikube".into()), ..Default::default() };
+            if command != "delete-manifest" {
+                host.answer_next_prompt(Some(&["apply"]));
+            }
 
             host.answer_next_prompt(Some(&["ok"]));
             kube.run_command(command, &host.invocation(), None).unwrap();

@@ -112,7 +112,7 @@ impl Flyway {
             ("copy-next-version", "Copy next migration version"),
             ("validate", "Validate…"),
             ("info", "Run Info…"),
-            ("status", "Managed command status"),
+            ("status", "Command status"),
             ("review-comparison", "Review local comparison…"),
             ("migrate", "Migrate database…"),
             ("repair", "Repair schema history…"),

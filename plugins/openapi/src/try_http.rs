@@ -1,10 +1,11 @@
 //! Bounded local request flow. Native host API 1.4 is required for redirect enforcement.
-use crate::{OpenApi, json};
+use crate::{OpenApi, json, spec};
 use openidea_plugin::{
     Context, Error, HttpRequest, Invocation, PickItem, host,
     views::{Body, Button, Field, FieldValue, View},
 };
 use serde_json::Value;
+use yaml_rust2::Yaml;
 use std::{
     collections::BTreeSet,
     time::{Duration, Instant},
@@ -187,23 +188,58 @@ fn schema(value: &Value, path: bool) -> Result<Parameter, Error> {
     }
     Ok(Parameter { name: name.into(), path, required, kind: kind.into(), choices })
 }
+/// The JSON value of a YAML source, so YAML runs every JSON check unchanged. Duplicate keys
+/// are refused by the loader; a quoted and an unquoted key that spell the same JSON name are refused here.
+fn yaml_value(yaml: &Yaml) -> Result<Value, Error> {
+    Ok(match yaml {
+        Yaml::Hash(map) => {
+            let mut out = serde_json::Map::new();
+            for (key, value) in map {
+                let key = match key {
+                    Yaml::String(s) => s.clone(),
+                    Yaml::Integer(i) => i.to_string(),
+                    _ => return Err(invalid("Use string or integer YAML keys.")),
+                };
+                if out.insert(key, yaml_value(value)?).is_some() {
+                    return Err(invalid("Duplicate or ambiguous YAML members."));
+                }
+            }
+            Value::Object(out)
+        }
+        Yaml::Array(items) => Value::Array(items.iter().map(yaml_value).collect::<Result<_, _>>()?),
+        Yaml::String(s) => Value::String(s.clone()),
+        Yaml::Integer(i) => Value::from(*i),
+        Yaml::Real(_) => yaml.as_f64().and_then(serde_json::Number::from_f64).map(Value::Number).ok_or_else(|| invalid("Unsupported YAML number."))?,
+        Yaml::Boolean(b) => Value::Bool(*b),
+        Yaml::Null => Value::Null,
+        _ => return Err(invalid("Unsupported YAML value.")),
+    })
+}
 fn operations(text: &str, ask: bool) -> Result<Vec<Operation>, Error> {
     if text.len() > MAX_SPEC {
         return Err(invalid("Spec exceeds 128 KiB."));
     }
-    let root: Value = serde_json::from_str(text).map_err(|_| invalid("Use a valid JSON OpenAPI source."))?;
+    let root: Value = if spec::is_json(text) {
+        let root = serde_json::from_str(text).map_err(|_| invalid("Use a valid JSON OpenAPI source."))?;
+        let mut keys = BTreeSet::new();
+        for key in json::keys(text) {
+            if !keys.insert(key.key) {
+                return Err(invalid("Duplicate or ambiguous JSON members."));
+            }
+        }
+        root
+    } else {
+        // One document without anchors, aliases, tags or merge keys, bounded before loading.
+        let yaml = crate::yaml_pointer::model(text)
+            .ok_or_else(|| invalid("Use a valid YAML OpenAPI source: one document, no anchors, aliases, tags, merge keys or duplicate keys."))?;
+        yaml_value(&yaml)?
+    };
     let version = root["openapi"].as_str().unwrap_or("");
     if !version
         .rsplit_once('.')
         .is_some_and(|(prefix, patch)| matches!(prefix, "3.0" | "3.1") && !patch.is_empty() && patch.bytes().all(|c| c.is_ascii_digit()))
     {
-        return Err(invalid("Only OpenAPI 3.0/3.1 JSON is supported."));
-    }
-    let mut keys = BTreeSet::new();
-    for key in json::keys(text) {
-        if !keys.insert(key.key) {
-            return Err(invalid("Duplicate or ambiguous JSON members."));
-        }
+        return Err(invalid("Only OpenAPI 3.0/3.1 is supported."));
     }
     if !no_auth(root.get("security")) {
         return Err(invalid("Authenticated operations are unsupported."));
@@ -336,16 +372,18 @@ fn url(op: &Operation, values: &[String]) -> Result<String, Error> {
 fn binding(ctx: &Invocation) -> Result<Binding, Error> {
     let project = ctx.project().ok_or_else(|| invalid("Open a concrete project first."))?;
     let root = project.root()?;
-    let editor = ctx.editor().ok_or_else(|| invalid("Focus a JSON OpenAPI source file."))?;
+    let editor = ctx.editor().ok_or_else(|| invalid("Focus a JSON or YAML OpenAPI source file."))?;
     let path = editor.path();
-    if !path.ends_with(".json") || editor.language() != "json" {
-        return Err(invalid("Focus a JSON OpenAPI source first."));
+    let json_source = path.ends_with(".json") && editor.language() == "json";
+    let yaml_source = crate::is_yaml(&path) && editor.language() == "yaml";
+    if !json_source && !yaml_source {
+        return Err(invalid("Focus a JSON or YAML OpenAPI source first."));
     }
     let actual = host::project_of(&path).ok_or(Error::Stale)?.root()?;
     if actual != root
         || !path.starts_with(&format!("{}/", root.trim_end_matches('/')))
         || path.split('/').any(|s| matches!(s, "." | ".."))
-        || !path.ends_with(".json")
+        || !crate::is_spec_file(&path)
     {
         return Err(Error::Stale);
     }
@@ -441,7 +479,7 @@ impl State {
                 value: FieldValue::readonly_text(&response.text, true),
             }]));
         }
-        View::message("No prepared request or response. Prepare a local GET/HEAD request from the current JSON OpenAPI source.")
+        View::message("No prepared request or response. Prepare a local GET/HEAD request from the current JSON or YAML OpenAPI source.")
     }
 }
 impl OpenApi {
@@ -935,5 +973,91 @@ mod tests {
         assert!(p.try_http.outcome.is_none() && p.try_http.response.is_none());
         assert_eq!(h.requests().len(), 3);
     }
-
+    const YAML_SPEC: &str = "openapi: 3.1.0\ninfo:\n  title: Owned test\n  version: '1'\nservers:\n  - url: http://127.0.0.1:32109/api\npaths:\n  /pets/{id}:\n    get:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema:\n            type: string\n        - in: query\n          name: q\n          schema: {type: string}\n      responses:\n        200:\n          description: OK\n";
+    fn model(text: &str, ask: bool) -> Result<String, String> {
+        operations(text, ask).map(|ops| format!("{ops:?}")).map_err(|e| e.to_string())
+    }
+    #[test]
+    fn yaml_spec_yields_the_json_request_model_and_sends_the_same_request() {
+        assert_eq!(model(YAML_SPEC, false).unwrap(), model(SPEC, false).unwrap());
+        let sent = |path: &str, language: &str, text: &str| {
+            let (h, mut p) = setup();
+            h.open_editor(path, language, text, &[]);
+            h.on_fetch(|_| Ok(HttpResponse { status: 200, headers: vec![], body: b"ok".to_vec() }));
+            let key = prepare(&h, &mut p);
+            assert!(h.requests().is_empty());
+            send(&h, &mut p, &key).unwrap();
+            let r = h.requests().remove(0);
+            (r.method, r.url, r.headers, r.body, r.timeout_ms)
+        };
+        let json = sent("/project/openapi.json", "json", SPEC);
+        assert_eq!(json, sent("/project/openapi.yaml", "yaml", YAML_SPEC));
+        assert_eq!(json, sent("/project/api.yml", "yaml", YAML_SPEC));
+        for (path, language) in [("/project/openapi.yaml", "json"), ("/project/openapi.json", "yaml"), ("/project/openapi.txt", "yaml")] {
+            let (h, mut p) = setup();
+            h.open_editor(path, language, YAML_SPEC, &[]);
+            assert!(p.try_local(&h.invocation()).is_err(), "{path} {language}");
+            assert!(p.try_http.preview.is_none() && h.requests().is_empty());
+        }
+    }
+    #[test]
+    fn yaml_and_json_refuse_the_same_specs() {
+        // JSON is YAML flow syntax: a leading comment routes the very same document through the YAML loader.
+        let as_yaml = |json: &str| format!("# yaml\n{json}");
+        let remote = |server: &str| SPEC.replace("http://127.0.0.1:32109/api", server);
+        let mut variants = vec![
+            SPEC.into(),
+            SPEC.replace("3.1.0", "3.2.0"),
+            SPEC.replace("3.1.0", "3.1.invalid"),
+            SPEC.replace("\"3.1.0\"", "3.1"),
+            SPEC.replace("\"info\":", "\"openapi\":\"3.0.0\",\"info\":"),
+            SPEC.replace("\"paths\":", "\"security\":[{\"bearer\":[]}],\"paths\":"),
+            SPEC.replace("\"get\":", "\"post\":"),
+            SPEC.replace("\"get\":", "\"head\":"),
+            SPEC.replace("\"in\":\"query\"", "\"in\":\"header\""),
+            SPEC.replace("{id}", "{other}"),
+            SPEC.replace("{id}", "x{id}"),
+            SPEC.replace("\"required\":true", "\"required\":\"true\""),
+            SPEC.replace("\"type\":\"string\"", "\"type\":\"string\",\"enum\":[1]"),
+            SPEC.replace("\"type\":\"string\"", "\"type\":\"string\",\"enum\":[]"),
+            SPEC.replace("\"type\":\"string\"", "\"type\":\"integer\",\"enum\":[1,2.5]"),
+            SPEC.replace("\"type\":\"string\"", "\"type\":\"number\",\"enum\":[1,2.5]"),
+            SPEC.replace("\"url\":", "\"variables\":{},\"url\":"),
+            SPEC.replace("\"servers\":[{", "\"servers\":[{\"url\":\"http://127.0.0.1:1\"},{"),
+        ];
+        for server in [
+            "https://api.example.test/v1", "https://169.254.169.254", "https://10.0.0.5/v1", "https://localhost", "https://intranet",
+            "https://localhost:8443", "https://2130706433", "https://evil.localhost", "https://0x7f.0.0.0x1", "https://[::1]",
+            "https://metadata.google.internal", "https://printer.local", "https://x.home.arpa", "https://user@api.example.test",
+            "http://api.example.test", "http://localhost:32109", "http://127.0.0.1.evil:32109", "http://127.0.0.1:0",
+            "http://127.0.0.1:32109/a/../b", "http://127.0.0.1:32109/a%2f",
+        ] {
+            variants.push(remote(server));
+        }
+        let mut accepted = 0;
+        for json in &variants {
+            for ask in [false, true] {
+                let expected = model(json, ask).ok();
+                assert_eq!(model(&as_yaml(json), ask).ok(), expected, "{json} ask={ask}");
+                accepted += usize::from(expected.is_some());
+            }
+        }
+        assert!(accepted >= 5, "the parity cases must include accepted specs");
+        let dup_json = SPEC.replace("\"info\":", "\"servers\":[{\"url\":\"https://api.example.test\"}],\"info\":");
+        assert!(model(&dup_json, true).is_err());
+        assert!(model(&as_yaml(&dup_json), true).is_err());
+        for yaml in [
+            YAML_SPEC.replace("openapi: 3.1.0", "openapi: 3.1.0\nopenapi: 3.0.0"),
+            YAML_SPEC.replace("        200:", "        200:\n          description: OK\n        '200':"),
+            YAML_SPEC.replace("servers:\n  - url:", "servers:\n  - &s\n    url:"),
+            YAML_SPEC.replace("            type: string", "            type: !!str string"),
+            YAML_SPEC.replace("info:", "x: &a {}\ny: *a\ninfo:"),
+            YAML_SPEC.replace("            type: string", "            <<: {type: string}"),
+            format!("{YAML_SPEC}---\n{YAML_SPEC}"),
+            YAML_SPEC.replace("version: '1'", "version: '1'\n  1.5: real key"),
+            YAML_SPEC.replace("openapi: 3.1.0", "openapi: 3.1.0\nx-pad: '{}'", ).replace("{}", &"x".repeat(MAX_SPEC)),
+        ] {
+            assert!(operations(&yaml, true).is_err(), "{yaml}");
+        }
+    }
 }

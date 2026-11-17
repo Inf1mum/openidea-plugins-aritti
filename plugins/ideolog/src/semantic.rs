@@ -97,7 +97,7 @@ pub(super) fn mark(plugin: &mut Ideolog, ctx: &openidea_plugin::Invocation) -> R
 
 /// Stop before an overlong line rather than feeding its partial text to
 /// format detection. The cooperative deadline bounds the work past that.
-fn bounded_head(text: &str) -> &str {
+pub(crate) fn bounded_head(text: &str) -> &str {
     // Bound the newline search itself: split_inclusive on the whole input
     // otherwise scans an arbitrarily long line before its length can be refused.
     let prefix_end=crate::log::floor_char_boundary(text,text.len().min(MAX_DOCUMENT_BYTES));

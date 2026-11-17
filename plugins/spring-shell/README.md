@@ -4,7 +4,7 @@ Spring Shell support for Java and Kotlin projects. It checks, completes and link
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Java or Kotlin project that uses Spring Shell. The plugin starts when you open a Java or Kotlin file.
 - No external tools, accounts or network access.
 

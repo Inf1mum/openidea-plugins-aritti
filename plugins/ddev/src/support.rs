@@ -382,10 +382,11 @@ impl Main {
                 ),
             ),
         ];
-        // Keep actionable preferences above the longer setup/help text at
-        // ordinary dock heights. Field ids preserve draft and Save behavior.
+        // The setup checklist and configuration status come first, then the
+        // preferences, then the longer help text. Field ids preserve draft and Save behavior.
         let order = [
             "project",
+            "steps",
             "config-status",
             "watchDdev",
             "checkForUpdates",
@@ -396,7 +397,6 @@ impl Main {
             "execution-help",
             "diagnostics",
             "binary-help",
-            "steps",
         ];
         fields.sort_by_key(|field| {
             order

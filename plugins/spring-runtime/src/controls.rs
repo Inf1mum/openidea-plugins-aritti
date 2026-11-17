@@ -174,8 +174,8 @@ impl Runtime {
             Field::new("control-poll","Polling",FieldValue::readonly_text(&text,true)),
             Field::new("control-provenance","Provenance",FieldValue::readonly_text("Refresh runs as an IDE task; cancel it there. Stop Polling only cancels future attempts. Requests go only to localhost or 127.0.0.1, but the host follows redirects before checking the final host, so the responding peer is not verified. Each refresh is a sequence of reads, not one atomic state.",true)),
         ])).button(Button::new("refresh","Refresh Once").icon("refresh"))
-        .button(Button::new("poll-start","Start Bounded Polling").enabled(host::setting_bool("autoRefresh")==Some(true)&&!self.polling.active(&scope)))
-        .button(Button::new("poll-stop","Stop Future Polls").enabled(self.polling.lease.as_ref().is_some_and(|lease|lease.scope.root==scope.root)))
+        .button(Button::new("poll-start","Start Auto-Refresh").enabled(host::setting_bool("autoRefresh")==Some(true)&&!self.polling.active(&scope)))
+        .button(Button::new("poll-stop","Stop Auto-Refresh").enabled(self.polling.lease.as_ref().is_some_and(|lease|lease.scope.root==scope.root)))
         .status("Read-only scoped controls · global autoRefresh permission plus explicit instance Start required · no fetch during render"))
     }
     pub(crate) fn controls_message(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {

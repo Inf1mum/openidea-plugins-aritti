@@ -26,6 +26,8 @@ use checks::{Context, FEATURES_MALFORMED, UNKNOWN_PROPERTY};
 const MAX_BYTES: usize = 256 * 1024;
 
 const LOGIN_SHELL: &str = "command -v bash >/dev/null && exec bash -l; exec sh -l";
+/// Stopping a container also unregisters the project's run targets.
+const RUN_TARGET_REMOVED: &str = "Any Dev Container run target for this project was removed.";
 
 #[derive(Default)]
 pub struct Main {
@@ -42,13 +44,13 @@ impl Plugin for Main {
         self.run_target.clear();
         Ok(())
     }
-    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "managed-output" {
             host::reveal_view(operations::VIEW)?;
             return Ok(None);
         }
         if id == "start-cloned" {
-            return start_cloned(_arg);
+            return start_cloned(arg);
         }
         let project = ctx.project().ok_or("No project is open.")?;
         let root = project.root()?;
@@ -107,6 +109,11 @@ impl Plugin for Main {
         if !matches!(id, "up" | "rebuild" | "shell") {
             return Err(Error::NotFound(format!("command {id}")));
         }
+        // Open Shell on the Started notification names the container it started.
+        if id == "shell" && let Some(container) = arg {
+            self.shell_into(ctx, container)?;
+            return Ok(None);
+        }
         let Some(config) = configs::choose(&project, false)? else {
             return Ok(None);
         };
@@ -118,12 +125,20 @@ impl Plugin for Main {
             self.run_target.clear_for(&root);
             plan.launch(ctx)?;
         } else {
-            let args = ["exec", "--workspace-folder", &root, "--config", &config, "sh", "-c", LOGIN_SHELL].map(str::to_owned);
-            host::open_terminal("Dev Container: Open Shell in Container", "devcontainer", &args)?;
+            let command = host::Command::new("devcontainer").args(["exec", "--workspace-folder", &root, "--config", &config, "sh", "-c", LOGIN_SHELL]);
+            host::open_terminal_session(&shell_key(&root, &config), "Dev Container: Open Shell in Container", &command)?;
         }
 
         Ok(None)
     }
+}
+
+/// One shell terminal per project folder and configuration (at most 128 bytes).
+fn shell_key(root: &str, config: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (root, config).hash(&mut hasher);
+    format!("shell-{:016x}", hasher.finish())
 }
 
 fn is_devcontainer_file(path: &str) -> bool {
@@ -328,8 +343,8 @@ fn stop(project: &Project, root: &str) -> Result<Option<String>, Error> {
     }
 
     let stopped = match ids.len() {
-        1 => "Stopped 1 container.".to_owned(),
-        count => format!("Stopped {count} containers."),
+        1 => format!("Stopped 1 container. {RUN_TARGET_REMOVED}"),
+        count => format!("Stopped {count} containers. {RUN_TARGET_REMOVED}"),
     };
     host::notify(NotificationLevel::Info, "Dev Container", &stopped);
 
@@ -563,11 +578,12 @@ mod tests {
         host.add_file(".devcontainer/python/devcontainer.json", "{}");
 
         Main::default().run_command("shell", &host.invocation(), None).unwrap();
+        Main::default().run_command("shell", &host.invocation(), None).unwrap();
 
-        assert_eq!(
-            host.terminals()[0].args,
-            ["exec", "--workspace-folder", "/work/app", "--config", ".devcontainer/python/devcontainer.json", "sh", "-c", LOGIN_SHELL]
-        );
+        assert!(host.terminals().is_empty());
+        let key = shell_key("/work/app", ".devcontainer/python/devcontainer.json");
+        assert!(host.finish_terminal(&key).is_some());
+        assert!(host.finish_terminal(&key).is_none(), "the second Open Shell focused the first terminal");
     }
 
     #[test]
@@ -597,7 +613,7 @@ mod tests {
 
         Main::default().run_command("stop", &host.invocation(), None).unwrap();
 
-        assert_eq!(host.notifications()[0].body, "Stopped 2 containers.");
+        assert_eq!(host.notifications()[0].body, format!("Stopped 2 containers. {RUN_TARGET_REMOVED}"));
     }
 
     #[test]
@@ -1398,12 +1414,12 @@ mod tests {
         let Body::List(items) = view.body else { panic!("a list") };
         assert_eq!(items[0].key, "abc123");
         assert_eq!(items[0].detail.as_deref(), Some("node:20 - Up 2 minutes"));
-        assert_eq!(view.toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "configuration"]);
+        assert_eq!(view.toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "rebuild", "configuration"]);
 
         plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
         assert!(plugin.render("containers", None, &host.invocation()).unwrap().toolbar.iter().any(|b| b.id == "shell"));
         plugin.handle("containers", ViewEvent::Button("shell".into()), &host.invocation()).unwrap();
-        assert_eq!(host.terminals()[0].args, ["exec", "-it", "abc123", "sh", "-c", LOGIN_SHELL]);
+        assert!(host.finish_terminal("docker-shell-abc123").is_some());
 
         plugin.handle("containers", ViewEvent::Button("stop".into()), &host.invocation()).unwrap();
         assert!(host.process_runs().iter().any(|run| run.args == ["stop", "abc123"]));
@@ -1424,13 +1440,18 @@ mod tests {
 
         plugin.handle("containers", ViewEvent::Select("def456".into()), &host.invocation()).unwrap();
         let toolbar = plugin.render("containers", None, &host.invocation()).unwrap().toolbar;
-        assert_eq!(toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "start", "configuration"]);
+        assert_eq!(toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "start", "rebuild", "configuration"]);
 
         plugin.handle("containers", ViewEvent::Button("start".into()), &host.invocation()).unwrap();
         assert!(host.process_runs().iter().any(|run| run.args == ["start", "def456"]));
+        let started = &host.notifications_with_actions()[0];
+        assert_eq!(started.actions, [openidea_plugin::NotificationAction::new("Open Shell", "shell").argument("def456")]);
 
         plugin.handle("containers", ViewEvent::Activate("abc123".into()), &host.invocation()).unwrap();
-        assert_eq!(host.terminals()[0].args[2], "abc123");
+        assert!(host.finish_terminal("docker-shell-abc123").is_some());
+        plugin.run_command("shell", &host.invocation(), Some("abc123")).unwrap();
+        assert!(host.finish_terminal("docker-shell-abc123").is_some());
+        assert!(plugin.run_command("shell", &host.invocation(), Some("def456")).is_err(), "the mock still lists def456 as stopped");
     }
 
     #[test]

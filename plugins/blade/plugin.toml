@@ -5,13 +5,13 @@ description = "Laravel Blade support for .blade.php files: highlighting of Blade
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Jump between a directive and its matching closing directive, also in unsaved text; injected PHP, JavaScript and CSS keep working after a stray < in the text, and the directive list is no longer re-read on every request; works without project access, though custom directives from ide.json and Composer packages are then not recognised in injections; clearer, consistent command names; directive completion is provided by the Laravel plugin. \
+Next release: Quick fix inserts the missing closing directive (@endif, @endforeach and so on) for an unclosed block. Jump between a directive and its matching closing directive, also in unsaved text; injected PHP, JavaScript and CSS keep working after a stray < in the text, and the directive list is no longer re-read on every request; works without project access, though custom directives from ide.json and Composer packages are then not recognised in injections; clearer, consistent command names; directive completion is provided by the Laravel plugin. \
 0.3.0: custom directives are highlighted and project-declared directives are recognised. \
 0.2.0: plugin icon and smoother editor workflows. \
 0.1.0: first release with .blade.php detection, highlighting, structure view and folding."""
 categories = ["languages"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:blade"]
 
@@ -26,5 +26,5 @@ title = "Blade"
 path = "languages/blade.toml"
 
 [[contributes.providers]]
-kinds = ["diagnostics", "hover", "definition", "injections"]
+kinds = ["diagnostics", "hover", "definition", "injections", "code-actions"]
 languages = ["blade"]

@@ -829,37 +829,56 @@ fn migrate_fresh_runs_only_when_confirmed() {
         assert_eq!(args, ["artisan", "migrate:fresh", "--no-interaction", "--no-ansi"]);
         Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "ok".into(), stderr: String::new() })
     });
+    host.answer_next_prompt(None);
     plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();
-    assert!(host.notifications()[0].body.contains("again within 30 seconds"));
-    assert_eq!(host.notifications().len(), 1);
+    assert!(host.process_runs().is_empty());
+    assert!(host.notifications().is_empty());
+    host.answer_next_prompt(Some(&["yes"]));
     plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();
-    assert_eq!(host.notifications().len(), 2);
-    plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();
-    assert_eq!(host.notifications().len(), 3);
-    assert!(host.notifications()[2].body.contains("again within"));
+    assert_eq!(host.process_runs().len(), 1);
 }
 
 #[test]
-fn migrate_fresh_confirmation_is_per_project() {
+fn seeding_runs_only_when_confirmed() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php"]);
     let mut plugin = activated(&host);
-    let ran = std::rc::Rc::new(std::cell::Cell::new(0));
-    let counter = ran.clone();
-    host.on_process("php", move |_, _| {
-        counter.set(counter.get() + 1);
+    host.on_process("php", |args, _| {
+        assert_eq!(args, ["artisan", "db:seed", "--no-interaction", "--no-ansi"]);
         Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "ok".into(), stderr: String::new() })
     });
+    host.answer_next_prompt(None);
+    plugin.run_command("db-seed", &host.invocation(), None).unwrap();
+    assert!(host.process_runs().is_empty());
+    host.answer_next_prompt(Some(&["yes"]));
+    plugin.run_command("db-seed", &host.invocation(), None).unwrap();
+    assert_eq!(host.process_runs().len(), 1);
+}
 
-    host.set_project_root(Some("/project-a"));
-    plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();
-    host.set_project_root(Some("/project-b"));
-    plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();
+#[test]
+fn database_confirmation_names_the_project_connection_and_environment() {
+    let host = MockHost::install();
+    laravel_project(&host);
+    let project = host.invocation().project().unwrap();
+    assert_eq!(crate::database_command_prompt(&project, "test.body", "Seed {root}?").unwrap(), "Seed /project?");
+    host.add_file(".env", "# local\nAPP_ENV=\"staging\"\nDB_CONNECTION=pgsql\n");
+    assert_eq!(
+        crate::database_command_prompt(&project, "test.body", "Seed {root}?").unwrap(),
+        "Seed /project?\nDatabase connection: pgsql. Environment: staging."
+    );
+}
 
-    assert_eq!(ran.get(), 0);
-    assert_eq!(host.notifications().len(), 2);
+#[test]
+fn route_commands_from_the_palette_ask_which_route() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
 
-    plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();
-    assert_eq!(ran.get(), 1);
+    host.answer_next_prompt(Some(&["route:1"]));
+    host.answer_next_prompt(Some(&["http://localhost:8000"]));
+    plugin.run_command("route-copy-curl", &host.invocation(), None).unwrap();
+    assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:8000/posts'"));
+
+    host.answer_next_prompt(None);
+    assert_eq!(plugin.run_command("route-send-request", &host.invocation(), None).unwrap(), None);
 }
 
 fn complete_directives(plugin: &mut Main, marked: &str) -> Vec<String> {
@@ -3555,8 +3574,9 @@ fn route_copy_curl_without_selection_explains() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
 
-    let error = plugin.run_command("route-copy-curl", &host.invocation(), None).unwrap_err();
-    assert!(matches!(error, Error::Invalid(ref message) if message == "Select a route in the Laravel window first."), "{error:?}");
+    host.answer_next_prompt(None);
+    assert_eq!(plugin.run_command("route-copy-curl", &host.invocation(), None).unwrap(), None, "palette run asks for a route; dismissing copies nothing");
+    assert!(host.clipboard().is_none());
     let error = plugin.run_command("model-open-source", &host.invocation(), None).unwrap_err();
     assert!(matches!(error, Error::Invalid(ref message) if message == "Select a model in the Laravel window first."), "{error:?}");
     let error = plugin.run_command("console-command-open", &host.invocation(), None).unwrap_err();

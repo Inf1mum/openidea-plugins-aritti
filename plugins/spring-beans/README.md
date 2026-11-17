@@ -4,16 +4,17 @@ Find and follow Spring beans in Java, Kotlin and Spring XML files. Jump from an 
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
-- A project with Java, Kotlin or Spring XML sources. No build tool is needed: the plugin reads your source files.
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
+- A project with Java, Kotlin or Spring XML sources. The plugin reads your source files; nothing is built.
+- For the **Spring Beans** window and the Check, Dump and Change Active Spring Profiles entries in the Tools menu: a `pom.xml`, `build.gradle`, `build.gradle.kts`, `settings.gradle` or `settings.gradle.kts` at the project root. Editor features work without one.
 
 ## Quick start
 
 1. Install the plugin ([how](../../README.md#install-a-plugin)).
 2. Open a Spring project and open a class that injects a dependency.
 3. Click the gutter arrow next to a constructor parameter or `@Autowired` field. It opens the bean Spring would inject.
-4. Open the **Spring Beans** tool window (left side bar) to browse every bean. If it says the cache is cold, click **Refresh**.
-5. Run **Check Spring Configuration** from the Tools menu to list configuration problems in the **Report** section.
+4. Open the **Spring Beans** tool window (right side bar) to browse every bean. If it says "Not scanned yet", click **Refresh**.
+5. Run **Check Spring Configuration** from the Tools menu, or click it in the empty **Report** section, to list configuration problems.
 
 ## Features
 
@@ -105,15 +106,24 @@ Checks run when you open, save or edit a file. You can switch each group off in 
 
 ### Browse beans in the Spring Beans tool window
 
-The **Spring Beans** tool window (left side bar) has three sections. It remembers the one you last used.
+The **Spring Beans** tool window (right side bar, next to Spring Structure and Spring Endpoints) has three sections. It remembers the one you last used.
 
 - **Beans**: every bean, grouped by kind, with its aliases, qualifiers, profiles and declared inputs.
-- **Graph**: who depends on whom.
-- **Report**: results of **Check Spring Configuration** or **Dump Spring Configuration**.
+- **Graph**: who depends on whom. Arrows point to dependencies.
+- **Report**: results of **Check Spring Configuration** or **Dump Spring Configuration**. When empty, it has a **Check Spring Configuration** button.
 
 These are facts read from your source files, not from a running application.
 
-Click **Refresh** to index the project or continue a scan. Run **Spring Beans: Reindex Project Sources** to start over.
+#### Find and focus beans in the graph
+
+- Click a bean, or select it and press Enter, to show only that bean with its direct dependencies and dependents. Choose **2 hops** to add their dependencies and dependents too. Click the focused bean again, or **Open Source**, to open its declaration. **Show All** (**Clear Focus** in a large project) returns to the whole graph.
+- Click **Find Bean…** and type part of a bean name or type (case does not matter). Enter focuses the first match; the graph then lists the other matches (**N of M beans match**) so you can jump between them. Escape or an empty search clears it.
+- In the **Beans** section, right-click a bean and choose **Focus in Graph**.
+- The graph draws at most 400 beans. In a larger project it starts with **Find a bean to show its neighbours** instead of a partial graph. The status bar always says how many beans are shown out of how many.
+
+Click **Refresh** to index the project or continue a scan. Run **Spring Beans: Reindex Project** to start over.
+
+When no bean is found and the project root has no `pom.xml` or `build.gradle`, the window says the project doesn't look like a Spring project.
 
 ### Choose active profiles
 
@@ -177,7 +187,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 | **Spring Beans: Generate Autowired Dependency** | Adds an `@Autowired` dependency. | Java editor context menu |
 | **Spring Beans: Generate Event Listener** | Adds an event listener method. | Java editor context menu |
 | **Spring Beans: Move Annotation String to Property** | Tells you to use ⌥⏎ › **Move annotation string to property…** at the caret. Changes nothing. | Java editor context menu |
-| **Spring Beans: Reindex Project Sources** | Starts a fresh scan of the project's sources. | Tools menu, Search Everywhere |
+| **Spring Beans: Focus Bean in Graph** | Asks for a bean name or type, then shows that bean and its neighbours in the **Graph** section. | Command palette, **Focus in Graph** on a bean row |
+| **Spring Beans: Reindex Project** | Starts a fresh scan of the project's sources. | Tools menu, Search Everywhere |
 | **Spring Beans: Choose Source Gutter Target** | Opens the target picker. Used by gutter icons with several targets; not meant to be run by hand. | Gutter icons |
 
 ## Settings
@@ -219,11 +230,13 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| **Spring Beans** says "Source cache cold; Refresh to index this project." | Click **Refresh**. |
+| **Spring Beans** says "Not scanned yet. Click Refresh to find this project's Spring beans." | Click **Refresh**. |
+| The **Spring Beans** window or the Check, Dump or Change Active Spring Profiles Tools menu entries are missing | They appear only when the project root has a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. Open the folder that holds the build file. |
+| "No Spring beans found. This project doesn't look like a Spring project…" | No beans were found and the root has no `pom.xml` or `build.gradle`. Open the module's folder, or check that classes use Spring annotations. |
 | It says the scan is pending, stale or incomplete | Click **Refresh** again until it says the cache is ready. Large projects take several passes. |
 | It says "Source files unavailable/oversized/unsupported XML or source cache budget reached" | Some files are too large or are not valid Spring XML. Other beans still show. See the limits under Technical details. |
 | "Project identity is unavailable." | Check that the plugin is enabled and has its required permissions in Settings › Plugins › Spring Beans Navigator. |
-| **Report** says "Run Check Spring Configuration or Dump Spring Configuration…" | Run one of those commands from the Tools menu. Reports belong to the project they ran on. |
+| **Report** says "No configuration report for this project yet." | Click **Check Spring Configuration**, or run **Dump Spring Configuration** from the Tools menu. Reports belong to the project they ran on. |
 | A result says "partial source check" | The scan hadn't finished. Click **Refresh** in **Spring Beans**, then run the check again. |
 | "Adding code needs the editor.write permission. Allow it in Settings › Plugins › Spring Beans Navigator." | Allow `editor.write`. |
 | **Change Active Spring Profiles** says "No profiles found…" | Add a `@Profile`, a `<beans profile>` or an `application-<profile>.yml`/`.properties` file. |
@@ -294,6 +307,8 @@ Limits: eight retained roots, 4,096 inventoried files per root, 512 KiB per sour
 ### Tool window states
 
 Rendering is cache-only and states are explicit: cold, incomplete-source, pending-scan and stale snapshots stay visibly distinct and cannot prove missing beans. Explicit configuration reports label incomplete inventories/checked-file caps instead of displaying a clean result. Reports are snapshots of their explicit Check/Dump command, bound to their source project; a foreign project cannot render another project's report, and closing a report's owner clears its cached report. **Refresh** in the view advances pending work or restarts a completed/incomplete pass.
+
+**Find Bean** asks in a prompt rather than an inline search field: the packaged view runs no page scripts, so each graph control is a button that asks the plugin to redraw. The search, focused bean and depth are kept per IDE session and are matched against the whole index, not only the 400 drawn beans. A focused bean that disappears from the index falls back to the whole graph.
 
 ### Generation and refactoring safety
 

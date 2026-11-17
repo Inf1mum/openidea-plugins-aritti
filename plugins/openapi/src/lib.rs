@@ -520,8 +520,11 @@ impl Plugin for OpenApi {
         Ok(())
     }
 
-    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+    fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
         self.codegen.observe(events);
+        if events.iter().any(|event| matches!(event, Event::EditorFocused(_) | Event::FileOpened(_) | Event::FileSaved(_))) {
+            let _ = host::set_context(SPEC_CONTEXT, ctx.editor().is_some_and(|editor| editor.document().is_ok_and(|doc| is_spec_text(&editor.path(), &doc.text))));
+        }
         if self.comparison.as_ref().is_some_and(|comparison| events.iter().any(|event| {
             let changed = |path: &str| !path.is_empty() && (path == comparison.path || path == comparison.base_path
                 || comparison.path.starts_with(&format!("{}/", path.trim_end_matches('/')))
@@ -573,10 +576,10 @@ impl Plugin for OpenApi {
             let route =
                 arg.and_then(|key| self.route_list().route(key).cloned()).ok_or_else(|| Error::Invalid("select an endpoint row".into()))?;
             if id == "copy-route-curl" {
-                routes::copy_as_curl(&route, DEFAULT_BASE)?;
+                routes::copy_as_curl(&route, &route_base(&route))?;
             } else {
                 let directory = route.location.as_ref().and_then(|location| location.path.rsplit_once('/')).map(|(directory, _)| directory);
-                routes::create_http_file(&route, DEFAULT_BASE, directory, "OpenAPI")?;
+                routes::create_http_file(&route, &route_base(&route), directory, "OpenAPI")?;
             }
             return Ok(None);
         }
@@ -1349,8 +1352,79 @@ const MAX_SCANNED_FILE_BYTES: usize = 1 << 20;
 
 pub const ENDPOINTS: &str = "endpoints";
 pub const COMPARE: &str = "compare";
+pub const OPERATIONS_PANEL: &str = "operations";
+/// `plugin.aritti.openapi.spec`: the active editor shows a spec, for the operations panel's `when`.
+const SPEC_CONTEXT: &str = "spec";
+
+fn is_spec_text(path: &str, text: &str) -> bool {
+    is_spec_file(path) && text.len() <= MAX_SCANNED_FILE_BYTES && spec_or_fragment(path, text).is_some()
+}
+
+/// The editor panel beside a spec. `{op:"outline",id,path}` answers the operations of the file's
+/// current text (broadcast to every panel frame, so `id` names the asking one);
+/// `{op:"open",path,line,column}` moves the caret to an operation.
+fn operations_panel(request: &str) -> Result<(), Error> {
+    let request: serde_json::Value = serde_json::from_str(request).map_err(|_| Error::Invalid("Malformed panel request.".into()))?;
+    let path = request["path"]
+        .as_str()
+        .filter(|path| is_spec_file(path) && !path.chars().any(char::is_control) && !path.split('/').any(|part| matches!(part, "." | "..")))
+        .ok_or_else(|| Error::Invalid("The panel needs a YAML or JSON file.".into()))?;
+    match request["op"].as_str() {
+        Some("open") => {
+            let number = |field: &str| request[field].as_u64().and_then(|n| u32::try_from(n).ok());
+            let line = number("line").ok_or_else(|| Error::Invalid("The panel sent no line.".into()))?;
+            project_for(path)?;
+            host::open_location(path, line, number("column").unwrap_or(0))
+        }
+        Some("outline") => {
+            // Every request is answered, even an unreadable file, so the page never waits in vain.
+            let mut reply = match project_for(path).and_then(|project| project.read_file(path)) {
+                Err(error) => serde_json::json!({ "message": format!("Cannot read this file: {error}") }),
+                Ok(text) if text.len() > MAX_SCANNED_FILE_BYTES => {
+                    serde_json::json!({ "message": "This file is over 1 MiB, too large to list its operations." })
+                }
+                Ok(text) => match spec_or_fragment(path, &text) {
+                    None => serde_json::json!({ "message": "Not an OpenAPI document." }),
+                    Some(spec) => {
+                        let operations: Vec<_> = routes(path, &text, &spec)
+                            .into_iter()
+                            .map(|route| {
+                                let at = route.location.map(|location| location.range.start).unwrap_or_default();
+                                serde_json::json!({
+                                    "method": route.method.to_ascii_uppercase(),
+                                    "path": route.path,
+                                    "tag": route.handler.class,
+                                    "operationId": route.handler.member,
+                                    "line": at.line,
+                                    "column": at.character,
+                                })
+                            })
+                            .collect();
+                        serde_json::json!({ "operations": operations })
+                    }
+                },
+            };
+            reply["id"] = request["id"].as_str().filter(|id| id.len() <= 64).into();
+            reply["path"] = path.into();
+            host::post_view_message(OPERATIONS_PANEL, &reply.to_string())
+        }
+        _ => Err(Error::Invalid("Unknown panel request.".into())),
+    }
+}
 
 const DEFAULT_BASE: &str = "http://localhost:8080";
+const RENDERER_KEY: &str = "previewRenderer";
+
+/// The route's spec server (as Write Requests uses it), else the local default.
+fn route_base(route: &routes::Route) -> String {
+    route
+        .location
+        .as_ref()
+        .and_then(|location| host::project_of(&location.path)?.read_file(&location.path).ok())
+        .and_then(|text| spec::parse(&text))
+        .map(|spec| http::base_url(&spec))
+        .unwrap_or_else(|| DEFAULT_BASE.into())
+}
 const NO_TAG: &str = "(no tag)";
 
 fn routes(path: &str, text: &str, spec: &spec::Spec) -> Vec<Route> {
@@ -1447,12 +1521,30 @@ impl Views for OpenApi {
                 _ => Err(Error::Invalid("Response/request fields are read-only.".into())),
             };
         }
+        if view == OPERATIONS_PANEL {
+            return match event {
+                ViewEvent::Message(request) => operations_panel(&request),
+                _ => Ok(()),
+            };
+        }
 
 
         if PREVIEWS.contains(&view) {
             let ViewEvent::Message(request) = event else {
                 return Ok(());
             };
+            if request == "try" {
+                return match self.try_local(ctx) {
+                    Err(Error::Cancelled) => Ok(()),
+                    result => result.map(|_| ()),
+                };
+            }
+            if let Some(renderer) = request.strip_prefix("renderer\t") {
+                if matches!(renderer, "swagger" | "redoc") {
+                    let _ = host::storage::set(RENDERER_KEY, renderer);
+                }
+                return Ok(());
+            }
             let mut parts = request.splitn(3, '\t');
             let (Some("files"), Some(id), Some(known)) = (parts.next(), parts.next(), parts.next()) else {
                 return Ok(());
@@ -1461,7 +1553,10 @@ impl Views for OpenApi {
             let path = editor.path();
             let project = project_for(&path)?;
             return match preview_files(&project, &path, &editor.document()?.text, id, known) {
-                Some(files) => crate::ui_group::post_view_message(view, &files),
+                Some(files) => match host::storage::get(RENDERER_KEY).ok().flatten().filter(|renderer| renderer == "redoc") {
+                    Some(renderer) => crate::ui_group::post_view_message(view, &format!("{{\"renderer\":\"{renderer}\",{}", &files[1..])),
+                    None => crate::ui_group::post_view_message(view, &files),
+                },
                 None => Ok(()),
             };
         }
@@ -1703,6 +1798,54 @@ mod tests {
     }
 
     #[test]
+    fn operations_panel_lists_the_spec_operations_and_opens_one() {
+        let host = MockHost::install();
+        let tagged = PETSTORE.replace("      operationId: listPets\n", "      operationId: listPets\n      tags:\n        - Pets\n");
+        host.add_file("/project/api/openapi.yaml", &tagged);
+        let mut plugin = OpenApi::default();
+        let ask = r#"{"op":"outline","id":"f1","path":"/project/api/openapi.yaml"}"#;
+        plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(ask.into()), &host.invocation()).unwrap();
+        let (view, reply) = host.view_messages().pop().unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!((view.as_str(), reply["id"].as_str(), reply["path"].as_str()), (OPERATIONS_PANEL, Some("f1"), Some("/project/api/openapi.yaml")));
+        let operations = reply["operations"].as_array().unwrap();
+        assert_eq!(operations.len(), 3);
+        assert_eq!(operations[0], serde_json::json!({"method":"GET","path":"/pets","tag":"Pets","operationId":"listPets","line":8,"column":4}));
+        assert_eq!(operations[2]["method"], "DELETE");
+        let open = r#"{"op":"open","path":"/project/api/openapi.yaml","line":8,"column":4}"#;
+        plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(open.into()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/api/openapi.yaml".to_owned(), 8, 4)]);
+    }
+
+    #[test]
+    fn operations_panel_explains_plain_files_and_refuses_bad_requests() {
+        let host = MockHost::install();
+        host.add_file("/project/k8s.yaml", "kind: Pod\n");
+        let mut plugin = OpenApi::default();
+        let ask = r#"{"op":"outline","id":"f1","path":"/project/k8s.yaml"}"#;
+        plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(ask.into()), &host.invocation()).unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&host.view_messages()[0].1).unwrap();
+        assert_eq!(reply["message"], "Not an OpenAPI document.");
+        assert!(reply.get("operations").is_none());
+        for bad in [r#"{"op":"open","path":"/project/../etc/a.yaml","line":1}"#, r#"{"op":"open","path":"/project/a.txt","line":1}"#, r#"{"op":"open","path":"/project/k8s.yaml"}"#, "nope"] {
+            assert!(plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(bad.into()), &host.invocation()).is_err(), "{bad}");
+        }
+        assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn spec_context_follows_the_focused_editor() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read"]);
+        let mut plugin = OpenApi::default();
+        host.open_editor("/project/api/openapi.yaml", "yaml", PETSTORE, &[]);
+        plugin.handle_events(&[Event::EditorFocused(Some("/project/api/openapi.yaml".into()))], &host.invocation());
+        assert_eq!(host.context_keys().get(SPEC_CONTEXT), Some(&openidea_plugin::ContextValue::from(true)));
+        host.open_editor("/project/k8s.yaml", "yaml", "kind: Pod\n", &[]);
+        plugin.handle_events(&[Event::EditorFocused(Some("/project/k8s.yaml".into()))], &host.invocation());
+        assert_eq!(host.context_keys().get(SPEC_CONTEXT), Some(&openidea_plugin::ContextValue::from(false)));
+    }
+
+    #[test]
     fn create_route_http_writes_beside_the_spec() {
         let host = MockHost::install().with_capabilities(&["project.read", "project.write", "clipboard"]);
         host.add_file("/project/api/openapi.yaml", PETSTORE);
@@ -1712,6 +1855,7 @@ mod tests {
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
         openapi.run_command("create-route-http", &host.invocation(), Some(&items[0].key)).unwrap();
         assert_eq!(host::projects().unwrap()[0].read_file("api/get-pets.http").unwrap(), "### GET /pets\nGET http://localhost:8080/pets\n");
+        assert_eq!(route_base(openapi.route_list().route(&items[0].key).unwrap()), "https://api.example.com/v1");
         assert!(host.process_runs().is_empty());
     }
 
@@ -2103,6 +2247,19 @@ mod tests {
 
     fn request(hash: &str, id: &str) -> ViewEvent {
         ViewEvent::Message(format!("files\t{id}\t{hash}"))
+    }
+
+    #[test]
+    fn preview_remembers_the_chosen_renderer() {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "storage"]);
+        host.open_editor("/project/api.yaml", "yaml", "openapi: 3.0.0\n", &[(0, 0, 0, 0)]);
+        let mut openapi = OpenApi::default();
+        openapi.handle("preview", ViewEvent::Message("renderer\tredoc".into()), &host.invocation()).unwrap();
+        openapi.handle("preview", request("", "a"), &host.invocation()).unwrap();
+        assert!(host.view_messages()[0].1.starts_with("{\"renderer\":\"redoc\",\"id\":\"a\""), "{:?}", host.view_messages());
+        openapi.handle("preview", ViewEvent::Message("renderer\tswagger".into()), &host.invocation()).unwrap();
+        openapi.handle("preview", request("", "b"), &host.invocation()).unwrap();
+        assert!(!host.view_messages()[1].1.contains("renderer"));
     }
 
     #[test]
@@ -2780,6 +2937,28 @@ mod tests {
         assert!(js.contains("getElementById(\"reload\")"));
         assert!(js.contains("known = \"\""));
         assert!(js.contains("document.get().then((doc) => render(doc.text))"));
+    }
+
+    #[test]
+    fn preview_try_button_prepares_the_existing_try_flow_without_sending() {
+        let html = include_str!("../web/index.html");
+        let js = include_str!("../web/main.js");
+        assert!(html.contains("id=\"try\"") && html.contains("Try…"));
+        assert!(js.contains("getElementById(\"try\")") && js.contains("postMessage(\"try\")"));
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "events", "net:127.0.0.1"]);
+        let spec = "openapi: 3.1.0\ninfo: {title: T, version: '1'}\nservers:\n  - url: http://127.0.0.1:32109\npaths:\n  /pets:\n    get:\n      responses: {200: {description: OK}}\n";
+        host.open_editor("/project/openapi.yaml", "yaml", spec, &[]);
+        let mut plugin = OpenApi::default();
+        plugin.activate(&openidea_plugin::Context { api_version: "1.10".into(), capabilities: vec!["net:127.0.0.1".into()], ..Default::default() }).unwrap();
+        plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).unwrap(); // Dismissed picker.
+        host.answer_next_prompt(Some(&["0"]));
+        plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).unwrap();
+        let Body::Form(fields) = plugin.render("try-response", None, &host.invocation()).unwrap().body else { panic!() };
+        let openidea_plugin::views::FieldValue::Other { data, .. } = &fields[0].value else { panic!() };
+        assert!(data.contains("GET http://127.0.0.1:32109/pets") && data.contains("has not sent anything"), "{data}");
+        assert!(host.requests().is_empty());
+        plugin.activate(&openidea_plugin::Context { api_version: "1.10".into(), ..Default::default() }).unwrap();
+        assert!(plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).is_err());
     }
 
     #[test]

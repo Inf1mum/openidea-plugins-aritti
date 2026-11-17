@@ -12,7 +12,7 @@ Other files, such as a `pom.xml`, `application.yml` or a plain SQL script, get n
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer.
+- OpenIDEA with plugin API 1.10 or newer.
 - To run Liquibase: the `liquibase` CLI on the `PATH` the IDE sees, and a `liquibase.properties` in the project root with `changeLogFile`, `url` and credentials.
 - The offline snapshot diff targets Liquibase 4.29.2.
 - Optional: `git`, to suggest your name as changeset author.
@@ -60,15 +60,16 @@ The **Liquibase** tool window lists changesets in execution order.
 - Flags: `already run` (reached a second time), `missing` (include not found), `unresolved` (include path has a `${property}`), `include cycle` (includes one of its ancestors; not expanded again).
 - Double-click a row, or press Enter, to open the file at the changeset.
 - **Filter…** searches rows and keeps their parents. **Clear** removes the filter. Filters belong to the current project.
+- **Pending…** runs **Liquibase: Show Pending Changesets…** (see [Run Liquibase](#run-liquibase)).
 - **More…** opens the review and CLI actions. Database writes still ask for confirmation.
 - **New…** opens the selected changelog so you can add a changeset with ⌥⏎.
-- Nothing runs. The status line says `partial` when a size or time limit is hit.
+- Browsing never runs Liquibase. The status line says `partial` when a size or time limit is hit.
 
 ### Choose which changelog to browse
 
 By default the tool window shows every changelog. To focus on one root:
 
-1. Press **Sources…** in the toolbar, or run **Liquibase: Choose Browser Root and Configuration…**.
+1. Press **Sources…** in the toolbar, or run **Liquibase: Choose Sources…**.
 2. Pick a changelog root, and optionally a configuration file.
 
 The status line names the configuration file, the key and line it found, and whether that path matches the root. Supported keys: `changeLogFile`, `liquibase.command.changelogFile`, `liquibase.command.changeLogFile` and `spring.liquibase.change-log`.
@@ -145,7 +146,10 @@ With a `liquibase.properties` in the project root, the Run menu offers **Liquiba
 - Set `searchPath` (the CLI's `--search-path`) to `src/main/resources`. Changesets then keep the file paths your application records.
 - **Liquibase: Update (Asks First)…** runs `update` in a terminal after a final confirmation.
 - **Liquibase: Rollback Count…** asks how many changesets to roll back, then confirms.
-- The confirmation shows the project, working directory, program and exact arguments. It may show the changelog and database host as hints. Usernames and passwords are never shown.
+- **Liquibase: Show Pending Changesets…** (or **Pending…** in the tool window) runs `status --verbose` after the same confirmation. It changes nothing in the database but connects with your configured credentials. Each changeset is then marked `Pending`, `Applied` or `State unknown`, the status line reads `N pending changesets on <target> · checked <time>`, and changelog files in the Project tree get a `N pending` or `up to date` note.
+  - `Applied` and `up to date` only cover the changelogs reached from `changeLogFile` in `liquibase.properties`. Other changesets are `State unknown`.
+  - The result stays until a changelog or `liquibase.properties` changes, or a run fails. It is never refreshed on its own: run the command again after deploying.
+- The confirmation leads with the effect, then the target database (from `liquibase.properties`), the exact command and the project. It may show the changelog as a hint. Usernames and passwords are never shown.
 - Database-writing commands are never Run configurations: you review them each time.
 
 All of these need `process:liquibase`.
@@ -180,9 +184,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Liquibase**; bind ke
 
 | Command | What it does |
 |---|---|
-| **Liquibase: Choose Browser Root and Configuration…** | Picks the changelog root (and config file) the tool window shows. |
+| **Liquibase: Choose Sources…** | Picks the changelog root (and config file) the tool window shows. |
 | **Liquibase: Browse All Changelogs** | Goes back to showing every changelog. |
 | **Liquibase: Update (Asks First)…** | Runs `liquibase update` in a terminal after confirmation. |
+| **Liquibase: Show Pending Changesets…** | Confirms, runs `liquibase status --verbose`, then marks pending and applied changesets and notes changelog files. |
 | **Liquibase: New Changeset** | Adds an empty changeset to the open changelog after you confirm (the ⌥⏎ **Add Liquibase changeset…** steps; not a single undo step). |
 | **Liquibase: New Changelog…** | Creates the changelog file directly after you confirm, optionally included from the open parent (the ⌥⏎ **Create Liquibase changelog…** steps; not a single undo step). |
 | **Liquibase: Rollback Count…** | Asks for a count, confirms, then runs `rollback-count`. |
@@ -206,7 +211,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `process:liquibase` | Update, Rollback Count, Run configurations, offline diff and changelog generation | Commands ask you to allow it. Nothing falls back to an unreviewed terminal. |
+| `process:liquibase` | Update, Rollback Count, Show Pending Changesets, Run configurations, offline diff and changelog generation | Commands ask you to allow it. Nothing falls back to an unreviewed terminal. |
 | `process:git` | Suggesting `git config user.name` as author | No author is suggested unless **Author** is set. |
 | `storage` | Remembering the chosen browser root | The choice isn't saved; browsing all changelogs still works. |
 | `events` | Refreshing cached facts when files are opened, saved or changed | Checks on the current file still work; gutter links and hover may be missing until you refresh. |
@@ -227,6 +232,10 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 | "This host cannot ask for confirmation." | Use the **Liquibase: update-sql** or **status** Run configuration instead. |
 | "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first." | Focus a changelog editor, then run **Liquibase: New Changeset** or **New Changelog…** again. |
 | Offline diff: "belongs to another project" | Switch back to the project that started it. |
+| "Could not start liquibase." | Install the Liquibase CLI and put it on the `PATH` the IDE uses, then run **Show Pending Changesets…** again. |
+| "Liquibase status failed (exit …). Liquibase could not reach the database" | Start the database and check the `url` and credentials Liquibase uses. The plugin never shows the CLI output, which can contain them: run the **Liquibase: status** Run configuration to read it. |
+| Every changeset says `State unknown` except pending ones | `changeLogFile` in `liquibase.properties` is missing, dynamic, or matches no changelog (or several) in the project. Use a literal path. |
+| Pending notes disappeared | A changelog or `liquibase.properties` changed, so the result was stale. Run **Show Pending Changesets…** again. |
 
 More: [repository troubleshooting](../../README.md#troubleshooting).
 
@@ -303,6 +312,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 ### Run configurations and terminal commands
 
 - Run configurations (API 1.4) appear for an owned open project with a root `liquibase.properties`. The CLI resolves the effective target and credentials.
+- **Show Pending Changesets…** uses the same review, then runs `status --verbose` as a captured process (not a terminal) for up to 60 seconds. It lists unrun changesets as `path::id::author`; output that doesn't match the count line exactly is rejected. Paths match a project changelog by unique path suffix (`classpath:` dropped). Contexts and labels follow your configuration, so changesets they filter out can show as `Applied`.
 - **Update (Asks First)…** and **Rollback Count…** keep their cancel, count and final-confirmation steps and exact terminal argv. The review shows the owning project and working directory, program, argv and the root `liquibase.properties` project/editor-text SHA256.
 - A unique literal changelog and a recognized PostgreSQL/MySQL/MariaDB JDBC host/database are shown as hints only. Query/semicolon parameters and credential-bearing, ambiguous or dynamic values are withheld. Raw configuration, usernames and passwords are never shown.
 - The effective database, contexts and labels stay unresolved: environment, JVM/defaults/extension precedence and unsaved-versus-disk differences can override hints. Missing project scope or configuration drift across prompts refuses startup. Root configuration text is bounded to 128 KiB.

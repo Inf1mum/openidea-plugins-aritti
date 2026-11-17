@@ -4,9 +4,10 @@ See what a running Spring Boot application actually loaded: beans, configuration
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Spring Boot 2.x or 3.x application running on this machine (`localhost` or `127.0.0.1`), with Spring Boot Actuator.
 - The `net:localhost` or `net:127.0.0.1` permission to refresh.
+- For the **Spring Runtime** window and the Tools menu entry: a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)` at the project root.
 - Optional: a token for protected Actuator endpoints, a local `java` for **Spring Runtime: Read JMX (localhost)…**.
 
 ## Quick start
@@ -20,7 +21,7 @@ See what a running Spring Boot application actually loaded: beans, configuration
 
 3. Start the application. If it doesn't listen on `http://localhost:8080/actuator`, set **Actuator base URL** in Settings › Plugins › Spring Runtime Insight.
 4. Allow `net:localhost` (or `net:127.0.0.1`) in Settings › Plugins › Spring Runtime Insight.
-5. Open the **Spring Runtime** tool window (bottom) and click **Refresh**, or run **Spring Runtime: Refresh from Actuator**.
+5. Open the **Spring Runtime** tool window (bottom) and click **Refresh**, or run **Spring Runtime: Refresh from Actuator**. While it is empty, **Open Settings** opens this plugin's settings page.
 
 The plugin keeps the last snapshot. Markers and views work from it without calling the app again.
 
@@ -79,13 +80,13 @@ The request picker lists your last 10 method/path choices first.
 
 ### Keep the snapshot fresh
 
-Refresh is manual by default. To poll for a short while:
+Refresh is manual by default. To refresh automatically for a short while:
 
-1. Turn on **Allow bounded minute polling after explicit scoped Start** in settings.
+1. Turn on **Allow polling** in settings.
 2. Open **Refresh Controls** (or run **Spring Runtime: Refresh and Poll Controls**).
-3. Click **Start Bounded Polling**, or run **Spring Runtime: Start Bounded Scoped Polling**.
+3. Click **Start Auto-Refresh**, or run **Spring Runtime: Start Auto-Refresh**.
 
-Polling runs at most once a minute, for at most 5 attempts (setting **Maximum request batches…**) and 10 minutes. It stops after two failures, when you leave the view, or on **Spring Runtime: Stop Future Polls**. To stop a refresh in progress, use **Cancel** on the IDE background task. **Refresh Once** refreshes one time.
+Auto-refresh runs at most once a minute, for at most 5 attempts (setting **Polls per start**) and 10 minutes. It stops after two failures, when you leave the view, or on **Spring Runtime: Stop Auto-Refresh**. To stop a refresh in progress, use **Cancel** on the IDE background task. **Refresh Once** refreshes one time.
 
 ### Read JMX from a local JVM
 
@@ -93,7 +94,7 @@ Polling runs at most once a minute, for at most 5 attempts (setting **Maximum re
 
 ### Set up a database connection from the snapshot
 
-**Tools › Configure Database from Runtime Snapshot** creates a database connection from a datasource the app reported in `/env`. It supports simple PostgreSQL, MySQL and MariaDB JDBC URLs. You review the target first. It doesn't connect or run SQL.
+**Tools › Spring Runtime: Configure Database from Snapshot** creates a database connection from a datasource the app reported in `/env`. It supports simple PostgreSQL, MySQL and MariaDB JDBC URLs. You review the target first. It doesn't connect or run SQL.
 
 ## Commands
 
@@ -106,12 +107,12 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Runtime**; bi
 | **Spring Runtime: Inspect Cached Snapshot** | Opens the read-only Observation/Provenance details. |
 | **Spring Runtime: Cached Bean Dependency Graph** | Opens the bean graph from the cached snapshot. |
 | **Spring Runtime: Refresh and Poll Controls** | Opens the **Refresh Controls** tab. |
-| **Spring Runtime: Start Bounded Scoped Polling** | Starts polling for the current project/URL/auth mode. |
-| **Spring Runtime: Stop Future Polls** | Stops future poll attempts. |
+| **Spring Runtime: Start Auto-Refresh** | Starts polling for the current project/URL/auth mode. |
+| **Spring Runtime: Stop Auto-Refresh** | Stops future poll attempts. |
 | **Spring Runtime: Read JMX (localhost)…** | Reads read-only JMX attributes from a local JVM. |
-| **Spring Runtime: Configure Database from Runtime Snapshot** | Creates a database connection from a captured datasource. Also in the **Tools** menu. |
+| **Spring Runtime: Configure Database from Snapshot** | Creates a database connection from a captured datasource. Also in the **Tools** menu. |
 
-The tool window has the same **Refresh** and **Clear** buttons. **Clear** stays available when the cache can't be read.
+The tool window has the same **Refresh** and **Clear** buttons. While it is empty, **Clear Snapshot** shows only when the cache can't be read, and **Open Settings** opens Settings › Plugins › Spring Runtime Insight.
 
 ## Settings
 
@@ -140,7 +141,8 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | `clipboard` | **Copy HTTP Requests**. | Copying fails. |
 | `project.write` | **Create HTTP Request File…**. | The file isn't created. |
 | `process:java` | **Spring Runtime: Read JMX (localhost)…**. | The JMX command fails. |
-| `database.sources` | **Configure Database from Runtime Snapshot**. | No connection is created. |
+| `database.sources` | **Configure Database from Snapshot**. | No connection is created. |
+| `ide.commands` | The **Open Settings** button in the empty view. | The button explains where to find the settings instead. |
 
 ## Troubleshooting
 
@@ -148,7 +150,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| "No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh…" | Start the app, then click **Refresh**. |
+| The **Spring Runtime** window or its Tools menu entry is missing | They appear only when the project root has a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. Open the folder that holds the build file. |
+| "No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh…" | Start the app, then click **Refresh**. If the URL is wrong, click **Open Settings** and change **Actuator base URL**. |
 | "Could not reach requested Actuator URL …" | Check the app is running and **Actuator base URL** matches its port and base path. |
 | "Spring Runtime only reads applications running on this machine…" | Set **Actuator base URL** to `http://localhost:<port>/actuator`, without credentials, query or fragment. |
 | "Refreshing the runtime snapshot needs the net:localhost permission. Allow it in Settings › Plugins › Spring Runtime Insight." | Allow `net:localhost` (or `net:127.0.0.1`, matching your URL) in Settings › Plugins › Spring Runtime Insight. |
@@ -159,8 +162,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "No supported Actuator endpoint payload at …" | Check exposure and that the app runs Spring Boot 2.x or 3.x. |
 | "Refresh lost previously available endpoints: … Previous snapshot retained; Clear first if endpoint removal was intentional." | If you removed an endpoint on purpose, run **Spring Runtime: Clear**, then refresh. |
 | "Actuator refresh deadline reached; previous snapshot retained." | Raise **Maximum cooperative refresh batch budget**, or check why the app is slow. |
-| "Enable bounded autoRefresh in Spring Runtime settings before explicitly starting polling." | Turn on **Allow bounded minute polling…**, then start polling again. |
-| "Polling lease expired/exhausted; explicitly Start again." | Click **Start Bounded Polling** again. |
+| "Enable bounded autoRefresh in Spring Runtime settings before explicitly starting polling." | Turn on **Allow polling**, then click **Start Auto-Refresh** again. |
+| "Polling lease expired/exhausted; explicitly Start again." | Click **Start Auto-Refresh** again. |
 | "JMX helper failed …" or "JMX read timed out…" | Start the target JVM with the JMX flags above, check the port, and allow `process:java` with Java 17+. |
 | "No unique exact qualified source candidate; no file opened." | The class isn't in this project (library) or is declared more than once. |
 | Data from another app shows up | The same URL can serve another process. Refresh after restarting, and Clear after changing credentials. |
@@ -250,12 +253,12 @@ See also the [repository guide](../../README.md#troubleshooting).
 ### Polling
 
 - The controls view shows the owning project, requested URL, auth mode, request/batch limits, poll status and cancellation boundary. Rendering any view or provider starts no HTTP reads.
-- Polling needs both `autoRefresh=true` and **Start Bounded Polling** for the current exact project/URL/auth-mode scope.
+- Polling needs both `autoRefresh=true` and **Start Auto-Refresh** for the current exact project/URL/auth-mode scope.
 - A lease lives only in the current plugin instance, allows 1–10 attempts (default 5) at least one minute apart, and expires for new attempts after 10 minutes.
-- Two consecutive failures, native task cancellation, scope changes, Clear, Stop Future Polls or disabling the setting disarm it. A foreign project can't stop another root's lease. Clear leaves the global `autoRefresh` setting unchanged.
+- Two consecutive failures, native task cancellation, scope changes, Clear, Stop Auto-Refresh or disabling the setting disarm it. A foreign project can't stop another root's lease. Clear leaves the global `autoRefresh` setting unchanged.
 - A visible controls page drives a private 60-second timer. The driver validates frame/nonce, increasing sequence, root, current URL/auth mode and lease before any read. Hiding or leaving clears the timer and requests Stop. Reopening never transfers a lease to a new page. An instance accepts at most 64 distinct Start nonces before reclamation. All HTTP stays in Rust, which checks open-project membership before and during refresh.
 - Each batch keeps the nine endpoint order and byte limits. Timeout is clamped to the remaining budget; deadline/scope/cancellation are checked at endpoint boundaries and before commit. Only successful scoped persistence adopts new data.
-- **Stop Future Polls** revokes future attempts only. The IDE task **Cancel** interrupts the active HTTP future on the pinned host; it doesn't assert the server stops processing.
+- **Stop Auto-Refresh** revokes future attempts only. The IDE task **Cancel** interrupts the active HTTP future on the pinned host; it doesn't assert the server stops processing.
 - No native scheduled fetch.
 
 ### Requests and HTTP files

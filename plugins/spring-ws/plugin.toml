@@ -10,7 +10,7 @@ Next release: New icons for schema element, endpoint and WSDL markers; DefaultWs
 0.2.0: plugin icon and schema navigation."""
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:java", "on-language:kotlin", "on-language:xml", "on-event:files-changed"]
 

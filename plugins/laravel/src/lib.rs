@@ -115,7 +115,6 @@ mod unused;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{Duration, Instant};
 
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
@@ -711,8 +710,6 @@ pub struct Main {
     index_rechecks: BTreeMap<String, std::collections::VecDeque<String>>,
     /// Files with published problems, checked again when the index changes.
     checked: BTreeSet<String>,
-    /// Project root and time `migrate-fresh` was first asked for.
-    fresh_asked: Option<(String, Instant)>,
     route_list: Option<RouteList>,
     runtime_routes: BTreeMap<String, route_runtime::Snapshot>,
     artisan_workspace: artisan_workspace::State,
@@ -725,6 +722,37 @@ pub struct Main {
     runtime_inspection: runtime_inspection::State,
     index_ticks: u32,
     model_rows: std::cell::RefCell<BTreeMap<String, Vec<serde_json::Value>>>,
+}
+
+/// First `KEY=value` of the project's `.env`, unquoted; `None` when unset or unreadable.
+fn dotenv_value(project: &Project, key: &str) -> Option<String> {
+    let text = project.read_file(".env").ok()?;
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix(key)?.strip_prefix('='))
+        .map(|value| value.trim().trim_matches(['"', '\'']).to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+/// Confirmation body for a command that changes the project's database.
+fn database_command_prompt(project: &Project, body_key: &str, body: &str) -> Result<String, Error> {
+    let root = project.root()?;
+    let mut prompt = crate::ui_text::format(body_key, body, &[("root", &root)]);
+    let connection = dotenv_value(project, "DB_CONNECTION");
+    let environment = dotenv_value(project, "APP_ENV");
+    if connection.is_some() || environment.is_some() {
+        let unknown = crate::ui_text::text("native.lib.unknownEnvValue", "not set");
+        prompt.push_str(&crate::ui_text::format(
+            "native.lib.databaseTarget",
+            "\nDatabase connection: {connection}. Environment: {environment}.",
+            &[("connection", connection.as_deref().unwrap_or(unknown)), ("environment", environment.as_deref().unwrap_or(unknown))],
+        ));
+    }
+    Ok(prompt)
+}
+
+fn confirm_database_command(ctx: &Invocation, title: &str, body_key: &str, body: &str) -> Result<bool, Error> {
+    let project = ctx.project().ok_or(crate::ui_text::text("native.lib.6d0169b3b4", "No project is open."))?;
+    host::confirm(title, &database_command_prompt(&project, body_key, body)?)
 }
 
 fn refresh_laravel() {
@@ -1039,16 +1067,7 @@ impl Plugin for Main {
                 search_names(index)?;
                 Ok(None)
             }
-            "route-search" => {
-                let project = ctx.project().ok_or(Error::Stale)?;
-                self.advance_index(&project);
-                let index=self.view_index(ctx).ok_or(Error::Stale)?;
-                if index.partial {return Err(Error::Failed(crate::ui_text::text("native.lib.3b27ad675b", "Laravel route index is incomplete; reindex before searching.").into()));}
-                if !index::index_sources_current(&project,index){return Err(Error::Stale);}
-                let initial = self.search_routes_from_index(ctx,index);
-                route_search::run(ctx, initial, || { if !index::index_sources_current(&project,index) {return Err(Error::Stale);} Ok(self.search_routes_from_index(ctx,index)) })?;
-                Ok(None)
-            }
+            "route-search" => self.search_routes(ctx),
             "runtime-database-list" => {
                 let root = ctx.project().ok_or(Error::Stale)?.root()?;
                 let ids = self.runtime_inspection.database_sources(ctx)?;
@@ -1069,13 +1088,15 @@ impl Plugin for Main {
                 refresh_laravel(); Ok(None)
             }
             "route-editor-open" => {
+                let Some(raw) = arg else { return self.search_routes(ctx) };
                 let index = self.view_index(ctx).ok_or(Error::Stale)?;
-                route_editor::open(index, ctx, arg.ok_or(Error::Invalid("Select a route in the Laravel window first.".into()))?)?;
+                route_editor::open(index, ctx, raw)?;
                 Ok(None)
             }
             "route-editor-action" => {
+                let Some(raw) = arg else { return self.search_routes(ctx) };
                 let index = self.view_index(ctx).ok_or(Error::Stale)?;
-                route_editor::action(index, ctx, arg.ok_or(Error::Invalid("Select a route in the Laravel window first.".into()))?, DEFAULT_BASE_URL)?;
+                route_editor::action(index, ctx, raw, DEFAULT_BASE_URL)?;
                 Ok(None)
             }
             "find-literal-source-matches" => crate::source_matches::run(ctx),
@@ -1110,10 +1131,15 @@ impl Plugin for Main {
             "view-clear" => self.artisan(ctx, "view:clear"),
             "migrate" => self.artisan(ctx, "migrate"),
             "storage-link" => self.artisan(ctx, "storage:link"),
-            "db-seed" => self.artisan(ctx, "db:seed"),
+            "db-seed" => {
+                if !confirm_database_command(ctx, crate::ui_text::text("native.lib.seedTitle", "Seed Database"), "native.lib.seedBody", "Run the database seeders for {root}?")? {
+                    return Ok(None);
+                }
+                self.artisan(ctx, "db:seed")
+            }
             "route-send-request" => {
-                if arg.is_none() { return Err(Error::Invalid("Select a route in the Laravel window first.".into())); }
-                let Some(route) = arg.and_then(|key| self.route_at(key, ctx)) else {
+                let Some(key) = self.route_key_or_pick(ctx, arg)? else { return Ok(None) };
+                let Some(route) = self.route_at(&key, ctx) else {
                     return Ok(None);
                 };
                 let project = ctx.project().ok_or(Error::Stale)?;
@@ -1125,8 +1151,8 @@ impl Plugin for Main {
                 Ok(None)
             }
             "route-copy-curl" | "route-create-http" => {
-                if arg.is_none() { return Err(Error::Invalid("Select a route in the Laravel window first.".into())); }
-                let Some(mut route) = arg.and_then(|key| self.route_at(key, ctx)) else {
+                let Some(key) = self.route_key_or_pick(ctx, arg)? else { return Ok(None) };
+                let Some(mut route) = self.route_at(&key, ctx) else {
                     return Ok(None);
                 };
                 if route.method.contains('|') {
@@ -1142,18 +1168,7 @@ impl Plugin for Main {
                 Ok(None)
             }
             "migrate-fresh" => {
-                let root = ctx.project().and_then(|project| project.root().ok()).unwrap_or_default();
-                let confirmed = self
-                    .fresh_asked
-                    .take()
-                    .is_some_and(|(asked_root, asked)| asked_root == root && asked.elapsed() < Duration::from_secs(30));
-                if !confirmed {
-                    self.fresh_asked = Some((root, Instant::now()));
-                    host::notify(
-                        NotificationLevel::Warning,
-                        SOURCE,
-                        crate::ui_text::text("native.lib.859d1d6ee2", "Fresh migration drops all tables. Run Laravel: Fresh Migration (drops all tables) again within 30 seconds to confirm."),
-                    );
+                if !confirm_database_command(ctx, crate::ui_text::text("native.lib.freshTitle", "Fresh Migration"), "native.lib.freshBody", "Drop every table in the database of {root} and run all migrations again?")? {
                     return Ok(None);
                 }
                 self.artisan(ctx, "migrate:fresh")
@@ -2237,6 +2252,26 @@ impl Main {
             _ => {}
         }
         Ok(())
+    }
+
+    fn search_routes(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
+        let project = ctx.project().ok_or(Error::Stale)?;
+        self.advance_index(&project);
+        let index=self.view_index(ctx).ok_or(Error::Stale)?;
+        if index.partial {return Err(Error::Failed(crate::ui_text::text("native.lib.3b27ad675b", "Laravel route index is incomplete; reindex before searching.").into()));}
+        if !index::index_sources_current(&project,index){return Err(Error::Stale);}
+        let initial = self.search_routes_from_index(ctx,index);
+        route_search::run(ctx, initial, || { if !index::index_sources_current(&project,index) {return Err(Error::Stale);} Ok(self.search_routes_from_index(ctx,index)) })?;
+        Ok(None)
+    }
+
+    /// The row key a route command was given, or one the user picks when it runs from the palette.
+    fn route_key_or_pick(&self, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if let Some(key) = arg { return Ok(Some(key.to_owned())); }
+        let routes = self.active_routes(ctx);
+        if routes.is_empty() { return Err(Error::Invalid(crate::ui_text::t("native.lib.noRoutesToPick", "No routes found. Open a Laravel project and let indexing finish, then try again."))); }
+        let choices: Vec<_> = routes.iter().enumerate().map(|(i, route)| openidea_plugin::PickItem::new(&format!("route:{i}"), &route_search::label(route))).collect();
+        host::pick(crate::ui_text::text("routeSearch.matches", "Matching Laravel routes"), &choices)
     }
 
     fn route_at(&self, key: &str, ctx: &Invocation) -> Option<Route> {

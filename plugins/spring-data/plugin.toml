@@ -5,12 +5,12 @@ description = "Spring Data repositories in Java and Kotlin: checks derived query
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: New icons for domain types, custom implementations and derived queries; projections, record DTOs and @EntityGraph paths are checked against the entity, and methods taking Class, Pageable or Sort through a wildcard import are checked again; derived-query and entity checks stay on after the project is idle or a file is deleted, and a duplicated class silences checks only for that class; create a repository or projection from an entity, and hover on repositories and queries; short setting titles and clearer permission messages. \
+Next release: The command title now starts with Spring Data, like the rest of the Spring family. New icons for domain types, custom implementations and derived queries; projections, record DTOs and @EntityGraph paths are checked against the entity, and methods taking Class, Pageable or Sort through a wildcard import are checked again; derived-query and entity checks stay on after the project is idle or a file is deleted, and a duplicated class silences checks only for that class; create a repository or projection from an entity, and hover on repositories and queries; short setting titles and clearer permission messages. \
 0.3.0: derived query checks and repository creation. \
 0.2.0: plugin icon and repository navigation."""
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:java", "on-language:kotlin", "on-event:files-changed"]
 
@@ -45,7 +45,7 @@ path = "templates/Repository.kt"
 
 [[contributes.commands]]
 id = "show-repository-members"
-title = "Show Repository Inherited Members"
+title = "Spring Data: Show Repository Inherited Members"
 category = "Spring Data"
 
 [[contributes.menus]]

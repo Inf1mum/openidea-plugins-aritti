@@ -6,9 +6,10 @@ This plugin replaces five older plugins: `aritti.spring-websocket`, `aritti.spri
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or newer (`engines.openidea = "^1.10"`).
 - A Spring project. A module stays idle when the root build file (`pom.xml`, `build.gradle`, `build.gradle.kts`) does not mention its dependency.
-- Node.js 22 or newer, only for **Start GraphQL Subscription**.
+- For the **Spring Endpoints** window and its Tools menu entries: a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)` at the project root.
+- Node.js 22 or newer, only for **Start GraphQL Subscription…**.
 - For SpEL inside Thymeleaf templates: the Spring Beans plugin (it supplies the `spel` language).
 
 ## Quick start
@@ -38,9 +39,10 @@ Click a row to open its source. **Refresh** rescans. The window remembers the la
 
 - **Copy as curl** (right-click a route) copies a curl command.
 - **Create HTTP Request File** asks for the base URL, then writes `http/<verb>-<path>.http` under the project root and opens it. An existing file is opened unchanged.
+- Run either from Search Everywhere and it first asks which endpoint to use.
 - Above each mapping method, the **HTTP request: GET /path** code lens does the same from the source. Mappings without a fixed method ask you to pick one.
 - Above GraphQL query and mutation handlers, the **GraphQL request: …** lens writes a JSON POST request with sample arguments.
-- **Copy Spring Endpoints as OpenAPI** (Tools menu) copies an OpenAPI 3.0.3 document built from your source.
+- **Copy as OpenAPI** (Tools menu) copies an OpenAPI 3.0.3 document built from your source. A notification confirms the copy and lists anything left out.
 
 Sending requests stays with the IDE's built-in HTTP client.
 
@@ -84,7 +86,7 @@ Sending requests stays with the IDE's built-in HTTP client.
 - Handler methods (`@QueryMapping`, `@SchemaMapping`…) link to their schema field, and fields link back.
 - Client documents under `graphql-documents/` navigate to the schema.
 - Handlers for fields the schema doesn't declare get a warning.
-- **Prepare GraphQL Subscription from Handler** writes an editable `.graphql` subscription document. **Start GraphQL Subscription** runs it and shows a review screen before connecting.
+- **Prepare GraphQL Subscription from Handler** writes an editable `.graphql` subscription document. **Start GraphQL Subscription…** runs it and shows a review screen before connecting. While it runs, **Read GraphQL Subscription Output** and **Cancel GraphQL Subscription** appear in the Tools menu.
 
 ### Edit Web Flow definitions
 
@@ -105,16 +107,16 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Endpoints**; 
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Spring Endpoints: Copy as curl** | Copies a curl command for a route. Run it from a route's right-click menu (**Copy as curl**). | — |
-| **Spring Endpoints: Create HTTP Request File for Endpoint** | Writes `http/<verb>-<path>.http` for a route and opens it. Run it from a route's right-click menu (**Create HTTP Request File**). | — |
-| **Spring Endpoints: Copy as OpenAPI** | Copies an OpenAPI 3.0.3 document of all routes. Also in the Tools menu. | — |
+| **Spring Endpoints: Copy Endpoint as cURL** | Copies a curl command for a route. From a route's right-click menu (**Copy as curl**), or from Search Everywhere, where it asks which endpoint. | — |
+| **Spring Endpoints: Create HTTP Request File for Endpoint** | Writes `http/<verb>-<path>.http` for a route and opens it. From a route's right-click menu (**Create HTTP Request File**), or from Search Everywhere, where it asks which endpoint. | — |
+| **Spring Endpoints: Copy as OpenAPI** | Copies an OpenAPI 3.0.3 document of all routes and confirms in a notification. Also in the Tools menu. | — |
 | **Spring Endpoints: Create HTTP Request from Endpoint Source** | Writes a request file for a mapping method in the active editor. Asks which endpoint when there are several. | — |
 | **Spring Endpoints: Create HTTP Request from GraphQL Handler** | Writes a GraphQL JSON POST request for a query or mutation handler. | — |
 | **Spring Endpoints: Create HTTP Request from Feign Client** | Writes a request file for a Feign client method. | — |
 | **Spring Endpoints: Prepare GraphQL Subscription from Handler** | Writes an editable `.graphql` subscription document from a subscription handler. | — |
-| **Spring Endpoints: Start GraphQL Subscription** | Connects the current `.graphql`/`.gql` subscription document after a review screen. Also in the Tools menu. | — |
-| **Spring Endpoints: Read GraphQL Subscription Output** | Shows the output received so far. Also in the Tools menu. | — |
-| **Spring Endpoints: Cancel GraphQL Subscription** | Ends the running subscription. Also in the Tools menu. | — |
+| **Spring Endpoints: Start GraphQL Subscription…** | Connects the current `.graphql`/`.gql` subscription document after a review screen. Also in the Tools menu. | — |
+| **Spring Endpoints: Read GraphQL Subscription Output** | Shows the output received so far. Also in the Tools menu while a subscription runs. | — |
+| **Spring Endpoints: Cancel GraphQL Subscription** | Ends the running subscription. Also in the Tools menu while a subscription runs. | — |
 
 ## Settings
 
@@ -145,11 +147,11 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | Permission | Used for | Without it |
 |---|---|---|
 | `project.write` | Writing `.http` request files and `.graphql` subscription drafts. | The request or document is copied to the clipboard instead (if `clipboard` is allowed). |
-| `clipboard` | **Copy as curl**, **Copy Spring Endpoints as OpenAPI**, and the fallback above. | Copy as curl shows "Copying the curl command needs the clipboard capability." The OpenAPI export fails. |
+| `clipboard` | **Copy as curl**, **Copy as OpenAPI**, and the fallback above. | Copy as curl shows "Copying the curl command needs the clipboard capability." The OpenAPI export fails. |
 | `editor.read` | The **from … Source/Handler/Client** commands and the request code lenses, which read the active editor. | Those commands can't find the source. |
 | `events` | Keeping the indexes fresh when files change, open or save. | Checks that report something *missing* (unresolved views, unmapped fields, Stream bindings) stay quiet. |
 | `storage` | Remembering the last section of the Spring Endpoints window. | The window opens on its default section. |
-| `process:node` | Running **Start GraphQL Subscription** with Node.js 22+. | GraphQL subscriptions can't start. |
+| `process:node` | Running **Start GraphQL Subscription…** with Node.js 22+. | GraphQL subscriptions can't start. |
 
 ## Troubleshooting
 
@@ -158,6 +160,9 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | Windows or completions appear twice | Uninstall `aritti.spring-websocket`, `aritti.spring-messaging`, `aritti.spring-graphql`, `aritti.spring-webflow` and `aritti.spring-cloud`. |
+| The **Spring Endpoints** window or its Tools menu entries are missing | They appear only when the project root has a `pom.xml`, `build.gradle(.kts)` or `settings.gradle(.kts)`. Open the folder that holds the build file. |
+| "No Spring endpoints found. This project doesn't look like a Spring project…" | The project root has no `pom.xml` or `build.gradle`. Open the module's folder. |
+| "No Spring endpoints found in this project." when copying curl or creating a request file | The endpoint list is empty. See the next row. |
 | The HTTP section says "No routes found in this project." | Routes need literal paths in a `@Controller`/`@RestController`, or functional routes. Paths built from constants, concatenation or `${…}` are not read. Check the root build file mentions Spring. |
 | "Copy as curl needs the clipboard permission. Allow it in Settings › Plugins › Spring Endpoints Tools." | Allow `clipboard` in Settings › Plugins › Spring Endpoints Tools. |
 | **Create HTTP Request File** copies the request instead of creating a file | Allow `project.write`. |
@@ -339,7 +344,7 @@ Not covered: expanded Gateway `args` semantics, routes built with the Java DSL, 
 
 - **Hover**: a path variable bound once within one literal route, with explicitly imported known controller/mapping/PathVariable annotations. Multiple routes, dynamic paths, foreign/shadow annotations and duplicate bindings stay quiet. GraphQL hover describes the current SDL field's named type and arguments, without inventing list/nullability/resolver semantics. Java source hover documents exact imported `@QueryMapping` and `@SchemaMapping` annotations in `@Controller` classes: a literal field or the documented method-name default, Query's composed annotation contract, and an explicitly declared parent type. Missing SchemaMapping type inference is UNRESOLVED. Messaging hover covers literal destinations of exact Spring JMS/Rabbit XML namespaces (not broker inference from Java receiver names) and literal `@KafkaListener(topics=…)`, `@RabbitListener(queues=…)` and `@JmsListener(destination=…)` declarations, including literal arrays. Patterns/partitions/bindings, placeholders, concatenation, foreign annotations and unknown forms stay quiet. Container registration, inherited or composed metadata, installed versions, broker/subscription/delivery state and JMS queue/topic mode remain unresolved. These source-only providers perform no discovery, file reads, requests or processes.
 - **Rename route variable and explicit binding**: a lazy file action on a literal method route variable or its explicit `@PathVariable` name. It previews and returns two atomic source-token edits: `{id}` → `{newName}` and the annotation literal `"id"` → `"newName"`. The Java parameter identifier and body stay unchanged. It requires exact Spring imports, one method-level literal route, an explicit unique binding, no class-level route, ordinary closed Java source and a collision-free literal name. Kotlin, implicit parameter-name binding, inherited/class routes, regex/wildcard template variables, constants/concatenation and ambiguous aliases stay quiet. Selection and resolution check full current text, version, path, innermost owner and project-visible source around every prompt; cancellation returns no edits. Unsaved buffers, CRLF and UTF-16 are supported. No source write or process occurs. This changes this route's external variable spelling. It is not Java symbol Rename and does not update clients, other routes or runtime metadata.
-- **OpenAPI source export**: **Tools › Copy Spring Endpoints as OpenAPI** copies a declaration-only OpenAPI 3.0.3 document from a complete, fresh route index (optional `clipboard` permission). The document is capped at 1 MiB. It includes explicit HTTP operations, literal path parameters, all matching handler identities, declared query/header parameters, literal `@ResponseStatus`/`ResponseEntity` codes, literal Bean Validation constraints and regex path-variable patterns, consumes/produces media types and literal mapping conditions. ANY methods, wildcard paths, regex templates and ant-pattern mappings remain visible in `x-openidea-unexported-mappings`. Conflicting handlers keep separate source metadata rather than guessed merged conditions. Runtime conditions and request/response schemas are not inferred. No server is contacted. Positive source DTO shapes accompany the export: Java records, public fields, ordinary JavaBean getters, simple enum constants and public Kotlin data-class properties resolve through exact local package/import identities. Arrays, supported collections/maps and recursive object references keep their written types. The export includes schema components and source provenance. Only declared media types receive content entries; media-unknown body/response shapes stay in source extensions. Custom serialization annotations, inheritance, generic DTO bindings, ambiguous names and Kotlin alias contexts remain unresolved. Validation, requiredness and effective serializer naming/inclusion are not inferred. DTO schemas otherwise remain unspecified.
+- **OpenAPI source export**: **Tools › Copy as OpenAPI** copies a declaration-only OpenAPI 3.0.3 document from a complete, fresh route index (optional `clipboard` permission). The document is capped at 1 MiB. It includes explicit HTTP operations, literal path parameters, all matching handler identities, declared query/header parameters, literal `@ResponseStatus`/`ResponseEntity` codes, literal Bean Validation constraints and regex path-variable patterns, consumes/produces media types and literal mapping conditions. ANY methods, wildcard paths, regex templates and ant-pattern mappings remain visible in `x-openidea-unexported-mappings`. Conflicting handlers keep separate source metadata rather than guessed merged conditions. Runtime conditions and request/response schemas are not inferred. No server is contacted. Positive source DTO shapes accompany the export: Java records, public fields, ordinary JavaBean getters, simple enum constants and public Kotlin data-class properties resolve through exact local package/import identities. Arrays, supported collections/maps and recursive object references keep their written types. The export includes schema components and source provenance. Only declared media types receive content entries; media-unknown body/response shapes stay in source extensions. Custom serialization annotations, inheritance, generic DTO bindings, ambiguous names and Kotlin alias contexts remain unresolved. Validation, requiredness and effective serializer naming/inclusion are not inferred. DTO schemas otherwise remain unspecified.
 - **HTTP request lenses**: Java/Kotlin mapping methods offer a source-backed **HTTP request** code lens. Invocation checks the active source and version again. Unrestricted mappings ask for an explicit HTTP method before generating a request or curl command. Named annotations imported from unrelated packages are not treated as Spring mappings. Generation uses source-qualified required query/header examples, literal positive mapping conditions and declared media types. Query text is percent-encoded. Negative or contradictory conditions are shown for review or refused, and wildcard body media requires a concrete choice. Source, project and version are checked again after Base URL selection. Existing request files are preserved. The source HTTP/GraphQL actions also work from Find Action: the active source supplies a native endpoint chooser when a lens payload is absent.
 - **GraphQL request lenses**: root GraphQL query/mutation handlers offer schema-qualified HTTP request lenses. Generation requires a fresh, complete local SDL/configuration model. It preserves declared argument list/non-null types, checks shortcut annotation parents against the operation root, supports explicit `@SchemaMapping` custom roots and uses the configured servlet/GraphQL path. It refuses conflicting signatures or profile paths. The generated JSON POST uses editable argument samples and marks null custom-input values for review. Source, schema and configuration are checked again after origin selection. Subscription source lenses prepare a separate editable `.graphql` document from a proved SDL subscription root. Native source actions are shown only for positively matched complete local operation roots.
 - **GraphQL subscriptions**: **Start GraphQL Subscription** consumes one current `.graphql`/`.gql` subscription document, including documents prepared by source lenses. It requires Node 22 or newer with built-in WebSocket (optional `process:node`). It then reviews the exact selected ws(s) endpoint, document, variables and connection initialization JSON before connecting. No application or Actuator credentials are reused. Documents are capped at 8 KiB; variables and the initialization payload at 4 KiB each. **Read GraphQL Subscription Output** polls bounded managed output. **Cancel GraphQL Subscription** requests protocol Complete/close, with a bounded process-kill fallback. Sessions last at most 120 seconds and end with plugin disposal. The helper uses `graphql-transport-ws`; it emits no unsupported native HTTP-file WebSocket syntax.

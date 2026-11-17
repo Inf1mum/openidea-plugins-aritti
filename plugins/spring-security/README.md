@@ -6,7 +6,7 @@ while you type. MIT; see `LICENSE`.
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Java or Kotlin project that uses Spring Security, or Spring XML files with the
   security namespace.
 - Optional: the **Spring Beans Navigator** plugin (`aritti.spring-beans`) for SpEL support

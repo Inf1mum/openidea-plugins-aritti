@@ -577,7 +577,9 @@ pub fn handle_with_actions<T: Plugin + Views>(plugin: &mut T, view: &str, event:
             if !(opaque && matches!(error, Error::Stale)) {
                 notify_error(title, &error);
             }
-            json!({"channel":request.channel,"sequence":sequence,"frameId":request.frame_id,"project":project,"error":error.to_string()})
+            // The page names a denied capability in its empty state; other errors keep their message.
+            let denied = match &error { Error::Denied(capability) => Some(capability), _ => None };
+            json!({"channel":request.channel,"sequence":sequence,"frameId":request.frame_id,"project":project,"error":error.to_string(),"denied":denied})
         }
     };
     host::post_view_message(&physical, &answer.to_string())?;
@@ -733,6 +735,7 @@ mod tests {
                     assert!(demo.calls.is_empty());
                     let answer: Value = serde_json::from_str(&mock.view_messages().last().unwrap().1).unwrap();
                     assert!(answer.get("error").is_some());
+                    assert!(answer["denied"].as_str().is_some_and(|denied| denied.contains("project.read")));
                 }
             }
             handle(

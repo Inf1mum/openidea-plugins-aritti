@@ -4,7 +4,7 @@ Control your [DDEV](https://ddev.com) project from OpenIDEA: start and stop it, 
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - DDEV on your `PATH`, and a working container runtime (Docker or similar), for everything that talks to DDEV.
 - Open the folder that contains `.ddev/config.yaml` as the IDE project, as DDEV expects.
 - YAML completion and checks need neither DDEV nor Docker.
@@ -14,7 +14,7 @@ Control your [DDEV](https://ddev.com) project from OpenIDEA: start and stop it, 
 1. Install the plugin ([how](../../README.md#install-a-plugin)).
 2. Allow `process:ddev` in Settings › Plugins › *DDEV Integration*. You can pick a custom DDEV executable there.
 3. Open the folder that contains `.ddev/config.yaml`. No configuration yet? Run **DDEV: Configure Project**.
-4. Open **Services › DDEV** and click **Start DDEV**.
+4. Open **Services › DDEV** and click **Start Project**.
 5. Select a service and click **Open in Browser**, **Open Shell** or **Open Logs**.
 
 Not sure what's missing? Run **DDEV: Guided Setup** for a checklist and an environment check.
@@ -25,7 +25,8 @@ Not sure what's missing? Run **DDEV: Guided Setup** for a checklist and an envir
 
 Open **Services › DDEV**. The project node shows its status. Its children are the services DDEV reports, plus Mailpit/Mailhog links.
 
-- Toolbar: **Refresh Status**, **Start DDEV**, **Restart DDEV**, **Stop DDEV**, **Open Shell**, **Open Logs**, **Open in Browser** and **More Actions…**. Buttons that don't fit the current state are disabled.
+- Toolbar: **Refresh Status**, **Start Project**, **Restart Project**, **Stop Project**, **Open Shell**, **Open Logs**, **Open in Browser**, **More Actions…** and **Help and Diagnostics**. Buttons that don't fit the current state are disabled.
+- When DDEV can't be reached, the project row says why: **Container runtime not running**, **DDEV permission needed**, **DDEV not installed** or **DDEV unavailable**. **Help and Diagnostics** is enabled then.
 - Right-click a node for the same actions, plus a **DDEV** submenu with Share, Power Off, Delete, database and tools.
 - **Open Shell** opens a shell in the selected container. The project node uses `web`.
 - **Open in Browser** prefers HTTPS. Double-click a node to open its URL.
@@ -50,8 +51,8 @@ The **DDEV** status-bar item opens **DDEV: Project Actions**: a menu with servic
 
 ### Run commands in the project
 
-- **DDEV: Start**, **DDEV: Restart** and **DDEV: Stop** run in a terminal.
-- **DDEV: Delete Project** and **DDEV: Power Off All Projects** ask first. Power Off stops every DDEV project on the machine.
+- **DDEV: Start Project**, **DDEV: Restart Project** and **DDEV: Stop Project** run in a terminal.
+- **DDEV: Delete Project** and **DDEV: Power Off All Projects** ask first. Delete names the project and its folder. Power Off stops every DDEV project on the machine.
 - **DDEV: Share Project** runs `ddev share`. It needs DDEV's sharing configuration.
 - **DDEV: Configure Project** asks first, then runs `ddev config --auto`. The YAML opens when it finishes successfully.
 - **DDEV: Run Composer…**, **DDEV: Run PHP…** and **DDEV: Run Node.js…** ask for arguments, then run them in the container. The project must be running. Quoted arguments are supported.
@@ -89,7 +90,7 @@ The plugin registers a **DDEV: &lt;project&gt;** run target. The IDE asks whethe
 
 ### Get set up
 
-**DDEV: Guided Setup** opens the **DDEV Setup** panel with:
+**DDEV: Guided Setup** opens the **DDEV Setup** panel with, from the top:
 
 - a setup checklist and **Check Environment** (DDEV and Docker versions);
 - project preferences: change them, then click **Save Preferences** (needs `project.write`). **Reset Changes** reloads the saved values;
@@ -117,11 +118,11 @@ Find them in Search Everywhere › Actions (⇧⇧) under **DDEV**; bind keys in
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **DDEV: Start** (*Services*) | Runs `ddev start` in a terminal. | None |
-| **DDEV: Restart** (*Services*) | Runs `ddev restart`. | None |
-| **DDEV: Stop** (*Services*) | Runs `ddev stop`. | None |
+| **DDEV: Start Project** (*Services*) | Runs `ddev start` in a terminal. | None |
+| **DDEV: Restart Project** (*Services*) | Runs `ddev restart`. | None |
+| **DDEV: Stop Project** (*Services*) | Runs `ddev stop`. | None |
 | **DDEV: Power Off All Projects** (*Services › DDEV*) | Asks, then runs `ddev poweroff` for every project. | None |
-| **DDEV: Delete Project** (*Services › DDEV*) | Asks, then runs `ddev delete`. | None |
+| **DDEV: Delete Project** (*Services › DDEV*) | Asks, naming the project, then runs `ddev delete`. | None |
 | **DDEV: Share Project** (*Services › DDEV*) | Runs `ddev share`. | None |
 | **DDEV: Configure Project** | Asks, then runs `ddev config --auto`, with `--php-version` if one is found. | None |
 | **DDEV: Open Configuration** (*Services*) | Opens `.ddev/config.yaml`. | None |
@@ -181,10 +182,10 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| *DDEV runtime is unavailable…* or *Reading DDEV runtime details needs the process:ddev permission…* | Allow `process:ddev` in Settings › Plugins › *DDEV Integration*. Check DDEV is installed and Docker is running. Then click **Refresh Status**. |
+| *DDEV runtime is unavailable…*, *Reading DDEV runtime details needs the process:ddev permission…*, or the project row shows **Container runtime not running**, **DDEV permission needed** or **DDEV not installed** | Allow `process:ddev` in Settings › Plugins › *DDEV Integration*. Check DDEV is installed and Docker is running. Then click **Refresh Status**. |
 | *No .ddev/config.yaml in the project root. Run DDEV: Configure Project first.* | Open the folder that contains `.ddev/config.yaml`, or run **DDEV: Configure Project**. Only the project root is read. |
 | A command is missing from Search Everywhere | It doesn't fit the current state (for example the project is stopped). Click **Refresh Status** after changing DDEV outside the IDE. |
-| *Start the DDEV project before running container tools.* | Run **DDEV: Start** first. Composer, PHP and Node.js need a running project. |
+| *Start the DDEV project before running container tools.* | Run **DDEV: Start Project** first. Composer, PHP and Node.js need a running project. |
 | *DDEV reported no service URLs. Start the project and refresh status.* | Start the project, then **Refresh Status**. |
 | *This DDEV service has no browser URL.* | That service has no web URL. Pick another node. |
 | *DDEV has no published database port; start the project first.* | Start the project. The database connection needs a published port. |
@@ -212,7 +213,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 <details>
 <summary>Status caching, terminals, database maintenance and the run target</summary>
 
-**API.** The plugin was first built for OpenIDEA v0.1.40 (API 1.4); the current manifest requires API 1.9.
+**API.** The plugin was first built for OpenIDEA v0.1.40 (API 1.4); the current manifest requires API 1.10.
 
 **Services.** Children come from `ddev describe --json-output`. Actions are checked again when dispatched. Shell runs `ddev ssh --service …`; the project node and the status menu use `web`. A service without a URL reports that it has none. The compact toolbar uses registered native IDE icons with descriptive accessible labels. Project-free, unconfigured and unavailable states stay visible as read-only status rows; selecting them doesn't retry DDEV commands (**Refresh Status** is the explicit retry). Recovery controls keep their state and permission checks. Runtime errors appear as an unavailable state rather than hiding the project.
 

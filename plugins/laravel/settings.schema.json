@@ -2,17 +2,17 @@
   "properties": {
     "artisanDockerSocket": {
       "type": "string",
-      "title": "Docker Artisan: explicit local unix:///socket endpoint",
+      "title": "Docker: socket address used to run Artisan in a container (unix:// path)",
       "default": "unix:///var/run/docker.sock"
     },
     "artisanDockerContainer": {
       "type": "string",
-      "title": "Docker Artisan: manual full 64-hex container ID (Choose Docker Target can select per project)",
+      "title": "Docker: container ID that runs Artisan (leave empty and use Choose Docker Target to pick one per project)",
       "default": ""
     },
     "artisanDockerWorkdir": {
       "type": "string",
-      "title": "Docker Artisan: manual absolute container project directory (verified bind mapping)",
+      "title": "Docker: project folder inside the container (absolute path, mounted from this project)",
       "default": ""
     },
     "diagnostics": {
@@ -122,16 +122,16 @@
       "default": true
     },
     "routeHints": {
-      "title": "Show route and controller hints",
       "type": "boolean",
+      "title": "Show route and controller hints in the editor",
       "default": true,
-      "description": "Show cached route and controller hints in the editor."
+      "description": "Inline hints next to route names and controller actions, from the project index."
     },
     "scopeAttributeIntentions": {
-      "title": "Offer scope-to-attribute intentions",
       "type": "boolean",
+      "title": "Offer to convert query scopes to the #[Scope] attribute (Laravel 12.6+)",
       "default": true,
-      "description": "Offer scope-to-attribute intentions when composer.lock establishes Laravel 12.6 or newer."
+      "description": "Shown only when composer.lock pins Laravel 12.6 or newer."
     },
     "uiLanguage": {
       "type": "string",

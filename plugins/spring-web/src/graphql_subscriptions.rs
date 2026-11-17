@@ -11,6 +11,8 @@ const OUTPUT: &str = "Spring GraphQL Subscriptions";
 pub(crate) const START: &str = "graphql.subscription-start";
 pub(crate) const POLL: &str = "graphql.subscription-poll";
 pub(crate) const CANCEL: &str = "graphql.subscription-cancel";
+/// Read as `plugin.aritti.spring-web.graphqlSubscriptionActive` by the Tools menu entries.
+const ACTIVE_CONTEXT: &str = "graphqlSubscriptionActive";
 fn invalid(s: &str) -> Error {
     Error::Invalid(s.into())
 }
@@ -532,6 +534,16 @@ impl Runtime {
         ctx: &Invocation,
         backend: &mut impl Backend,
     ) -> Result<Option<String>, Error> {
+        let result = self.run_session(id, ctx, backend);
+        let _ = host::set_context(ACTIVE_CONTEXT, self.session.is_some());
+        result
+    }
+    fn run_session(
+        &mut self,
+        id: &str,
+        ctx: &Invocation,
+        backend: &mut impl Backend,
+    ) -> Result<Option<String>, Error> {
         let Some(project) = ctx.project() else {
             if let Some(session) = self.session.take() {
                 let _ = session.child.kill();
@@ -977,10 +989,12 @@ mod tests {
             runtime
                 .run_with(START, &h.invocation(), &mut backend)
                 .unwrap();
+            assert_eq!(h.context_keys()[ACTIVE_CONTEXT], openidea_plugin::ContextValue::Flag(true));
             backend.state.borrow_mut().wait_status = status;
             runtime
                 .run_with(CANCEL, &h.invocation(), &mut backend)
                 .unwrap();
+            assert_eq!(h.context_keys()[ACTIVE_CONTEXT], openidea_plugin::ContextValue::Flag(false));
             let state = backend.state.borrow();
             assert_eq!(state.writes[1], "{\"type\":\"cancel\"}\n");
             assert_eq!(state.waits, vec![1500]);

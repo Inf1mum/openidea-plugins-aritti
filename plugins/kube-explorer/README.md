@@ -6,7 +6,7 @@ Your kubeconfig is never modified: the chosen context and namespace are passed t
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - `kubectl` on the `PATH` the IDE sees, and a kubeconfig, for everything that talks to a cluster.
 - Optional: `helm` for the Helm commands, `telepresence` for Telepresence.
 - Exec-based auth plugins your kubeconfig uses (`gke-gcloud-auth-plugin`, `aws`, …) must also be on the IDE's `PATH`.
@@ -18,7 +18,7 @@ Your kubeconfig is never modified: the chosen context and namespace are passed t
 2. Allow `process:kubectl` in Settings › Plugins › *Kube Explorer*. Also allow `project.read` and `events` for editor checks.
 3. Open the Services tool window and expand **Kube Explorer**.
 4. Double-click a context, then a namespace, to select them.
-5. Expand a kind (for example Pods), select a resource and click **Describe**, **Logs** or **Shell**.
+5. Expand a kind (for example Pods), select a resource and click **Describe**, **Follow Logs (Terminal)** or **Shell**.
 
 To use a kubeconfig other than kubectl's default, set **Kubeconfig file** in the settings.
 
@@ -26,20 +26,22 @@ To use a kubeconfig other than kubectl's default, set **Kubeconfig file** in the
 
 ### Browse the cluster in Services
 
-- Double-click a context or namespace to switch to it. Right-click and choose **Switch** does the same.
+- Double-click a context or namespace to switch to it. Right-click › **Switch Context or Namespace** does the same.
+- The status bar shows `⎈ context / namespace`: where every `kubectl` call goes. Click it to show the cluster tree.
 - Expand a kind to list its resources. The tree is grouped under **Kubernetes — selected context**, with the selected namespace beside it.
 - **Custom Resources** lists the cluster's CRD kinds by API group. Expand a kind to see its instances; they take **Describe**, **YAML** and **Delete**.
 - **All namespaces**, at the top of the namespace list, shows every namespaced kind as `namespace/name` rows. Actions on a row run in that row's namespace.
 - **Kube Explorer: Customize Namespaces** lets you choose which namespaces the list shows (none picked: all).
-- Right-click a group to **Expand**, **Collapse** or **Refresh** it.
+- Right-click a group to **Expand Group**, **Collapse Group** or **Refresh Group**.
 
 ### Act on a resource
 
 Select a resource and use the toolbar, or right-click it.
 
-- **Describe** (or double-click), **YAML**, **Delete** (asks first).
+- **Describe** (or double-click), **YAML**, **Delete** (asks first, naming the kind, name, namespace and context).
 - Pods: **Shell**, **Attach** and **Debug**. Debug adds an ephemeral container (`kubectl debug -it`) targeting the pod's first container. It uses the **debugImage** setting (default `busybox:stable`) and remembers recent images.
-- Pods and workloads (Deployments, StatefulSets, DaemonSets, Jobs): **Logs**. For a workload you get the logs of all its pods. **Select Log Sources…** picks pods or containers.
+- Running **Shell** or **Attach** again for the same pod focuses its open terminal.
+- Pods and workloads (Deployments, StatefulSets, DaemonSets, Jobs): **Follow Logs (Terminal)**. For a workload you get the logs of all its pods. **Follow Logs from Selected Sources…** picks pods or containers.
 - Pods, workloads and Services: **Port Forward**.
 - Less common pod and log actions are in the **More Resource Actions** picker.
 
@@ -51,7 +53,7 @@ The **Kubernetes** panel on the right shows tabs for the selected resource:
 
 ### Read and search a log snapshot
 
-**View Log Snapshot…** (right-click › **Logs**) opens the **Log Viewer**: one snapshot of `kubectl logs` for a pod or workload.
+**Log Snapshot…** (toolbar, or right-click › **Logs**) opens the **Log Viewer**: one snapshot of `kubectl logs` for a pod or workload.
 
 - **Filter…** by text, or by regular expression with **Regex** on. Matches are highlighted. **Match case** is available.
 - **Since…** and **Until…** take a UTC date or time: `YYYY-MM-DD` or `YYYY-MM-DDTHH[:MM[:SS[.fraction]]]`, optionally ending in `Z`.
@@ -60,7 +62,7 @@ The **Kubernetes** panel on the right shows tabs for the selected resource:
 - **Copy** puts the shown lines on the clipboard (needs `clipboard`).
 - **Download…** saves the shown lines to a new file in the project, by default `<project>/<kind>-<name>.log` (needs `project.write`). Log files may contain sensitive data.
 
-The snapshot size is set by **logViewerLines** (default 1000 lines per pod). To follow a log live, use **Logs**.
+The snapshot size is set by **logViewerLines** (default 1000 lines per pod). To follow a log live, use **Follow Logs (Terminal)**.
 
 ### Work with Secrets
 
@@ -84,7 +86,7 @@ In a private editor copy, **Save** is local only. To send changes to the cluster
 2. Within 60 seconds, run **Kube Explorer: Apply Private YAML** in the same editor.
 3. To apply again, reopen the resource from Services.
 
-Run **Kube Explorer: Retire Private YAML Editor** when you're done with a copy.
+Run **Kube Explorer: End Private YAML Editing Session** when you're done with a copy.
 
 ### Forward ports
 
@@ -109,12 +111,14 @@ The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop
 
 ### Run commands on the open file
 
-Right-click in the editor, or use Search Everywhere:
+Right-click in a YAML editor, or use Search Everywhere:
 
-- **Kube Explorer: Apply Manifest to Cluster**, **Validate Manifest (Server Dry Run)** and **Diff Manifest with Cluster**.
+- **Kube Explorer: Apply Manifest to Cluster** asks first and names the target context and namespace. Choose **Apply**, or **Show Diff with Cluster First** to review without applying. When it succeeds, the notification offers **Show in Kube Explorer**.
+- **Kube Explorer: Diff Manifest with Cluster** opens the IDE diff viewer: the cluster's objects on the left, what the cluster would store after applying the open file on the right (a server dry run, which changes nothing). Both sides drop `status`, `managedFields`, `resourceVersion`, `uid`, `creationTimestamp`, `generation`, `selfLink` and the last-applied annotation, sort their keys and list one document per object by kind, namespace and name, so only real changes remain. Resources not yet in the cluster show only the right side. If the server refuses the dry run (validation, an admission webhook, or no patch permission), the right side is the open file in the same layout and the notification says why. Manifests with a Secret or a List show a masked diff in Kube Explorer instead, unless **allowRevealSecrets** is on.
+- **Kube Explorer: Validate Manifest (Server Dry Run)** checks the manifest against the cluster without changing it.
 - **Kube Explorer: Delete Manifest Resources from Cluster…** lists what would be deleted (server dry run), then waits for **Confirm Delete**.
 - **Kube Explorer: Reload Manifest from Cluster** replaces each document with the cluster's current version. Leading comments stay; one undo reverts it. Documents the cluster doesn't have are left alone. Needs `editor.write`.
-- **Kube Explorer: Render Kustomization** and **Apply Kustomization to Cluster** use the file's folder.
+- **Kube Explorer: Render Kustomization** and **Apply Kustomization to Cluster** use the file's folder. Apply asks first, naming the context and namespace.
 - **Kube Explorer: Preview Helm Template**, **Lint Helm Chart** and **Update Helm Dependencies** use the chart around the file. **Configure Helm Parameters** sets the release name, values file and `--set` overrides for template and lint.
 - **Kube Explorer: Create Helm Chart** scaffolds a new chart.
 
@@ -160,7 +164,7 @@ To silence checks for YAML files that aren't Kubernetes (Compose files, CI files
 - In `kustomization.yaml`, `kustomization.yml` and `Kustomization`: top-level keys.
 - Resources of a local CRD: property, enum and boolean values.
 - `values.yaml` keys from a local `values.schema.json`, and chart dependency fields.
-- Cluster names: run **Kube Explorer: Read Cluster Namespaces for Completion** or **Kube Explorer: Read Cluster Resource Names for Completion…**. For 60 seconds, `metadata.namespace` and reference fields (Secret, ConfigMap, Service, PersistentVolumeClaim, ServiceAccount names) complete from the cluster.
+- Cluster names: run **Kube Explorer: Read Cluster Namespaces for Completion** or **Kube Explorer: Load Resource Names from Cluster for Completion…**. For 60 seconds, `metadata.namespace` and reference fields (Secret, ConfigMap, Service, PersistentVolumeClaim, ServiceAccount names) complete from the cluster.
 
 ### Navigate between manifests
 
@@ -196,19 +200,19 @@ Imported profiles are never merged into your files or listed in Choose Kubeconfi
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or **Kubernetes**; bind keys in Settings › Keymap. *Tools* means the Tools menu, *Editor* the editor right-click menu.
+Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer**; bind keys in Settings › Keymap. *Tools* means the Tools menu, *Editor* the editor right-click menu (YAML files).
 
 ### Open file and project
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Kube Explorer: Apply Manifest to Cluster** (*Editor*) | Applies the open manifest. | None |
+| **Kube Explorer: Apply Manifest to Cluster** (*Editor*) | Applies the open manifest, after asking (or shows the diff first). | None |
 | **Kube Explorer: Validate Manifest (Server Dry Run)** | Validates it with a server dry run. | None |
-| **Kube Explorer: Diff Manifest with Cluster** | Shows the diff with the cluster. | None |
+| **Kube Explorer: Diff Manifest with Cluster** (*Editor*) | Opens the diff with the cluster's objects. | None |
 | **Kube Explorer: Delete Manifest Resources from Cluster…** | Lists the resources, then deletes after **Confirm Delete**. | None |
 | **Kube Explorer: Reload Manifest from Cluster** (*Editor*) | Replaces the documents with the cluster's versions. | None |
 | **Kube Explorer: Render Kustomization** | Renders the file's folder with Kustomize. | None |
-| **Kube Explorer: Apply Kustomization to Cluster** | Applies the file's folder with Kustomize. | None |
+| **Kube Explorer: Apply Kustomization to Cluster** | Applies the file's folder with Kustomize, after asking. | None |
 | **Kube Explorer: Preview Helm Template** | Runs `helm template` on the chart around the file. | None |
 | **Kube Explorer: Lint Helm Chart** | Runs `helm lint`. | None |
 | **Kube Explorer: Update Helm Dependencies** | Runs `helm dependency update`. | None |
@@ -219,18 +223,19 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or *
 | **Kube Explorer: Read Local Helm Dependency Catalog** (*Tools*) | Reads local repository indexes for dependency completion. | None |
 | **Kube Explorer: Find Local Label or Data-Key Occurrences** (*Editor*) | Lists local uses of the label or key under the caret. | None |
 | **Kube Explorer: Read Cluster Namespaces for Completion** | Caches namespace names for completion (60 seconds). | None |
-| **Kube Explorer: Read Cluster Resource Names for Completion…** | Caches names of one kind in the selected namespace (60 seconds). | None |
+| **Kube Explorer: Load Resource Names from Cluster for Completion…** | Caches names of one kind in the selected namespace (60 seconds). | None |
 | **Kube Explorer: Review Private YAML Apply…** | Reviews a private YAML copy before applying. | None |
 | **Kube Explorer: Apply Private YAML** | Applies the reviewed copy (within 60 seconds). | None |
-| **Kube Explorer: Retire Private YAML Editor** | Ends apply rights for a private copy. | None |
+| **Kube Explorer: End Private YAML Editing Session** | Ends apply rights for a private copy. | None |
 
 ### Cluster, kubeconfig and tools
 
 | Command | What it does | Shortcut |
 |---|---|---|
+| **Kube Explorer: Show Cluster Tree** | Reveals the cluster tree (same as clicking the status bar item). | None |
 | **Kube Explorer: Choose Kubeconfig** | Picks which configured kubeconfig file to use. | None |
 | **Kube Explorer: Customize Namespaces** | Chooses which namespaces the tree lists. | None |
-| **Kube Explorer: Edit Recent Debug Images** | Edits the recent images offered by **Debug…**. | None |
+| **Kube Explorer: Edit Recent Debug Images** | Edits the recent images offered by **Debug Pod…**. | None |
 | **Kube Explorer: Start Resource Watch…** | Starts a watch of Pods, Services or Deployments, after a confirmation. | None |
 | **Kube Explorer: Show Resource Watch** | Opens the watch pane. | None |
 | **Kube Explorer: Import Pasted Kubeconfig…** (*Tools*) | Stores a pasted kubeconfig context privately. | None |
@@ -247,22 +252,22 @@ These act on the selected row in Services › Kube Explorer.
 
 | Menu item | Where | What it does | Shortcut |
 |---|---|---|---|
-| **Describe** | Resources | `kubectl describe`. | None |
+| **Describe Resource** | Resources | `kubectl describe`. | None |
 | **Edit YAML…** | Resources | Opens the YAML for editing. | None |
-| **Delete…** | Resources | Deletes after confirmation. | None |
-| **Follow Logs** | Pods, workloads › **Logs** | Streams logs in a terminal. | None |
-| **View Log Snapshot…** | Pods, workloads › **Logs** | Opens the Log Viewer. | None |
-| **Select Log Sources…** | Pods, workloads › **Logs** | Picks pods or containers to log. | None |
-| **Open Shell** | Pods | Opens a shell in the pod. | None |
-| **Attach** | Pods › **Container** | Attaches to the container. | None |
-| **Debug…** | Pods › **Container** | Starts an ephemeral debug container. | None |
+| **Delete Resource…** | Resources | Deletes after a confirmation naming the namespace and context. | None |
+| **Follow Logs (Terminal)** | Pods, workloads › **Logs** | Streams logs in a terminal. | None |
+| **Log Snapshot…** | Pods, workloads › **Logs** | Opens the Log Viewer. | None |
+| **Follow Logs from Selected Sources…** | Pods, workloads › **Logs** | Picks pods or containers to log. | None |
+| **Open Shell** | Pods | Opens a shell in the pod, or focuses the open one. | None |
+| **Attach to Pod** | Pods › **Container** | Attaches to the container, or focuses the open terminal. | None |
+| **Debug Pod…** | Pods › **Container** | Starts an ephemeral debug container. | None |
 | **Port Forward…** | Pods, workloads, Services | Opens the port-forward form. | None |
 | **Show Secret…** | Secrets | Shows decoded values. | None |
 | **Edit Secret…** | Secrets | Edits decoded values. | None |
 | **Create Secret…** | Secrets group | Creates an Opaque Secret. | None |
-| **Switch Context** / **Switch Namespace** | Contexts, namespaces | Selects it. | None |
-| **Expand** / **Collapse** | Groups, root | Expands or collapses the row. | None |
-| **Refresh** | Groups, root | Reloads the row. | None |
+| **Switch Context or Namespace** | Contexts, namespaces | Selects it. | None |
+| **Expand Group** / **Collapse Group** | Groups, root | Expands or collapses the row. | None |
+| **Refresh Group** | Groups, root | Reloads the row. | None |
 | **Watch Resources…** | Root › **Watch** | Starts a resource watch, after a confirmation. | None |
 | **Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
 | **Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
@@ -276,7 +281,7 @@ Settings › Plugins › Kube Explorer.
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
 | Kubeconfig file, or several separated by commas (Choose Kubeconfig picks one; empty: KUBECONFIG or ~/.kube/config) | `kubeconfig` | empty | Which kubeconfig files to use. |
-| Image of the ephemeral debug container (Debug button on a pod) | `debugImage` | `busybox:stable` | Image for **Debug…**. |
+| Image of the ephemeral debug container (Debug button on a pod) | `debugImage` | `busybox:stable` | Image for **Debug Pod…**. |
 | Allow Show Secret and YAML on a secret | `allowRevealSecrets` | off | Show, Edit and YAML on Secrets. |
 | Open built-in YAML in a private editor copy | `yamlInEditor` | off | Panel or private editor for YAML. |
 | Lines per pod the Log Viewer reads (10 to 20000) | `logViewerLines` | 1000 | Log snapshot size. |
@@ -321,6 +326,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | The tree shows **Kubernetes — permission required** | Allow `process:kubectl` in Settings › Plugins › *Kube Explorer*. |
+| The tree shows **Context: (no current context)** | Your kubeconfig sets no current context. Click **Choose Kubeconfig…** to pick another file, or set one with `kubectl config use-context`. |
 | The tree shows **How to Install kubectl** | `kubectl` can't be started and no context is stored. Install it so it's on the IDE's `PATH`, then refresh. |
 | Authentication fails for GKE, EKS or similar | Put the auth plugin (`gke-gcloud-auth-plugin`, `aws`, …) on the IDE's `PATH`. |
 | *To show them, turn on "Allow Show Secret and YAML on a secret" in Settings › Plugins › Kube Explorer.* | Turn on **Allow Show Secret and YAML on a secret** in the settings. Off: secret data is never read; on: secret YAML is shown unstripped. |
@@ -334,7 +340,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *Reloading a manifest needs the editor.write permission. Allow it in Settings › Plugins › Kube Explorer.* | Allow `editor.write`. |
 | *Allow the optional clipboard capability to copy the shown lines.* | Allow `clipboard`. |
 | *Project access is unavailable…* | Allow `project.read`. Kubernetes also works in a window with no open project. |
-| *At most 16 private editor leases…* | Run **Kube Explorer: Retire Private YAML Editor** on copies you no longer need. |
+| *At most 16 private editor leases…* | Run **Kube Explorer: End Private YAML Editing Session** on copies you no longer need. |
 | No problems shown in a manifest | Allow `events` and `project.read`. Check the file isn't matched by **nonKubernetesGlobs**. |
 | Problems shown in a non-Kubernetes YAML file | Add it to **nonKubernetesGlobs**. |
 | Managed port forward stopped | It ends when the plugin goes idle. Use **Start in Terminal** for long sessions. |
@@ -395,7 +401,7 @@ Each snapshot needs an invoking project with `project.read` and records its proj
 
 With `yamlInEditor`, supported modern built-ins open in a private SDK-storage editor copy with the schema modeline. The review shows the exact target, editor revision, byte count and digest. **Apply Private YAML** is a separate event that rechecks project, local kubeconfig/context/namespace and unchanged current text/version, consumes the approval and sends the reviewed text on stdin with `kubectl replace`. UID and `resourceVersion` are kept and can't be edited, so server conflict checks still apply. A successful apply consumes the lease. Review cancellation, expiry, changed source, missing/foreign project, changed local scope and replay don't replace a resource; a failed apply consumes the approval but keeps the editable copy.
 
-Copies support stable built-in core/apps/batch/networking/rbac identities only (no Secrets, CRDs or guessed legacy schemas). They're bounded to 64 KiB, one alias/tag/duplicate-free document, depth 16 and 4,096 parser nodes; at most 16 live leases and 64 persistent backing files. **Retire Private YAML Editor** removes apply authority and may blank only a generated copy whose current text and backing bytes still match the original digest; edited copies stay. There's no private file-delete API or conditional write/CAS: files remain after retirement, external filesystem races aren't excluded, storage isn't encrypted or automatically erased, and backups/editor histories can keep contents. Closing an editor isn't an observed lease-close event; use Retire or reload/deactivate to release authority.
+Copies support stable built-in core/apps/batch/networking/rbac identities only (no Secrets, CRDs or guessed legacy schemas). They're bounded to 64 KiB, one alias/tag/duplicate-free document, depth 16 and 4,096 parser nodes; at most 16 live leases and 64 persistent backing files. **End Private YAML Editing Session** removes apply authority and may blank only a generated copy whose current text and backing bytes still match the original digest; edited copies stay. There's no private file-delete API or conditional write/CAS: files remain after retirement, external filesystem races aren't excluded, storage isn't encrypted or automatically erased, and backups/editor histories can keep contents. Closing an editor isn't an observed lease-close event; use End Private YAML Editing Session or reload/deactivate to release authority.
 
 </details>
 
@@ -447,7 +453,7 @@ The label graph models exact node affinity (`matchExpressions`), pod affinity/an
 
 **Find Local Label or Data-Key Occurrences** covers explicitly namespaced Pod/workload labels, supported complete selectors and named ConfigMap/Secret key references (data-key completion included), revalidating the source version and destination after selection. No cluster process or network request is needed; the cache keeps structural facts and source fingerprints, not Secret values. Dynamic/generated identity, absent namespaces, duplicate resource declarations and unsupported scalar spellings withhold authority.
 
-**Cluster-backed hints.** **Read Cluster Namespaces for Completion** queries namespace names for the selected context and local redacted cluster identity (`process:kubectl` and an owning `project.read` invocation; only `namespace/<DNS-label>` output accepted; 64 KiB / 512 unique names). For 60 seconds, exact current `metadata.namespace` values in known built-in namespaced kinds get cached suggestions with UTF-16 replacement ranges and captured context/age labels (documents limited to 64 KiB, output to 200 suggestions; cold, expired, foreign, nested-project, changed-choice, malformed, flow-metadata, Helm-action, alias/tag/tab and unknown/cluster-scoped contexts stay quiet). **Read Cluster Resource Names for Completion…** captures names for one chosen Secret, ConfigMap, Service, PersistentVolumeClaim or ServiceAccount kind in the selected single namespace/project (512 names / 64 KiB per kind, 60 seconds); completion uses them only at existing schema-known reference paths with an explicit matching source `metadata.namespace` and innermost project owner (up to 200 candidates). Both commands may connect and authenticate through kubectl, request names only, keep no object bodies or Secret values, and never run from completion or render; providers never run kubectl. A failed same-owner refresh retires that snapshot; failed foreign reads keep the prior owner's cache. These are dated metadata hints, not live authorisation, namespace existence validation or proof of a deployment target.
+**Cluster-backed hints.** **Read Cluster Namespaces for Completion** queries namespace names for the selected context and local redacted cluster identity (`process:kubectl` and an owning `project.read` invocation; only `namespace/<DNS-label>` output accepted; 64 KiB / 512 unique names). For 60 seconds, exact current `metadata.namespace` values in known built-in namespaced kinds get cached suggestions with UTF-16 replacement ranges and captured context/age labels (documents limited to 64 KiB, output to 200 suggestions; cold, expired, foreign, nested-project, changed-choice, malformed, flow-metadata, Helm-action, alias/tag/tab and unknown/cluster-scoped contexts stay quiet). **Load Resource Names from Cluster for Completion…** captures names for one chosen Secret, ConfigMap, Service, PersistentVolumeClaim or ServiceAccount kind in the selected single namespace/project (512 names / 64 KiB per kind, 60 seconds); completion uses them only at existing schema-known reference paths with an explicit matching source `metadata.namespace` and innermost project owner (up to 200 candidates). Both commands may connect and authenticate through kubectl, request names only, keep no object bodies or Secret values, and never run from completion or render; providers never run kubectl. A failed same-owner refresh retires that snapshot; failed foreign reads keep the prior owner's cache. These are dated metadata hints, not live authorisation, namespace existence validation or proof of a deployment target.
 
 **Navigation cache.** Warmed by open, save and file-change events (a file change updates only the files it names): at most 64 source graphs / 8 MiB of accounted graph storage, project-owned YAML inputs up to 128 KiB, and only source names, relationship keys, positions and isolation facts (no Secret payload or full source text). Cache eviction drops the oldest file first and a file change evicts only the named paths; no persistence, cluster calls, kubectl, Helm execution or runtime discovery is involved. Editor requests reparse the current provider text, including unsaved edits, without project-wide scans, and enforce the optional `project.read` grant and ownership. Cached target candidates are re-read and reparsed before returning their current range, with a per-call 16-target-file cap plus a shared resolver's 10 ms cooperative read budget and 256-target cap. A target edit/deletion, denied permission, unknown project, foreign root, oversized source or unknown schema yields no affected link; namespace/transform checks run only while warming. The plugin registers no document indexer, so none of these associations enables automatic Rename/Find Usages; they're bounded positive source hints, not complete usage counts or runtime resolution.
 

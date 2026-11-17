@@ -330,7 +330,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile, extended: &dyn Fn(&str) -> boo
                                     literal_range(text, s),
                                     Severity::Error,
                                     "unknown-command",
-                                    format!("No local legacy command declares the literal availability selector `{}`.", s.value),
+                                    format!("No @ShellMethod command in this class is named `{}`.", s.value),
                                 ));
                             }
                         }

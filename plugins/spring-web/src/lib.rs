@@ -970,6 +970,8 @@ impl Providers for WebTools {
     }
 }
 
+const BUILD_FILES: [&str; 5] = ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
+
 struct Routes {
     routes: Vec<Route>,
     scanning: bool,
@@ -980,6 +982,23 @@ struct Routes {
 impl WebTools {
     fn route_list(&mut self) -> &mut RouteList {
         self.routes.get_or_insert_with(|| RouteList::new("spring.routes", "aritti.spring-web"))
+    }
+
+    fn pick_route(&mut self, ctx: &Invocation) -> Result<Option<Route>, Error> {
+        let project = ctx.project().ok_or("Open a project to choose an endpoint.")?;
+        let routes = self.routes(&project, COMMAND_BUDGET).routes;
+        if routes.is_empty() {
+            return Err("No Spring endpoints found in this project.".into());
+        }
+        let items: Vec<_> = routes
+            .iter()
+            .enumerate()
+            .map(|(at, route)| openidea_plugin::PickItem::new(&at.to_string(), &format!("{} {}", route.method, route.path)).description(&route.handler.class))
+            .collect();
+        let Some(chosen) = host::pick("Choose an endpoint", &items)? else {
+            return Ok(None);
+        };
+        Ok(chosen.parse::<usize>().ok().and_then(|at| routes.into_iter().nth(at)))
     }
 
     fn routes(&mut self, project: &Project, budget: Duration) -> Routes {
@@ -1021,7 +1040,11 @@ impl WebTools {
 
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if routes.is_empty() {
-            let text = spring_text::index::empty_message("No Spring endpoints found", scanning, note.as_deref());
+            let text = if !scanning && !BUILD_FILES.iter().any(|file| project.exists(file).unwrap_or(false)) {
+                "No Spring endpoints found. This project doesn't look like a Spring project: it has no pom.xml or build.gradle.".to_owned()
+            } else {
+                spring_text::index::empty_message("No Spring endpoints found", scanning, note.as_deref())
+            };
             return View::message(&text).button(refresh);
         }
 
@@ -1115,16 +1138,17 @@ impl Plugin for WebTools {
             if document.len()>1<<20{return Err(Error::Failed("Source OpenAPI export exceeds its 1 MiB clipboard budget.".into()))}
             host::copy_to_clipboard(&document)
                 .map_err(|e| ui_kit::denied::map(e, "Copy OpenAPI export", "clipboard", PLUGIN_NAME))?;
-            if !skipped.is_empty(){host::notify(NotificationLevel::Info,"Spring Web",&format!("The OpenAPI export left out: {}.",skipped.join(", ")));}
+            if skipped.is_empty(){host::notify(NotificationLevel::Info,"Spring Endpoints","Copied the OpenAPI document to the clipboard.");}else{host::notify(NotificationLevel::Info,"Spring Endpoints",&format!("Copied the OpenAPI document to the clipboard. It leaves out: {}.",skipped.join(", ")));}
             return Ok(None);
         }
         if id != "copy-endpoint-curl" && id != "create-endpoint-http" {
             return Err(Error::NotFound(format!("command {id}")));
         }
-        if arg.is_none() {
-            return Err(Error::Invalid("Select an endpoint in the Spring Endpoints window first.".into()));
-        }
-        let Some(mut route) = arg.and_then(|key| self.route_list().route(key).cloned()) else {
+        let route = match arg {
+            Some(key) => self.route_list().route(key).cloned(),
+            None => self.pick_route(ctx)?,
+        };
+        let Some(mut route) = route else {
             return Ok(None);
         };
         if !select_http_method(&mut route)? { return Ok(None); }
@@ -1137,7 +1161,7 @@ impl Plugin for WebTools {
                 host::notify(
                     NotificationLevel::Warning,
                     "Spring Endpoints",
-                    &ui_kit::denied::message("Copy as curl", "clipboard", PLUGIN_NAME),
+                    &ui_kit::denied::message("Copy as cURL", "clipboard", PLUGIN_NAME),
                 )
             }
             result => result?,
@@ -1922,6 +1946,7 @@ class Users {
         host.add_file("src/main/java/com/acme/Users.java", API_CONTROLLER);
         let mut tools = warmed();
         tools.run_command("copy-endpoints-openapi", &host.invocation(), None).unwrap();
+        assert_eq!(host.notifications().len(), 1);
         let data: serde_json::Value = serde_json::from_str(&host.clipboard().unwrap()).unwrap();
         assert_eq!(data["paths"]["/api/users"]["post"]["x-spring-handlers"][0], "Users@create");
         assert_eq!(data["x-openidea-unexported-mappings"].as_array().unwrap().len(),2);
@@ -1994,6 +2019,9 @@ class Users {
         host.add_file("src/main/java/com/acme/Plain.java", "class Plain {}");
         let mut tools = warmed();
         let view = tools.render(ENDPOINT_VIEW, None, &host.invocation()).unwrap();
+        assert!(message(&view).contains("doesn't look like a Spring project"));
+        host.add_file("pom.xml", "<project/>");
+        let view = tools.render(ENDPOINT_VIEW, None, &host.invocation()).unwrap();
         assert_eq!(message(&view), "No Spring endpoints found.");
     }
 
@@ -2028,6 +2056,19 @@ class Users {
     }
 
     #[test]
+    fn curl_command_without_a_row_asks_for_the_endpoint() {
+        let host = MockHost::install();
+        host.add_file("src/main/java/com/acme/Users.java", API_CONTROLLER);
+        let mut tools = WebTools::default();
+        let routes = tools.routes(&host.invocation().project().unwrap(), COMMAND_BUDGET).routes;
+        let at = routes.iter().position(|r| r.method == "POST" && r.path == "/api/users").unwrap().to_string();
+        host.answer_next_prompt(Some(&[at.as_str()]));
+        host.answer_next_prompt(Some(&["http://localhost:9000"]));
+        tools.run_command("copy-endpoint-curl", &host.invocation(), None).unwrap();
+        assert_eq!(host.clipboard().as_deref(), Some("curl -X POST 'http://localhost:9000/api/users'"));
+    }
+
+    #[test]
     fn creates_an_http_file_for_an_endpoint() {
         let host = MockHost::install().with_capabilities(&["project.read", "project.write", "clipboard"]);
         host.add_file("src/main/java/com/acme/Users.java", API_CONTROLLER);
@@ -2058,11 +2099,11 @@ class Users {
     }
 
     #[test]
-    fn copy_endpoint_curl_without_selection_explains() {
+    fn copy_endpoint_curl_without_endpoints_explains() {
         let host = MockHost::install();
         let mut tools = WebTools::default();
         let error = tools.run_command("copy-endpoint-curl", &host.invocation(), None).unwrap_err();
-        assert!(matches!(error, Error::Invalid(ref message) if message == "Select an endpoint in the Spring Endpoints window first."), "{error:?}");
+        assert!(matches!(error, Error::Failed(ref message) if message == "No Spring endpoints found in this project."), "{error:?}");
     }
 
     #[test]

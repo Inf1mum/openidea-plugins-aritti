@@ -200,11 +200,11 @@ impl Views for Structure {
             let active = self.sections.active();
             if matches!(active,"batch"|"diagram") {
                 let Some(root)=ctx.project().and_then(|p|p.root().ok()).filter(|r|!r.is_empty()) else {
-                    self.diagrams.clear();return Ok(self.sections.buttons(View::message("Open an owned project to view this source diagram."),&[]));
+                    self.diagrams.clear();return Ok(self.sections.buttons(View::message("Open a project to see this diagram."),&[]));
                 };
                 let data=if active=="batch"{self.batch.diagram_snapshot(ctx,&mut self.integration.indexes)}else{self.modulith.diagram_snapshot(ctx,&mut self.integration.indexes)};
                 let inner=match data {
-                    Ok(data)=>self.diagrams.entry(active.into()).or_default().render(&root,data,if active=="batch"{"Batch source candidate"}else{"Module source candidate"},if active=="batch"{"No source-owned batch nodes found."}else{"No source-owned application modules found."}),
+                    Ok(data)=>self.diagrams.entry(active.into()).or_default().render(&root,data,if active=="batch"{"Batch source candidate"}else{"Module source candidate"},if active=="batch"{"No Spring Batch jobs or steps found."}else{"No application modules found."}),
                     Err(_)=>{self.diagrams.remove(active);View::message("Diagram source data is unavailable; refresh in its project.")},
                 };
                 return Ok(self.source_status(self.sections.buttons(inner,&[])));
