@@ -52,6 +52,8 @@ mod twig;
 mod twig_checks;
 mod wiring;
 mod yaml_quotes;
+#[cfg(test)]
+mod panic_regressions;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -104,6 +106,16 @@ const MAX_PARENTS: usize = 8;
 
 fn under(path: &str, root: &str) -> bool {
     path.strip_prefix(root).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Roots of the open projects nested inside `root`, read once per request.
+pub(crate) fn nested_roots(root: &str) -> Vec<String> {
+    host::projects()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|project| project.root().ok())
+        .filter(|inner| inner != root && under(inner, root))
+        .collect()
 }
 
 fn project_for(path: &str) -> Option<Project> {
@@ -852,6 +864,9 @@ fn route_is_missing(index: &Index, text: &str, start: usize, name: &str) -> bool
 }
 
 pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
+    if language == "twig" && index.custom_twig_lexer() {
+        return Vec::new();
+    }
     let mut problems = Vec::new();
     let mut problem = |start: usize, end: usize, code: &str, message: String| {
         let severity = match code {
@@ -993,6 +1008,7 @@ impl Groups {
 fn findings(index: &Index, groups: Groups, read: checks::Reader, path: &str, language: &str, text: &str) -> Vec<checks::Finding> {
     let ctx = checks::Context::new(index, read);
     let mut findings = Vec::new();
+    let groups = if language == "twig" && index.custom_twig_lexer() { Groups { twig: false, twig_syntax: false, ..groups } } else { groups };
 
     if groups.controllers {
         findings.extend(checks::check_routes(&ctx, path, language, text));
@@ -1063,7 +1079,7 @@ fn fixes(index: &Index, path: &str, language: &str, text: &str) -> Vec<checks::F
         found.extend(config_checks::yaml_scalars(path, language, text));
     }
 
-    if groups.twig && language == "twig" {
+    if groups.twig && language == "twig" && !index.custom_twig_lexer() {
         let read = |_: &str| None;
         found.extend(twig_checks::names(&checks::Context::new(index, &read), text));
     }
@@ -1277,7 +1293,10 @@ impl Main {
     fn run_console_command(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let project = ctx.project().ok_or("No project is open.")?;
         let args = ["bin/console".to_owned(), "list".to_owned(), "--raw".to_owned()];
-        let listed = project.run_process("php", &args, None).ok().filter(|o| o.status == Some(0));
+        let listed = {
+            let _task = host::begin_task("Listing console commands", false);
+            project.run_process("php", &args, None).ok().filter(|o| o.status == Some(0))
+        };
 
         let mut descriptions: BTreeMap<String, Option<String>> = BTreeMap::new();
         for line in listed.iter().flat_map(|o| o.stdout.lines()) {
@@ -1314,7 +1333,7 @@ impl Main {
         };
 
         let mut args = vec!["bin/console".to_owned(), name.clone()];
-        args.extend(arguments.split_whitespace().map(str::to_owned));
+        args.extend(shell_words::split(&arguments).map_err(|_| Error::Invalid("Unbalanced quote in the arguments.".into()))?);
         match host::open_terminal(&format!("console {name}"), "php", &args) {
             Err(Error::Denied(_)) => Err(PHP_DENIED.into()),
             result => result.map(|()| None),
@@ -1389,7 +1408,11 @@ impl Main {
 
     fn summary_of(&self, root: &str, i: &Index) -> String {
         if !i.settings_current() {return format!("{root}: source settings changed; Reindex to refresh cached facts.");}
-        let partial = if i.partial { " (index incomplete)" } else { "" };
+        let partial = match (i.partial, i.template_directories.is_empty()) {
+            (true, _) => " (index incomplete)",
+            (false, false) => " (templates in gitignored folders may not be listed)",
+            _ => "",
+        };
         let translations: usize = i.translations.values().map(Names::len).sum();
         format!(
             "{root}: {} routes, {} templates, {} services, {translations} translations{partial}",
@@ -1465,6 +1488,7 @@ impl Plugin for Main {
         let roots: BTreeSet<_> = projects.iter().filter_map(|project| project.root().ok()).collect();
         // Do not retain stale facts after an oversized batch or perform unbounded callbacks.
         let mut changed = BTreeSet::new();
+        let mut added_or_removed = BTreeSet::new();
         let mut opened = BTreeSet::new();
         let mut count = 0usize;
         for event in events.iter().take(1025) {
@@ -1472,6 +1496,7 @@ impl Plugin for Main {
                 Event::FileSaved(path) => (Box::new(std::iter::once(path.as_str())), false),
                 Event::FileOpened(path) => (Box::new(std::iter::once(path.as_str())), true),
                 Event::FilesChanged(files) => {
+                    added_or_removed.extend(files.created.iter().chain(&files.removed).map(String::as_str));
                     (Box::new(files.created.iter().chain(&files.modified).chain(&files.removed).map(String::as_str)), false)
                 }
                 _ => continue,
@@ -1512,15 +1537,37 @@ impl Plugin for Main {
                 continue;
             };
             let directories = self.indexes.get(&root).filter(|index|index.settings_current()).map(|index| index.template_directories.clone()).unwrap_or_default();
-            let relevant = changed
+            let relevant: Vec<&str> = changed
                 .iter()
-                .filter_map(|path| path.strip_prefix(&format!("{root}/")))
-                .any(|relative| affects_index(relative) || index::affects_configured_index(relative, &configured_inputs)
-                    || namespace_paths::affects(relative, &directories));
+                .filter(|path| {
+                    path.strip_prefix(&format!("{root}/")).is_some_and(|relative| affects_index(relative) || index::affects_configured_index(relative, &configured_inputs)
+                        || namespace_paths::affects(relative, &directories))
+                })
+                .copied()
+                .collect();
             let unknown = !self.indexes.contains_key(&root) && opened.iter().any(|path| under(path, &root));
             let settings_changed=self.indexes.get(&root).is_some_and(|index|!index.settings_current());
-            if relevant || unknown || settings_changed {
+            let mut full_build = unknown || settings_changed;
+            let mut updated = false;
+            if !full_build && !relevant.is_empty() {
+                match self.indexes.get_mut(&root) {
+                    None => full_build = true,
+                    Some(index) => {
+                        for path in &relevant {
+                            let relative = &path[root.len() + 1..];
+                            if added_or_removed.contains(path) || !index.update_file(&project, &root, relative) {
+                                full_build = true;
+                                break;
+                            }
+                            updated = true;
+                        }
+                    }
+                }
+            }
+            if full_build {
                 self.index_project(&project);
+            } else if updated {
+                refresh_main_view();
             }
             for path in changed.iter().chain(&opened).filter(|path| under(path, &root)) {
                 self.check(&project, path);
@@ -1584,9 +1631,10 @@ impl Providers for Main {
         };
         let replace = range_of(&doc.text, reference.start, reference.end);
 
+        let nested = nested_roots(&root);
         let items=candidates(index, &doc.path, &doc.language, &doc.text, &reference)
             .iter()
-            .filter(|(_,entry)|entry.path.is_empty() || host::project_of(&entry.path).and_then(|project|project.root().ok()).as_deref()==Some(root.as_str()))
+            .filter(|(_,entry)|entry.path.is_empty() || (under(&entry.path, &root) && !nested.iter().any(|inner| under(&entry.path, inner))))
             .map(|(name, entry)| {
                 let mut item = CompletionItem::new(name, completion_kind(reference.kind));
                 item.detail = entry.detail.clone();
@@ -2470,14 +2518,14 @@ mod tests {
         host.add_file("public/img/logo.png", "");
     }
 
-    fn activated(host: &MockHost) -> Main {
+    pub(crate) fn activated(host: &MockHost) -> Main {
         symfony_project(host);
         let mut plugin = Main::default();
         plugin.activate(&host.context("aritti.symfony")).unwrap();
         plugin
     }
 
-    fn doc(path: &str, language: &str, text: &str) -> Document {
+    pub(crate) fn doc(path: &str, language: &str, text: &str) -> Document {
         Document { path: path.into(), language: language.into(), version: 1, text: text.into() }
     }
 
@@ -3224,6 +3272,88 @@ mod tests {
         let terminal = &host.terminals()[0];
         assert_eq!((terminal.title.as_str(), terminal.program.as_str()), ("console app:sync", "php"));
         assert_eq!(terminal.args, ["bin/console", "app:sync", "--env=dev", "-v"]);
+    }
+
+    #[test]
+    fn run_console_command_lists_inside_a_task() {
+        let (host, mut plugin) = console_host();
+        host.answer_next_prompt(Some(&["app:sync"]));
+        host.answer_next_prompt(Some(&[""]));
+        plugin.run_command("run-console-command", &host.invocation(), None).unwrap();
+        assert!(!host.tasks().is_empty());
+    }
+
+    #[test]
+    fn make_args_keep_quoted_value() {
+        let (host, mut plugin) = generator_host(&["project.read", "process:php"]);
+        host.on_process("php", |_, _| Err(Error::Invalid("no console".into())));
+        host.answer_next_prompt(Some(&["controller"]));
+        host.answer_next_prompt(Some(&["--message=\"a b\" Blog"]));
+        plugin.run_command("make", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals()[0].args, ["bin/console", "make:controller", "--message=a b", "Blog"]);
+        assert!(!host.tasks().is_empty());
+    }
+
+    #[test]
+    fn completion_excludes_nested_project_entries() {
+        let host = MockHost::install();
+        host.add_project("/project/packages/inner");
+        host.add_file("packages/inner/src/Controller/InnerController.php", "<?php\nclass InnerController\n{\n    #[Route('/inner', name: 'inner_route')]\n    public function i() {}\n}\n");
+        let mut plugin = activated(&host);
+        plugin.index_all();
+        assert!(!plugin.indexes["/project"].routes.contains_key("inner_route"));
+        assert!(plugin.indexes["/project"].routes.contains_key("blog_index"));
+        let doc = doc("/project/templates/a.twig", "twig", "{{ path('') }}");
+        let names: Vec<_> = plugin.completion(&doc, Position::new(0, 9), None).into_iter().map(|item| item.label).collect();
+        assert!(names.contains(&"blog_index".to_owned()) && !names.contains(&"inner_route".to_owned()));
+    }
+
+    #[test]
+    fn saving_controller_updates_index_without_full_build() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        plugin.index_all();
+        host.add_file("templates/unrelated.html.twig", "x");
+        host.add_file(
+            "src/Controller/BlogController.php",
+            "<?php\nnamespace App\\Controller;\nclass BlogController\n{\n    #[Route('/blog', name: 'blog_renamed')]\n    public function index() {}\n}\n",
+        );
+        plugin.handle_events(&[Event::FileSaved("/project/src/Controller/BlogController.php".into())], &host.invocation());
+        let index = &plugin.indexes["/project"];
+        assert!(index.routes.contains_key("blog_renamed") && !index.routes.contains_key("blog_index"));
+        assert!(!index.templates.contains_key("unrelated.html.twig"));
+    }
+
+    #[test]
+    fn saving_unrelated_controller_stays_incremental_with_a_twig_lexer() {
+        let host = MockHost::install();
+        host.add_file("src/Twig/Custom.php", "<?php\nuse Twig\\Lexer;\n$twig->setLexer(new Lexer($twig));\n");
+        let mut plugin = activated(&host);
+        plugin.index_all();
+        assert!(plugin.indexes["/project"].custom_twig_lexer());
+        host.add_file("templates/unrelated.html.twig", "x");
+        host.add_file(
+            "src/Controller/BlogController.php",
+            "<?php\nnamespace App\\Controller;\nclass BlogController\n{\n    #[Route('/blog', name: 'blog_renamed')]\n    public function index() {}\n}\n",
+        );
+        plugin.handle_events(&[Event::FileSaved("/project/src/Controller/BlogController.php".into())], &host.invocation());
+        let index = &plugin.indexes["/project"];
+        assert!(index.routes.contains_key("blog_renamed") && !index.templates.contains_key("unrelated.html.twig"));
+        assert!(index.custom_twig_lexer());
+        host.add_file("src/Twig/Custom.php", "<?php\nclass Custom {}\n");
+        plugin.handle_events(&[Event::FileSaved("/project/src/Twig/Custom.php".into())], &host.invocation());
+        assert!(!plugin.indexes["/project"].custom_twig_lexer());
+        assert!(!plugin.indexes["/project"].templates.contains_key("unrelated.html.twig"));
+    }
+
+    #[test]
+    fn saving_composer_json_still_rebuilds() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        plugin.index_all();
+        host.add_file("templates/unrelated.html.twig", "x");
+        plugin.handle_events(&[Event::FileSaved("/project/composer.json".into())], &host.invocation());
+        assert!(plugin.indexes["/project"].templates.contains_key("unrelated.html.twig"));
     }
 
     fn generator_host(capabilities: &[&str]) -> (MockHost, Main) {
@@ -4982,7 +5112,7 @@ mod marker_icon_guard {
             .lines()
             .filter_map(|line| line.strip_prefix("icon = \"icons/marker-"))
             .collect();
-        assert_eq!(declared.len(), 11);
+        assert_eq!(declared.len(), 1);
         for name in declared {
             let icon = format!("icons/marker-{}", name.trim_end_matches('"'));
             assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&icon).is_file(), "{icon}");

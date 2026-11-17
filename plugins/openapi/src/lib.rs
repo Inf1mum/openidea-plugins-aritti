@@ -252,7 +252,7 @@ impl OpenApi {
             }
         }
 
-        files.retain(|path| canonical_reference_path(path) && host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()));
+        files.retain(|path| !in_hidden_dir(&root, path) && canonical_reference_path(path) && host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()));
         files.sort();files.dedup();
         self.project_files = files;
     }
@@ -802,6 +802,13 @@ fn bounded_reference_keys(text:&str)->Option<Vec<spec::Key>> {
     if spec::is_json(text) {json::partial_bounded_keys(text,8192,4<<20)}
     else {yaml_scan::keys(text,8192,4<<20,48)}
 }
+fn in_hidden_dir(root: &str, path: &str) -> bool {
+    let Some(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+
+    relative.split('/').any(|segment| segment.starts_with('.') && segment.len() > 1)
+}
 fn canonical_reference_path(path: &str) -> bool {
         path.starts_with('/') && path.len()<=4096 && !path.chars().any(char::is_control)
             && !path.contains('\\') && !path[1..].split('/').any(|p| matches!(p,""|"."|".."))
@@ -1050,6 +1057,10 @@ impl Providers for OpenApi {
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        if !spec::maybe_spec(&doc.text) {
+            return Vec::new();
+        }
+
         let Some(model)=pointer_status::Proof::parse(&doc.text) else {return Vec::new();};
         let Some(spec) = spec::parse(&doc.text) else {return Vec::new();};
         spec::operations(&doc.text,&spec.keys).into_iter().filter_map(|operation| {
@@ -1202,6 +1213,30 @@ mod marker_integrity_tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
     #[test]
+    fn hidden_dir_check_is_relative_to_the_root() {
+        assert!(!in_hidden_dir("/x/.claude/w/project", "/x/.claude/w/project/api/o.yaml"));
+        assert!(in_hidden_dir("/x/.claude/w/project", "/x/.claude/w/project/.openidea/s/o.yaml"));
+        assert!(!in_hidden_dir("/x/.claude/w/project", "/elsewhere/.git/o.yaml"));
+    }
+    #[test]
+    fn line_markers_skip_non_openapi_json() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        let doc=Document {path:"/project/i18n.json".into(),language:"json".into(),text:r##"{"hello":{"$ref":"#/x"}}"##.into(),version:1};
+        assert!(OpenApi::default().line_markers(&doc).is_empty());
+    }
+    #[test]
+    fn codegen_stage_files_not_ref_candidates() {
+        let host=MockHost::install().with_capabilities(&["project.read"]);
+        let spec="openapi: 3.0.0\npaths: {}\n";
+        host.add_file("/project/api/openapi.yaml", spec);
+        host.add_file("/project/.openidea/codegen-stage-1/openapi.yaml", spec);
+        let project=host.invocation().project().unwrap();
+        let mut plugin=OpenApi::default();plugin.refresh_project_files(&project);
+        assert!(plugin.project_files.iter().any(|p|p=="/project/api/openapi.yaml"),"{:?}",plugin.project_files);
+        assert!(!plugin.project_files.iter().any(|p|p.contains("/.openidea/")),"{:?}",plugin.project_files);
+        assert!(project_routes(&project).unwrap().iter().all(|r|!format!("{:?}",r.location).contains(".openidea")));
+    }
+    #[test]
     fn duplicate_or_dotted_target_owners_do_not_create_operation_navigation_markers() {
         let _host=MockHost::install().with_capabilities(&[]);
         for text in [
@@ -1348,6 +1383,9 @@ fn project_routes(project: &Project) -> Result<Vec<Route>, Error> {
     let mut paths = project.find_files("**/*.yaml", 500)?;
     paths.extend(project.find_files("**/*.yml", 500)?);
     paths.extend(project.find_files("**/*.json", 500)?);
+
+    let root = project.root()?;
+    paths.retain(|path| !in_hidden_dir(&root, path));
 
     let mut found = Vec::new();
     for path in paths {

@@ -96,7 +96,8 @@ The **Flyway** tool window (bottom) has three tabs: **Flyway**, **Command Output
 
 The **Flyway** tab lists migrations grouped by status.
 
-- **Refresh…** runs Flyway Info (after you review it) and fills the list.
+- Before Info has run, the tab lists the local migrations (version, description, kind and name or duplicate problems), grouped by kind with problems first. The status line says when table navigation indexed only part of the migrations.
+- **Refresh…** runs Flyway Info (after you review it) and fills the list. A finished Info appears without another press.
 - Double-click a row, or press Enter, to open its file.
 - **Open** opens the selected migration. **New…** starts a new migration in the same folder.
 - **Filter…** searches the rows. **Clear** removes the filter. Filters belong to the current project.
@@ -135,7 +136,7 @@ The **Flyway** tab lists migrations grouped by status.
 - You review the classpath and a trusted-code warning before anything runs. Project converters and custom types can run code with side effects.
 - No application is started and no database is contacted.
 - The SQL stays a preview until you choose **Save Hibernate schema SQL as migration…**. That creates one new, undoable migration file.
-- It needs the `process:java` permission.
+- Generation runs as a background task and needs the `process:java` permission.
 
 Setup, profile format and fixtures: [adapters/README.md](adapters/README.md).
 
@@ -235,7 +236,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 ### Managed mode
 
 - Managed mode is finite, **instance-lifetime** ownership. Shutdown or about five minutes of idle time may end the child. Status is refreshed on demand, not streamed.
-- **Refresh Status** reads bounded stdout/stderr and completion. It may need another press to drain output after exit.
+- **Refresh Status** reads bounded stdout/stderr and completion. Rendering the view also polls the owned child, so finished output appears without another press.
 - **Cancel Command** kills only the stored child. Neither exit nor cancel implies a database rollback.
 - Status and cancel refuse another project's handle. A second start cannot silently replace a running child. A failed project-list query counts as an unavailable ownership check, not as proof of closure.
 - Unresolved or foreign-owned sources suppress managed output.
@@ -246,7 +247,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 
 - **Refresh…** starts a managed JSON Info command (`-outputType=json`, or Maven `-Dflyway.outputType=json`) and opens **Command Output**.
 - A successful JSON result updates the owning project's rows, labelled cached with capture age and provenance. Failures and cancellation never produce a fake success.
-- Observed config, SQL and source-parent changes retire cached rows. Automatic render checks only project ownership and settings metadata: no discovery, file read, CLI or HTTP.
+- Observed config, SQL and source-parent changes retire cached rows. Automatic render checks only project ownership and settings metadata: no CLI or HTTP.
 - Accepted Info needs one migrations-bearing JSON object with unique keys. Maven banners are scanned within bounds. Conflicting roots, duplicate keys and error objects are rejected.
 
 ### Placeholder navigation
@@ -268,13 +269,13 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 - Bounds: 1 MiB / 500 changes, 64 KiB per SQL side, 32 ids / 64 KiB selection. Banners, logs, error payloads and malformed input are rejected. Nothing is truncated into a "complete" preview.
 - Rendering reads only the imported snapshot. The session is in memory and project-scoped. Report edits retire selections; stale reports clear visibly.
 - **Review CLI recipe…** records exact argv arrays after a bounded confirmation: snapshot a schema model, compare against `empty` or a local snapshot, request `diffText` with explicit change IDs. It uses the `flyway` program, an explicit project working directory, concrete distinct in-project paths and absent outputs. Version and edition are self-reported, not probed. An imported report is not proven to belong to a future artifact's IDs.
-- **Managed adapter readiness…** captures up to 64 owned schema-model files (1 MiB total), an optional target snapshot and fresh output paths, and reviews candidate stage argv without running them. Start/Continue stay unavailable until an authoritative installed offline CLI profile is accepted.
-- The managed core exists behind that gate: one child, closed stdin, separate snapshot/diff/diffText stages, explicit Check/Continue, bounded output, and refused publication on nonzero exit, stderr, oversized or stale output.
+- **Prepare comparison…** captures up to 64 owned schema-model files (1 MiB total), an optional target snapshot and fresh output paths, and reviews the stage argv. After you confirm, it detects the installed CLI with `flyway --version` (optional `process:flyway`) and shows the edition, version, project configuration and locations.
+- **Start comparison** appears only when a CLI was detected. The stages (one child, closed stdin, separate snapshot/diff/diffText, explicit Check/Continue, bounded output, refused publication on nonzero exit, stderr, oversized or stale output) read the schema model and snapshot files only.
 
 ### Hibernate adapter
 
 - An exact classpath and source inspection comes before the trusted-code approval. No application bootstrap or JDBC operation is requested.
-- Inputs are rechecked before saving.
+- Before saving, without relaunching java, it rechecks jar sizes and dates, the class-root folders, the declared entity and converter class files, class files the project file search can see (gitignored build folders are not listed) and the declared sources. An undeclared class rebuilt in an ignored folder is only caught when the 15-minute preview expires.
 - Live DB diff and automatic effective application models need separate support.
 
 </details>

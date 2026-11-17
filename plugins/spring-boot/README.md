@@ -165,7 +165,7 @@ Optional permissions are off until you allow them in Settings › Plugins › *S
 |---|---|---|
 | `events` | Keeping the project view current as files change. | Checks that need the whole project (unknown keys, test constructors…) stay quiet. |
 | `fs.read:~/.m2/repository` | Reading a Maven dependency JAR and cached parent/BOM POMs. | The JAR metadata command can't read Maven dependencies. |
-| `fs.read:~/.gradle/caches/modules-2/files-2.1` | Reading a Gradle dependency JAR from the module cache. | Gradle dependencies are skipped silently. |
+| `fs.read:~/.gradle/caches/modules-2/files-2.1` | Reading a Gradle dependency JAR from the module cache. | A notice asks you to allow it; Gradle dependencies are skipped. |
 | `editor.read` | **Find Property in File…** reads the open editor's text and caret. | That command can't run. |
 | `database.sources` | **Configure Database from Current Source…** creates a Database source. | That command can't run. |
 | `process:mvn` | Running `mvn` from **Run with Profiles/Arguments…** and native Run. | Maven runs are refused. |
@@ -184,7 +184,7 @@ General steps are in the [repository guide](../../README.md#using-the-plugins).
 | JAR command: "Open the owning Maven project first." | Open the project whose root holds `pom.xml` or `build.gradle(.kts)`. |
 | JAR command: "No supported direct/version-property JAR dependencies…" | The root build file has no dependency the plugin can resolve. Use a literal version, a root property, or the Boot parent/BOM. |
 | JAR command: "Selected JAR is not in the Gradle module cache." | Build the project once with Gradle so the JAR is downloaded. |
-| JAR command does nothing for a Gradle project | Allow `fs.read:~/.gradle/caches/modules-2/files-2.1`. |
+| *Reading Gradle JAR metadata needs the fs.read:~/.gradle/caches/modules-2/files-2.1 permission…* | Allow `fs.read:~/.gradle/caches/modules-2/files-2.1` in Settings › Plugins › Spring Boot Tools. |
 | "Project/POM changed. Select the dependency again." | The build file changed during the read. Run the command again. |
 | "Eight project snapshots are already retained; reload before importing another project." | Reload the plugin in Settings › Plugins, then run the command again. |
 | Run command: "No Spring Boot run found. Apply the Spring Boot Maven or Gradle plugin." | Apply the Spring Boot plugin directly in the root `pom.xml` (build plugins) or the root Gradle `plugins` block. |
@@ -285,13 +285,13 @@ Key hover labels the catalog that supplied the declaration: project-local curren
 
 Exact paths are derived from supported root `pom.xml` or `build.gradle(.kts)` declarations. The confirmation shows the project, build file (named Maven or Gradle), GAV/scope, version-catalog paths/hashes and selected archive.
 
-**Gradle:** literal `group:artifact[:version]` coordinates (explicit, or managed by the Boot plugin or a platform BOM) from the read-only module cache (`~/.gradle/caches/modules-2/files-2.1/<group>/<artifact>/<version>/<sha1>/`). Ranges, dynamic versions, classifiers and interpolation are refused. Silently off when the grant is denied.
+**Gradle:** literal `group:artifact[:version]` coordinates (explicit, or managed by the Boot plugin or a platform BOM) from the read-only module cache (`~/.gradle/caches/modules-2/files-2.1/<group>/<artifact>/<version>/<sha1>/`). Ranges, dynamic versions, classifiers and interpolation are refused. When the grant is denied, a notice asks you to allow it.
 
-**Maven:** versions may be literal, exact `${property}` aliases from root POM properties, exact root `dependencyManagement` versions, or managed by the root `spring-boot-starter-parent` or an imported `spring-boot-dependencies` BOM (version literal or a same-POM `${property}`), read from cached BOM POMs under `~/.m2/repository`. Ranges, SNAPSHOT versions and unresolved placeholders are refused. Parent chains deeper than 4 and more than 8 imported BOMs are refused. In-project parent POMs are not followed.
+**Maven:** versions may be literal, exact `${property}` aliases from root POM properties, exact root `dependencyManagement` versions, or managed by the root `spring-boot-starter-parent` or an imported `spring-boot-dependencies` BOM (version literal or a same-POM `${property}`), read from cached BOM POMs under `~/.m2/repository`. Ranges, SNAPSHOT versions and unresolved placeholders are refused. Parent chains deeper than 4 and reading more than 32 imported BOMs are refused. In-project parent POMs are not followed.
 
-Only top-level `META-INF/spring-configuration-metadata.json` and `META-INF/additional-spring-configuration-metadata.json` are read. Identical normalized records are deduplicated; conflicting cross-document records are refused. Project-local metadata wins over selected JAR metadata. Selecting a version-qualified Boot/Cloud artifact removes the bundled fallback for that source scope, and absence findings (unknown keys from an incomplete catalog) are withheld. Multiple snapshots coexist with hashes and version provenance. If a read fails, the previous snapshot stays available until it expires or its source changes.
+Only top-level `META-INF/spring-configuration-metadata.json` and `META-INF/additional-spring-configuration-metadata.json` are read. Identical normalized records are deduplicated; conflicting cross-document records are refused. Project-local metadata wins over selected JAR metadata. Selecting a version-qualified Boot/Cloud artifact removes the bundled fallback for that source scope, and absence findings (unknown keys from an incomplete catalog) are withheld. Multiple snapshots coexist with hashes and version provenance. If a read fails, the previous snapshot stays available until its source changes.
 
-Session-only: at most 16 selected artifacts per project across eight project roots, 10-minute lifetime, 32,768-property aggregate bound. POM events invalidate matching snapshots.
+Session-only: at most 16 selected artifacts per project across eight project roots, kept until a source POM or build file changes, 32,768-property aggregate bound. Saving or opening an unchanged POM keeps them.
 
 POM parsing is namespace-aware and bounded: 256 KiB per POM, 4,096 XML elements, nesting 32, 128 direct dependencies, 64 catalog POMs / 2 MiB / 512 offered candidates.
 

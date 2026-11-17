@@ -12,7 +12,7 @@
     },
     "springBeans.checkDuplicateNames": {
       "type": "boolean",
-      "title": "Warn when two beans of the project share a name",
+      "title": "Warn when two beans of the project share a name (Check Spring Configuration only)",
       "default": true
     },
     "springBeans.checkConfiguration": {
@@ -36,13 +36,13 @@
       "title": "Warn about names and files no project source defines",
       "type": "boolean",
       "default": false,
-      "description": "Warn about names and files no project source defines (@DependsOn, @Lookup, @Scheduled scheduler, @ComponentScan, @PropertySource and similar paths, XML ref/depends-on/placeholders). Library beans are invisible, so it may over-report"
+      "description": "Warn about names and files no project source defines (@DependsOn, @Lookup, @Scheduled scheduler, @ComponentScan and @PropertySource paths, XML ref/depends-on/placeholders). Runs in Check Spring Configuration only; library beans are invisible, so it may over-report"
     },
     "springBeans.checkAop": {
       "title": "Check AOP configuration",
       "type": "boolean",
       "default": true,
-      "description": "Report incomplete AOP configuration (aop:config, pointcuts, aspects, advisors, advice) in Spring XML files, and pointcut designators Spring AOP does not support in XML and Java @Aspect classes"
+      "description": "Report incomplete AOP configuration (aop:config, pointcuts, aspects, advisors, advice) in Spring XML files, and pointcut designators Spring AOP does not support in XML and Java @Aspect classes. Java classes are checked by Check Spring Configuration only"
     },
     "springBeans.checkInjectionAnnotations": {
       "title": "Check injection annotations",

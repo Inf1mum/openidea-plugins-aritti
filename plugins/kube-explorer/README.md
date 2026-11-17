@@ -93,7 +93,7 @@ Run **Kube Explorer: Retire Private YAML Editor** when you're done with a copy.
 3. Click **Start in Terminal**, or **Start Managed Session**.
 
 - **Start in Terminal** runs in a terminal. Stop it there. This is the best choice for long sessions.
-- **Start Managed Session** shows a review. Approving it only prepares the forward; click **Launch Reviewed Forward** within 60 seconds to start it.
+- **Start Managed Session** shows one confirmation with the project and the exact `kubectl` command. Confirm and the forward starts.
 - **Port Forward Status** shows the managed session's output. Use **Stop** or **Restart** there.
 - A managed session ends when the plugin goes idle (about five minutes), the window closes, or the plugin reloads.
 
@@ -102,10 +102,10 @@ Both modes bind to `127.0.0.1` only.
 ### Watch resources
 
 1. Right-click the cluster root › **Watch** › **Watch Resources…**, or run **Kube Explorer: Start Resource Watch…**.
-2. Pick Pods, Services or Deployments in the selected namespace and review the command.
-3. Click **Launch Reviewed Watch** within 60 seconds in the **Kubernetes Resource Watch** pane.
+2. Pick Pods, Services or Deployments in the selected namespace.
+3. Check the command and confirm. The watch starts in the **Kubernetes Resource Watch** pane.
 
-The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop Owned Watch** or **Review Restart…**. Reopen it with **Kube Explorer: Show Resource Watch**. The initial list is marked **UNKNOWN** completeness, because the stream has no reliable end marker.
+The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop Watch** or **Restart…**. Reopen it with **Kube Explorer: Show Resource Watch**. The pane shows the names seen so far; the stream has no reliable end marker, so it never proves that a resource is absent.
 
 ### Run commands on the open file
 
@@ -184,7 +184,11 @@ To silence checks for YAML files that aren't Kubernetes (Compose files, CI files
 2. Enter a label and the context to keep.
 3. Check the redacted review and confirm.
 
-**Kube Explorer: Show Imported Kubeconfigs** shows what's stored, without tokens or keys. Imported profiles are not activated, merged into your files, or listed in Choose Kubeconfig. This needs no project, no `kubectl` and no network.
+**Kube Explorer: Show Imported Kubeconfigs** shows what's stored, without tokens or keys.
+
+**Kube Explorer: Use Imported Kubeconfig** selects one profile: every `kubectl` call then gets `--kubeconfig` for it, and the Services tree names it. Choose it again to stop using it. **Kube Explorer: Delete Imported Kubeconfig** removes a profile and, if it was in use, the selection.
+
+Imported profiles are never merged into your files or listed in Choose Kubeconfig. Import, show, use and delete need no project, no `kubectl` and no network.
 
 ### Telepresence
 
@@ -227,10 +231,12 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or *
 | **Kube Explorer: Choose Kubeconfig** | Picks which configured kubeconfig file to use. | None |
 | **Kube Explorer: Customize Namespaces** | Chooses which namespaces the tree lists. | None |
 | **Kube Explorer: Edit Recent Debug Images** | Edits the recent images offered by **Debug…**. | None |
-| **Kube Explorer: Start Resource Watch…** | Prepares a watch of Pods, Services or Deployments. | None |
+| **Kube Explorer: Start Resource Watch…** | Starts a watch of Pods, Services or Deployments, after a confirmation. | None |
 | **Kube Explorer: Show Resource Watch** | Opens the watch pane. | None |
 | **Kube Explorer: Import Pasted Kubeconfig…** (*Tools*) | Stores a pasted kubeconfig context privately. | None |
 | **Kube Explorer: Show Imported Kubeconfigs** (*Tools*) | Shows imported profiles without secrets. | None |
+| **Kube Explorer: Use Imported Kubeconfig** (*Tools*) | Uses an imported profile for every `kubectl` call, or stops using it. | None |
+| **Kube Explorer: Delete Imported Kubeconfig** (*Tools*) | Deletes an imported profile. | None |
 | **Kube Explorer: How to Install kubectl** | Shows install instructions. | None |
 | **Kube Explorer: Telepresence Connect** | Runs `telepresence connect` in a terminal. | None |
 | **Kube Explorer: Telepresence Quit** | Runs `telepresence quit` in a terminal. | None |
@@ -257,7 +263,7 @@ These act on the selected row in Services › Kube Explorer.
 | **Switch Context** / **Switch Namespace** | Contexts, namespaces | Selects it. | None |
 | **Expand** / **Collapse** | Groups, root | Expands or collapses the row. | None |
 | **Refresh** | Groups, root | Reloads the row. | None |
-| **Watch Resources…** | Root › **Watch** | Prepares a resource watch. | None |
+| **Watch Resources…** | Root › **Watch** | Starts a resource watch, after a confirmation. | None |
 | **Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
 | **Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
 | **Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as **Kube Explorer: Import Pasted Kubeconfig…**. | None |
@@ -341,7 +347,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Port forwarding doesn't accept named remote ports.
 - Managed watches and forwards don't survive the plugin going idle, and don't reconnect.
 - Snapshots and spawned processes don't guarantee readiness, live-stream completeness or runtime identity.
-- Imported kubeconfig profiles can't be activated, exported or deleted yet. No X.509/key-pair validation and no encrypted OS credential storage.
+- Imported kubeconfig profiles can't be exported. No X.509/key-pair validation and no encrypted OS credential storage.
 - CRD checks don't reproduce server admission, CEL validation, runtime defaults or remote references.
 - Helm chart semantics beyond the explicit template/lint commands aren't checked.
 - **Scroll to end** in the Log Viewer relies on a page script the IDE may block.
@@ -443,7 +449,7 @@ The label graph models exact node affinity (`matchExpressions`), pod affinity/an
 
 **Cluster-backed hints.** **Read Cluster Namespaces for Completion** queries namespace names for the selected context and local redacted cluster identity (`process:kubectl` and an owning `project.read` invocation; only `namespace/<DNS-label>` output accepted; 64 KiB / 512 unique names). For 60 seconds, exact current `metadata.namespace` values in known built-in namespaced kinds get cached suggestions with UTF-16 replacement ranges and captured context/age labels (documents limited to 64 KiB, output to 200 suggestions; cold, expired, foreign, nested-project, changed-choice, malformed, flow-metadata, Helm-action, alias/tag/tab and unknown/cluster-scoped contexts stay quiet). **Read Cluster Resource Names for Completion…** captures names for one chosen Secret, ConfigMap, Service, PersistentVolumeClaim or ServiceAccount kind in the selected single namespace/project (512 names / 64 KiB per kind, 60 seconds); completion uses them only at existing schema-known reference paths with an explicit matching source `metadata.namespace` and innermost project owner (up to 200 candidates). Both commands may connect and authenticate through kubectl, request names only, keep no object bodies or Secret values, and never run from completion or render; providers never run kubectl. A failed same-owner refresh retires that snapshot; failed foreign reads keep the prior owner's cache. These are dated metadata hints, not live authorisation, namespace existence validation or proof of a deployment target.
 
-**Navigation cache.** Warmed by background document indexing and open/save events: at most 64 source graphs / 8 MiB of accounted graph storage, project-owned YAML inputs up to 128 KiB, and only source names, relationship keys, positions and isolation facts (no Secret payload or full source text). Cache eviction and all filesystem-change events discard facts conservatively; no persistence, cluster calls, kubectl, Helm execution or runtime discovery is involved. Editor requests reparse the current provider text, including unsaved edits, without project-wide scans, and enforce the optional `project.read` grant and ownership. Cached target candidates are re-read and reparsed before returning their current range, with a per-call 16-target-file cap plus a shared resolver's 10 ms cooperative read budget and 256-target cap. A target edit/deletion, denied permission, unknown project, foreign root, oversized source or unknown schema yields no affected link; namespace/transform checks run only while warming. The registered document indexer publishes an empty graph, so none of these associations enables automatic Rename/Find Usages; they're bounded positive source hints, not complete usage counts or runtime resolution.
+**Navigation cache.** Warmed by open, save and file-change events (a file change updates only the files it names): at most 64 source graphs / 8 MiB of accounted graph storage, project-owned YAML inputs up to 128 KiB, and only source names, relationship keys, positions and isolation facts (no Secret payload or full source text). Cache eviction drops the oldest file first and a file change evicts only the named paths; no persistence, cluster calls, kubectl, Helm execution or runtime discovery is involved. Editor requests reparse the current provider text, including unsaved edits, without project-wide scans, and enforce the optional `project.read` grant and ownership. Cached target candidates are re-read and reparsed before returning their current range, with a per-call 16-target-file cap plus a shared resolver's 10 ms cooperative read budget and 256-target cap. A target edit/deletion, denied permission, unknown project, foreign root, oversized source or unknown schema yields no affected link; namespace/transform checks run only while warming. The plugin registers no document indexer, so none of these associations enables automatic Rename/Find Usages; they're bounded positive source hints, not complete usage counts or runtime resolution.
 
 </details>
 
@@ -463,7 +469,7 @@ A local chart's `values.schema.json` contributes guarded `values.yaml` completio
 
 Port mappings are numeric with valid ranges and unique explicit local ports; named remote ports are outside this form, and CLI flags can't be entered as mappings. Both modes show the target and argv before launch. Scope includes the selected kubeconfig/context, resolved namespace and a fingerprint of the selected local cluster/server/user/TLS/proxy metadata; raw credentials aren't kept and no `--raw` config read is made. Rechecking before launch/restart rejects changed selections or context-to-cluster mappings. This isn't an immutable kubeconfig snapshot, so a final filesystem/credential race at external CLI launch stays outside the plugin's atomic control.
 
-**Start in Terminal** keeps the long-lived terminal workflow; managed controls don't control terminal or external sessions. **Start Managed Session** reviews one owned `host.start` command showing the exact project, executable, arguments, loopback restriction and lifetime. The managed draft belongs to a concrete invoking project root (`project.read` required) and starts with that project as working directory. The single pending approval expires after 60 seconds; the launch event must supply the exact single-use token and a new invocation whose project matches the reviewed root, and rechecks selection, settings, input and the local kubeconfig fingerprint before replacing any previous child. Cancel, Back, a new review, port input/scope changes, deactivation, stale/error and consumed tokens invalidate the approval; queued copies of the old review button can't launch it, and there's no second confirmation after the Launch button. Restart needs a stopped/exited session, a matching current selection and scope, and confirmation; replacing a live managed session is confirmed and stops only that owned handle. Spawn isn't a claim that a listener is ready; exits and polling/start failures are shown, and prior output is kept on a failed replacement within the 16 KiB presentation bound.
+**Start in Terminal** keeps the long-lived terminal workflow; managed controls don't control terminal or external sessions. **Start Managed Session** shows one confirmation with the project, the exact kubectl command and the loopback restriction. The managed draft belongs to a concrete invoking project root (`project.read` required) and starts with that project as working directory. After you confirm, the forward starts immediately, once the selection, settings and local kubeconfig fingerprint are checked again. Restart needs a stopped session and its own confirmation; replacing a running forward is confirmed and stops only that owned process. Spawn isn't a claim that a listener is ready; exits and polling/start failures are shown, and prior output is kept on a failed replacement within the 16 KiB presentation bound.
 
 Managed forwarding is limited to the plugin instance's lifetime: idle reclamation (normally about five minutes), window close, disable/reload and failure end the child and forget its in-memory status. There's no keepalive loop or automatic reconnect. Observed project, resource, context, namespace or kubeconfig changes retire the owned child and need a new draft; status and controls refuse a different project's session, and only the owned handle is stopped. There's one lease per plugin instance, not a per-window registry (same-project windows share it). Rendering polls cached output without invoking kubectl; **Port Forward Status** and explicit refresh revalidate the captured local cluster mapping. Each refresh drains at most four bounded chunks and the displayed tail stays within 16 KiB on UTF-8 boundaries. There's no reader EOF guarantee, so this is available-output draining, not guaranteed final stream capture, and Stop/retirement may discard remaining output.
 
@@ -472,9 +478,9 @@ Managed forwarding is limited to the plugin instance's lifetime: idle reclamatio
 <details>
 <summary>Managed resource watch</summary>
 
-The review captures the local redacted kubeconfig/context/cluster mapping and shows the exact project and argv. Approval is inert: **Launch Reviewed Watch** must follow within 60 seconds, uses a fresh project invocation, rechecks scope/settings/expiry, consumes the approval and starts its owned `host.start` child (`get <kind> --watch --output-watch-events -o json` with pinned context/namespace and a ten-minute request timeout; needs `project.read` and `process:kubectl`; Cancel creates no child). Scope inspection and watch spawn use the owning project working directory. The pane shows positive observed names only; it doesn't replace the Services tree, validate resource absence, publish Rename edges or prove a source deployment target.
+**Watch Resources…** shows one confirmation with the project and the exact kubectl command; after you confirm, the watch starts its owned `host.start` child (`get <kind> --watch --output-watch-events -o json` with pinned context/namespace and a ten-minute request timeout; needs `project.read` and `process:kubectl`). Scope inspection and watch spawn use the owning project working directory. The pane shows positive observed names only; it doesn't replace the Services tree, validate resource absence, publish Rename edges or prove a source deployment target.
 
-**Refresh Watch Status** revalidates local scope and drains at most four 16 KiB chunks; rendering doesn't poll the child, run kubectl or discover files. Fragmented/concatenated JSON is accepted behind strict bounded structure, kind/API, namespace/name/UID and opaque `resourceVersion` checks. ADDED/MODIFIED update observations; DELETED removes only a matching UID; BOOKMARK is accepted without an assumed interval; ERROR/410, malformed output, unknown shapes, caps and polling failures release the handle and keep the last accepted metadata as history. Raw object bodies and stderr aren't displayed. Bounds are 64 KiB per event, 128 KiB pending JSON, 16 levels / 4,096 YAML-guard nodes and 128 observed resources; the view shows at most 32 current and 16 prior names with counts, age and explicit incompleteness, and overflow stops instead of claiming a complete truncated result. **Stop Owned Watch** kills/releases only its stored child. **Review Restart…** starts a new reviewed LIST→WATCH after a separate launch, with prior names kept as separately labelled history (never merged into possibly incomplete new observations); a failed new start keeps the previous owned session. Context/namespace/kubeconfig-choice changes retire live state; foreign renders give a safe message without stopping another project's watch; deactivation and lost project access dispose owned state; there's no durable per-window registry.
+**Refresh Watch Status** revalidates local scope. Every refresh and render drains all available output, resyncs at the next event after a malformed line, and skips and counts events that are too large; rendering doesn't run kubectl or discover files. Fragmented/concatenated JSON is accepted behind strict bounded structure, kind/API, namespace/name/UID and opaque `resourceVersion` checks. ADDED/MODIFIED update observations; DELETED removes only a matching UID; BOOKMARK is accepted without an assumed interval; ERROR/410, unknown shapes, caps and polling failures release the handle and keep the last accepted metadata as history. Raw object bodies and stderr aren't displayed. Bounds are 64 KiB per event, 128 KiB pending JSON, 16 levels / 4,096 YAML-guard nodes and 128 observed resources; the view shows at most 32 current and 16 prior names with counts, age and explicit incompleteness, and overflow stops instead of claiming a complete truncated result. **Stop Watch** kills/releases only its stored child. **Restart…** starts a new LIST→WATCH after a confirmation, with prior names kept as separately labelled history (never merged into possibly incomplete new observations); a failed new start keeps the previous owned session. Context/namespace/kubeconfig-choice changes retire live state; foreign renders give a safe message without stopping another project's watch; deactivation and lost project access dispose owned state; there's no durable per-window registry.
 
 </details>
 

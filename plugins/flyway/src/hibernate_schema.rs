@@ -512,14 +512,48 @@ impl Plan {
         }
         Ok(command)
     }
+    /// Cheap change detector for resolve: jar and compiled-class stats plus source hashes,
+    /// so saving a snapshot never relaunches java.
+    fn fingerprint(&self, project: &Project) -> Result<String, Error> {
+        self.current(project)?;
+        let mut facts = Vec::new();
+        let stat = |path: &str| project.stat(path).map(|stat| format!("{path}:{}:{:?}", stat.size, stat.modified));
+        for jar in &self.jars {
+            facts.push(stat(jar)?);
+        }
+        // ponytail: find_files skips gitignored class roots, so the declared entity/converter class
+        // files and the root directories are stat'ed by name; an undeclared nested class rebuilt in an
+        // ignored root goes unnoticed until the 15-minute snapshot expiry. Re-inspect in a task if that matters.
+        for root in &self.roots {
+            facts.push(stat(root)?);
+            let mut files = project.find_files(&format!("{root}/**"), 4097)?;
+            if files.len() > 4096 {
+                return Err("Compiled class roots exceed 4096 files.".into());
+            }
+            files.sort();
+            for file in files {
+                facts.push(stat(&file)?);
+            }
+        }
+        for class in self.entities.iter().chain(&self.converters) {
+            let file = format!("{}/{}.class", class.root, class.name.replace('.', "/"));
+            facts.push(match project.stat(&file) {
+                Err(Error::NotFound(_)) => format!("{file}:absent"),
+                other => other.map(|stat| format!("{file}:{}:{:?}", stat.size, stat.modified))?,
+            });
+        }
+        for source in &self.sources {
+            facts.push(format!("{source}:{}", hash(&project.read_file(source)?)));
+        }
+        Ok(hash(&facts.join("\n")))
+    }
     fn inspect(&self, project: &Project, directory: &str, helper: &str) -> Result<String, Error> {
         self.current(project)?;
         let output = host::run_command(
             &self.command(directory, helper, "inspect", None)?,
             Some(project),
             None,
-        )
-        .map_err(|e| ui_kit::denied::map(e, "Hibernate schema generation", "process:java", "Flyway Migrations"))?;
+        )?;
         if output.status != Some(0) {
             return Err("Java metadata inspection failed; use a supported JDK and saved, owned compiled classes/runtime files. No project metadata code was requested.".into());
         }
@@ -625,6 +659,7 @@ pub(crate) struct Candidate {
     database_version: String,
     plan: Plan,
     proof: String,
+    fingerprint: String,
     pub sql: String,
     key: String,
     at: Instant,
@@ -651,8 +686,7 @@ impl Candidate {
         if self.key(&project.root()?).as_deref() != Some(key) {
             return Err(Error::Stale);
         }
-        let (directory, helper) = helper()?;
-        if self.plan.inspect(project, &directory, &helper)? != self.proof {
+        if self.plan.fingerprint(project)? != self.fingerprint || self.plan.validate(project, &self.proof).is_err() {
             return Err("Metadata inputs changed. Generate and review a new DDL snapshot.".into());
         }
         Ok(())
@@ -688,8 +722,24 @@ impl Flyway {
         else {
             return Ok(None);
         };
-        let plan = read_plan(&project, &path)?;
+        // Two java launches (compile plus Hibernate bootstrap) outlast the 5 s command limit.
+        let _task = host::begin_task("Generating Hibernate schema SQL", false);
+        match self.capture_hibernate_schema(&project, &path) {
+            Err(Error::Denied(_)) => {
+                host::notify(
+                    NotificationLevel::Warning,
+                    TITLE,
+                    &ui_kit::denied::message("Hibernate schema generation", "process:java", "Flyway Migrations"),
+                );
+                Ok(None)
+            }
+            result => result,
+        }
+    }
+    fn capture_hibernate_schema(&mut self, project: &Project, path: &str) -> Result<Option<String>, Error> {
+        let plan = read_plan(project, path)?;
         let (directory, helper) = helper()?;
+        plan.fingerprint(project)?;
         let proof = plan.inspect(&project, &directory, &helper)?;
         let review = format!(
             "Project: {}\nProfile: {}\nHelper SHA256: {}\nExact inspected runtime/classpath/source fingerprints:\n{}\n\nRun this trusted compiled project model with Hibernate{version}/{dialect} to capture creation SQL only? The selected dialect uses its default target database version; no live version is inferred.\nNo application main, Spring bootstrapping, persistence.xml or SessionFactory is requested. Hibernate JDBC access is disabled and the supplied provider rejects every Hibernate connection request; no database action is configured.\nIMPORTANT: Hibernate metadata can instantiate project attribute converters, custom types, generators and service contributors. Their constructors/static initialization are trusted project code and can perform arbitrary side effects, including their own I/O/connections. This is NOT a process or network sandbox. JARs and all compiled-root resources are inspected; declared source fingerprints do not prove the compiled classes were built from those sources. Save/build the desired model yourself first. Only the explicitly selected annotated entity/converter roots are admitted; no effective application model is claimed.\nKnown JVM option/classpath environment keys are reserved empty: inherited collisions fail before launch. Filesystem changes during execution cause output rejection; final filesystem races remain possible. Generated SQL stays in an instance-owned preview until a separate reviewed non-overwriting FileAction.",
@@ -708,8 +758,7 @@ impl Flyway {
             &plan.command(&directory, &helper, "generate", Some(&proof))?,
             Some(&project),
             None,
-        )
-        .map_err(|e| ui_kit::denied::map(e, "Hibernate schema generation", "process:java", "Flyway Migrations"))?;
+        )?;
         if output.status != Some(0) {
             return Err("Hibernate metadata generation failed or its inputs changed. No SQL was adopted; verify the supported runtime and explicitly selected model.".into());
         }
@@ -744,6 +793,7 @@ impl Flyway {
             .to_owned();
         plan.current(&project)?;
         plan.validate(&project, &proof)?;
+        let fingerprint = plan.fingerprint(&project)?;
         let key = hash(&format!(
             "{}\0{}\0{}\0{}",
             plan.root, plan.source, proof, sql
@@ -754,6 +804,7 @@ impl Flyway {
             database_version,
             plan,
             proof,
+            fingerprint,
             sql,
             key,
             at: Instant::now(),
@@ -855,18 +906,6 @@ mod tests {
         });
     }
     #[test]
-    fn hibernate_schema_generation_denied_names_permission() {
-        let (host, mut plugin, _doc, _proof) = setup();
-        let host = host.with_capabilities(&["project.read", "storage"]);
-        host.answer_next_prompt(Some(&["profile.json"]));
-        let error = plugin
-            .generate_hibernate_schema(&host.invocation())
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("needs the process:java permission"), "{error}");
-        assert!(error.contains("Settings › Plugins › Flyway Migrations"), "{error}");
-    }
-    #[test]
     fn reviewed_compiled_metadata_is_preview_only_until_an_atomic_migration_action() {
         let (host, mut plugin, doc, proof) = setup();
         reply(&host, &proof);
@@ -912,10 +951,49 @@ mod tests {
                 .exists("src/main/resources/db/migration/V2__initial_schema.sql")
                 .unwrap()
         );
+        assert_eq!(host.process_runs().len(), 2, "save compares fingerprints instead of running java");
+    }
+    #[test]
+    fn hibernate_command_runs_in_a_task() {
+        let (host, mut plugin, _, proof) = setup();
+        reply(&host, &proof);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        host.answer_next_prompt(Some(&[]));
+        plugin.run_command("hibernate-schema", &host.invocation(), None).unwrap();
+        assert!(!host.tasks().is_empty());
+        assert_eq!(host.process_runs().len(), 2);
+    }
+    #[test]
+    fn resolve_runs_no_java() {
+        let (host, mut plugin, doc, proof) = setup();
+        reply(&host, &proof);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        host.answer_next_prompt(Some(&[]));
+        plugin.generate_hibernate_schema(&host.invocation()).unwrap();
+        let runs = host.process_runs().len();
+        let save = |plugin: &mut Flyway| {
+            let action = plugin.file_actions(&doc, openidea_plugin::Range::default()).into_iter().find(|action| action.title.contains("Hibernate")).unwrap();
+            for answer in ["2", "initial schema", "src/main/resources/db/migration"] {
+                host.answer_next_prompt(Some(&[answer]));
+            }
+            host.answer_next_prompt(Some(&[]));
+            plugin.resolve_file_action(&doc, action)
+        };
+        assert!(save(&mut plugin).is_ok());
+        assert_eq!(host.process_runs().len(), runs);
+        host.add_file("classes/example/Customer.class", "recompiled artifact with other bytes");
+        assert!(save(&mut plugin).is_err(), "a changed compiled class fingerprint invalidates the snapshot");
+        assert_eq!(host.process_runs().len(), runs);
+    }
+    #[test]
+    fn java_denied_message() {
+        let (host, mut plugin, _, _) = setup();
+        let host = host.with_capabilities(&["project.read", "storage"]);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        assert_eq!(plugin.run_command("hibernate-schema", &host.invocation(), None).unwrap(), None);
         assert_eq!(
-            host.process_runs().len(),
-            4,
-            "save only repeats pure inspection, not metadata execution"
+            host.notifications().last().unwrap().body,
+            "Hibernate schema generation needs the process:java permission. Allow it in Settings › Plugins › Flyway Migrations."
         );
     }
     #[test]
@@ -940,9 +1018,7 @@ mod tests {
         let candidate = plugin.hibernate_schema.clone().unwrap();
         let key = candidate.key("/project").unwrap();
         assert!(candidate.key("/other").is_none());
-        let mut changed = json(&proof).unwrap();
-        changed["facts"][17] = Value::String(format!("classes:classes:{}", "c".repeat(64)));
-        reply(&host, &changed.to_string());
+        host.add_file("classes/example/Customer.class", "recompiled artifact with other bytes");
         assert!(
             candidate
                 .fresh(&host.invocation().project().unwrap(), &key)

@@ -168,12 +168,11 @@ impl Runtime {
         let text = format!("Current: {}\nLast control outcome: {}", self.polling.status(&scope), self.poll_status.as_deref().unwrap_or(""));
         Ok(View::new(Body::Form(vec![
             Field::new("control-project","Owning project",FieldValue::readonly_text(&scope.root,false)),
-            Field::new("control-url","Requested Actuator base URL (not final-hop identity)",FieldValue::readonly_text(&scope.url,false)),
-            Field::new("control-auth","Auth mode (credential is never read by the plugin)",FieldValue::readonly_text(&scope.auth,false)),
-            Field::new("control-bounds","Refresh request bounds",FieldValue::readonly_text(&format!("{}ms maximum per request; {}ms cooperative batch deadline; 9 endpoints, existing response/storage byte limits.",timeout(),budget()),true)),
-            Field::new("control-poll","Scoped instance polling",FieldValue::readonly_text(&text,true)),
-            Field::new("control-cancel","Cancellation contract",FieldValue::readonly_text("Explicit Refresh creates a cancellable IDE task. On pinned1.39, native task Cancel cancels the invocation/HTTP future, with additional endpoint-boundary checks. Stop Polling cancels future attempts only; it cannot signal the active task from this queued plugin callback. This is a sequence of observations, not atomic runtime state or a durable timer.",true)),
-            Field::new("control-redirect","HTTP boundary",FieldValue::readonly_text("Only existing localhost/127.0.0.1 requested URLs/grants are supported. The pinned host follows redirects before checking the final host; per-hop authorization and responding peer identity are not established here. No redirect-safety claim is made.",true)),
+            Field::new("control-url","Actuator URL",FieldValue::readonly_text(&scope.url,false)),
+            Field::new("control-auth","Authentication",FieldValue::readonly_text(&scope.auth,false)),
+            Field::new("control-bounds","Request limits",FieldValue::readonly_text(&format!("{}ms per request, {}ms per refresh.",timeout(),budget()),true)),
+            Field::new("control-poll","Polling",FieldValue::readonly_text(&text,true)),
+            Field::new("control-provenance","Provenance",FieldValue::readonly_text("Refresh runs as an IDE task; cancel it there. Stop Polling only cancels future attempts. Requests go only to localhost or 127.0.0.1, but the host follows redirects before checking the final host, so the responding peer is not verified. Each refresh is a sequence of reads, not one atomic state.",true)),
         ])).button(Button::new("refresh","Refresh Once").icon("refresh"))
         .button(Button::new("poll-start","Start Bounded Polling").enabled(host::setting_bool("autoRefresh")==Some(true)&&!self.polling.active(&scope)))
         .button(Button::new("poll-stop","Stop Future Polls").enabled(self.polling.lease.as_ref().is_some_and(|lease|lease.scope.root==scope.root)))
@@ -262,8 +261,13 @@ impl Runtime {
                 "active":self.polling.active(&scope) && self.polling.owner.as_ref().is_some_and(|o|o.0==request.frame && o.1==request.nonce),
                 "enabled":host::setting_bool("autoRefresh")==Some(true),
                 "bounds":format!("{}ms maximum per request; {}ms cooperative batch deadline; 9 endpoints, existing response/storage byte limits.",timeout(),budget())}),
-            Err(_) => {
-                serde_json::json!({"error":"Controls request rejected or refresh failed; previous snapshot retained. Reopen controls after a project/settings change.","active":false})
+            Err(error) => {
+                let message = if request.op == "refresh" && !matches!(error, Error::Stale | Error::Cancelled) {
+                    format!("Refresh failed: {} Previous snapshot retained.", presentation(&error.to_string(), 600))
+                } else {
+                    "Controls request rejected or refresh failed; previous snapshot retained. Reopen controls after a project/settings change.".to_owned()
+                };
+                serde_json::json!({"error":message,"active":false})
             }
         };
         crate::post_view_message(VIEW, &serde_json::json!({"channel":"runtime-controls","frame":request.frame,"nonce":request.nonce,"sequence":request.sequence,"model":answer}).to_string())?;
@@ -706,5 +710,27 @@ mod tests {
         assert!(matches!(runtime.refresh(&project), Err(Error::Cancelled)));
         assert!(runtime.polling.lease.is_none());
         assert_eq!(runtime.snapshot, previous);
+    }
+    fn last_control_error(host: &MockHost) -> String {
+        host.view_messages()
+            .iter()
+            .rev()
+            .filter_map(|(_, raw)| serde_json::from_str::<Value>(raw).ok())
+            .filter_map(|outer| serde_json::from_str::<Value>(outer["message"].as_str()?).ok())
+            .find(|value| value["channel"] == "runtime-controls")
+            .and_then(|value| value["model"]["error"].as_str().map(str::to_owned))
+            .unwrap()
+    }
+    #[test]
+    fn refresh_failure_reason_reaches_the_controls_page() {
+        let host = MockHost::install().with_capabilities(CAPS);
+        host.on_fetch(|_| Err(Error::Failed("offline".into())));
+        let mut runtime = Runtime::default();
+        message(&mut runtime, &host, "refresh", FRAME, NONCE, 1, Some("/project"));
+        let error = last_control_error(&host);
+        let error = error.as_str();
+        assert!(error.contains("Could not reach"), "{error}");
+        message(&mut runtime, &host, "tick", FRAME, NONCE, 2, Some("/project"));
+        assert!(last_control_error(&host).contains("rejected"));
     }
 }

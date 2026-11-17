@@ -16,11 +16,8 @@ impl Flyway {
     fn selected_source(&self, project: &Project) -> Option<(String, u32)> {
         let root = owner(project).ok()?;
         let selection = self.browser_selection.as_ref().filter(|selection| selection.root == root)?;
-        if !(self.info_scope.as_ref().is_some_and(|scope| scope.settings_current(&root)) && self.targets_root.as_deref() == Some(root.as_str())) { return None; }
-        let (path,line) = (self.targets.get(&selection.key)?.clone(), 0);
-        (path == selection.path && line == selection.line
-            && host::project_of(&path).and_then(|p| p.root().ok()).as_deref() == Some(root.as_str()))
-            .then_some((path,line))
+        let (path,line) = (self.target(&root, &selection.key)?, 0);
+        (path == selection.path && line == selection.line).then_some((path,line))
     }
 
     pub(crate) fn native_browser_view(&self, project: &Project, mut view: View) -> View {
@@ -41,15 +38,17 @@ impl Flyway {
             }
         }
         if let Body::Tree(items) = &mut view.body {
-            if query.is_empty() && !items.is_empty() && items.iter().all(|item| item.parent.is_none() && item.key.starts_with("m:")) {
+            if query.is_empty() && !items.is_empty() && items.iter().all(|item| item.parent.is_none() && (item.key.starts_with("m:") || item.key.starts_with("l:"))) {
                 let rows = std::mem::take(items);
+                // A detail "Problems · <message>" groups under "Problems".
+                let group_of = |row: &TreeItem| row.detail.as_deref().unwrap_or("Unknown").split(" · ").next().unwrap_or("Unknown").to_owned();
                 let mut groups = Vec::<String>::new();
-                for row in &rows { let state = row.detail.as_deref().unwrap_or("Unknown"); if !groups.iter().any(|group|group == state) { groups.push(state.into()); } }
+                for row in &rows { let state = group_of(row); if !groups.contains(&state) { groups.push(state); } }
                 for group in groups {
                     let key = format!("state:{group}");
-                    let count = rows.iter().filter(|row|row.detail.as_deref().unwrap_or("Unknown") == group).count();
+                    let count = rows.iter().filter(|row|group_of(row) == group).count();
                     items.push(TreeItem::new(&key, &group).icon("folder").detail(&format!("{count} {}",if count==1 {"migration"} else {"migrations"})).expandable(true));
-                    for row in rows.iter().filter(|row|row.detail.as_deref().unwrap_or("Unknown") == group) { items.push(row.clone().parent(&key)); }
+                    for row in rows.iter().filter(|row|group_of(row) == group) { items.push(row.clone().parent(&key)); }
                 }
                 self.browser_expansion.apply(items);
             }
@@ -76,11 +75,7 @@ impl Flyway {
         let project = ctx.project().ok_or(Error::Stale)?;
         let root = owner(&project)?;
         if let ViewEvent::Select(key) = event {
-            self.browser_selection = None;
-            if self.targets_root.as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
-            if let Some((path,line)) = self.targets.get(key).cloned().map(|path|(path,0)) {
-                self.browser_selection = Some(Selection {root, key:key.clone(), path, line});
-            }
+            self.browser_selection = self.target(&root, key).map(|path| Selection {root, key:key.clone(), path, line: 0});
             refresh_migrations();
             return Ok(true);
         }

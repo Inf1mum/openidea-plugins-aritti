@@ -7,18 +7,48 @@ use openidea_plugin::hover::Hover;
 use openidea_plugin::providers::{Document, LineMarker};
 use openidea_plugin::text::{offset, position};
 use openidea_plugin::{Diagnostic, Location, Position, Range, host};
+use openidea_plugin::Project;
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 const MAX_TEXT: usize = 256 * 1024;
 const TTL: Duration = Duration::from_secs(120);
+const FALLBACK_BUDGET: Duration = Duration::from_millis(10);
+const MAX_RESOLVED: usize = 16;
 struct Fact {
     at: Instant,
     bytes: usize,
-    log: Changelog,
+    log: Rc<Changelog>,
+    /// Editor version and text hash the parse belongs to; `None` for a parse of the file on disk.
+    source: Option<(u64, u64)>,
+}
+type Spec = (String, bool, bool);
+fn spec(include: &Include) -> Spec {
+    (include.path.clone(), include.relative, include.dir)
+}
+struct Properties {
+    parameters: Option<BTreeSet<String>>,
+    declared: Option<BTreeSet<String>>,
+}
+/// What the project said when a changelog was last opened, saved or touched on disk; diagnostics never ask the project again.
+struct Resolution {
+    at: Instant,
+    source: Option<(u64, u64)>,
+    targets: BTreeMap<Spec, Target>,
+    properties: Option<Properties>,
 }
 #[derive(Default)]
 pub struct State {
     roots: BTreeMap<String, BTreeMap<String, Fact>>,
+    resolved: BTreeMap<String, Resolution>,
+    /// Set when the host refused the event subscriptions; diagnostics then warm the open document themselves.
+    pub events_denied: bool,
+}
+fn text_hash(text: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 pub(crate) fn parse(path: &str, text: &str) -> Option<Changelog> {
     if text.len() > MAX_TEXT
@@ -90,31 +120,97 @@ impl State {
     }
     pub fn update(&mut self, root: &str, path: &str, text: &str) {
         self.invalidate(path);
+        let Some(log) = parse(path, text) else {
+            return;
+        };
+        self.store(root, path, text.len(), Rc::new(log), None);
+    }
+    fn store(&mut self, root: &str, path: &str, bytes: usize, log: Rc<Changelog>, source: Option<(u64, u64)>) {
+        if !owned(root, path) {
+            return;
+        }
+        if !self.roots.contains_key(root) && self.roots.len() >= 8 {
+            self.roots.clear();
+        }
+        let files = self.roots.entry(root.into()).or_default();
+        files.retain(|_, f| f.at.elapsed() < TTL);
+        if files.len() >= 128 || files.values().map(|f| f.bytes).sum::<usize>() + bytes > 4 * 1024 * 1024 {
+            files.clear();
+        }
+        files.insert(path.into(), Fact { at: Instant::now(), bytes, log, source });
+    }
+    /// Asks the project what `text`'s includes point at and which properties it can supply. Only events and commands call this.
+    /// `project_wide` allows the project listings behind property facts; without it those stay unknown.
+    /// Whatever `budget` does not reach stays unknown, which the checks treat as quiet.
+    pub fn warm(&mut self, project: &Project, root: &str, path: &str, text: &str, budget: Duration, source: Option<(u64, u64)>, project_wide: bool) {
+        let deadline = Instant::now() + budget;
+        self.resolved.remove(path);
         if !owned(root, path) {
             return;
         }
         let Some(log) = parse(path, text) else {
             return;
         };
-        if !self.roots.contains_key(root) && self.roots.len() >= 8 {
-            self.roots.clear();
+        let mut targets = BTreeMap::new();
+        for include in log.includes.iter().chain(&log.sql_files).take(512) {
+            if Instant::now() > deadline {
+                break;
+            }
+            targets.entry(spec(include)).or_insert_with(|| crate::target_until(project, root, path, include, Some(deadline)));
         }
-        let files = self.roots.entry(root.into()).or_default();
-        files.retain(|_, f| f.at.elapsed() < TTL);
-        if files.len() >= 128 || files.values().map(|f| f.bytes).sum::<usize>() + text.len() > 4 * 1024 * 1024 {
-            files.clear();
+        let has_unknown_placeholder = checks::placeholders(text, log.format)
+            .into_iter()
+            .any(|(_, _, name)| !name.starts_with("database.") && !log.properties.iter().any(|p| p == name));
+        let properties = (project_wide && has_unknown_placeholder).then(|| Properties {
+            parameters: crate::project_parameters(project, root, path, deadline),
+            declared: crate::project_properties(project, root, path, &log, deadline),
+        });
+        if self.resolved.len() >= MAX_RESOLVED {
+            let oldest = self.resolved.iter().min_by_key(|(_, r)| r.at).map(|(p, _)| p.clone());
+            if let Some(oldest) = oldest {
+                self.resolved.remove(&oldest);
+            }
         }
-        files.insert(path.into(), Fact { at: Instant::now(), bytes: text.len(), log });
+        self.resolved.insert(path.into(), Resolution { at: Instant::now(), source, targets, properties });
     }
-    fn current(&mut self, doc: &Document) -> Option<(Option<String>, Changelog)> {
-        self.invalidate(&doc.path);
+    fn warm_current(&mut self, doc: &Document, root: Option<&str>) {
+        let source = Some((doc.version, text_hash(&doc.text)));
+        if self.resolved.get(&doc.path).is_some_and(|r| r.source == source) {
+            return;
+        }
+        let Some(root) = root else {
+            return;
+        };
+        let Some(project) = host::project_of(&doc.path) else {
+            return;
+        };
+        self.warm(&project, root, &doc.path, &doc.text, FALLBACK_BUDGET, source, false);
+    }
+    pub fn forget(&mut self, path: &str) {
+        self.invalidate(path);
+        self.resolved.remove(path);
+    }
+    pub fn warmed_paths(&self) -> Vec<String> {
+        self.resolved.keys().cloned().collect()
+    }
+    fn current(&mut self, doc: &Document) -> Option<(Option<String>, Rc<Changelog>)> {
         if !matches!(doc.language.as_str(), "xml" | "yaml" | "json" | "sql") {
             return None;
         }
-        let log = parse(&doc.path, &doc.text)?;
         let root = host::project_of(&doc.path).and_then(|p| p.root().ok());
+        let source = (doc.version, text_hash(&doc.text));
+        let cached = root
+            .as_ref()
+            .and_then(|root| self.roots.get(root))
+            .and_then(|files| files.get(&doc.path))
+            .filter(|fact| fact.source == Some(source) && fact.at.elapsed() < TTL);
+        if let Some(fact) = cached {
+            return Some((root, fact.log.clone()));
+        }
+        self.invalidate(&doc.path);
+        let log = Rc::new(parse(&doc.path, &doc.text)?);
         if let Some(root) = &root {
-            self.update(root, &doc.path, &doc.text);
+            self.store(root, &doc.path, doc.text.len(), log.clone(), Some(source));
         }
         Some((root, log))
     }
@@ -129,11 +225,23 @@ impl State {
         if found.next().is_some() { None } else { Some(first) }
     }
     pub fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
-        let Some((_, log)) = self.current(doc) else {
+        let Some((root, log)) = self.current(doc) else {
             return vec![];
         };
-        // Neither an incomplete cache nor a classpath/resource lookup proves absence.
-        let mut problems = checks::problems(&doc.path, &doc.text, &log, &|_| Target::Unknown, None);
+        if self.events_denied || !self.resolved.contains_key(&doc.path) {
+            self.warm_current(doc, root.as_deref());
+        }
+        let resolution = self.resolved.get(&doc.path);
+        let target = |include: &Include| resolution.and_then(|r| r.targets.get(&spec(include))).cloned().unwrap_or(Target::Unknown);
+        let defined = |name: &str| {
+            let Some(Properties { parameters: Some(parameters), declared }) = resolution.and_then(|r| r.properties.as_ref()) else {
+                return true;
+            };
+            parameters.contains(name) || declared.as_ref().is_none_or(|declared| declared.contains(name))
+        };
+        let check_properties = host::setting_bool("checkProperties").unwrap_or(true);
+        let defined: Option<&dyn Fn(&str) -> bool> = check_properties.then_some(&defined);
+        let mut problems = checks::problems(&doc.path, &doc.text, &log, &target, defined);
         problems.truncate(256);
         problems
     }
@@ -186,12 +294,12 @@ impl State {
                 let status = target
                     .map(|p| format!("Cached source: {}", escape(&p)))
                     .unwrap_or_else(|| "Target not established by the current source cache; no absence or filesystem claim.".into());
-                return Some(Hover::new(format!("**Liquibase {}**: {}\n\n{}\n\nrelativeToChangelogFile: {} · optional: {}. Cached source facts expire after 120 seconds; runtime search paths are not resolved.",if include.dir {"includeAll"} else {"include"},escape(&include.path),status,include.relative,include.optional)).range(range(&doc.text,include.at,include.end)?));
+                return Some(Hover::new(format!("**Liquibase {}**: {}\n\n{}\n\nrelativeToChangelogFile: {} · optional: {}",if include.dir {"includeAll"} else {"include"},escape(&include.path),status,include.relative,include.optional)).range(range(&doc.text,include.at,include.end)?));
             }
         }
         for set in &log.change_sets {
             if set.at <= at && at < set.end {
-                return Some(Hover::new(format!("**Liquibase changeset**\n\nID: {}\n\nAuthor: {}\n\nSource: {}\n\nSource declaration only; logicalFilePath, contexts, execution order and database history are not resolved.",escape(set.id.as_deref().unwrap_or("(missing)")),escape(set.author.as_deref().unwrap_or("(missing)")),escape(&doc.path))).range(range(&doc.text,set.at,set.end)?));
+                return Some(Hover::new(format!("**Liquibase changeset**\n\nID: {}\n\nAuthor: {}\n\nSource: {}",escape(set.id.as_deref().unwrap_or("(missing)")),escape(set.author.as_deref().unwrap_or("(missing)")),escape(&doc.path))).range(range(&doc.text,set.at,set.end)?));
             }
         }
         for (from, to, name) in checks::placeholders(&doc.text, log.format) {
@@ -209,7 +317,7 @@ impl State {
                 let [owner] = found.as_slice() else {
                     return None;
                 };
-                return Some(Hover::new(format!("**Liquibase property**: {}\n\nDeclared in cached source: {}\n\nDeclaration presence only. Values, precedence, contexts and runtime/configuration parameters are not evaluated.",escape(name),escape(owner))).range(range(&doc.text,from,to)?));
+                return Some(Hover::new(format!("**Liquibase property**: {}\n\nDeclared in cached source: {}",escape(name),escape(owner))).range(range(&doc.text,from,to)?));
             }
         }
         None
@@ -277,13 +385,9 @@ mod tests {
     fn unknown_include_property_and_foreign_xml_context_are_quiet() {
         let _h = MockHost::install();
         let mut s = State::default();
-        assert!(
-            s.diagnostics(&doc(
-                "/project/db/a.xml",
-                "<databaseChangeLog><include file='unknown.xml'/><changeSet id='${library.id}' author='a'/></databaseChangeLog>"
-            ))
-            .is_empty()
-        );
+        let text = "<databaseChangeLog><include file='unknown.xml'/><changeSet id='${library.id}' author='a'/></databaseChangeLog>";
+        s.warm(&host::project_of("/project/db/a.xml").unwrap(), "/project", "/project/db/a.xml", text, Duration::ZERO, None, false);
+        assert!(s.diagnostics(&doc("/project/db/a.xml", text)).is_empty(), "facts the warm did not reach stay quiet");
         assert!(
             s.diagnostics(&doc("/project/db/a.xml", "<databaseChangeLog xmlns='urn:foreign'><changeSet/></databaseChangeLog>")).is_empty()
         );
@@ -296,7 +400,7 @@ mod tests {
         let at = XML.find("changeSet").unwrap();
         let h = s.hover(&d, position(XML, at + 2)).unwrap();
         assert_eq!(h.range, range(XML, at, at + 9));
-        assert!(h.markdown.contains("ID: 1") && h.markdown.contains("not resolved"));
+        assert!(h.markdown.contains("ID: 1") && !h.markdown.contains("not resolved"));
         let at = XML.find("child.xml").unwrap();
         let h = s.hover(&d, position(XML, at + 2)).unwrap();
         assert_eq!(h.range, range(XML, at, at + 9));
@@ -318,6 +422,17 @@ mod tests {
         );
         assert!(p.live.markers(&d).is_empty());
         assert!(h.diagnostics().is_empty());
+    }
+    #[test]
+    fn current_reuses_the_parse_for_the_same_version_and_text() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        let d = doc("/project/db/a.xml", XML);
+        let first = s.current(&d).unwrap().1;
+        assert!(Rc::ptr_eq(&first, &s.current(&d).unwrap().1));
+        let mut edited = doc("/project/db/a.xml", XML);
+        edited.version = 2;
+        assert!(!Rc::ptr_eq(&first, &s.current(&edited).unwrap().1));
     }
     #[test]
     fn property_hover_uses_only_reachable_cached_declarations_and_never_values() {
@@ -401,6 +516,7 @@ mod tests {
         assert!(
             state.diagnostics(&doc("/project/a.xml", &format!("<databaseChangeLog>{}</databaseChangeLog>", "${".repeat(1025)))).is_empty()
         );
+        state.warm(&host::project_of("/project/a.xml").unwrap(), "/project", "/project/a.xml", XML, Duration::ZERO, None, false);
         let problems = state.diagnostics(&doc("/project/a.xml", XML));
         for diagnostic in problems {
             let a = offset(XML, diagnostic.range.start).unwrap();

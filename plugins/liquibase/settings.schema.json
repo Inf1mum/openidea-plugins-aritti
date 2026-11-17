@@ -4,6 +4,12 @@
       "type": "string",
       "title": "Author offered when completing a changeSet author (empty: git config user.name)",
       "default": ""
+    },
+    "checkProperties": {
+      "type": "boolean",
+      "title": "Warn about undeclared properties",
+      "default": true,
+      "description": "Warn when a ${name} placeholder is not declared in the project's changelogs or set as a parameter in its Liquibase configuration."
     }
   }
 }

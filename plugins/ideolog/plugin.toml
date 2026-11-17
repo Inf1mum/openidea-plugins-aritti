@@ -6,7 +6,7 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ideolog"
 license = "MIT"
 change-notes = """\
-Next release: Live tail and patterns table for log files; custom timestamp formats such as hh:mm:ss a; numeric level suffixes no longer show false errors; Remove Custom Highlightings asks first; clearer messages and command names. \
+Next release: Live tail and patterns table for log files, and live tail no longer stops on the JVM's \"Picked up JAVA_TOOL_OPTIONS\" message; whole logs are coloured and folded, and changed custom patterns apply to open logs right away; custom timestamp formats such as hh:mm:ss a, and numeric level suffixes no longer show false errors; Jump to Source searches only source files, and unrelated file changes keep \"Mark Current Log Source\" marks; Remove Custom Highlightings asks first, with clearer messages and command names. \
 0.3.0: new hub window with live tail. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "tools"]

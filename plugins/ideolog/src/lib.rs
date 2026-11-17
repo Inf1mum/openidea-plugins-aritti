@@ -29,6 +29,9 @@ const FORMAT_STATUS: &str = "format";
 // ponytail: only the head of a big log is parsed, so the provider answers within
 // the IDE's 50 ms edit budget; parse incrementally if big logs need colour past it.
 const MAX_DOCUMENT_BYTES: usize = 512 << 10;
+/// Highlighting stops this far into one event, so a log without recognised
+/// headers (one giant event) cannot outrun the provider deadline.
+const MAX_HIGHLIGHTED_EVENT_BYTES: usize = 32 << 10;
 
 #[derive(Default)]
 pub struct Ideolog {
@@ -36,6 +39,8 @@ pub struct Ideolog {
     viewer: viewer::Viewer,
     jvm: jvm::Adapter,
     tail: live_tail::LiveTail,
+    /// Path and project root of the log last marked with Mark Current Log Source.
+    marked: Option<(String, String)>,
     /// The `customPatterns` setting it was built from, and the config.
     config: Option<(String, Rc<Config>)>,
     editor_denied: bool,
@@ -86,6 +91,32 @@ fn refresh_changed_patterns(before: &str) {
 }
 
 impl Ideolog {
+    /// Marks, the JVM snapshot and the live tail each belong to one log; events
+    /// about other files or editors leave them alone.
+    fn events_name_a_tracked_log(&self, events: &[HostEvent]) -> bool {
+        let tracked: Vec<(String, String)> = [self.marked.clone(), self.jvm.source(), self.tail.source()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let is_tracked = |path: &str| tracked.iter().any(|(log, _)| log == path);
+        events.iter().any(|event| match event {
+            HostEvent::FileOpened(path) | HostEvent::FileSaved(path) => is_tracked(path),
+            HostEvent::EditorFocused(path) => path.as_deref().is_some_and(is_tracked),
+            HostEvent::DocumentChanged(change) => is_tracked(&change.path),
+            HostEvent::FilesChanged(changes) => changes
+                .created
+                .iter()
+                .chain(&changes.modified)
+                .chain(&changes.removed)
+                .any(|path| is_tracked(path)),
+            HostEvent::VcsChanged(root) => tracked.iter().any(|(_, tracked_root)| tracked_root == root),
+            HostEvent::Other { kind, data } if kind == "file-closed" => {
+                serde_json::from_str::<String>(data).is_ok_and(|path| is_tracked(&path))
+            }
+            _ => false,
+        })
+    }
+
     fn run_log_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "extend-log-selection" { self.extend_log_selection(ctx)?; return Ok(None); }
         if id == "live-tail" { ui_kit::web::reveal_view(live_tail::VIEW, include_str!("ui_config.json"))?; return Ok(None); }
@@ -162,7 +193,16 @@ impl Plugin for Ideolog {
         let _ = host::clear_decorations(semantic::DECORATION_SET);
     }
     fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
-        if !events.is_empty() { self.tail_lifecycle(ctx); self.invalidate_jvm_tokens(); let _ = host::clear_decorations(semantic::DECORATION_SET); }
+        if events.iter().any(|e| matches!(e, HostEvent::Other { kind, .. } if kind == "settings-changed")) {
+            self.config();
+        }
+        if self.events_name_a_tracked_log(events) {
+            self.tail_lifecycle(ctx);
+            self.invalidate_jvm_tokens();
+            let _ = host::clear_decorations(semantic::DECORATION_SET);
+        } else if events.iter().any(|e| matches!(e, HostEvent::Scheduled)) {
+            self.tail_lifecycle(ctx);
+        }
         if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
             self.show_format(ctx);
         }
@@ -308,7 +348,8 @@ fn highlights_checked(config: &Config, text: &str, gap_seconds: f64, cap: usize,
     let mut previous: Option<f64> = None;
     for event in &events {
         if out.len() >= cap || checkpoint().is_err() { break; }
-        let parsed=Parsed::new(format,event.text);
+        let event_text=capped_event(event.text);
+        let parsed=Parsed::new(format,event_text);
         if checkpoint().is_err() { break; }
         let now = parsed.time(format).and_then(|time| log::time_seconds(time, format.and_then(|f| f.time_pattern.as_deref())));
         let gap_range = match (gap_seconds > 0.0, previous, now) {
@@ -322,15 +363,24 @@ fn highlights_checked(config: &Config, text: &str, gap_seconds: f64, cap: usize,
         for (range, kind) in highlighted {
             match &gap_range {
                 Some(gap) if range.start < gap.end && gap.start < range.end => {}
-                _ => push_by_line(&mut out, event.text, event.offset, range, kind),
+                _ => push_by_line(&mut out, event_text, event.offset, range, kind),
             }
         }
         if let Some(gap) = gap_range {
-            push_by_line(&mut out, event.text, event.offset, gap, Highlight::Constant);
+            push_by_line(&mut out, event_text, event.offset, gap, Highlight::Constant);
         }
     }
     out.truncate(cap);
     out
+}
+
+fn capped_event(event: &str) -> &str {
+    if event.len() <= MAX_HIGHLIGHTED_EVENT_BYTES {
+        return event;
+    }
+
+    let head = &event[..log::floor_char_boundary(event, MAX_HIGHLIGHTED_EVENT_BYTES)];
+    head.rfind('\n').map_or(head, |end| &head[..=end])
 }
 
 /// One token per line: a multi-line event (a stack trace) is coloured on

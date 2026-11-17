@@ -262,7 +262,18 @@ impl State {
         ))
     }
     pub fn import(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        let result = self.import_at(ctx, CACHE);
+        self.import_from(ctx, CACHE)
+    }
+    fn import_from(&mut self, ctx: &Invocation, cache: &str) -> Result<Option<String>, Error> {
+        let result = self.import_at(ctx, cache);
+        if matches!(result, Err(Error::Denied(_))) {
+            host::notify(
+                openidea_plugin::NotificationLevel::Warning,
+                "Quarkus JAR metadata",
+                &ui_kit::denied::message("Reading Maven JAR metadata", "fs.read:~/.m2/repository", "Quarkus Tools"),
+            );
+            return Ok(None);
+        }
         if result.is_err()
             && ctx
                 .project()
@@ -321,9 +332,7 @@ impl State {
             .ok_or("Unknown dependency selection.")?
             .clone();
         let jar = selected.path(cache);
-        let grant_probe = host::fs::stat(&jar).map_err(|e| {
-            ui_kit::denied::map(e, "Reading Maven JAR metadata", "fs.read:~/.m2/repository", "Quarkus Tools")
-        })?;
+        let grant_probe = host::fs::stat(&jar)?;
         if grant_probe.kind != FileKind::File
             || grant_probe.size > super::jar_archive::MAX_ARCHIVE as u64
         {
@@ -746,17 +755,6 @@ mod tests {
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
     }
     #[test]
-    fn reading_maven_jar_metadata_denied_names_permission() {
-        let h = setup().with_capabilities(&["project.read"]);
-        h.answer_next_prompt(Some(&["0"]));
-        let error = State::default()
-            .import_at(&h.invocation(), "/m2")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("needs the fs.read:~/.m2/repository permission"), "{error}");
-        assert!(error.contains("Settings › Plugins › Quarkus Tools"), "{error}");
-    }
-    #[test]
     fn cancellation_denial_corrupt_replacement_and_expiry_preserve_scope() {
         let h = setup();
         let mut state = State::default();
@@ -905,5 +903,13 @@ mod tests {
         assert_eq!(dependencies(prefixed).unwrap().len(), 1);
         let mixed = POM.replace("<dependencies>", "<dependencies xmlns=\"\">");
         assert!(dependencies(&mixed).is_err());
+    }
+    #[test]
+    fn m2_denied_message() {
+        let h = setup().with_capabilities(&["project.read"]);
+        h.answer_next_prompt(Some(&["0"]));
+        let mut state = State::default();
+        assert!(state.import_from(&h.invocation(), "/m2").unwrap().is_none());
+        assert!(h.notifications().iter().any(|n| n.body == "Reading Maven JAR metadata needs the fs.read:~/.m2/repository permission. Allow it in Settings › Plugins › Quarkus Tools."));
     }
 }

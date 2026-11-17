@@ -228,9 +228,10 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
     for [label, name, eco, spec, path] in &report.notes {
         let (name, eco, spec, label) = (clean(name), clean(eco), clean(spec), clean(label));
         let path = clean(&relative(path));
-        let (severity, why) = match label == manifest::LOCAL {
-            true => ("Not checked", "Resolved from the local workspace, not a registry package; its coordinates were never sent to OSV.dev."),
-            false => ("Audited", "The requirement carries a PEP 508 environment marker that was not evaluated; the pinned version is audited regardless of whether the marker applies here."),
+        let (severity, why) = match label.as_str() {
+            manifest::LOCAL => ("Not checked", "Resolved from the local workspace, not a registry package; its coordinates were never sent to OSV.dev."),
+            manifest::PRIVATE => ("Not checked", "Resolved from a registry or host outside the public ones; its name and version were never sent to OSV.dev."),
+            _ => ("Audited", "The requirement carries a PEP 508 environment marker that was not evaluated; the pinned version is audited regardless of whether the marker applies here."),
         };
         let details = vec![json!({"label":"Declared","value":format!("{name} {spec}")}),json!({"label":"Why","value":why})];
         if !push_row(&mut items, &mut bytes, json!({"key":format!("note:{label}|{eco}|{name}|{spec}|{path}"),"label":format!("{name} {spec}"),"cells":[label,name,eco,spec,"-",severity,"-",path],"details":details})) {

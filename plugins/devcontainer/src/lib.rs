@@ -47,6 +47,9 @@ impl Plugin for Main {
             host::reveal_view(operations::VIEW)?;
             return Ok(None);
         }
+        if id == "start-cloned" {
+            return start_cloned(_arg);
+        }
         let project = ctx.project().ok_or("No project is open.")?;
         let root = project.root()?;
 
@@ -98,7 +101,7 @@ impl Plugin for Main {
         }
 
         if id == "clone" {
-            return clone(&project, &root);
+            return clone(&root);
         }
 
         if !matches!(id, "up" | "rebuild" | "shell") {
@@ -248,7 +251,7 @@ fn repository_name(url: &str) -> &str {
     name.strip_suffix(".git").unwrap_or(name)
 }
 
-fn clone(project: &Project, root: &str) -> Result<Option<String>, Error> {
+fn clone(root: &str) -> Result<Option<String>, Error> {
     let Some(url) = host::input("Repository URL to clone", None)? else {
         return Ok(None);
     };
@@ -269,15 +272,34 @@ fn clone(project: &Project, root: &str) -> Result<Option<String>, Error> {
         return Ok(None);
     }
 
-    let cloned = {
-        let _task = host::begin_task("Cloning the repository", false);
-        project.run_process("git", &["clone".into(), "--".into(), url.into(), target.into()], None)?
-    };
-    if cloned.status != Some(0) {
-        return Err(format!("git clone failed: {}", cloned.stderr.trim()).into());
-    }
+    let args = ["clone".to_owned(), "--".to_owned(), url.to_owned(), target.to_owned()];
+    host::open_terminal("Dev Container: Clone Repository", "git", &args)?;
+    let start = openidea_plugin::NotificationAction::new("Start Container", "start-cloned").argument(target);
+    host::notify_with_actions(NotificationLevel::Info, "Dev Container", "Cloning in a terminal. When it finishes, start the container for the new folder.", &[start])?;
 
+    Ok(None)
+}
+
+fn start_cloned(target: Option<&str>) -> Result<Option<String>, Error> {
+    let picked;
+    let target = match target.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(target) => target,
+        None => {
+            let Some(folder) = host::pick_directory("Choose the cloned folder to start", None)? else {
+                return Ok(None);
+            };
+            picked = folder;
+            picked.as_str()
+        }
+    };
+    if target.starts_with('-') {
+        return Err("Choose a cloned folder to start.".into());
+    }
     let args = ["up".to_owned(), "--workspace-folder".to_owned(), target.to_owned()];
+    let body = format!("Run devcontainer with arguments:\n{}", serde_json::to_string_pretty(&args).unwrap_or_default());
+    if !ui_kit::prompts::confirm_exact("Start cloned Dev Container", &body)? {
+        return Ok(None);
+    }
     host::open_terminal("Dev Container: Start Cloned Container", "devcontainer", &args)?;
 
     Ok(None)
@@ -419,8 +441,8 @@ fn feature_items(text: &str, key: std::ops::Range<usize>) -> Vec<CompletionItem>
 }
 
 impl openidea_plugin::RunTargetValidation for Main {
-    fn validate(&mut self, project: &str, _target_id: &str, _launch: &openidea_plugin::RunTargetLaunch) -> Result<(), String> {
-        run_target::validate_running(project)
+    fn validate(&mut self, project: &str, target_id: &str, _launch: &openidea_plugin::RunTargetLaunch) -> Result<(), String> {
+        run_target::validate_running(project, target_id)
     }
 }
 
@@ -579,24 +601,54 @@ mod tests {
     }
 
     #[test]
-    fn clone_clones_next_to_the_project_then_starts_the_container() {
-        let host = host().with_capabilities(&["project.read", "process:devcontainer", "process:git"]);
-        host.on_process("git", |args, _| {
-            assert_eq!(args, ["clone", "--", "https://example.com/acme/tool.git", "/work/tool"]);
-            ok("")
-        });
+    fn clone_opens_terminal() {
+        let host = host().with_capabilities(&["project.read", "process:git"]);
 
         host.answer_next_prompt(Some(&["https://example.com/acme/tool.git"]));
         host.answer_next_prompt(Some(&["/work/tool"]));
         Main::default().run_command("clone", &host.invocation(), None).unwrap();
 
-        assert_eq!(host.terminals()[0].args, ["up", "--workspace-folder", "/work/tool"]);
+        let terminals = host.terminals();
+        assert_eq!(terminals[0].program, "git");
+        assert_eq!(terminals[0].args, ["clone", "--", "https://example.com/acme/tool.git", "/work/tool"]);
+        assert!(host.process_runs().is_empty());
+
+        let action = &host.notifications_with_actions()[0].actions[0];
+        assert_eq!((action.command.as_str(), action.argument.as_deref()), ("start-cloned", Some("/work/tool")));
     }
 
     #[test]
-    fn clone_stops_on_dismissal_bad_url_or_failed_git() {
-        let host = host().with_capabilities(&["project.read", "process:devcontainer", "process:git"]);
-        host.on_process("git", |_, _| Ok(ProcessOutput { status: Some(128), stdout: String::new(), stderr: "fatal: nope".into() }));
+    fn start_cloned_confirms_then_opens_the_container_terminal() {
+        let host = host().with_capabilities(&["project.read", "process:devcontainer"]);
+
+        host.answer_next_prompt(Some(&["yes"]));
+        Main::default().run_command("start-cloned", &host.invocation(), Some("/work/tool")).unwrap();
+        assert_eq!(host.terminals()[0].program, "devcontainer");
+        assert_eq!(host.terminals()[0].args, ["up", "--workspace-folder", "/work/tool"]);
+
+        let before = host.terminals().len();
+        assert!(Main::default().run_command("start-cloned", &host.invocation(), Some("--x")).is_err());
+        assert_eq!(host.terminals().len(), before);
+    }
+
+    #[test]
+    fn start_cloned_without_argument_asks_for_a_folder() {
+        let host = host().with_capabilities(&["project.read", "process:devcontainer"]);
+
+        host.answer_next_prompt(Some(&["/work/picked"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        Main::default().run_command("start-cloned", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals()[0].args, ["up", "--workspace-folder", "/work/picked"]);
+
+        host.answer_next_prompt(None);
+        let before = host.terminals().len();
+        Main::default().run_command("start-cloned", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals().len(), before);
+    }
+
+    #[test]
+    fn clone_stops_on_dismissal_or_bad_url() {
+        let host = host().with_capabilities(&["project.read", "process:git"]);
 
         host.answer_next_prompt(None);
         Main::default().run_command("clone", &host.invocation(), None).unwrap();
@@ -605,14 +657,9 @@ mod tests {
         host.answer_next_prompt(Some(&["https://example.com/acme/tool.git"]));
         host.answer_next_prompt(None);
         Main::default().run_command("clone", &host.invocation(), None).unwrap();
+
         assert!(host.process_runs().is_empty() && host.terminals().is_empty());
         assert_eq!(host.notifications().len(), 1);
-
-        host.answer_next_prompt(Some(&["https://example.com/acme/tool.git"]));
-        host.answer_next_prompt(Some(&["/work/tool"]));
-        let error = Main::default().run_command("clone", &host.invocation(), None).unwrap_err();
-        assert!(error.to_string().contains("fatal: nope"));
-        assert!(host.terminals().is_empty());
     }
 
     #[test]
@@ -775,12 +822,20 @@ mod tests {
     }
 
     #[test]
-    fn manifest_activates_on_file_events() {
+    fn escaped_key_recognised() {
+        let host = host();
+        open(&host, ".devcontainer.json", "{\"\\u0069mage\": \"x\"}");
+        assert!(host.provider_diagnostics().is_empty());
+    }
+
+    #[test]
+    fn manifest_activates_on_views_only() {
         let manifest = include_str!("../plugin.toml");
 
-        for activation in ["on-event:file-opened", "on-event:file-saved", "on-view:containers", "on-view:run-target-review"] {
+        for activation in ["on-view:containers", "on-view:run-target-review"] {
             assert!(manifest.contains(&format!("\"{activation}\"")));
         }
+        assert!(!manifest.contains("on-event:") && !manifest.contains("\"events\""));
     }
 
     #[test]

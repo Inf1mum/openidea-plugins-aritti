@@ -148,6 +148,7 @@ mod tests {
         host.open_editor("/project/Events.java", "java", source, &[]);
         let doc = current(&host.invocation()).unwrap();
         let mut owner = crate::window::Endpoints::default();
+        owner.activate_live();
         let lens = owner
             .code_lenses(&doc)
             .into_iter()

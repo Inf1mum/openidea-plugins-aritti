@@ -48,21 +48,48 @@ pub struct Twig {
     extensions: BTreeMap<String, Vec<Extension>>,
     /// Literal render-call and `#[Template]` variable sites in project PHP, by absolute file path.
     renders: BTreeMap<String, Vec<php_context::Site>>,
+    /// PHP files still to scan, scanned in short slices so no single call blocks.
+    pending: Vec<String>,
+    scanned_files: u32,
+    scanned_bytes: usize,
 }
+
+const SCAN_SLICE: std::time::Duration = std::time::Duration::from_millis(40);
+const MAX_RESCANNED_PHP: usize = 64;
 
 impl Twig {
     fn scan_extensions(&mut self) {
         if !host::setting_bool("projectExtensions").unwrap_or(true) {return;}
-        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(3);
-        let (mut count,mut bytes)=(0u32,0usize);
+        self.pending.clear();
+        self.scanned_files=0;
+        self.scanned_bytes=0;
         for project in host::projects().unwrap_or_default() {
             for glob in EXTENSION_GLOBS {
-                if count>=EXTENSION_FILES||bytes+(128<<10)>(12<<20)||std::time::Instant::now()>=deadline{return;}
-                for path in project.find_files(glob,EXTENSION_FILES-count).unwrap_or_default(){
-                    if count>=EXTENSION_FILES||bytes+(128<<10)>(12<<20)||std::time::Instant::now()>=deadline{return;}
-                    count+=1;bytes+=self.scan_file(&project,&path);
-                }
+                let room=EXTENSION_FILES.saturating_sub(self.pending.len() as u32);
+                if room==0 {return self.drain_pending();}
+                self.pending.extend(project.find_files(glob,room).unwrap_or_default());
             }
+        }
+        self.pending.reverse();
+        self.drain_pending();
+    }
+    fn drain_pending(&mut self) {
+        let deadline=std::time::Instant::now()+SCAN_SLICE;
+        while std::time::Instant::now()<deadline {
+            let Some(path)=self.pending.pop() else {return};
+            if self.scanned_files>=EXTENSION_FILES||self.scanned_bytes+(128<<10)>(12<<20) {self.pending.clear();return;}
+            let Some(project)=project_of(&path) else {self.extensions.remove(&path);self.renders.remove(&path);continue};
+            self.scanned_files+=1;
+            self.scanned_bytes+=self.scan_file(&project,&path);
+        }
+    }
+    /// Queues paths for the 40 ms slices instead of dropping what they said: each is re-read or forgotten there.
+    fn requeue(&mut self,paths:Vec<String>) {
+        if paths.is_empty() {return;}
+        if self.pending.is_empty() {self.scanned_files=0;self.scanned_bytes=0;}
+        let room=(EXTENSION_FILES as usize).saturating_sub(self.pending.len());
+        for path in paths.into_iter().take(room) {
+            if !self.pending.contains(&path) {self.pending.push(path);}
         }
     }
     fn scan_file(&mut self,project:&Project,path:&str)->usize {
@@ -74,13 +101,13 @@ impl Twig {
         let bytes=source.as_ref().map_or(0,String::len);
         let sites=source.as_deref().map(php_context::render_sites).unwrap_or_default();
         if sites.is_empty(){self.renders.remove(path);}else{self.renders.insert(path.to_owned(),sites);}
-        let found=source.map(|php|navigate::extensions(&php)).unwrap_or_default();
+        let found=if is_symfony(project) {Vec::new()} else {source.map(|php|navigate::extensions(&php)).unwrap_or_default()};
         if found.is_empty(){self.extensions.remove(path);}else{self.extensions.insert(path.to_owned(),found);}
         bytes
     }
 
-    /// Literal variable keys passed to this template by project render sites, with the controller key locations.
-    fn template_variables(&self, project: &Project, template_file: &str) -> Vec<(String, Location)> {
+    /// Cached render sites that pass variables to this template (no file reads beyond the Twig configuration).
+    fn template_sites(&self, project: &Project, template_file: &str) -> Vec<(&String, &php_context::Site)> {
         let Some(root) = project.root().ok() else { return Vec::new() };
         let Some((fixed, _)) = main_template_dirs(project) else { return Vec::new() };
         let Some(relative) = template_file.strip_prefix(&format!("{root}/")) else { return Vec::new() };
@@ -89,19 +116,29 @@ impl Twig {
             return Vec::new();
         }
         let roots: Vec<_> = host::projects().unwrap_or_default().into_iter().filter_map(|p| p.root().ok()).collect();
+        self.renders
+            .iter()
+            .filter(|(path, _)| extension_source(&root, path) && roots.iter().filter(|r| Path::new(path.as_str()).starts_with(r)).max_by_key(|r| r.len()).is_some_and(|r| *r == root))
+            .flat_map(|(path, sites)| sites.iter().filter(|s| s.template == name).map(move |s| (path, s)))
+            .collect()
+    }
+
+    /// Variable names for completion, from the render sites cached when PHP was scanned or saved.
+    fn template_variable_names(&self, project: &Project, template_file: &str) -> Vec<String> {
+        self.template_sites(project, template_file).into_iter().flat_map(|(_, site)| site.keys.iter().map(|(key, _)| key.clone())).collect()
+    }
+
+    /// Literal variable keys passed to this template by project render sites, with the controller key locations.
+    fn template_variables(&self, project: &Project, template_file: &str) -> Vec<(String, Location)> {
         let mut found = Vec::new();
-        for (path, sites) in &self.renders {
-            let owned = extension_source(&root, path) && roots.iter().filter(|r| Path::new(path.as_str()).starts_with(r)).max_by_key(|r| r.len()).is_some_and(|r| *r == root);
-            if !owned {
+        for (path, site) in self.template_sites(project, template_file) {
+            let Some(php) = project.read_file(path).ok().filter(|t| t.len() <= 128 << 10) else { continue };
+            if !php_context::render_sites(&php).contains(site) {
                 continue;
             }
-            let Some(php) = project.read_file(path).ok().filter(|t| t.len() <= 128 << 10) else { continue };
-            let fresh = php_context::render_sites(&php);
-            for site in sites.iter().filter(|s| s.template == name && fresh.contains(s)) {
-                for (key, range) in &site.keys {
-                    let at = EditorRange::new(position(&php, range.start), position(&php, range.end));
-                    found.push((key.clone(), Location { path: path.clone(), range: at }));
-                }
+            for (key, range) in &site.keys {
+                let at = EditorRange::new(position(&php, range.start), position(&php, range.end));
+                found.push((key.clone(), Location { path: path.clone(), range: at }));
             }
         }
         found
@@ -162,7 +199,17 @@ fn template_namespaces() -> Vec<(String, String)> {
 }
 
 /// Config blocks that are always active (`twig.yaml` top level) and blocks that apply in some environment only.
-fn config_blocks(project: &Project) -> (Option<twig_config::Block>, Vec<twig_config::Block>) {
+fn config_blocks(project: &Project) -> ConfigBlocks {
+    let root = project.root().unwrap_or_default();
+    if let Some(known) = project_fact(&root, |f| f.blocks.clone()) {
+        return known;
+    }
+    let found = read_config_blocks(project);
+    remember_project_fact(&root, |f| f.blocks = Some(found.clone()));
+    found
+}
+
+fn read_config_blocks(project: &Project) -> ConfigBlocks {
     let read = |path: &str| project.read_file(path).ok().map(|t| twig_config::blocks(&t));
     let mut always = None;
     let mut some_env = Vec::new();
@@ -210,7 +257,7 @@ fn main_template_dirs(project: &Project) -> Option<(Vec<String>, Vec<String>)> {
     let usable = |dir: &str| safe_namespace_part(dir, true).then(|| dir.trim_end_matches('/').to_owned());
     let mut fixed = Vec::new();
     let mut variable = Vec::new();
-    let mut add = |list: &mut Vec<String>, other: &[String], dir: Option<String>| {
+    let add = |list: &mut Vec<String>, other: &[String], dir: Option<String>| {
         if let Some(dir) = dir {
             if !list.contains(&dir) && !other.contains(&dir) {
                 list.push(dir);
@@ -364,6 +411,7 @@ impl Plugin for Twig {
         if let Err(error)=host::subscribe_paths("files-changed", EXTENSION_GLOBS) {
             host::log(LogLevel::Warn,&format!("Twig extension cache notifications unavailable: {error}"));
         }
+        php_context::refresh_project_lexer();
         self.scan_extensions();
 
         Ok(())
@@ -371,23 +419,40 @@ impl Plugin for Twig {
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         let started=std::time::Instant::now();
-        let mut count=0usize;
-        if events.len()>256 {self.extensions.clear();self.renders.clear();return;}
-        for event in events {
-            if started.elapsed()>std::time::Duration::from_millis(100) {self.extensions.clear();self.renders.clear();return;}
+        let paths=|events:&[Event]|events.iter().flat_map(|event|match event {
+            Event::FileSaved(path)=>vec![path.clone()],
+            Event::FilesChanged(batch)=>batch.created.iter().chain(&batch.modified).chain(&batch.removed).cloned().collect(),
+            _=>Vec::new(),
+        }).collect::<Vec<_>>();
+        let php:Vec<String>=paths(events).into_iter().filter(|p|p.ends_with(".php")).collect();
+        if php.len()>MAX_RESCANNED_PHP {php_context::refresh_project_lexer();}
+        else {for path in &php {php_context::update_project_lexer(path);}}
+        if events.len()>256 {self.requeue(paths(events));return self.drain_pending();}
+        self.drain_pending();
+        let mut rescanned=0usize;
+        for (at,event) in events.iter().enumerate() {
+            if started.elapsed()>std::time::Duration::from_millis(100) {self.requeue(paths(&events[at..]));return self.drain_pending();}
             match event {
-                Event::FileSaved(path) if path.ends_with(".php") => {
+                Event::FileSaved(path) => {
+                    if path.ends_with("composer.json")||path.ends_with("symfony.lock")||path.ends_with("twig.yaml") {forget_project_facts();}
+                    if !path.ends_with(".php") {continue;}
                     if let Some(project)=project_of(path) { self.scan_file(&project,path); }
                     else {self.extensions.remove(path);self.renders.remove(path);}
                 }
                 Event::FilesChanged(batch) => {
-                    // No discovery or source reads in filesystem notifications.
-                    // Saved-file notification or activation can establish new facts.
-                    for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed).take(257) {
-                        count+=1;
-                        if count>256 {self.extensions.clear();self.renders.clear();return;}
+                    for path in batch.removed.iter().chain(batch.created.iter().chain(&batch.modified).filter(|p|!p.ends_with(".php"))) {
                         self.extensions.remove(path);self.renders.remove(path);
                     }
+                    let changed:Vec<String>=batch.created.iter().chain(&batch.modified).filter(|p|p.ends_with(".php")).cloned().collect();
+                    let room=MAX_RESCANNED_PHP.saturating_sub(rescanned).min(changed.len());
+                    for path in &changed[..room] {
+                        rescanned+=1;
+                        match project_of(path) {
+                            Some(project)=>{self.scan_file(&project,path);}
+                            None=>{self.extensions.remove(path);self.renders.remove(path);}
+                        }
+                    }
+                    self.requeue(changed[room..].to_vec());
                 }
                 _ => {}
             }
@@ -474,7 +539,10 @@ impl Providers for Twig {
             filters: self.extra_names(&root, ExtensionKind::Filter),
             functions: self.extra_names(&root, ExtensionKind::Function),
             tests: self.extra_names(&root, ExtensionKind::Test),
-            variables: project.as_ref().map(|p| self.template_variables(p, &doc.path)).unwrap_or_default().into_iter().map(|(name, _)| name).collect(),
+            variables: match &project {
+                Some(p) if complete::variable_slot(&doc.text, offset) => self.template_variable_names(p, &doc.path),
+                _ => Vec::new(),
+            },
         };
 
         complete::items_with(&doc.text, offset, names, &extra)
@@ -618,10 +686,53 @@ fn project_of(path: &str) -> Option<Project> {
 /// plugin owns tag, filter, function and test completion, so this one stays
 /// silent there instead of listing everything twice.
 fn is_symfony(project: &Project) -> bool {
-    project.read_file("symfony.lock").is_ok()
+    let root = project.root().unwrap_or_default();
+    if let Some(known) = project_fact(&root, |f| f.symfony) {
+        return known;
+    }
+    let found = project.read_file("symfony.lock").is_ok()
         || project
             .read_file("composer.json")
-            .is_ok_and(|composer| composer.contains("\"symfony/framework-bundle\"") || composer.contains("\"symfony/symfony\""))
+            .is_ok_and(|composer| composer.contains("\"symfony/framework-bundle\"") || composer.contains("\"symfony/symfony\""));
+    remember_project_fact(&root, |f| f.symfony = Some(found));
+    found
+}
+
+type ConfigBlocks = (Option<twig_config::Block>, Vec<twig_config::Block>);
+
+#[derive(Clone, Default)]
+struct ProjectFacts {
+    at: Option<std::time::Instant>,
+    symfony: Option<bool>,
+    blocks: Option<ConfigBlocks>,
+}
+
+thread_local! {static FACTS: std::cell::RefCell<BTreeMap<String, ProjectFacts>> = const { std::cell::RefCell::new(BTreeMap::new()) };}
+
+const FACTS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn project_fact<T>(root: &str, pick: impl Fn(&ProjectFacts) -> Option<T>) -> Option<T> {
+    FACTS.with(|f| f.borrow().get(root).filter(|f| f.at.is_some_and(|at| at.elapsed() < FACTS_TTL)).and_then(pick))
+}
+
+fn remember_project_fact(root: &str, set: impl FnOnce(&mut ProjectFacts)) {
+    FACTS.with(|f| {
+        let mut all = f.borrow_mut();
+        if all.len() > 16 {
+            all.clear();
+        }
+        let entry = all.entry(root.to_owned()).or_default();
+        if !entry.at.is_some_and(|at| at.elapsed() < FACTS_TTL) {
+            *entry = ProjectFacts::default();
+        }
+        entry.at.get_or_insert_with(std::time::Instant::now);
+        set(entry);
+    });
+}
+
+/// Saving composer.json, symfony.lock or a twig.yaml changes what the cached facts say.
+fn forget_project_facts() {
+    FACTS.with(|f| f.borrow_mut().clear());
 }
 
 impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
@@ -631,7 +742,6 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
         let text=doc.text.as_str();
         let parsed=lex(text);if parsed.tags.len()>MAX_STRUCTURE_TAGS || parsed.tokens.len()>MAX_SYNTAX_TOKENS{return Vec::new();}
 
-        let enabled = host::setting_bool("diagnostics").unwrap_or(true);
         let mut findings = checks::check(text);
         if host::setting_bool("expressionErrors").unwrap_or(false) {
             findings.extend(checks::brackets(text));
@@ -639,7 +749,6 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
 
         let diagnostics: Vec<Diagnostic> = findings
             .into_iter()
-            .filter(|_| enabled)
             .take(500)
             .map(|f| Diagnostic {
                 code: Some(f.code.into()),
@@ -653,7 +762,7 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, indexing, language_features, file_actions);
+openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, language_features, file_actions);
 
 const KEYWORDS: &[&str] =
     &["and", "or", "not", "in", "is", "matches", "starts", "ends", "with", "as", "only", "ignore", "missing", "if", "else", "for"];
@@ -1328,6 +1437,7 @@ mod tests {
     fn project(files: &[(&str, &str)]) -> openidea_plugin::mock::MockHost {
         let host = openidea_plugin::mock::MockHost::install();
         host.set_project_root(Some("/p"));
+        forget_project_facts();
         for (path, text) in files {
             host.add_file(path, text);
         }
@@ -1453,17 +1563,71 @@ mod project_tests {
         assert!(labels(twig.completion(&d, p, None)).is_empty());
     }
 
+    fn changed(created: &[&str], modified: &[&str], removed: &[&str]) -> Event {
+        let own = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+        Event::FilesChanged(openidea_plugin::FilesChanged { created: own(created), modified: own(modified), removed: own(removed) })
+    }
+
     #[test]
-    fn changed_php_notification_removes_cached_completion_until_saved_source_rewarms() {
+    fn files_changed_rescans_php_extension() {
         let host=host();let mut twig=Twig::default();twig.activate(&host.context("aritti.twig")).unwrap();
         let(d,p)=at("{{ value|mo^ }}");
         assert!(labels(twig.completion(&d,p,None)).contains(&"money".into()));
-        twig.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {created:vec![],modified:vec!["/project/src/Ext.php".into()],removed:vec![]})],&host.invocation());
-        assert!(!labels(twig.completion(&d,p,None)).contains(&"money".into()));
-        twig.handle_events(&[Event::FileSaved("/project/src/Ext.php".into())],&host.invocation());
-        assert!(labels(twig.completion(&d,p,None)).contains(&"money".into()));
-        twig.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {created:vec![],modified:vec![],removed:vec!["/project/src/Ext.php".into()]})],&host.invocation());
-        let(d,p)=at("{{ value|mon^ey }}");assert!(twig.definition(&d,p).is_empty());
+        host.add_file("src/Ext.php","<?php\nclass Ext { function f() { return new TwigFilter('euro', fn() => 1); } }\n");
+        twig.handle_events(&[changed(&[],&["/project/src/Ext.php"],&[])],&host.invocation());
+        let found=labels(twig.completion(&d,p,None));
+        assert!(!found.contains(&"money".into()));
+        let(d,p)=at("{{ value|eu^ }}");
+        assert!(labels(twig.completion(&d,p,None)).contains(&"euro".into()));
+        host.add_file("src/New.php","<?php\nclass N { function f() { return new TwigFilter('newone', fn() => 1); } }\n");
+        twig.handle_events(&[changed(&["/project/src/New.php"],&[],&[])],&host.invocation());
+        let(d,p)=at("{{ value|newo^ }}");
+        assert!(labels(twig.completion(&d,p,None)).contains(&"newone".into()));
+        twig.handle_events(&[changed(&[],&[],&["/project/src/Ext.php"])],&host.invocation());
+        let(d,p)=at("{{ value|eu^ }}");
+        assert!(!labels(twig.completion(&d,p,None)).contains(&"euro".into()));
+    }
+
+    #[test]
+    fn save_all_of_many_php_files_keeps_extensions_and_renders() {
+        let host=host();let mut twig=Twig::default();twig.activate(&host.context("aritti.twig")).unwrap();
+        let ext=host.invocation().project().unwrap().read_file("src/Ext.php").unwrap();
+        let mut saved=vec![Event::FileSaved("/project/src/Ext.php".into())];
+        for n in 0..9 {
+            host.add_file(&format!("src/C{n}.php"),&format!("<?php\nclass C{n} {{ function f() {{ return $this->render('page{n}.html.twig', ['v{n}' => 1]); }} }}\n"));
+            saved.push(Event::FileSaved(format!("/project/src/C{n}.php")));
+        }
+        twig.handle_events(&saved,&host.invocation());
+        let(d,p)=at("{{ value|mo^ }}");
+        assert!(labels(twig.completion(&d,p,None)).contains(&"money".into()),"{ext}");
+        assert_eq!(twig.renders.len(),9);
+        let flood:Vec<Event>=(0..300).map(|_|Event::FileSaved("/project/src/C0.php".into())).chain(saved).collect();
+        twig.handle_events(&flood,&host.invocation());
+        assert!(labels(twig.completion(&d,p,None)).contains(&"money".into()),"an event flood requeues instead of clearing");
+        assert_eq!(twig.renders.len(),9);
+    }
+
+    #[test]
+    fn symfony_project_skips_extension_scan() {
+        let host=host();
+        host.add_file("composer.json",r#"{"require": {"symfony/framework-bundle": "^7"}}"#);
+        let mut twig=Twig::default();twig.activate(&host.context("aritti.twig")).unwrap();
+        assert!(twig.extensions.is_empty());
+    }
+
+    #[test]
+    fn completion_in_filter_position_skips_template_variables() {
+        let host=host();
+        host.add_file("composer.json",r#"{"require": {"symfony/framework-bundle": "^7"}}"#);
+        host.add_file("templates/page.html.twig","{{ title }}");
+        host.add_file("src/A.php","<?php class A { function a() { return $this->render('page.html.twig', ['title' => 1]); } }");
+        let mut twig=Twig::default();twig.activate(&host.context("aritti.twig")).unwrap();
+        let(d,p)=at("{{ x|ti^ }}");
+        assert!(labels(twig.completion(&d,p,None)).is_empty());
+        let(d,p)=at("{{ ti^ }}");
+        assert_eq!(labels(twig.completion(&d,p,None)),["title"]);
+        host.add_file("src/A.php","<?php class A { function a() { return $this->render('page.html.twig', ['other' => 1]); } }");
+        assert_eq!(labels(twig.completion(&d,p,None)),["title"]);
     }
 
     #[test]
@@ -1552,7 +1716,7 @@ mod project_tests {
         let found = twig.definition(&d, p);
         assert_eq!((found[0].path.as_str(), found[0].range.start.line), ("/project/src/Ext.php", 1));
 
-        host.add_file("symfony.lock", "{}");
+        host.add_file("symfony.lock", "{}"); forget_project_facts();
         let (d, p) = at("{{ price|mo^ }}");
         assert!(twig.completion(&d, p, None).is_empty());
         let (d, p) = at("{{ price|mon^ey }}");
@@ -1617,7 +1781,7 @@ mod project_tests {
         }
         let (d, p) = at("{% include 'forms.ht^ml.twig' %}");
         assert_eq!(twig.definition(&d, p).len(), 1);
-        host.add_file("symfony.lock", "{}");
+        host.add_file("symfony.lock", "{}"); forget_project_facts();
         assert!(twig.definition(&d, p).is_empty());
         let (d, p) = at("{% import 'forms.html.twig' as f %}{{ f.in^put() }}");
         assert!(twig.definition(&d, p).is_empty());
@@ -1641,7 +1805,7 @@ mod project_tests {
         }
         let (d, p) = at("{% import '@ui/forms.html.twig' as f %}{{ f.in^put() }}");
         assert!(twig.definition(&d, p)[0].path.ends_with("/lib/ui/forms.html.twig"));
-        host.add_file("symfony.lock", "{}");
+        host.add_file("symfony.lock", "{}"); forget_project_facts();
         let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
         assert_eq!(twig.definition(&d, p).len(), 1);
         for bad in [
@@ -1662,7 +1826,7 @@ mod project_tests {
         host.add_file("lib/ui/forms.html.twig", "x");
         host.add_file("backend/templates/a.twig", "x");
         host.add_file("other/a.twig", "x");
-        host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        'backend/templates': 'admin'\n        'lib/ui': ui\n        'tpl/main': ~\n");
+        host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        'backend/templates': 'admin'\n        'lib/ui': ui\n        'tpl/main': ~\n"); forget_project_facts();
         let mut twig = Twig::default();
         let (d, p) = at("{% include '@admin/a.t^wig' %}");
         assert!(twig.definition(&d, p)[0].path.ends_with("/backend/templates/a.twig"));
@@ -1673,7 +1837,7 @@ mod project_tests {
         assert!(twig.definition(&d, p)[0].path.ends_with("/other/a.twig"));
         let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
         assert_eq!(twig.definition(&d, p).len(), 1);
-        host.add_file("config/packages/twig.yaml", "twig:\n    paths: { 'lib/ui': ui }\n");
+        host.add_file("config/packages/twig.yaml", "twig:\n    paths: { 'lib/ui': ui }\n"); forget_project_facts();
         assert!(twig.definition(&d, p).is_empty());
     }
     #[test]
@@ -1685,7 +1849,7 @@ mod project_tests {
         let mut twig = Twig::default();
         let (d, p) = at("{% include 'a.t^wig' %}");
         assert!(twig.definition(&d, p)[0].path.ends_with("/templates/a.twig"));
-        host.add_file("config/packages/twig.yaml", "twig:\n    default_path: '%kernel.project_dir%/views'\n    paths:\n        'tpl/main': ~\n");
+        host.add_file("config/packages/twig.yaml", "twig:\n    default_path: '%kernel.project_dir%/views'\n    paths:\n        'tpl/main': ~\n"); forget_project_facts();
         assert!(twig.definition(&d, p)[0].path.ends_with("/views/a.twig"));
         let (d, p) = at("{% include 'b.t^wig' %}");
         assert!(twig.definition(&d, p)[0].path.ends_with("/tpl/main/b.twig"));
@@ -1696,18 +1860,18 @@ mod project_tests {
         host.add_file("dev/ui/x.twig", "x");
         host.add_file("prod/ui/x.twig", "x");
         host.add_file("only/dev/y.twig", "x");
-        host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        a: base\nwhen@dev:\n    twig:\n        paths:\n            only/dev: devns\n            dev/ui: ui\nwhen@prod:\n    twig:\n        paths:\n            prod/ui: ui\n");
+        host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        a: base\nwhen@dev:\n    twig:\n        paths:\n            only/dev: devns\n            dev/ui: ui\nwhen@prod:\n    twig:\n        paths:\n            prod/ui: ui\n"); forget_project_facts();
         host.add_file("only/dev/y.twig", "x");
         let mut twig = Twig::default();
         let (d, p) = at("{% include '@devns/y.t^wig' %}");
         assert_eq!(twig.definition(&d, p).len(), 1);
         let (d, p) = at("{% include '@ui/x.t^wig' %}");
         assert!(twig.definition(&d, p).is_empty());
-        host.add_file("config/packages/test/twig.yaml", "twig:\n    default_path: tests/views\n");
+        host.add_file("config/packages/test/twig.yaml", "twig:\n    default_path: tests/views\n"); forget_project_facts();
         host.add_file("tests/views/z.twig", "x");
         let (d, p) = at("{% include 'z.t^wig' %}");
         assert_eq!(twig.definition(&d, p).len(), 1);
-        host.add_file("config/packages/dev/twig.yaml", "twig:\n    default_path: dev/views\n");
+        host.add_file("config/packages/dev/twig.yaml", "twig:\n    default_path: dev/views\n"); forget_project_facts();
         assert!(twig.definition(&d, p).is_empty());
     }
     #[test]

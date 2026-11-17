@@ -202,6 +202,7 @@ pub(crate) fn rest_prefix(path: &str) -> Option<String> {
     Some(join_path(&[root, &rest]))
 }
 
+#[cfg(test)]
 pub(crate) fn lenses(doc: &Document) -> Vec<CodeLens> {
     lenses_with(doc, None)
 }

@@ -6,7 +6,7 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/tasks"
 license = "MIT"
 change-notes = """\
-Next release: Self-hosted YouTrack, Redmine, MantisBT, FogBugz, Lighthouse and custom REST trackers; Jira search accepts JQL with a jql: prefix; issue descriptions show on hover and in task tabs; Open Task reveals the Tasks window when it needs its form, new commands and menu entries, clearer permission messages. \
+Next release: Self-hosted YouTrack, Redmine, MantisBT, FogBugz, Lighthouse and custom REST trackers; Jira search accepts JQL with a jql: prefix, and issue descriptions show on hover and in task tabs; tracker credentials are sent only to the configured tracker server; an update where one tracker fails keeps that tracker's issues, GitHub issues from several repositories get distinct ids, and the commit template works in a repository with no commits; Open Task reveals the Tasks window when it needs its form, new commands and menu entries, clearer permission messages. \
 0.3.0: more trackers and closed-issue search. \
 0.2.0: plugin icon and task tree."""
 categories = ["tools", "vcs"]

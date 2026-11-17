@@ -7,7 +7,7 @@ homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/d
 license = "MIT"
 icon = "icon.svg"
 change-notes = """\
-Next release: Composer runs use `ddev composer`, and Run/Test tell you when the project is not running; one name per action and clearer messages; shorter setting titles; the duplicate Help and Diagnostics command is gone. \
+Next release: Composer runs use `ddev composer`, and Run/Test tell you when the project is not running; Services show the last DDEV status of each project window instead of running DDEV on every refresh, and Run and Test reuse a recent status; double-clicking a row without a link, or while the project is stopped, no longer shows an error; one name per action, clearer messages and shorter setting titles; the duplicate Help and Diagnostics command is gone. \
 0.2.0: consolidated panels and native service actions. \
 0.1.0: first release with Services, lifecycle controls, logs, database connections and PHP/Node/Composer run target."""
 categories = ["tools"]

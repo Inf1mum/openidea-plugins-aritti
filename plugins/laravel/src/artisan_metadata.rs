@@ -321,7 +321,7 @@ fn execute(project: &Project, args: &[String]) -> Result<String, Error> {
         ),
         true,
     );
-    let child = crate::artisan_runner::start_background("php", args, project)?;
+    let child = crate::artisan_runner::start_background(crate::artisan_runner::Runner::Php, args, project)?;
     child.close_stdin()?;
     let result = collect(|timeout| child.wait(timeout), || task.is_cancelled());
     if result.is_err() {

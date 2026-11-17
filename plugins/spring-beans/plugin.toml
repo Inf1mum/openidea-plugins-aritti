@@ -5,7 +5,7 @@ description = "Spring Framework beans for Java, Kotlin and XML configuration: fi
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Beans, Graph and Report share one Spring Beans window; beans switched off by a false @ConditionalOnProperty, @Profile or @ConditionalOnMissingBean show as inactive; SpEL completion and checks in injections; Create Bean from a reference in XML; short setting titles and clearer permission messages. \
+Next release: Beans, Graph and Report share one Spring Beans window, and Check Spring Configuration runs as a background task; beans switched off by a false @ConditionalOnProperty, @Profile or @ConditionalOnMissingBean show as inactive, and @NoRepositoryBean interfaces are not beans; SpEL completion and checks in injections, and bean navigation, markers and completion cover the whole project with no 512-file limit; Create Bean from a reference in XML, and the Generate commands, Move Annotation String to Property and XML bean intentions work on files of any size and show only the changed lines; short setting titles and clearer permission messages. \
 0.3.0: one Spring Beans window with live templates and more completion. \
 0.2.0: plugin icon and bean checks."""
 categories = ["frameworks"]
@@ -16,7 +16,7 @@ activation = ["on-language:spel", "on-language:java", "on-language:kotlin", "on-
 
 [capabilities]
 required = ["project.read", "editor.read"]
-optional = ["events", "editor.write", "storage"]
+optional = ["events", "editor.write", "storage", "project.write"]
 
 [[contributes.providers]]
 kinds = ["definition", "line-markers", "completion", "code-actions", "diagnostics", "injections", "gutter-actions"]

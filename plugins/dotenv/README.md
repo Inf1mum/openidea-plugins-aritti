@@ -59,6 +59,10 @@ Hover a declared `.env` key, a `${VARIABLE}` reference, or a supported reference
 
 Hover also shows which Compose services load an env file through `env_file`, and that the project `.env` only feeds Compose interpolation.
 
+### Masked values
+
+Values of keys containing `PASS`, `SECRET`, `TOKEN`, `KEY` or `CREDENTIAL` show as `••••` in completion and hover. To see one, put the caret on the key and run **Show Env Value at Caret** (Search Everywhere › Actions). It needs the optional `editor.read` permission.
+
 ### Docker Compose and Dockerfile links
 
 - In compose files, `$VAR`, `${VAR}`, `${VAR:-d}`, `${VAR-d}`, `${VAR:?e}`, `${VAR?e}` and `${VAR:+r}` link to keys in the project-directory `.env`.
@@ -105,7 +109,7 @@ Settings › Plugins › *.env files*.
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
 | Complete environment variables in code | `completion` | on | Completion of keys in code. `.env` file completion stays on. |
-| Show each key's value in completion and hover | `showValues` | on | When off, completion and hover show keys and source locations only. |
+| Show each key's value in completion and hover | `showValues` | on | When off, completion and hover show keys and source locations only. Secret-looking keys are masked either way. |
 | Check key names | `checkKeyNames` | on | Warns about `-`, lowercase letters or a wrong first character in a key. |
 | Warn about duplicate keys | `checkDuplicateKeys` | on | Warns when a key is declared more than once in a file. |
 | Check spacing and blank lines | `checkFormatting` | on | Warns about spaces around `=`, trailing whitespace and extra blank lines. |
@@ -127,6 +131,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | A key held in a variable (`process.env[name]`) isn't recognised | Expected: only literal keys are matched. |
 | Go to Declaration does nothing in a Dockerfile or compose file | Expected: keys there are declarations only. |
 | Values show in completion and you don't want them | Turn off **Show each key's value in completion and hover**. |
+| A value shows as `••••` | The key looks like a secret. Run **Show Env Value at Caret** on it; allow `editor.read` in Settings › Plugins › *.env files* if asked. |
 
 ## Limitations
 

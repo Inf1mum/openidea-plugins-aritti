@@ -196,6 +196,7 @@ mod tests {
         h.open_editor("/project/charts/app/templates/pod.yaml","yaml","apiVersion: v1\nkind: Pod\nmetadata:\n  name: web\n  namespace: shop\n",&[]);
         host::storage::set("helm-values","values/relative.yaml").unwrap();
         for id in ["apply","dry-run","diff","kustomize-render","kustomize-apply","helm-template","helm-lint","helm-dependency-update","reload-from-cluster"] {
+            h.answer_next_prompt(Some(&["ok"]));
             kube.run_command(id,&h.invocation(),None).unwrap();assert!(kube.process_scope.root().is_none());
         }
         assert!(h.process_runs().iter().all(|r|r.cwd.as_deref()==Some("/project")),"{:?}",h.process_runs());
@@ -220,19 +221,32 @@ mod tests {
         assert!(kube.process_scope.root().is_none());
     }
     #[test]
+    fn services_view_denied_shows_row() {
+        let (h,mut kube)=setup();
+        let invocation=h.invocation();
+        let h=h.with_capabilities(&["storage","process:kubectl"]);
+        let rendered=kube.render(TREE,None,&invocation).unwrap();
+        let Body::Tree(rows)=rendered.body else{panic!("a status row, not a message")};
+        assert_eq!(rows.len(),1);
+        assert!(rows[0].detail.as_deref().is_some_and(|detail|detail.contains("project.read")));
+        assert!(h.process_runs().is_empty());
+    }
+    #[test]
     fn rendering_a_denied_invoking_project_is_inert_without_global_process_fallback() {
         let (h,mut kube)=setup();
         let key=row(&mut kube,&h,"pods","web");
         let invocation=h.invocation();
         let h=h.with_capabilities(&["storage","process:kubectl"]);
         let before=h.process_runs().len();
-        for view in [TREE,PANEL] {
-            let rendered=kube.render(view,None,&invocation).unwrap();
-            let Body::Message(message)=rendered.body else{panic!("denied views must be inert")};
-            assert!(message.contains("project.read"));
-            assert!(rendered.toolbar.is_empty());
-            assert_eq!(h.process_runs().len(),before);
-        }
+        let rendered=kube.render(PANEL,None,&invocation).unwrap();
+        let Body::Message(message)=rendered.body else{panic!("denied views must be inert")};
+        assert!(message.contains("project.read"));
+        assert!(rendered.toolbar.is_empty());
+        assert_eq!(h.process_runs().len(),before);
+        let rendered=kube.render(TREE,None,&invocation).unwrap();
+        assert!(matches!(rendered.body,Body::Tree(ref rows) if rows.len()==1));
+        assert!(rendered.toolbar.is_empty());
+        assert_eq!(h.process_runs().len(),before);
         assert!(matches!(kube.handle(TREE,ViewEvent::Select(key),&invocation),Err(Error::Denied(_))));
         assert!(kube.process_scope.root().is_none());
         assert_eq!(h.process_runs().len(),before);

@@ -192,8 +192,8 @@ Settings › Plugins › Spring Beans Navigator. Every setting is an on/off swit
 | Check @Configuration classes and @Bean methods | `springBeans.checkConfiguration` | on | `@Configuration` and lifecycle method checks. |
 | Hint when an explicit bean name starts with a capital letter | `springBeans.checkNaming` | on | Naming hint. |
 | Warn about calls to proxied methods in the same class | `springBeans.checkSelfInvocation` | off | Self-invocation warning. Text-based, so it may miss or over-report. |
-| Warn about names and files no project source defines | `springBeans.checkUnresolvedReferences` | off | Unresolved names and file paths. May over-report. |
-| Check AOP configuration | `springBeans.checkAop` | on | AOP XML and pointcut checks. |
+| Warn about names and files no project source defines | `springBeans.checkUnresolvedReferences` | off | Unresolved names and file paths, reported by **Check Spring Configuration** only. May over-report. |
+| Check AOP configuration | `springBeans.checkAop` | on | AOP XML and pointcut checks. Java `@Aspect` classes are checked by **Check Spring Configuration** only. |
 | Check injection annotations | `springBeans.checkInjectionAnnotations` | on | Injection annotation checks. |
 | Report malformed @Profile expressions | `springBeans.checkProfiles` | on | `@Profile` syntax check. |
 | Report @Async methods that return a value instead of void or a Future | `springBeans.checkAsync` | on | `@Async` return type check. |

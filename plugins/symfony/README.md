@@ -123,10 +123,7 @@ New › offers PHP class templates: **Symfony Command** (plain, invokable, with 
 
 ### Follow links in the gutter
 
-- Controller `render()` → template.
-- Template → the controllers rendering it.
-- `{% block %}` → the parent block it overrides.
-- PHP class → its service definition. YAML service → its class file.
+A gutter icon on route usages (`generateUrl()`, `redirectToRoute()`, Twig `path()`/`url()`) goes to the route definition. Renaming a route updates its declaration and every usage. Other kinds have no gutter icons.
 
 ### Use the Symfony tool window
 
@@ -297,7 +294,8 @@ These need PhpStorm's full PHP, Twig and YAML models, which the plugin API doesn
 
 - Everything is matched textually: a call is recognised by its method name, not its class. Templates are looked up in `templates/` and the `twig: paths:` directories of `config/packages/twig.yaml`.
 - Facts are cached per open project from bounded reads of the project's own sources; `vendor/` isn't read.
-- Saving a file under `config/`, `templates/` or `translations/`, a PHP file under `src/`, `composer.json`, `webpack.config.js` or `importmap.php` rebuilds the index.
+- Saving a PHP file under `src/`, a template or a translation file updates only that file in the index. Adding or removing such a file, or changing `config/`, `composer.json`, `webpack.config.js`, `importmap.php` or the compiled cache files, rebuilds it.
+- Templates under gitignored directories (for example `vendor/acme/bundle/templates` added through `twig: paths:`) are not listed, because the host skips ignored paths.
 - File-system batches account for created, modified and removed paths. They rebuild an affected open project once per batch for conventional source/config roots or any enabled mapped subtree (including ancestor directory deletion; missing mapped directories stay watched so later creation can recover). Unrelated paths don't rebuild the index. Closed-project caches are pruned.
 - Oversized batches (over 1,024 events/paths or a 4,096-byte path) drop cached facts rather than keep a truncated stale result. Reopening a source or explicit Reindex warms them again.
 - Compiled-cache invalidation covers the four built-in route/container inputs read under `var/cache/dev` plus the configured `compiledRoutes`, `compiledContainers`, `extraServiceFiles` and `extraRoutingFiles` paths, including paths outside conventional source folders. Each comma-separated field is bounded to 32 KiB, 128 paths and 4,096 bytes per path. Absolute paths, empty/dot/traversal segments, backslashes, colons and control characters are ignored.
@@ -397,7 +395,7 @@ File-creating actions are lazy file actions with exact resulting-file confirmati
 ### Tool window
 
 - **Routes**: the method icon, the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. **Create HTTP Request File** writes `http/<verb>-<path>.http` using `http://localhost:8000`; without `project.write` the request is copied. The toolbar cache is bound to its rendered root: actions verify the current root, the unchanged selected fact and membership in the current cached index, and never execute an HTTP request. There's no request panel beside the list and no gutter icon on the handler.
-- Marker icons (services, service classes, event listeners and dispatch sites, validators and constraints, templates, blocks, routes) use dedicated icons.
+- Only route usages get a gutter icon; it links to the route definition.
 - **About** runs no PHP. Versions come from `composer.lock`.
 - **Env** reads `.env`, `.env.local`, `.env.dev`, `.env.test`, `.env.prod` and their `.local` variants. Values are never read into the index or shown.
 - **Entities** reads `src/Entity/` and the `dir:` of `doctrine.orm.mappings`. Fields show Doctrine type, nullability and `id`; relations show their target. Entities expand into fields and relations; activating a row opens its declaration. Legacy annotations, XML and YAML mappings, embeddables and mapped superclasses aren't read.

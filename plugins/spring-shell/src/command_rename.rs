@@ -380,7 +380,10 @@ impl ShellTools {
     /// a subclass chain, selector or command name cannot be proven literal and collision free.
     fn inherited_selectors(&mut self, doc: &Document, command: &CommandName, new: &str, project: &host::Project) -> Result<Vec<(String, String, Range)>, Error> {
         let unproven = || Error::Invalid("A subclass of this command's class is not fully literal; rename refused.".into());
-        let index = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET).ok_or_else(unproven)?;
+        let index = self.indexes.for_document(&doc.path, &doc.text, COMMAND_BUDGET).ok_or_else(unproven)?;
+        if !trustworthy(index) {
+            return Err(Error::Invalid("The project's Shell commands are not fully indexed yet; rename refused.".into()));
+        }
         let mut subclasses = Vec::new();
         for (path, shell) in index.iter() {
             for class in shell.classes.iter().filter(|c| c.component && c.kind == "class" && c.qualified != command.class) {
@@ -394,13 +397,14 @@ impl ShellTools {
                 subclasses.push((path.to_owned(), class.qualified.clone()));
             }
         }
-        let inheriting: Vec<_> = all_inherited(index).into_iter().filter(|(_, declaring, c)| *declaring == doc.path && c.key == command.name && subclasses.iter().any(|(_, q)| *q == c.class)).collect();
-        let collides = all_commands(index).map(|(_, c)| c).chain(all_inherited(index).iter().map(|(_, _, c)| c)).any(|c| c.key == new && subclasses.iter().any(|(_, q)| *q == c.class));
+        let derived = derived(index);
+        let inheriting: Vec<_> = derived.inherited.iter().filter(|(_, declaring, c)| *declaring == doc.path && c.key == command.name && subclasses.iter().any(|(_, q)| *q == c.class)).collect();
+        let collides = all_commands(index).map(|(_, c)| c).chain(derived.inherited.iter().map(|(_, _, c)| c)).any(|c| c.key == new && subclasses.iter().any(|(_, q)| *q == c.class));
         if collides {
             return Err(Error::Invalid("A subclass already has a command with that key.".into()));
         }
         let mut out = Vec::new();
-        for (owner, _, inherited) in inheriting {
+        for (owner, _, inherited) in inheriting.iter().copied() {
             let sub = Document {
                 path: owner.clone(),
                 language: if owner.ends_with(".kt") { "kotlin" } else { "java" }.into(),
@@ -523,7 +527,13 @@ impl ShellTools {
         let current = |project: &host::Project| -> Result<bool, Error> {
             Ok(project.read_file(&doc.path)? == doc.text && model(doc).contains(&pending.command))
         };
-        if !fresh(trigger_doc) || !current(&project)? || project.read_file(&trigger_doc.path)? != trigger_doc.text {
+        if !fresh(trigger_doc) {
+            return Err(Error::Stale);
+        }
+        if project.read_file(&trigger_doc.path)? != trigger_doc.text {
+            return Err(Error::Invalid("Save the file first".into()));
+        }
+        if !current(&project)? {
             return Err(Error::Stale);
         }
         let new=host::input("New command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max 64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
@@ -1191,5 +1201,31 @@ mod implicit_transaction_tests {
         assert!(rename_from(false, &CHILD.replace("(\"shared\")", "(KEY)")).is_err());
         let colliding = CHILD.replace("extends Base {", "extends Base { @org.springframework.shell.standard.ShellMethod(key=\"common\",value=\"C\") void c(){}");
         assert!(rename_from(false, &colliding).is_err());
+    }
+
+    #[test]
+    fn rename_refuses_incomplete_index() {
+        let h = MockHost::install();
+        h.add_file("src/main/java/p/Base.java", BASE);
+        h.add_file("src/main/java/p/Child.java", CHILD);
+        h.add_file("src/main/java/p/Broken.java", "class Broken {");
+        let d = Document { path: "/project/src/main/java/p/Base.java".into(), language: "java".into(), version: 1, text: BASE.into() };
+        let command = model(&d).into_iter().next().unwrap();
+        let project = host::project_of(&d.path).unwrap();
+        let result = ShellTools::default().inherited_selectors(&d, &command, "common", &project);
+        assert!(matches!(result, Err(Error::Invalid(_))), "{result:?}");
+    }
+
+    #[test]
+    fn rename_on_unsaved_buffer_says_save_first() {
+        let h = MockHost::install();
+        h.add_file("src/main/java/p/Base.java", BASE);
+        let unsaved = format!("{BASE}\n// unsaved");
+        let d = Document { path: "/project/src/main/java/p/Base.java".into(), language: "java".into(), version: 1, text: unsaved.clone() };
+        let mut tools = ShellTools::default();
+        let at = position(&unsaved, unsaved.find("\"shared\"").unwrap() + 1);
+        let a = tools.file_actions(&d, Range::new(at, at)).into_iter().find(|a| a.data.as_deref().is_some_and(|s| s.starts_with("shell-command:"))).unwrap();
+        let result = tools.resolve_file_action(&d, a);
+        assert!(matches!(&result, Err(Error::Invalid(m)) if m == "Save the file first"), "{result:?}");
     }
 }

@@ -70,7 +70,7 @@ fn source_files(project: &Project, root: &str) -> Result<BTreeMap<String, String
         paths.extend(
             found
                 .into_iter()
-                .filter(|path| !path.contains("/.openidea/dependency-audit-resolve-")),
+                .filter(|path| !path.contains("/.openidea/dependency-audit-resolve")),
         );
     }
     for relative in [
@@ -97,6 +97,23 @@ fn source_files(project: &Project, root: &str) -> Result<BTreeMap<String, String
         before.insert(path, text);
     }
     Ok(before)
+}
+fn approved(root: &str, tool: Tool) -> Result<bool, Error> {
+    let key = format!("resolve-approved:{root}");
+    let remembered = host::storage::get(&key).ok().flatten();
+    if let Some(answer) = remembered {
+        return Ok(answer == "yes");
+    }
+    let name = match tool {
+        Tool::Maven => "Maven",
+        Tool::Gradle => "Gradle",
+    };
+    let answer = host::confirm(
+        "Resolve dependencies?",
+        &format!("Run {name} to resolve dependencies? This executes this project's build scripts and plugins, and downloads from its repositories. Your answer is remembered for this project."),
+    )?;
+    let _ = host::storage::set(&key, if answer { "yes" } else { "no" });
+    Ok(answer)
 }
 fn require_saved(root: &str) -> Result<(), Error> {
     if host::open_editors()?.iter().any(|editor| {
@@ -376,6 +393,11 @@ impl State {
         {
             return Err(Error::Stale);
         }
+        if focus {
+            let _ = host::storage::set(&format!("resolve-approved:{root}"), "yes");
+        } else if !approved(&root, tool)? {
+            return Ok(());
+        }
         let args = match tool {
             Tool::Maven => vec![
                 "-B".into(),
@@ -394,19 +416,13 @@ impl State {
         {
             return Err(Error::Stale);
         }
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| Error::Stale)?
-            .as_nanos();
-        let directory = format!("{root}/.openidea/dependency-audit-resolve-{stamp:x}");
-        if project.exists(&directory)? {
-            return Err(Error::Stale);
-        }
+        let directory = format!("{root}/.openidea/dependency-audit-resolve");
         project.write_file(
             &format!("{directory}/review.txt"),
             &format!("{} {} / {configuration}", tool.program(), tool.version()),
         )?;
         let output = format!("{directory}/{}", tool.output());
+        project.write_file(&output, "")?;
         let args = match tool {
             Tool::Maven => vec![
                 "-B".into(),
@@ -728,7 +744,7 @@ mod tests {
         assert!(state.run.as_ref().unwrap().child.is_some());
         let output = state.run.as_ref().unwrap().output.clone();
         h.add_file(
-            &output,
+            output.strip_prefix("/project/").unwrap(),
             include_str!("../tests/fixtures/maven-resolved-3.9.16.json"),
         );
         state
@@ -809,5 +825,77 @@ mod tests {
         assert!(version_matches(Tool::Gradle, "\nGradle 9.9.1\n"));
         assert!(!version_matches(Tool::Maven, "Apache Maven 4.0.0"));
         assert!(!version_matches(Tool::Gradle, "Gradle 9.0.0"));
+    }
+    fn resolver_host(extra: &[&str]) -> openidea_plugin::mock::MockHost {
+        use openidea_plugin::{ProcessOutput, mock::MockHost};
+        let mut caps = vec!["project.read", "project.write", "editor.read", "process:mvn"];
+        caps.extend_from_slice(extra);
+        let h = MockHost::install().with_capabilities(&caps);
+        h.add_file("/project/pom.xml", "<project/> ");
+        h.on_process("mvn", |args, _| {
+            Ok(ProcessOutput {
+                status: Some(0),
+                stdout: if args.iter().any(|arg| arg == "--version") { "Apache Maven 3.9.16 (official)".into() } else { String::new() },
+                stderr: String::new(),
+            })
+        });
+        h
+    }
+    #[test]
+    fn resolve_asks_once_per_project() {
+        let h = resolver_host(&["storage"]);
+        let mut state = State::default();
+        state.start(&h.invocation(), false).unwrap();
+        assert!(state.run.is_none() && h.process_runs().is_empty(), "declined means nothing runs");
+        h.answer_next_prompt(Some(&[]));
+        State::default().start(&h.invocation(), false).unwrap();
+        assert!(h.process_runs().is_empty(), "a declined project is not asked again");
+
+        let h = resolver_host(&["storage"]);
+        h.answer_next_prompt(Some(&[]));
+        State::default().start(&h.invocation(), false).unwrap();
+        assert!(!h.process_runs().is_empty());
+        let runs = h.process_runs().len();
+        let mut second = State::default();
+        second.start(&h.invocation(), false).unwrap();
+        assert!(second.run.is_some() && h.process_runs().len() > runs, "an approved project is not asked again");
+    }
+    #[test]
+    fn resolve_asks_every_time_when_storage_is_denied() {
+        let h = resolver_host(&[]);
+        h.answer_next_prompt(Some(&[]));
+        State::default().start(&h.invocation(), false).unwrap();
+        assert!(!h.process_runs().is_empty());
+        let runs = h.process_runs().len();
+        State::default().start(&h.invocation(), false).unwrap();
+        assert_eq!(h.process_runs().len(), runs, "no remembered answer, so it asked and was declined");
+    }
+    #[test]
+    fn explicit_resolve_does_not_ask_and_undoes_a_stored_no() {
+        let h = resolver_host(&["storage"]);
+        State::default().start(&h.invocation(), false).unwrap();
+        assert!(h.process_runs().is_empty());
+        let mut state = State::default();
+        state.start(&h.invocation(), true).unwrap();
+        assert!(state.run.is_some());
+        let mut auto = State::default();
+        auto.start(&h.invocation(), false).unwrap();
+        assert!(auto.run.is_some(), "the explicit resolve approved the project");
+    }
+    #[test]
+    fn resolve_dir_is_reused_and_never_accumulates() {
+        let h = resolver_host(&["storage"]);
+        let mut first = State::default();
+        first.start(&h.invocation(), true).unwrap();
+        let output = first.run.as_ref().unwrap().output.clone();
+        assert!(output.starts_with("/project/.openidea/dependency-audit-resolve/"), "{output}");
+        h.add_file(output.strip_prefix("/project/").unwrap(), "stale maven tree");
+        h.add_file(".openidea/dependency-audit-resolve/export.gradle", "// owned");
+        let mut second = State::default();
+        second.start(&h.invocation(), true).unwrap();
+        assert_eq!(second.run.as_ref().unwrap().output, output);
+        let project = host::projects().unwrap().remove(0);
+        assert_eq!(project.read_file(&output).unwrap(), "", "a previous run's output is cleared");
+        assert!(source_files(&project, "/project").unwrap().keys().all(|path| !path.contains("dependency-audit-resolve")));
     }
 }

@@ -2525,7 +2525,7 @@ fn laravel_window_has_separate_resource_tabs() {
     assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
     let group: serde_json::Value = serde_json::from_str(include_str!("ui_group.json")).unwrap();
     let tabs = group["tabs"].as_array().unwrap();
-    assert_eq!(tabs.len(), 16);
+    assert_eq!(tabs.len(), 15);
     assert!(tabs.iter().all(|tab| tab["icon"].as_str().is_some_and(|icon| !icon.is_empty())));
 }
 
@@ -2940,7 +2940,7 @@ fn packaged_resource_tabs_include_icons_and_cached_inventory_counts() {
     let reply: serde_json::Value = serde_json::from_str(&messages.last().unwrap().1).unwrap();
     let tabs = reply["model"]["viewTabs"].as_array().expect("bridge tabs");
     let index = plugin.view_index(&ctx).unwrap();
-    assert_eq!(tabs.len(), 16);
+    assert_eq!(tabs.len(), 15);
     for (id, count) in [(VIEW, index.route_defs.len()), ("laravel-views", index.views.len()), ("laravel-components", index.components.len()+index.livewire.len()), ("laravel-config", index.config.len()), ("laravel-translations", index.translations_by_locale.values().map(Names::len).sum()), ("laravel-middleware", index.middleware.len()), ("laravel-env", index.env.len())] {
         let tab = tabs.iter().find(|tab|tab["id"] == id).unwrap();
         assert!(tab["icon"].as_str().is_some_and(|icon| !icon.is_empty()));

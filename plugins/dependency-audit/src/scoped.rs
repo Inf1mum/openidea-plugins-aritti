@@ -235,6 +235,9 @@ impl DependencyAudit {
         }
         if id == "import-ignores" {
             let path = format!("{root}/{PROFILE_FILE}");
+            if !project.exists(&path)? {
+                return Err(Error::Invalid("No profile file; export one first".into()));
+            }
             let incoming = decode_profile(&project.read_file(&path)?)?;
             let (merged, added) = merge_profile(&ignores, incoming)?;
             if added == 0 {

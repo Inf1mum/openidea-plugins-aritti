@@ -237,11 +237,6 @@ impl IgnorePlugin {
                             self.preferences.message = Some(
                                 "Saved application-global Ignore overrides. Other documents refresh their checks on next open/save.".into(),
                             );
-                            for path in &self.checked_paths {
-                                if !checks(path) {
-                                    let _ = host::publish_diagnostics(path, &[]);
-                                }
-                            }
                             show_ignored_status(ctx.editor().as_ref().map(|e| e.path()).as_deref());
                         }
                         _ => return Err("Unknown preferences button.".into()),
@@ -356,12 +351,15 @@ mod tests {
         host.add_file(".gitignore", "a\na\n");
         let ctx = host.invocation();
         let mut plugin = IgnorePlugin::default();
+        host.open_editor("/project/.gitignore", "ignore", "a\na\n", &[]);
         plugin.handle_events(&[Event::FileOpened("/project/.gitignore".into())], &ctx);
-        assert!(!host.diagnostics()["/project/.gitignore"].is_empty());
+        host.refresh_diagnostics(&mut plugin);
+        assert!(!host.provider_diagnostics()["/project/.gitignore"].is_empty());
         render(&mut plugin);
         field(&mut plugin, "dialect:0", "false", &ctx).unwrap();
         button(&mut plugin, "prefs-save", &ctx).unwrap();
-        assert!(host.diagnostics().get("/project/.gitignore").is_none_or(Vec::is_empty));
+        host.refresh_diagnostics(&mut plugin);
+        assert!(host.provider_diagnostics().get("/project/.gitignore").is_none_or(Vec::is_empty));
         assert!(!checks("/project/.gitignore"));
         assert!(checks("/project/.hgignore"));
         assert!(checks("/project/.customignore"));
@@ -370,7 +368,8 @@ mod tests {
         use openidea_plugin::file_actions::FileActions;
         assert!(plugin.file_actions(&d, Range::default()).iter().any(|a| a.title.contains("Create exact-name")));
         plugin.handle_events(&[Event::FileSaved(d.path.clone())], &ctx);
-        assert!(host.diagnostics().get(&d.path).is_none_or(Vec::is_empty));
+        host.refresh_diagnostics(&mut plugin);
+        assert!(host.provider_diagnostics().get(&d.path).is_none_or(Vec::is_empty));
     }
     #[test]
     fn invalid_values_block_save_until_corrected_and_scoped_ids_expire() {
@@ -494,14 +493,14 @@ mod tests {
         assert!(!plugin.completion(&completion,Position::new(0,2),None).is_empty());
         assert_eq!(plugin.definition(&navigation,Position::new(0,2)).len(),1);
         assert!(!plugin.line_markers(&decorated).is_empty()&&!plugin.semantic_tokens(&decorated).is_empty());
-        plugin.handle_events(&[Event::FileOpened(duplicate.path.clone())],&ctx);assert!(!host.diagnostics()[&duplicate.path].is_empty());
+        host.open_editor(&duplicate.path,"ignore",&duplicate.text,&[]);plugin.handle_events(&[Event::FileOpened(duplicate.path.clone())],&ctx);host.refresh_diagnostics(&mut plugin);assert!(!host.provider_diagnostics()[&duplicate.path].is_empty());
         render(&mut plugin);field(&mut plugin,"support:0","false",&ctx).unwrap();button(&mut plugin,"prefs-save",&ctx).unwrap();
         assert!(!checks(&duplicate.path)&&!enabled(&duplicate.path)&&creation(&duplicate.path));
         assert!(plugin.completion(&completion,Position::new(0,2),None).is_empty());
         assert!(plugin.definition(&navigation,Position::new(0,2)).is_empty());
         assert!(plugin.line_markers(&decorated).is_empty()&&plugin.semantic_tokens(&decorated).is_empty());
         assert!(plugin.code_actions(&duplicate,Range::new(Position::new(1,0),Position::new(1,0))).is_empty());
-        assert!(host.diagnostics().get(&duplicate.path).is_none_or(Vec::is_empty));
+        host.refresh_diagnostics(&mut plugin);assert!(host.provider_diagnostics().get(&duplicate.path).is_none_or(Vec::is_empty));
         let actions=plugin.file_actions(&decorated,Range::default());
         assert!(actions.iter().any(|a|a.title.contains("Create exact-name"))&&!actions.iter().any(|a|a.title.contains("Append ignore")));
         let other=source_doc("/project/.dockerignore","build/\n# note\n*.o\n");

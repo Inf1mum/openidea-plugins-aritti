@@ -437,7 +437,7 @@ fn command(probe: bool) -> Command {
         "--".into(),
         if probe { "probe" } else { "run" }.into(),
     ];
-    // The released native host caps every argv item at4096 bytes. Chunk by
+    // The released native host caps every argv item at 4096 bytes. Chunk by
     // Unicode scalar count so each fragment is <=4000 bytes, preserving source.
     let chars = HELPER.chars().collect::<Vec<_>>();
     for chunk in chars.chunks(1000) {
@@ -471,7 +471,7 @@ impl Backend for Native {
             if let Some(status) = chunk.status {
                 if status != 0 {
                     return Err(invalid(
-                        "Install/approve Node22 or newer with its built-in WebSocket available.",
+                        "Install/approve Node 22 or newer with its built-in WebSocket available.",
                     ));
                 }
                 return parse_probe(&output);
@@ -501,7 +501,7 @@ fn parse_probe(output: &str) -> Result<String, Error> {
             .is_none_or(|v| v < 22)
     {
         return Err(invalid(
-            "Node22 or newer with built-in WebSocket is required.",
+            "Node 22 or newer with built-in WebSocket is required.",
         ));
     }
     Ok(version.into())
@@ -628,7 +628,7 @@ impl Runtime {
                 let _ = host::output_append(
                     OUTPUT,
                     &format!(
-                        "\nSubscription document: {}\nNode {node}; graphql-transport-ws; finite120-second session. Payloads are not logged.\n",
+                        "\nSubscription document: {}\nNode {node}; graphql-transport-ws; finite 120-second session. Payloads are not logged.\n",
                         source.path
                     ),
                 );
@@ -641,7 +641,7 @@ impl Runtime {
                     pending: String::new(),
                     terminal: false,
                 });
-                Ok(Some("Owned subscription started. Poll Subscription Output reads results; Cancel Subscription sends Complete/close before a bounded process-kill fallback. Session timeout is120 seconds; plugin/window disposal also ends the owned process.".into()))
+                Ok(Some("Owned subscription started. Poll Subscription Output reads results; Cancel Subscription sends Complete/close before a bounded process-kill fallback. Session timeout is 120 seconds; plugin/window disposal also ends the owned process.".into()))
             }
             POLL => {
                 let Some(session) = self.session.as_mut() else {

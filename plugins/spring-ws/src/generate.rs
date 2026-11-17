@@ -2,7 +2,6 @@
 use crate::*;
 use openidea_plugin::file_actions::{FileAction, FileActions, FileOperation};
 use openidea_plugin::{FileKind, PickItem};
-use quick_xml::events::Event as XmlEvent;
 use std::collections::BTreeMap;
 const XSD: &str = "http://www.w3.org/2001/XMLSchema";
 const MAX_FILES: usize = 512;
@@ -21,7 +20,10 @@ struct Pending {
 pub(crate) struct Generation {
     next: u64,
     pending: BTreeMap<String, Pending>,
+    /// Per root, when [`source_paths`] last ran and whether it hit the cap: carets don't re-list the project.
+    capped: BTreeMap<String, (Instant, bool)>,
 }
+const CAP_TTL: Duration = Duration::from_secs(60);
 #[derive(Clone, PartialEq, Eq)]
 struct Package {
     name: String,
@@ -121,85 +123,9 @@ fn namespace(value: &str) -> bool {
         && !value.chars().any(|ch| ch.is_control() || ch.is_whitespace())
         && !value.contains(['\\', '"', '{', '}'])
 }
-// Use the namespace-aware parser plus decoded reserved-URI checks: the
-// library's raw resolver alone permits reserved default URIs and URI escapes.
-fn valid_namespaces<R>(reader: &quick_xml::reader::NsReader<R>, element: &quick_xml::events::BytesStart<'_>) -> bool {
-    use quick_xml::name::ResolveResult;
-    const XML: &str = "http://www.w3.org/XML/1998/namespace";
-    const XMLNS: &str = "http://www.w3.org/2000/xmlns/";
-    if element.name().as_ref().starts_with("xmlns:")
-        || matches!(reader.resolver().resolve_element(element.name()).0, ResolveResult::Unknown(_))
-    {
-        return false;
-    }
-    for attribute in element.attributes() {
-        let Ok(attribute) = attribute else {
-            return false;
-        };
-        let key = attribute.key.as_ref();
-        if key == "xmlns" || key.starts_with("xmlns:") {
-            let Ok(value) = attribute.normalized_value(quick_xml::XmlVersion::Implicit1_0) else {
-                return false;
-            };
-            if key == "xmlns:xmlns"
-                || key.starts_with("xmlns:") && value.is_empty()
-                || key == "xmlns:xml" && value != XML
-                || key != "xmlns:xml" && matches!(value.as_ref(), XML | XMLNS)
-            {
-                return false;
-            }
-        } else if matches!(reader.resolver().resolve_attribute(attribute.key).0, ResolveResult::Unknown(_)) {
-            return false;
-        }
-    }
-    true
-}
-
+/// One well-formed, namespace-valid root without a DOCTYPE, within the schema size bound.
 pub(super) fn xml_valid(text: &str) -> bool {
-    if text.len() > MAX_SCHEMA_BYTES {
-        return false;
-    }
-    let mut reader = quick_xml::reader::NsReader::from_str(text);
-    let mut depth = 0usize;
-    let mut roots = 0usize;
-    for count in 0..4096 {
-        if count == 4095 {
-            return false;
-        }
-        match reader.read_event() {
-            Ok(XmlEvent::Start(element)) => {
-                if depth == 0 {
-                    roots += 1;
-                }
-                if !valid_namespaces(&reader, &element) {
-                    return false;
-                }
-                depth += 1;
-            }
-            Ok(XmlEvent::Empty(element)) => {
-                if depth == 0 {
-                    roots += 1;
-                }
-                if !valid_namespaces(&reader, &element) {
-                    return false;
-                }
-            }
-            Ok(XmlEvent::End(_)) => {
-                let Some(next) = depth.checked_sub(1) else {
-                    return false;
-                };
-                depth = next;
-            }
-            Ok(XmlEvent::DocType(_)) => return false,
-            Ok(XmlEvent::GeneralRef(reference)) if decode(&format!("&{};", reference.as_ref())).is_none() => return false,
-            Ok(XmlEvent::CData(_)) if depth == 0 => return false,
-            Ok(XmlEvent::Text(text)) if depth == 0 && !text.as_ref().trim().is_empty() => return false,
-            Ok(XmlEvent::Eof) => return roots == 1 && depth == 0,
-            Err(_) => return false,
-            _ => {}
-        }
-    }
-    false
+    text.len() <= MAX_SCHEMA_BYTES && !text.to_ascii_lowercase().contains("<!doctype") && spring_text::xml::analysis_valid(text)
 }
 fn decode(value: &str) -> Option<String> {
     quick_xml::escape::unescape(value).ok().map(|value| value.into_owned())
@@ -332,8 +258,7 @@ fn literal(arg: &Arg) -> Option<String> {
         .then_some(value.value)
 }
 
-fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, source: &Document) -> Result<Inventory, Error> {
-    let deadline = Instant::now() + COMMAND_BUDGET;
+fn source_paths(project: &openidea_plugin::Project) -> Result<BTreeSet<String>, Error> {
     let mut paths = BTreeSet::new();
     for glob in ["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl"] {
         let found = project.find_files(glob, (MAX_FILES + 1) as u32)?;
@@ -345,6 +270,12 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
             return Err("Generation source inventory capped.".into());
         }
     }
+    Ok(paths)
+}
+
+fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, source: &Document) -> Result<Inventory, Error> {
+    let deadline = Instant::now() + COMMAND_BUDGET;
+    let mut paths = source_paths(project)?;
     paths.insert(source.path.clone());
     let mut result = Inventory { files: vec![], packages: vec![], types: BTreeSet::new(), mappings: BTreeSet::new() };
     let mut bytes = 0;
@@ -490,6 +421,20 @@ impl FileActions for WsTools {
         if !path(&root) {
             return vec![];
         }
+        let Some(project) = project_of(&doc.path) else {
+            return vec![];
+        };
+        let capped = match self.generation.capped.get(&root).filter(|(at, _)| at.elapsed() < CAP_TTL) {
+            Some((_, capped)) => *capped,
+            None => {
+                let capped = source_paths(&project).is_err();
+                self.generation.capped.insert(root.clone(), (Instant::now(), capped));
+                capped
+            }
+        };
+        if capped {
+            return vec![];
+        }
         if self.generation.pending.len() >= 8 {
             self.generation.pending.clear();
         }
@@ -544,10 +489,6 @@ impl FileActions for WsTools {
         let target = vacant(&project, &pending.root, package, &class)?;
         let content = scaffold(&package.name, &class, &method, &pending.qname, if doc.text.contains("\r\n") { "\r\n" } else { "\n" });
         current(&pending, doc)?;
-        let after = inventory(&project, &pending.root, &pending.qname, doc)?;
-        if before.files != after.files || before.packages != after.packages {
-            return Err(Error::Stale);
-        }
         let preview = format!(
             "Source XSD: {}\nVersion: {}\nExact global QName: {{{}}}{}\nExisting endpoint package evidence: {}\nTarget: {target}\n\nExplicit ONE-WAY DOM scaffold: void means no response. This does not infer JAXB/WS types, XSD body validation, a WSDL operation/response, business logic, component scanning/adapter registration or effective classpath. It requires the standard Spring-WS annotation/DOM adapter contract. Invoking XSD is unchanged.\n\nExact Java content ({} bytes):\n{content}\nOne host-managed non-overwriting Create; review the contract before applying.",
             doc.path,
@@ -561,10 +502,6 @@ impl FileActions for WsTools {
             return Err(Error::Cancelled);
         }
         current(&pending, doc)?;
-        let fresh = inventory(&project, &pending.root, &pending.qname, doc)?;
-        if fresh.files != before.files || fresh.packages != before.packages {
-            return Err(Error::Stale);
-        }
         vacant(&project, &pending.root, package, &class)?;
         Ok(FileAction {
             title: format!("Create one-way endpoint {class}"),
@@ -692,6 +629,7 @@ mod tests {
                 .replace("</xs:schema>", "</xs:sequence></xs:complexType></xs:schema>"),
             good.text.replace("targetNamespace=\"urn:acme\"", "targetNamespace=\"${dynamic}\""),
             format!("<!DOCTYPE xs:schema SYSTEM \"remote\">{}", good.text),
+            format!("<!doctype xs:schema SYSTEM \"remote\">{}", good.text),
         ] {
             let changed = Document { text, ..good.clone() };
             let at = changed.text.find("CreateRequest").unwrap() + 2;
@@ -789,5 +727,16 @@ fn conflicting_static_annotation_import_cannot_establish_generation_package() {
     answer(&host);
     assert!(plugin.resolve_file_action(&doc, action).is_err());
 }
-
+    #[test]
+    fn scaffold_not_offered_over_limit() {
+        let (host, doc) = setup();
+        let mut plugin = WsTools::default();
+        let at = openidea_plugin::text::position(&doc.text, doc.text.find("CreateRequest").unwrap() + 2);
+        assert_eq!(plugin.file_actions(&doc, Range::new(at, at)).len(), 1);
+        for n in 0..MAX_FILES {
+            host.add_file(&format!("src/C{n}.java"), "");
+        }
+        assert_eq!(plugin.file_actions(&doc, Range::new(at, at)).len(), 1, "the verdict is cached per root, not re-listed per caret");
+        assert!(WsTools::default().file_actions(&doc, Range::new(at, at)).is_empty());
+    }
 }

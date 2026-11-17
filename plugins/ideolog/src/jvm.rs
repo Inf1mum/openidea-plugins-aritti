@@ -19,6 +19,12 @@ pub(crate) struct Adapter {
     snapshot: Option<Snapshot>,
     eligible: bool,
 }
+impl Adapter {
+    pub(crate) fn source(&self) -> Option<(String, String)> {
+        let snapshot = self.snapshot.as_ref()?;
+        Some((snapshot.path.clone(), snapshot.root.clone()))
+    }
+}
 struct Snapshot {
     root: String,
     path: String,
@@ -124,7 +130,7 @@ impl Ideolog {
             || doc.text.lines().count() > 512
             || doc.text.lines().any(|l| l.len() > 4096)
         {
-            return Err("JVM observations support a nonempty log up to 64KiB/512 lines, each at most 4096 bytes.".into());
+            return Err("JVM observations support a nonempty log up to 64 KiB and 512 lines, each at most 4096 bytes.".into());
         }
         let config = patterns::combined(&host::setting_string(CUSTOM_PATTERNS).unwrap_or_default());
         let formats: Vec<_> = log::elements(&config)
@@ -178,7 +184,7 @@ impl Ideolog {
             return Err("JVM capture columns must be -1 through128.".into());
         }
         let preview = format!(
-            "Run approved Java 17+ source launcher in plugin-private storage; no project/application bootstrap.\nLog: {}\nFormat: {}\nInput: {}bytes, {}lines\nLocale: {}\nTimezone: {}\nRegex: {}\nDate pattern: {}\n\nOnly this bounded log is sent to the local Java helper. Snapshot results do not change editor highlighting.",
+            "Run approved Java 17+ source launcher in plugin-private storage; no project/application bootstrap.\nLog: {}\nFormat: {}\nInput: {} bytes, {} lines\nLocale: {}\nTimezone: {}\nRegex: {}\nDate pattern: {}\n\nOnly this bounded log is sent to the local Java helper. Snapshot results do not change editor highlighting.",
             path,
             field("name", "Custom format"),
             doc.text.len(),
@@ -262,7 +268,7 @@ impl Ideolog {
             }
             if let Some(status) = chunk.status {
                 if status != 0 {
-                    return Err(format!("Java 17+ helper failed (status{status}); verify approved JDK and custom patterns. Previous observations retained. {}",errors.chars().take(512).collect::<String>()).into());
+                    return Err(format!("Java 17+ helper failed (status {status}); verify approved JDK and custom patterns. Previous observations retained. {}",errors.chars().take(512).collect::<String>()).into());
                 }
                 break;
             }

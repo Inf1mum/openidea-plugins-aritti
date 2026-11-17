@@ -1478,6 +1478,7 @@ impl Plugin for GitLab {
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        let _interactive = api::Interactive::start();
         self.ensure_account()?;
         api::begin_budget();
         match id {
@@ -2269,6 +2270,7 @@ impl Views for GitLab {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        let _interactive = api::Interactive::start();
         self.ensure_account()?;
         if self.handle_content_action(view, &event, ctx)? {
             return Ok(());

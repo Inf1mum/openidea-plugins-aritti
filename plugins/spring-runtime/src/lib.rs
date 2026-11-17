@@ -50,13 +50,44 @@ struct JavaType {
     params: Vec<Vec<String>>,
     /// The one literal `@ConfigurationProperties` prefix of the type, if it has exactly that.
     config_prefix: Option<String>,
+    /// Set when the file was too big to index: its package and file stem, to tell what it might hold.
+    incomplete: Option<(String, String)>,
 }
 
-fn index_java(_: &str, text: &str) -> Option<Vec<JavaType>> {
-    let incomplete = || Some(vec![JavaType {fqn:"\0incomplete".into(),line:0,column:0,methods:Vec::new(),params:Vec::new(),config_prefix:None}]);
-    if text.len()>512<<10 {return incomplete();}
+impl JavaType {
+    /// Whether an unindexed file could declare `class` (qualified, or `Outer.Inner`).
+    fn could_hold(&self, class: &str) -> bool {
+        let Some((package, stem)) = &self.incomplete else { return false };
+        let in_package = !package.is_empty() && class.strip_prefix(package.as_str()).is_some_and(|rest| rest.starts_with('.'));
+        in_package || class.split('.').any(|part| part == stem) || (package.is_empty() && !class.contains('.'))
+    }
+}
+
+fn file_stem(path: &str) -> String {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name.strip_suffix(".java").unwrap_or(name).to_owned()
+}
+
+fn incomplete_file(path: &str, package: &str) -> Option<Vec<JavaType>> {
+    Some(vec![JavaType {
+        fqn: "\0incomplete".into(),
+        line: 0,
+        column: 0,
+        methods: Vec::new(),
+        params: Vec::new(),
+        config_prefix: None,
+        incomplete: Some((package.to_owned(), file_stem(path))),
+    }])
+}
+
+fn index_java(path: &str, text: &str) -> Option<Vec<JavaType>> {
+    if text.len()>512<<10 {
+        let mut head=text.len().min(8<<10);
+        while !text.is_char_boundary(head) {head-=1;}
+        return incomplete_file(path,&java::parse(&text[..head]).package);
+    }
     let file = java::parse(text);
-    if file.types.len()>512 || file.types.iter().map(|t|t.members.len()).sum::<usize>()>4096 {return incomplete();}
+    if file.types.len()>512 || file.types.iter().map(|t|t.members.len()).sum::<usize>()>4096 {return incomplete_file(path,&file.package);}
     let at = |offset| {
         let p = position(text, offset);
         (p.line, p.character)
@@ -77,7 +108,7 @@ fn index_java(_: &str, text: &str) -> Option<Vec<JavaType>> {
                 let [only] = arg.strings.as_slice() else { return None };
                 (arg.text.trim().len() == only.value.len() + 2).then(|| only.value.clone())
             });
-            JavaType { fqn: file.qualified(i), line, column, methods, params, config_prefix }
+            JavaType { fqn: file.qualified(i), line, column, methods, params, config_prefix, incomplete: None }
         })
         .collect();
     (!types.is_empty()).then_some(types)
@@ -149,6 +180,14 @@ fn age(at: u64) -> String {
         s @ 60..3600 => format!("{} min ago", s / 60),
         s => format!("{} h ago", s / 3600),
     }
+}
+
+/// Turns a denied optional capability into something the user can act on.
+fn allow<T>(result: Result<T, Error>, capability: &str) -> Result<T, Error> {
+    result.map_err(|error| match error {
+        Error::Denied(_) => Error::Failed(format!("Allow {capability} for Spring Runtime Insight in Settings › Plugins.")),
+        other => other,
+    })
 }
 
 fn simple(ty: &str) -> &str {
@@ -302,7 +341,7 @@ impl Tree<'_> {
     fn push(&mut self,mut item:TreeItem)->bool {
         if item.key.len()>4096 || item.parent.as_ref().is_some_and(|p|p.len()>4096) || self.items.len()>=5000 {self.limited=true;return false;}
         item.label=presentation(&item.label,1024);item.detail=item.detail.map(|s|presentation(&s,4096));
-        let bytes=serde_json::json!({"key":item.key,"parent":item.parent,"label":item.label,"detail":item.detail,"expanded":item.expanded,"expandable":item.expandable,"icon":item.icon}).to_string().len();
+        let bytes=item.key.len()+item.parent.as_ref().map_or(0,String::len)+item.label.len()+item.detail.as_ref().map_or(0,String::len)+item.icon.as_ref().map_or(0,String::len)+96;
         if self.bytes.saturating_add(bytes)>3<<20 {self.limited=true;return false;}
         self.bytes+=bytes;self.items.push(item);true
     }
@@ -562,6 +601,10 @@ pub struct Runtime {
     polling: controls::Polling,
     jmx: Option<(String, String)>,
     snapshot: Option<Snapshot>,
+    /// Built from `snapshot` on first use by the editor providers; dropped whenever it changes.
+    lookup: Option<Lookup>,
+    /// Snapshots of the other projects the editor providers asked about; the view state never follows them.
+    others: BTreeMap<Scope, Option<(Snapshot, Lookup)>>,
     scope: Option<Scope>,
     /// Storage was read (the snapshot may survive instance reclaim).
     loaded: bool,
@@ -583,6 +626,8 @@ impl Default for Runtime {
             polling: controls::Polling::default(),
             jmx: None,
             snapshot: None,
+            lookup: None,
+            others: BTreeMap::new(),
             scope: None,
             loaded: false,
             error: None,
@@ -616,17 +661,27 @@ fn invalidate_snapshot_views() {
 impl Runtime {
     fn load_scope(&mut self, scope: Scope) {
         if self.scope.as_ref()!=Some(&scope) {
-            self.panes.clear();self.graph.clear();self.snapshot=None;self.loaded=false;self.error=None;self.targets.clear();self.expanded.clear();self.polling.clear();self.poll_status=None;self.scope=Some(scope.clone());
+            self.panes.clear();self.graph.clear();self.snapshot=None;self.lookup=None;self.loaded=false;self.error=None;self.targets.clear();self.expanded.clear();self.polling.clear();self.poll_status=None;self.scope=Some(scope.clone());
         }
         if !self.loaded {
             self.loaded=true;
-            match persistence::read(&scope) {Ok(snapshot)=>{self.snapshot=snapshot;self.error=persistence::failure(&scope);},Err(error)=>self.error=Some(error.to_string())}
+            match persistence::read(&scope) {Ok(snapshot)=>{self.snapshot=snapshot;self.lookup=None;self.error=persistence::failure(&scope);},Err(error)=>self.error=Some(error.to_string())}
         }
     }
-    fn document_snapshot(&mut self,path:&str)->Option<&Snapshot> {
-        let scope=spring_text::index::project_of(path).and_then(|p|Scope::current(&p).ok());
-        match scope {Some(scope)=>self.load_scope(scope),None=>{self.snapshot=None;self.scope=None;self.targets.clear();self.loaded=false;return None;}}
-        self.snapshot.as_ref()
+    /// What the editor providers read: the stored snapshot of the document's project, never network, polling or view state.
+    fn document_snapshot(&mut self,path:&str)->Option<(&Snapshot,&Lookup)> {
+        let scope=spring_text::index::project_of(path).and_then(|p|Scope::current(&p).ok())?;
+        if self.loaded && self.scope.as_ref()==Some(&scope) {
+            let snapshot=self.snapshot.as_ref()?;
+            let lookup=self.lookup.get_or_insert_with(||Lookup::new(snapshot));
+            return Some((snapshot,lookup));
+        }
+        if !self.others.contains_key(&scope) {
+            if self.others.len()>=8 {self.others.clear();}
+            let loaded=persistence::read(&scope).ok().flatten().map(|snapshot|{let lookup=Lookup::new(&snapshot);(snapshot,lookup)});
+            self.others.insert(scope.clone(),loaded);
+        }
+        self.others.get(&scope)?.as_ref().map(|(snapshot,lookup)|(snapshot,lookup))
     }
     fn refresh(&mut self, project:&Project) -> Result<String, Error> {
         let scope=Scope::current(project)?;
@@ -640,7 +695,9 @@ impl Runtime {
             })?;
             let current=Scope::current(project)?;
             if current!=scope {return Err(Error::Stale);}
+            let mut snapshot=snapshot;
             if let Some(previous)=&self.snapshot {
+                snapshot.keep_unreachable(previous);
                 let lost:Vec<_>=snapshot.missing.iter().filter(|m|m.split(' ').next().is_some_and(|e|previous.has(e))).cloned().collect();
                 if !lost.is_empty() {return Err(Error::Failed(format!("Refresh lost previously available endpoints: {}. Previous snapshot retained; Clear first if endpoint removal was intentional.",lost.join(", "))));}
             }
@@ -651,10 +708,11 @@ impl Runtime {
         self.polling=suspended_polling;
         match result {
             Ok(snapshot)=> {
-                self.panes.clear();self.graph.clear();
+                self.panes.clear();self.graph.clear();self.lookup=None;self.others.remove(&scope);
                 persistence::success(&scope);self.error=None;self.poll_status=None;self.targets.clear();
                 let mut summary=format!("Read {} beans and {} property sources from {}.",snapshot.beans.len(),snapshot.sources.len(),snapshot.url);
                 if !snapshot.missing.is_empty() {summary.push_str(&format!(" Not available: {}.",snapshot.missing.join(", ")));}
+                if !snapshot.kept.is_empty() {summary.push_str(&format!(" Kept from the previous read: {}.",snapshot.kept.join(", ")));}
                 self.snapshot=Some(snapshot);self.loaded=true;invalidate_snapshot_views();Ok(summary)
             }
             Err(error)=> {
@@ -665,12 +723,12 @@ impl Runtime {
         }
     }
     fn clear(&mut self,project:&Project)->Result<(),Error> {
-        let scope=Scope::current(project)?;persistence::clear(&scope)?;self.panes.clear();self.graph.clear();self.polling.clear();self.scope=Some(scope);self.snapshot=None;self.loaded=true;self.error=None;self.poll_status=None;self.targets.clear();invalidate_snapshot_views();Ok(())
+        let scope=Scope::current(project)?;persistence::clear(&scope)?;self.panes.clear();self.graph.clear();self.polling.clear();self.others.remove(&scope);self.lookup=None;self.scope=Some(scope);self.snapshot=None;self.loaded=true;self.error=None;self.poll_status=None;self.targets.clear();invalidate_snapshot_views();Ok(())
     }
 
     fn java_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let text = doc.text.as_str();
-        let Some(snap) = self.document_snapshot(&doc.path) else {
+        let Some((snap, lookup)) = self.document_snapshot(&doc.path) else {
             let _ = host::publish_diagnostics(&doc.path, &[]);
             return Vec::new();
         };
@@ -716,7 +774,7 @@ impl Runtime {
                 let lines: Vec<String> = placeholders(&s.value)
                     .into_iter()
                     .filter_map(|key| {
-                        let (value, source) = snap.effective(key)?;
+                        let (value, source) = lookup.get(snap, key)?;
                         Some(format!("`{key}` = {value} (from {})", short_source(source)))
                     })
                     .collect();
@@ -735,7 +793,7 @@ impl Runtime {
             }
             let fields = t.fields().filter(|f| !f.modifiers.iter().any(|m| m == "static")).map(|f| (&f.name, f.at));
             for (name, at) in fields.chain(t.components.iter().map(|c| (&c.name, c.at))) {
-                let tip = match snap.effective(&format!("{prefix}.{name}")) {
+                let tip = match lookup.get(snap, &format!("{prefix}.{name}")) {
                     Some((value, source)) => {
                         format!("Runtime: {value} from {}", short_source(source))
                     }
@@ -754,7 +812,7 @@ impl Runtime {
     }
 
     fn config_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(snap) = self.document_snapshot(&doc.path) else {
+        let Some((snap, lookup)) = self.document_snapshot(&doc.path) else {
             return Vec::new();
         };
         let file = doc.path.rsplit(['/', '\\']).next().unwrap_or(&doc.path);
@@ -762,7 +820,7 @@ impl Runtime {
             .into_iter()
             .filter(|k| !k.value.is_empty() && !k.value.starts_with(['|', '>']))
             .filter_map(|k| {
-                let (value, source) = snap.effective(&k.key)?;
+                let (value, source) = lookup.get(snap, &k.key)?;
                 let tip = if is_file_source(source, file) && (value == k.value || value == MASK) {
                     format!("Active (from {})", short_source(source))
                 } else {
@@ -844,7 +902,8 @@ impl Views for Runtime {
             tree.scheduled(snap);
             tree.loggers(snap);
             tree.caches(snap);
-            let mut status = format!("Read {} from {} · project {} · auth {} · cached Actuator snapshot (not debugger state)", age(snap.fetched_at), snap.url,scope.root,scope.auth);
+            let mut status = format!("Read {} from {} · project {} · cached, not live state", age(snap.fetched_at), snap.url,scope.root);
+            if !snap.kept.is_empty() {status.push_str(&format!(" · kept from before: {}", snap.kept.join(", ")));}
             if !snap.missing.is_empty() {
                 status.push_str(&format!(" · not available: {}", snap.missing.join(", ")));
             }
@@ -852,10 +911,10 @@ impl Views for Runtime {
                 status.push_str(&format!(" · {hint}"));
             }
             if snap.trimmed {
-                status.push_str(" · legacy partial snapshot: beans and environment only");
+                status.push_str(" · legacy partial snapshot");
             }
             if let Some(message)=&self.poll_status {status.push_str(&format!(" · {message}"));}
-            if tree.limited {status.push_str(" · partial view: row/message limit reached; saved snapshot remains complete");}
+            if tree.limited {status.push_str(" · partial view: row limit reached");}
             if let Some(e) = &self.error {
                 status = format!("Refresh failed: {e} · {status}");
             }
@@ -1227,6 +1286,38 @@ mod persistence_flow_tests {
         let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(view.status.unwrap().contains("project /project"));assert_eq!(runtime.snapshot.as_ref().unwrap().loggers.len(),1);
         assert_eq!(runtime.line_markers(&config_doc()).len(),1);runtime.handle(VIEW,ViewEvent::Expand("env".into()),&host.invocation()).unwrap();runtime.render(VIEW,None,&host.invocation()).unwrap();
         assert_eq!(host.requests().len(),requests);assert_eq!(host.storage(),saved);assert_eq!(runtime.scope.as_ref(),Some(&scope));
+    }
+    #[test]
+    fn transient_timeout_keeps_previous_beans() {
+        let (host, mut runtime, _) = refreshed();
+        assert_eq!(runtime.snapshot.as_ref().unwrap().loggers.len(), 1);
+        host.on_fetch(|request| if request.url.ends_with("/loggers") || request.url.ends_with("/health") { Err(Error::Failed("timed out".into())) } else { response(request) });
+        runtime.run_command("refresh", &host.invocation(), None).unwrap();
+        let snapshot = runtime.snapshot.as_ref().unwrap();
+        assert_eq!(snapshot.loggers.len(), 1);
+        assert_eq!(snapshot.health.len(), 1);
+        assert!(snapshot.has("loggers") && snapshot.has("health"));
+        assert_eq!(snapshot.beans.len(), 1);
+        host.on_fetch(|request| if request.url.ends_with("/loggers") { Ok(HttpResponse { status: 404, headers: vec![], body: vec![] }) } else { response(request) });
+        assert!(runtime.run_command("refresh", &host.invocation(), None).is_err(), "a 404 still counts as lost");
+    }
+    #[test]
+    fn line_markers_for_other_project_keep_polling_lease() {
+        let (host, mut runtime, scope) = refreshed();
+        host.add_project("/other");
+        host.set_setting("autoRefresh", "true");
+        runtime.start_polling(&host.invocation().project().unwrap()).unwrap();
+        runtime.expanded.insert("env".into());
+        assert_eq!(runtime.line_markers(&config_doc()).len(), 1);
+        let other = Document { path: "/other/application.properties".into(), ..config_doc() };
+        assert!(runtime.line_markers(&other).is_empty());
+        let outside = Document { path: "/elsewhere/application.properties".into(), ..config_doc() };
+        assert!(runtime.line_markers(&outside).is_empty());
+        assert!(runtime.polling.active(&scope), "provider paths never touch the lease");
+        assert!(runtime.expanded.contains("env"));
+        assert_eq!(runtime.scope.as_ref(), Some(&scope));
+        assert!(runtime.snapshot.is_some());
+        assert_eq!(runtime.line_markers(&config_doc()).len(), 1);
     }
     #[test]
     fn transport_auth_partial_and_oversized_failures_keep_last_good_memory_and_storage() {

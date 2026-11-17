@@ -41,6 +41,10 @@ fn hex_decode(value: &str) -> Result<Vec<u8>, Error> {
         .collect()
 }
 impl LiveTail {
+    pub(crate) fn source(&self) -> Option<(String, String)> {
+        let lease = self.lease.as_ref()?;
+        Some((lease.path.clone(), lease.root.clone()))
+    }
     fn stop(&mut self, message: &str) {
         if let Some(lease) = self.lease.take() {
             let _ = lease.child.kill();
@@ -61,7 +65,7 @@ impl LiveTail {
                 lease.ready = true;
                 self.rows.clear();
                 self.bytes = 0;
-                self.status = "Following owned UTF8 log · 5 minute lease".into();
+                self.status = "Following owned UTF-8 log · 5 minute lease".into();
             }
             ["TAIL1", "WAIT", "missing"] => {
                 self.status = "Waiting briefly for log rotation replacement".into();
@@ -96,7 +100,7 @@ impl LiveTail {
                         return Err("Tail line exceeds 4096 bytes.".into());
                     }
                     let content = String::from_utf8(lease.bytes[..end].to_vec())
-                        .map_err(|_| "Tail profile requires UTF8 text.")?;
+                        .map_err(|_| "Tail profile requires UTF-8 text.")?;
                     lease.bytes.drain(..=end);
                     let content = content.trim_end_matches('\r').to_owned();
                     self.bytes += content.len();
@@ -171,7 +175,7 @@ impl Ideolog {
         if !ui_kit::prompts::confirm_exact(
             "Follow this local log?",
             &format!(
-                "Approved Java 17+ helper reads only this UTF8 regular file through a secure directory handle.\nProject: {root}\nFile: {path}\nInitial tail: last 64KiB; appends follow for at most 5 minutes/1MiB.\nNo project/application bootstrap. Rotation/truncation starts a new generation. Symlinks, unavailable secure-directory profiles and invalid UTF8 stop the helper. Switching tabs or closing the panel stops polling; the lease expires after 5 minutes."
+                "Approved Java 17+ helper reads only this UTF-8 regular file through a secure directory handle.\nProject: {root}\nFile: {path}\nInitial tail: last 64 KiB; appends follow for at most 5 minutes or 1 MiB.\nNo project/application bootstrap. Rotation/truncation starts a new generation. Symlinks, unavailable secure-directory profiles and invalid UTF8 stop the helper. Switching tabs or closing the panel stops polling; the lease expires after 5 minutes."
             ),
         )? {
             return Err(Error::Cancelled);
@@ -237,10 +241,11 @@ impl Ideolog {
                 return Err(error);
             }
         };
-        if !chunk.stderr.is_empty() {
+        let failure = failure_text(&chunk.stderr);
+        if !failure.is_empty() {
             self.tail.stop(&format!(
                 "JVM tail profile unavailable or failed: {}",
-                chunk.stderr.chars().take(256).collect::<String>()
+                failure.chars().take(256).collect::<String>()
             ));
             return Ok(());
         }
@@ -337,6 +342,15 @@ impl Ideolog {
     }
 }
 
+/// The JVM announces `JAVA_TOOL_OPTIONS` on stderr; that is not a failure.
+fn failure_text(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| !line.starts_with("Picked up "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,6 +389,13 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+    #[test]
+    fn java_tool_options_banner_keeps_tail() {
+        let banner = "Picked up JAVA_TOOL_OPTIONS: -Xmx1g\nPicked up _JAVA_OPTIONS: -Dx=1\n";
+        assert!(failure_text(banner).is_empty());
+        assert_eq!(failure_text(&format!("{banner}Error: boom\n")), "Error: boom");
+        assert_eq!(failure_text("Error: boom"), "Error: boom");
     }
     #[test]
     fn tail_protocol_is_ordered_utf8_bounded_and_generation_scoped() {

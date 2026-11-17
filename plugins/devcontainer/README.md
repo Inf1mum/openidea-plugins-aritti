@@ -27,7 +27,7 @@ Run your project's [Dev Container](https://containers.dev) with the [devcontaine
 - **Dev Container: Open Shell in Container** runs `devcontainer exec … bash -l` (or `sh -l`).
 - **Dev Container: Stop Container** runs `docker stop` on the containers started from this project folder.
 - **Dev Container: Show Configuration** runs `devcontainer read-configuration` and shows a summary: image or Compose file, remote user, forwarded ports, feature count and `postCreateCommand`.
-- **Dev Container: Clone Repository and Start…** asks for a repository URL and a new folder next to the project, clones it with `git`, then runs `devcontainer up` there.
+- **Dev Container: Clone Repository and Start…** asks for a repository URL and a new folder next to the project and runs `git clone` in a terminal. When the clone finishes, click **Start Container** in the notification (or run **Dev Container: Start Cloned Container…**) to run `devcontainer up` there.
 
 The CLI reads files from disk, so save an edited configuration before you start.
 
@@ -62,7 +62,7 @@ If the list can't load, a status row says why (no project, Docker not allowed or
 
 **Dev Container: Start Container in Background…** and **Dev Container: Rebuild Container in Background…** work like Start and Rebuild, but run in the background instead of a terminal.
 
-- **Dev Container: Show Background Output** opens the **Dev Container CLI Operations** view in Services.
+- **Dev Container: Show Background Output** opens the **Dev Container Operations** view in Services.
 - Use **Refresh Status** to fetch new output.
 - Use **Cancel Command** to stop the run, or to release a finished one.
 - Only one run at a time per plugin. The view keeps the latest 64 KiB of output.
@@ -112,14 +112,14 @@ Feature completion needs the feature list. Allow `storage` and `net:containers.d
 The Tools menu can register a Run Target, so a run configuration can run inside the dev container.
 
 1. Start the container.
-2. Run **Dev Container: Register Root-relative Run Target…** and pick the container.
+2. Run **Dev Container: Register Container as Run Target…** and pick the container.
 3. Review and approve. This only prepares the target.
 4. In the **Dev Container Run Target Review** view, click **Register once** within 120 seconds.
 5. In your run configuration, select the target explicitly.
 
 **Dev Container: Run Language Servers in Container…** does the same for language servers that should run in the container. You need the server installed in the container and must select the target manually.
 
-Remove targets with **Dev Container: Remove Root-relative Run Target** or **Dev Container: Remove Language Server Container Target**. Run and Test through a target are refused when no dev container is running.
+Remove targets with **Dev Container: Remove Container Run Target** or **Dev Container: Remove Language Server Container Target**. Each Run or Test launch checks the registered container with `docker container inspect` and is refused when it was rebuilt or stopped, or Docker is not reachable.
 
 ## Commands
 
@@ -133,13 +133,14 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dev Container**; bin
 | **Dev Container: Open Shell in Container** (*Tools*) | Opens a login shell in the container. | None |
 | **Dev Container: Stop Container** | Stops this project's containers with `docker stop`. | None |
 | **Dev Container: Show Configuration** | Summarises the resolved configuration in a notification. | None |
-| **Dev Container: Clone Repository and Start…** | Clones a repository next to the project and starts its container. | None |
+| **Dev Container: Clone Repository and Start…** | Clones a repository next to the project in a terminal, then offers to start its container. | None |
+| **Dev Container: Start Cloned Container…** | Starts the container of a cloned folder, after a review. | None |
 | **Dev Container: Refresh Feature List** | Downloads the feature index from containers.dev. | None |
 | **Dev Container: Start Container in Background…** | Starts the container in the background, with cancel. | None |
 | **Dev Container: Rebuild Container in Background…** | Rebuilds in the background, with cancel. | None |
-| **Dev Container: Show Background Output** | Opens the **Dev Container CLI Operations** view. | None |
-| **Dev Container: Register Root-relative Run Target…** (*Tools*) | Prepares a Run Target in the running container. | None |
-| **Dev Container: Remove Root-relative Run Target** (*Tools*) | Removes that Run Target. | None |
+| **Dev Container: Show Background Output** | Opens the **Dev Container Operations** view. | None |
+| **Dev Container: Register Container as Run Target…** (*Tools*) | Prepares a Run Target in the running container. | None |
+| **Dev Container: Remove Container Run Target** (*Tools*) | Removes that Run Target. | None |
 | **Dev Container: Run Language Servers in Container…** (*Tools*) | Prepares a tooling target for language servers in the container. | None |
 | **Dev Container: Remove Language Server Container Target** (*Tools*) | Removes that tooling target. | None |
 | **Create Dev Container configuration…** | ⌥⏎ in a JSON file: creates a new configuration. | ⌥⏎ |
@@ -164,11 +165,10 @@ The plugin always reads project files (`project.read`); creating configurations 
 | Permission | Used for | Without it |
 |---|---|---|
 | `process:devcontainer` | Start, Rebuild, Open Shell, Show Configuration and the managed CLI commands. | Those commands fail. |
-| `process:docker` | The **Dev Containers** view, **Dev Container: Stop Container**, and Run Targets (`docker ps`, `docker stop`, `docker start`, `docker exec`). | Stop and the view are unavailable. The view shows a status row asking for the permission. |
-| `process:git` | **Dev Container: Clone Repository and Start…** | That command fails. |
+| `process:docker` | The **Dev Containers** view, **Dev Container: Stop Container**, and Run Targets (`docker ps`, `docker stop`, `docker start`, `docker exec`, `docker container inspect`). | Stop and the view are unavailable. The view shows a status row asking for the permission. |
+| `process:git` | **Dev Container: Clone Repository and Start…** (runs `git clone` in a terminal). | That command fails. |
 | `storage` | Remembering your configuration choice per project, and keeping the feature list. | The plugin may ask for the configuration again. No feature completion. |
 | `net:containers.dev` | **Dev Container: Refresh Feature List**. | The feature list can't be downloaded. |
-| `events` | Checking `devcontainer.json` when it's opened or saved. | Checks may not run on open or save. |
 
 ## Troubleshooting
 
@@ -186,7 +186,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *Prepared target expired. Prepare it again…* | Click **Register once** within 120 seconds of preparing. |
 | Feature completion is empty | Allow `storage` and `net:containers.dev`, then run **Dev Container: Refresh Feature List**. |
 | *"…" is not a repository URL.* | Enter a URL without spaces, such as `https://github.com/org/repo.git`. |
-| *git clone failed: …* | Check the URL and your git credentials. The message includes git's error. |
+| `git clone` fails in the terminal | Check the URL and your git credentials, then run **Dev Container: Clone Repository and Start…** again. |
 | *The configuration already exists; choose a new destination. Nothing was overwritten.* | Pick another destination or name. |
 | *The destination has an open buffer; save it or choose another destination.* | Save or close that file, or pick another destination. |
 | Start ignores your latest edits | Save the configuration first; the CLI reads files from disk. |
@@ -219,7 +219,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **Services view.** Lists `docker ps -a` filtered by the `devcontainer.local_folder` label the CLI sets, so only containers started from this folder show. The label is taken from the CLI's behaviour and hasn't been checked against every CLI version. Selection is owned by the current project and cleared when it changes. Start/Stop/Shell re-read that project's container list and running state before acting; removed or unlisted IDs are refused. Selecting the status row shows help rather than starting anything.
 
-**Finite managed CLI.** Uses the same configuration choice and review as the terminal commands, with the finite lifetime and cancellation limits shown before execution. The child receives the project explicitly as its CLI working directory; stdin is closed; no shell or extra environment is introduced. One accepted operation is held in memory, scoped to its invoking project. Refresh Status performs at most four nonblocking reads of at most 16 KiB per stream; the latest 64 KiB of UTF-8 output is kept with explicit truncation; a reported exit drains output in bounded rounds before releasing the handle. Cancel CLI / Close Handle target only that fresh operation identity and project; foreign, forged and previous-operation controls refuse. A failed new start keeps previous accepted output; temporary status errors keep the handle for retry. Explicit Refresh can close the owned handle only when a successful complete project inventory shows its owner is gone; an unavailable inventory is labelled unknown, never treated as closure. This is an instance-owned finite CLI client, normally reclaimed with the plugin after about 300 seconds idle: no durable container/IDE backend, background polling or generic Stop/Rerun ownership. Killing the CLI cannot prove Docker build/container termination; CLI exit status is shown as a CLI result without inferring container readiness.
+**Background Start and Rebuild.** Uses the same configuration choice and review as the terminal commands, with the finite lifetime and cancellation limits shown before execution. The child receives the project explicitly as its CLI working directory; stdin is closed; no shell or extra environment is introduced. One accepted operation is held in memory, scoped to its invoking project. Refresh Status performs at most four nonblocking reads of at most 16 KiB per stream; the latest 64 KiB of UTF-8 output is kept with explicit truncation; a reported exit drains output in bounded rounds before releasing the handle. Cancel CLI / Close Handle target only that fresh operation identity and project; foreign, forged and previous-operation controls refuse. A failed new start keeps previous accepted output; temporary status errors keep the handle for retry. Explicit Refresh can close the owned handle only when a successful complete project inventory shows its owner is gone; an unavailable inventory is labelled unknown, never treated as closure. This is an instance-owned finite CLI client, normally reclaimed with the plugin after about 300 seconds idle: no durable container/IDE backend, background polling or generic Stop/Rerun ownership. Killing the CLI cannot prove Docker build/container termination; CLI exit status is shown as a CLI result without inferring container readiness.
 
 **Checks.** Run on `.devcontainer/devcontainer.json`, `.devcontainer/<folder>/devcontainer.json` or `.devcontainer.json`; files above 256 KB are skipped. `unknown-property` flags top-level keys not in the [specification](https://containers.dev/implementors/json_reference) but within edit distance 2 of one; other unknown keys, `x-*`, `$`-prefixed keys and everything under `customizations` stay quiet, since the property list may be incomplete. `folder-structure` looks at the file's path only. The type check leaves malformed, incomplete or unsupported composite values quiet. Compose checks are quiet for `${...}` values, `include` and unparsable files. Remote and dynamic feature values stay quiet.
 
@@ -227,7 +227,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **Feature option cache.** Refresh Feature List also keeps a bounded subset of the index's declared Boolean and string-enum options in a separate optional cache (the name index must match). The processor admits index text up to 3 MiB, scans at most 512 collections / 4,096 features, binds at most 128 creation references and stores at most 512 KiB. At most 64 option definitions per feature are examined and 8 supported options offered. Enum lists have 1–16 unique strings up to 128 bytes each; values are bounded to 4,096 bytes. A metadata-cache write failure reports a warning after names refresh.
 
-**Run Targets.** Preparation inspects a bounded, approved local Unix Docker endpoint and the exact running container and bind identity. Modal approval only prepares a snapshot; a separate fresh **Register once** rechecks project, configuration and container facts before native registration. The plugin never selects a target or launches a command automatically. Plans expire after 120 seconds. Changed configuration and controlled container lifecycle actions withdraw matching registrations. Mapped mode preserves stdin and declares the verified project bind for configured target language servers. Per-launch container reinspection isn't promised, and registration doesn't make destructive Rebuild freely rerunnable.
+**Run Targets.** Preparation inspects a bounded, approved local Unix Docker endpoint and the exact running container and bind identity. Modal approval only prepares a snapshot; a separate fresh **Register once** rechecks project, configuration and container facts before native registration. The plugin never selects a target or launches a command automatically. Plans expire after 120 seconds. Changed configuration and controlled container lifecycle actions withdraw matching registrations. The registered container ID is kept in plugin storage and each launch reinspects that exact container; extra mounts below the project folder (such as a `node_modules` volume) are allowed. Mapped mode preserves stdin and declares the verified project bind for configured target language servers. Registration doesn't make destructive Rebuild freely rerunnable.
 
 </details>
 

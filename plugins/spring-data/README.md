@@ -183,7 +183,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Declared, native and dynamic queries, comments, strings and default method bodies get no derived-name suggestions.
 - Derived-method hover describes a query only after every property part resolves to cached source.
 - Standard container traversal in completion needs an explicit standard-container import. Custom or unproved generic containers don't produce element properties.
-- The parameter/return-kind parser for `query-parameter-type` and `query-return-type` stays tested; live findings wait until qualified library/source types can be established.
+- Parameter and return type findings (`query-parameter-type`, `query-return-type`) are not reported until qualified library/source types can be established.
 
 </details>
 

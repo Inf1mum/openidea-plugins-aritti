@@ -1,6 +1,5 @@
-//! Offline review adapter for documented Flyway Enterprise comparison JSON.
-//! Imported review remains offline. Managed child orchestration is profile-gated;
-//! no production offline runtime profile has been accepted.
+//! Offline review adapter for documented Flyway comparison JSON. Imported review stays
+//! offline; the managed comparison runs only with an installed Flyway CLI profile.
 mod managed;
 use super::*;
 use openidea_plugin::PickItem;
@@ -401,11 +400,12 @@ impl Review {
             .button(Button::new(&key("load"), "Load local report…"))
             .button(Button::new(&key("select"), "Select definitions…"))
             .button(Button::new(&key("plan"), "Review CLI recipe…"))
-            .button(Button::new(&key("prepare-managed"), "Managed adapter readiness…"))
+            .button(Button::new(&key("prepare-managed"), "Prepare comparison…"))
             .button(Button::new(&key("clear"), "Clear review"));
-        if d.managed.prepared() {view=view.button(Button::new(&key("start-managed"), "Start comparison — unavailable profile").enabled(false));}
+        if d.managed.startable() {view=view.button(Button::new(&key("start-managed"), "Start comparison"));}
+        if d.managed.continuable() {view=view.button(Button::new(&key("continue-managed"), "Continue comparison"));}
         if d.managed.running() {view=view.button(Button::new(&key("check-managed"), "Check owned comparison")).button(Button::new(&key("cancel-managed"), "Cancel owned comparison"));}
-        Ok(view.status("Offline report review; managed execution requires an accepted offline CLI profile."))
+        Ok(view.status("Offline report review, or a managed comparison with the installed Flyway CLI."))
     }
     pub(crate) fn handle(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         let (project, root) = owner(ctx)?;
@@ -460,10 +460,11 @@ impl Review {
                 ViewEvent::Button(_) => match key {
                     "prepare-managed" => {
                         let plan=managed::Plan::capture(&project,d)?;
-                        if ui_kit::prompts::confirm_exact("Review blocked managed comparison plan?",&plan.review())? {
+                        if ui_kit::prompts::confirm_exact("Prepare offline comparison?",&plan.review())? {
                             plan.revalidate_prepare(&project)?;
-                            d.managed.prepare(plan)?;
-                            d.notice=managed::BLOCKED.into();
+                            let profile=managed::offline_profile(&project);
+                            d.managed.prepare(plan, profile)?;
+                            d.notice=d.managed.status.clone();
                         }
                     }
                     "start-managed" => d.managed.start(&project)?,

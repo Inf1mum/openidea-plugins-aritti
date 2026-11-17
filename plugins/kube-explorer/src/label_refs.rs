@@ -4,7 +4,7 @@
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker};
 use openidea_plugin::{Location, Position, Range, host, text};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use yaml_rust2::{
     parser::{Event, MarkedEventReceiver, Parser},
     scanner::{Marker, TScalarStyle},
@@ -62,8 +62,22 @@ enum Frame {
     Map(Vec<(Scalar, Node)>, Option<Scalar>),
     Seq(Vec<Node>),
 }
+/// Byte offsets of every line start, so a position costs one binary search.
+pub(crate) struct LineStarts(Vec<usize>);
+impl LineStarts {
+    pub(crate) fn new(source: &str) -> Self {
+        Self(std::iter::once(0).chain(source.match_indices('\n').map(|(at, _)| at + 1)).collect())
+    }
+    pub(crate) fn position(&self, source: &str, at: usize) -> Position {
+        let at = at.min(source.len());
+        let line = self.0.partition_point(|start| *start <= at) - 1;
+        let character = source.get(self.0[line]..at).map_or(0, |text| text.chars().map(|c| c.len_utf16() as u32).sum());
+        Position { line: line as u32, character }
+    }
+}
 struct Reader<'a> {
     source: &'a str,
+    lines: LineStarts,
     offsets: Vec<usize>,
     frames: Vec<Frame>,
     docs: Vec<Node>,
@@ -141,8 +155,8 @@ impl MarkedEventReceiver for Reader<'_> {
                     exact,
                     escaped: scanned.is_some(),
                     range: Range::new(
-                        text::position(self.source, start.min(self.source.len())),
-                        text::position(self.source, end.min(self.source.len())),
+                        self.lines.position(self.source, start),
+                        self.lines.position(self.source, end),
                     ),
                 };
                 self.push(Node::Scalar(scalar));
@@ -180,9 +194,9 @@ impl MarkedEventReceiver for Reader<'_> {
         }
     }
 }
-/// Inner end offset of a single-line quoted scalar opening at `open`, only
-/// when its unescaped text equals the parser's `value`.
-fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
+/// The unescaped text of a single-line quoted scalar opening at `open`, and
+/// the offset of its closing quote.
+pub(crate) fn unquote(source: &str, open: usize) -> Option<(String, usize)> {
     let quote = *source.as_bytes().get(open)?;
     let rest = source.get(open + 1..)?;
     let mut raw = String::new();
@@ -195,9 +209,9 @@ fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
                     chars.next();
                     raw.push('\'');
                 }
-                _ => return (raw == value).then_some(open + 1 + i),
+                _ => return Some((raw, open + 1 + i)),
             },
-            (b'"', '"') => return (raw == value).then_some(open + 1 + i),
+            (b'"', '"') => return Some((raw, open + 1 + i)),
             (b'"', '\\') => raw.push(match chars.next()?.1 {
                 '\\' => '\\',
                 '"' => '"',
@@ -212,6 +226,11 @@ fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
     }
     None
 }
+/// Inner end offset of a single-line quoted scalar opening at `open`, only
+/// when its unescaped text equals the parser's `value`.
+fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
+    unquote(source, open).filter(|(raw, _)| raw == value).map(|(_, end)| end)
+}
 fn spells(source: &str, start: usize, end: usize, key: &str) -> bool {
     let Some(raw) = source.get(start..end) else {
         return false;
@@ -225,20 +244,34 @@ pub(crate) fn parse(source: &str) -> Option<Vec<Node>> {
     if source.len() > MAX_TEXT || source.contains("{{") || source.contains("${") {
         return None;
     }
-    crate::convert::source_documents(source)?;
-    let mut reader = Reader {
-        source,
-        offsets: source
-            .char_indices()
-            .map(|(i, _)| i)
-            .chain(std::iter::once(source.len()))
-            .collect(),
-        frames: Vec::new(),
-        docs: Vec::new(),
-        bad: false,
+    let mut checked = Checked {
+        guard: crate::convert::ValueGuard::default(),
+        reader: Reader {
+            source,
+            lines: LineStarts::new(source),
+            offsets: source
+                .char_indices()
+                .map(|(i, _)| i)
+                .chain(std::iter::once(source.len()))
+                .collect(),
+            frames: Vec::new(),
+            docs: Vec::new(),
+            bad: false,
+        },
     };
-    Parser::new_from_str(source).load(&mut reader, true).ok()?;
-    (!reader.bad).then_some(reader.docs)
+    Parser::new_from_str(source).load(&mut checked, true).ok()?;
+    (!checked.guard.rejected() && !checked.reader.bad).then_some(checked.reader.docs)
+}
+/// Feeds one parse pass to the value guard and to the node reader.
+struct Checked<'a> {
+    guard: crate::convert::ValueGuard,
+    reader: Reader<'a>,
+}
+impl MarkedEventReceiver for Checked<'_> {
+    fn on_event(&mut self, event: Event, mark: Marker) {
+        yaml_rust2::parser::EventReceiver::on_event(&mut self.guard, event.clone());
+        self.reader.on_event(event, mark);
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Resource {
@@ -574,7 +607,10 @@ fn facts(path: &str, source: &str) -> Option<Facts> {
         let group = if api == "v1" {
             ""
         } else {
-            api.split_once('/')?.0
+            let Some((group, _)) = api.split_once('/') else {
+                continue;
+            };
+            group
         };
         let Some(kind) = string(node.get("kind")) else {
             continue;
@@ -1679,12 +1715,12 @@ fn rename_snapshot(doc: &Document) -> Result<RenameSnapshot, openidea_plugin::Er
     })
 }
 struct Cached {
-    digest: [u8; 32],
+    stamp: Option<(u64, Option<u64>)>,
     facts: Facts,
 }
 #[derive(Default)]
 pub(crate) struct Cache {
-    files: BTreeMap<(String, String), Cached>,
+    files: crate::lru::Lru<(String, String), Cached>,
 }
 impl Cache {
     pub(crate) fn file_actions(
@@ -1890,6 +1926,9 @@ impl Cache {
     pub(crate) fn clear(&mut self) {
         self.files.clear();
     }
+    pub(crate) fn evict(&mut self, path: &str) {
+        self.files.retain(|(_, p), _| p != path);
+    }
     pub(crate) fn warm_file(&mut self, path: &str) {
         if let Some(project) = host::project_of(path)
             && let Ok(source) = project.read_file(path)
@@ -1913,15 +1952,13 @@ impl Cache {
         let Some(facts) = facts(path, source) else {
             return;
         };
-        if self.files.len() >= MAX_FILES {
-            self.files.clear();
-        }
         self.files.insert(
             (root, path.into()),
             Cached {
-                digest: Sha256::digest(source.as_bytes()).into(),
+                stamp: project.stat(path).ok().map(|stat| (stat.size, stat.modified)),
                 facts,
             },
+            MAX_FILES,
         );
     }
     fn current(&self, doc: &Document) -> Option<Vec<(String, Facts)>> {
@@ -1942,10 +1979,8 @@ impl Cache {
             {
                 continue;
             }
-            let Ok(source) = project.read_file(path) else {
-                continue;
-            };
-            if <[u8; 32]>::from(Sha256::digest(source.as_bytes())) != cache.digest {
+            let current = project.stat(path).ok().map(|stat| (stat.size, stat.modified));
+            if current.is_none() || current != cache.stamp {
                 continue;
             }
             all.push((path.clone(), cache.facts.clone()));
@@ -3235,15 +3270,47 @@ mod tests {
         );
     }
     #[test]
+    fn slashless_api_version_keeps_other_docs() {
+        let source = format!("apiVersion: weird\nkind: Thing\nmetadata: {{name: a, namespace: app}}\n---\n{POD}");
+        let found = facts("/p/a.yaml", &source).unwrap();
+        assert_eq!(found.labels.len(), 2);
+    }
+    #[test]
     fn secret_plaintext_is_not_retained_in_cached_facts() {
         let (_host, cache) = setup(&[("secret.yaml", SECRET)]);
         let cached = cache.files.values().next().unwrap();
         assert_eq!(cached.facts.keys.len(), 1);
         assert_eq!(cached.facts.keys[0].key.value, "server");
-        assert_eq!(
-            cached.digest,
-            <[u8; 32]>::from(Sha256::digest(SECRET.as_bytes()))
-        );
+        assert_eq!(cached.stamp.map(|(size, _)| size), Some(SECRET.len() as u64));
+    }
+    #[test]
+    fn position_table_matches_naive() {
+        for source in ["", "a: 1\n", "a: é\n😀: x\r\nb: ü😀z\n\n\nlast", "\n\n", "key: \"é\"\n  - café: 😀"] {
+            let lines = LineStarts::new(source);
+            for at in (0..=source.len()).filter(|at| source.is_char_boundary(*at)) {
+                assert_eq!(lines.position(source, at), text::position(source, at), "{source:?} at {at}");
+            }
+            assert_eq!(lines.position(source, source.len() + 9), text::position(source, source.len()));
+        }
+    }
+    #[test]
+    fn label_cache_no_rehash() {
+        let (host, cache) = setup(&[("pod.yaml", POD), ("service.yaml", SERVICE)]);
+        let service = Document {
+            path: "/p/service.yaml".into(),
+            language: "yaml".into(),
+            version: 1,
+            text: SERVICE.into(),
+        };
+        let at = caret(SERVICE, "tier");
+        let before = cache.definition(&service, at);
+        assert!(!before.is_empty());
+
+        host.add_file("pod.yaml", &POD.replace("frontend", "frontenx"));
+        assert_eq!(cache.definition(&service, at), before);
+
+        host.add_file("pod.yaml", &format!("{POD}# longer\n"));
+        assert!(cache.definition(&service, at).is_empty());
     }
     #[test]
     fn deployment_selector_links_only_its_own_template_labels() {

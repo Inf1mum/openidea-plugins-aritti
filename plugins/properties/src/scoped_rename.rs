@@ -372,7 +372,6 @@ pub(super) fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::*;
     use openidea_plugin::{
         file_actions::{FileAction, FileActions},
         mock::MockHost,
