@@ -228,7 +228,7 @@ impl State {
         let Some((root, log)) = self.current(doc) else {
             return vec![];
         };
-        if self.events_denied {
+        if self.events_denied || !self.resolved.contains_key(&doc.path) {
             self.warm_current(doc, root.as_deref());
         }
         let resolution = self.resolved.get(&doc.path);
@@ -385,13 +385,9 @@ mod tests {
     fn unknown_include_property_and_foreign_xml_context_are_quiet() {
         let _h = MockHost::install();
         let mut s = State::default();
-        assert!(
-            s.diagnostics(&doc(
-                "/project/db/a.xml",
-                "<databaseChangeLog><include file='unknown.xml'/><changeSet id='${library.id}' author='a'/></databaseChangeLog>"
-            ))
-            .is_empty()
-        );
+        let text = "<databaseChangeLog><include file='unknown.xml'/><changeSet id='${library.id}' author='a'/></databaseChangeLog>";
+        s.warm(&host::project_of("/project/db/a.xml").unwrap(), "/project", "/project/db/a.xml", text, Duration::ZERO, None, false);
+        assert!(s.diagnostics(&doc("/project/db/a.xml", text)).is_empty(), "facts the warm did not reach stay quiet");
         assert!(
             s.diagnostics(&doc("/project/db/a.xml", "<databaseChangeLog xmlns='urn:foreign'><changeSet/></databaseChangeLog>")).is_empty()
         );
@@ -520,6 +516,7 @@ mod tests {
         assert!(
             state.diagnostics(&doc("/project/a.xml", &format!("<databaseChangeLog>{}</databaseChangeLog>", "${".repeat(1025)))).is_empty()
         );
+        state.warm(&host::project_of("/project/a.xml").unwrap(), "/project", "/project/a.xml", XML, Duration::ZERO, None, false);
         let problems = state.diagnostics(&doc("/project/a.xml", XML));
         for diagnostic in problems {
             let a = offset(XML, diagnostic.range.start).unwrap();
