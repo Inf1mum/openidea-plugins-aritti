@@ -725,9 +725,7 @@ impl Providers for Liquibase {
             if project_of(&path).and_then(|p| p.root().ok()).as_deref() == Some(root.as_str())
                 && project.stat(&path).is_ok_and(|s| s.kind == openidea_plugin::FileKind::File) { found.insert(path); }
         }
-        if found.len() == 1 {
-            vec![Location { path: found.into_iter().next().unwrap(), range: Range::new(Position::new(0,0),Position::new(0,0)) }]
-        } else { Vec::new() }
+        found.into_iter().map(|path| Location { path, range: Range::new(Position::new(0,0),Position::new(0,0)) }).collect()
     }
 
     /// Navigation markers use only current text and cached positive include facts.
@@ -1112,6 +1110,19 @@ mod tests {
         host.add_file("db/child.xml","<databaseChangeLog/>");
         let foreign="<databaseChangeLog xmlns='urn:foreign'><include file='child.xml' relativeToChangelogFile='true'/></databaseChangeLog>";
         assert!(Liquibase::default().definition(&doc("/project/db/a.xml",foreign),openidea_plugin::text::position(foreign,foreign.find("child.xml").unwrap()+2)).is_empty());
+    }
+
+    #[test]
+    fn an_include_found_under_several_classpath_roots_offers_each_file() {
+        let host = MockHost::install();
+        host.add_file("src/test/resources/db/child.xml", "<databaseChangeLog/>");
+        let text = "<databaseChangeLog>\n<include file=\"db/child.xml\"/>\n</databaseChangeLog>";
+        let d = doc("/project/src/test/resources/db/master.xml", text);
+        let at = Position::new(1, 17);
+        assert_eq!(Liquibase::default().definition(&d, at).len(), 1);
+        host.add_file("src/main/resources/db/child.xml", "<databaseChangeLog/>");
+        let found: Vec<_> = Liquibase::default().definition(&d, at).into_iter().map(|l| l.path).collect();
+        assert_eq!(found, ["/project/src/main/resources/db/child.xml", "/project/src/test/resources/db/child.xml"]);
     }
 
     #[test]

@@ -16,6 +16,7 @@ const MAX_TEXT: usize = 256 * 1024;
 const TTL: Duration = Duration::from_secs(120);
 const FALLBACK_BUDGET: Duration = Duration::from_millis(10);
 const MAX_RESOLVED: usize = 16;
+const MAX_LINE_TARGETS: usize = 200;
 struct Fact {
     at: Instant,
     bytes: usize,
@@ -249,19 +250,46 @@ impl State {
         let Some((Some(root), log)) = self.current(doc) else {
             return vec![];
         };
-        log.includes
-            .iter()
-            .take(256)
-            .filter_map(|include| {
-                let path = self.target(&root, &doc.path, include)?;
-                Some(LineMarker {
-                    line: changelog::line_of(&doc.text, include.at),
+        let mut markers = Vec::new();
+        for include in log.includes.iter().take(256) {
+            let targets = if include.dir {
+                self.directory_targets(&root, &doc.path, include)
+            } else {
+                self.target(&root, &doc.path, include).into_iter().collect()
+            };
+            let total = targets.len();
+            let line = changelog::line_of(&doc.text, include.at);
+            // Same icon on one line: the IDE merges the markers into one button with a target chooser.
+            markers.extend(targets.into_iter().take(MAX_LINE_TARGETS).map(|path| {
+                let name = path.rsplit('/').next().unwrap_or(&path);
+                let tooltip = if total > MAX_LINE_TARGETS {
+                    format!("Open cached source {name} (first {MAX_LINE_TARGETS} of {total} shown)")
+                } else {
+                    format!("Open cached source {name}")
+                };
+                LineMarker {
+                    line,
                     icon: Some(crate::INCLUDE_MARKER.into()),
-                    tooltip: format!("Open cached source {}", path.rsplit('/').next().unwrap_or(&path)),
+                    tooltip,
                     target: Some(Location { path, range: Range::new(Position::new(0, 0), Position::new(0, 0)) }),
-                })
-            })
-            .take(256)
+                }
+            }));
+        }
+        markers
+    }
+    /// Cached changelogs under a relative `includeAll` directory, recursively and in Liquibase's alphabetical order.
+    fn directory_targets(&self, root: &str, path: &str, include: &Include) -> Vec<String> {
+        if !include.relative || include.path.contains("${") || include.path.starts_with('/') || include.path.contains(':') {
+            return Vec::new();
+        }
+        let (Some(files), Some(dir)) = (self.roots.get(root), changelog::candidates(path, root, include).into_iter().next()) else {
+            return Vec::new();
+        };
+        let prefix = format!("{}/", dir.trim_end_matches('/'));
+        files
+            .iter()
+            .filter(|(file, fact)| file.starts_with(&prefix) && file.as_str() != path && fact.at.elapsed() < TTL && owned(root, file))
+            .map(|(file, _)| file.clone())
             .collect()
     }
     fn declarations(&self, root: &str, path: &str, name: &str, seen: &mut BTreeSet<String>, found: &mut Vec<String>, budget: &mut usize) {
@@ -422,6 +450,26 @@ mod tests {
         );
         assert!(p.live.markers(&d).is_empty());
         assert!(h.diagnostics().is_empty());
+    }
+    #[test]
+    fn include_all_marks_each_cached_changelog_of_its_directory_on_one_line() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        let text = "<databaseChangeLog>\n<includeAll path='changes/' relativeToChangelogFile='true'/>\n</databaseChangeLog>";
+        let d = doc("/project/db/master.xml", text);
+        s.update("/project", "/project/db/changes/001.xml", "<databaseChangeLog/>");
+        let single = s.markers(&d);
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].tooltip, "Open cached source 001.xml");
+        s.update("/project", "/project/db/changes/sub/002.xml", "<databaseChangeLog/>");
+        s.update("/project", "/project/db/other/003.xml", "<databaseChangeLog/>");
+        s.update("/project", "/project/db/changes-old/004.xml", "<databaseChangeLog/>");
+        let markers = s.markers(&d);
+        let paths: Vec<_> = markers.iter().map(|m| m.target.as_ref().unwrap().path.as_str()).collect();
+        assert_eq!(paths, ["/project/db/changes/001.xml", "/project/db/changes/sub/002.xml"]);
+        assert!(markers.iter().all(|m| m.line == 1 && m.icon.as_deref() == Some(crate::INCLUDE_MARKER)));
+        let absolute = doc("/project/db/master.xml", &text.replace(" relativeToChangelogFile='true'", ""));
+        assert!(s.markers(&absolute).is_empty());
     }
     #[test]
     fn current_reuses_the_parse_for_the_same_version_and_text() {
