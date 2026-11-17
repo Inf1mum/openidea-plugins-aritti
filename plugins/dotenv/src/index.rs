@@ -536,6 +536,7 @@ impl Index {
         paths.dedup();
         Self {
             complete: discovery_complete,
+            hard_incomplete: !discovery_complete,
             walk: Some(Walk { paths: paths.into_iter().map(|(_, path)| path).collect(), next: 0, discovered, touched: HashSet::new() }),
             ..Self::default()
         }
