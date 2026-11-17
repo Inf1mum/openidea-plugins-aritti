@@ -6,6 +6,19 @@ use openidea_plugin::{Error, Invocation, Plugin, host};
 const NO_PROJECT: &str = "status:no-project";
 const NOT_CONFIGURED: &str = "status:not-configured";
 const UNAVAILABLE: &str = "status:unavailable";
+/// A short reason for the unavailable row, from the describe failure.
+fn unavailable_reason(error: &str) -> &'static str {
+    let error = error.to_ascii_lowercase();
+    if error.contains("docker") {
+        "Container runtime not running"
+    } else if error.contains("not granted") {
+        "DDEV permission needed"
+    } else if error.contains("not found") || error.contains("no such file") {
+        "DDEV not installed"
+    } else {
+        "DDEV unavailable"
+    }
+}
 fn is_status(key: &str) -> bool {
     matches!(key, NO_PROJECT | NOT_CONFIGURED | UNAVAILABLE)
 }
@@ -51,14 +64,11 @@ impl Views for Main {
             });
             let selected = self.selected.as_deref().unwrap_or(PROJECT);
             let desc = result.as_ref().ok();
-            let state = desc.map_or(
-                if configured {
-                    "Runtime unavailable"
-                } else {
-                    "Not configured"
-                },
-                |d| &d.status,
-            );
+            let state = match (&result, configured) {
+                (Ok(d), _) => d.status.as_str(),
+                (Err(error), true) => unavailable_reason(&error.to_string()),
+                (Err(_), false) => "Not configured",
+            };
             let name = desc.map_or("DDEV", |d| &d.name);
             if desc.is_none() {
                 runtime::publish(None, configured);
@@ -117,11 +127,11 @@ impl Views for Main {
             };
             Ok(View::new(Body::Tree(items))
                 .button(Button::new("refresh", "Refresh Status").icon("refresh"))
-                .button(Button::new("start", "Start DDEV").icon("run").enabled(can_start))
-                .button(Button::new("restart", "Restart DDEV").icon("rerun")
+                .button(Button::new("start", "Start Project").icon("run").enabled(can_start))
+                .button(Button::new("restart", "Restart Project").icon("rerun")
                     .enabled(running || desc.is_none() && can_start))
                 .button(
-                    Button::new("stop", "Stop DDEV")
+                    Button::new("stop", "Stop Project")
                         .icon("stop")
                         .enabled(running || desc.is_none() && can_start),
                 )
@@ -129,6 +139,7 @@ impl Views for Main {
                 .button(Button::new("logs", "Open Logs").icon("list").enabled(desc.is_some() && container))
                 .button(Button::new("open-service", "Open in Browser").icon("external-link").enabled(running && has_url))
                 .button(Button::new("actions", "More Actions…").icon("more"))
+                .button(Button::new("diagnose", "Help and Diagnostics").icon("help").enabled(desc.is_none() && configured))
                 .button(
                     Button::new(
                         if configured { "open-config" } else { "config" },
@@ -270,5 +281,18 @@ impl Details for Main {
             tabs.push(Tab::new("help", "Help", Pane::Text(runtime::HELP.into())));
         }
         Ok(tabs)
+    }
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::unavailable_reason;
+
+    #[test]
+    fn unavailable_reason_names_the_likely_cause() {
+        assert_eq!(unavailable_reason("permission denied: process:ddev is not granted"), "DDEV permission needed");
+        assert_eq!(unavailable_reason("ddev: command not found"), "DDEV not installed");
+        assert_eq!(unavailable_reason("ddev describe failed (exit Some(1)): Could not connect to a Docker provider"), "Container runtime not running");
+        assert_eq!(unavailable_reason("ddev describe failed (exit Some(1)): boom"), "DDEV unavailable");
     }
 }

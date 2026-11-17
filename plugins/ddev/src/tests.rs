@@ -2984,3 +2984,15 @@ fn background_failure_with_snapshot_shows_error_not_refreshing() {
     assert!(status.contains("DDEV not reachable"), "{status}");
     assert!(!status.contains("refreshing"), "{status}");
 }
+
+#[test]
+fn delete_question_names_the_project_and_its_path() {
+    assert_eq!(
+        delete_question(Some("demo"), "/work/demo"),
+        "Delete DDEV project demo (/work/demo)? DDEV will delete its containers and database."
+    );
+    assert_eq!(
+        delete_question(None, "/work/demo"),
+        "Delete DDEV project /work/demo? DDEV will delete its containers and database."
+    );
+}

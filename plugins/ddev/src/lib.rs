@@ -519,22 +519,22 @@ impl Plugin for Main {
                     return Err(format!("DDEV: {id} is unavailable while the project is {}. Refresh status after external changes.", self.description(&project)?.status).into());
                 }
                 let confirmation = match id {
-                    "delete" => Some((
-                        "Delete DDEV project",
-                        "DDEV will delete this project's containers and database. Continue?",
-                    )),
+                    "delete" => {
+                        let name = self.description(&project).ok().map(|desc| desc.name.clone());
+                        Some(("Delete DDEV project", delete_question(name.as_deref(), &project.root()?)))
+                    }
                     "poweroff" => Some((
                         "Power off DDEV",
-                        "Stop all DDEV projects and the shared router on this machine?",
+                        "Stop all DDEV projects and the shared router on this machine?".into(),
                     )),
                     "config" => Some((
                         "Configure DDEV project",
-                        "Run ddev config --auto in this project? It can create or update .ddev/config.yaml.",
+                        "Run ddev config --auto in this project? It can create or update .ddev/config.yaml.".into(),
                     )),
                     _ => None,
                 };
                 if let Some((title, body)) = confirmation
-                    && !host::confirm(title, body)?
+                    && !host::confirm(title, &body)?
                 {
                     return Ok(None);
                 }
@@ -596,6 +596,14 @@ fn run_json(project: &Project, command: &str) -> Result<String, Error> {
         .into());
     }
     Ok(output.stdout)
+}
+
+fn delete_question(name: Option<&str>, root: &str) -> String {
+    let project = match name {
+        Some(name) => format!("{name} ({root})"),
+        None => root.to_owned(),
+    };
+    format!("Delete DDEV project {project}? DDEV will delete its containers and database.")
 }
 
 fn run_ddev(project: &Project, args: &[String]) -> Result<openidea_plugin::ProcessOutput, Error> {
