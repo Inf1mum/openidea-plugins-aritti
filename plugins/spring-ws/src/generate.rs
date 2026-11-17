@@ -2,7 +2,6 @@
 use crate::*;
 use openidea_plugin::file_actions::{FileAction, FileActions, FileOperation};
 use openidea_plugin::{FileKind, PickItem};
-use quick_xml::events::Event as XmlEvent;
 use std::collections::BTreeMap;
 const XSD: &str = "http://www.w3.org/2001/XMLSchema";
 const MAX_FILES: usize = 512;
@@ -21,7 +20,10 @@ struct Pending {
 pub(crate) struct Generation {
     next: u64,
     pending: BTreeMap<String, Pending>,
+    /// Per root, when [`source_paths`] last ran and whether it hit the cap: carets don't re-list the project.
+    capped: BTreeMap<String, (Instant, bool)>,
 }
+const CAP_TTL: Duration = Duration::from_secs(60);
 #[derive(Clone, PartialEq, Eq)]
 struct Package {
     name: String,
@@ -121,81 +123,9 @@ fn namespace(value: &str) -> bool {
         && !value.chars().any(|ch| ch.is_control() || ch.is_whitespace())
         && !value.contains(['\\', '"', '{', '}'])
 }
-// Use the namespace-aware parser plus decoded reserved-URI checks: the
-// library's raw resolver alone permits reserved default URIs and URI escapes.
-fn valid_namespaces<R>(reader: &quick_xml::reader::NsReader<R>, element: &quick_xml::events::BytesStart<'_>) -> bool {
-    use quick_xml::name::ResolveResult;
-    const XML: &str = "http://www.w3.org/XML/1998/namespace";
-    const XMLNS: &str = "http://www.w3.org/2000/xmlns/";
-    if element.name().as_ref().starts_with("xmlns:")
-        || matches!(reader.resolver().resolve_element(element.name()).0, ResolveResult::Unknown(_))
-    {
-        return false;
-    }
-    for attribute in element.attributes() {
-        let Ok(attribute) = attribute else {
-            return false;
-        };
-        let key = attribute.key.as_ref();
-        if key == "xmlns" || key.starts_with("xmlns:") {
-            let Ok(value) = attribute.normalized_value(quick_xml::XmlVersion::Implicit1_0) else {
-                return false;
-            };
-            if key == "xmlns:xmlns"
-                || key.starts_with("xmlns:") && value.is_empty()
-                || key == "xmlns:xml" && value != XML
-                || key != "xmlns:xml" && matches!(value.as_ref(), XML | XMLNS)
-            {
-                return false;
-            }
-        } else if matches!(reader.resolver().resolve_attribute(attribute.key).0, ResolveResult::Unknown(_)) {
-            return false;
-        }
-    }
-    true
-}
-
+/// One well-formed, namespace-valid root without a DOCTYPE, within the schema size bound.
 pub(super) fn xml_valid(text: &str) -> bool {
-    if text.len() > MAX_SCHEMA_BYTES {
-        return false;
-    }
-    let mut reader = quick_xml::reader::NsReader::from_str(text);
-    let mut depth = 0usize;
-    let mut roots = 0usize;
-    loop {
-        match reader.read_event() {
-            Ok(XmlEvent::Start(element)) => {
-                if depth == 0 {
-                    roots += 1;
-                }
-                if !valid_namespaces(&reader, &element) {
-                    return false;
-                }
-                depth += 1;
-            }
-            Ok(XmlEvent::Empty(element)) => {
-                if depth == 0 {
-                    roots += 1;
-                }
-                if !valid_namespaces(&reader, &element) {
-                    return false;
-                }
-            }
-            Ok(XmlEvent::End(_)) => {
-                let Some(next) = depth.checked_sub(1) else {
-                    return false;
-                };
-                depth = next;
-            }
-            Ok(XmlEvent::DocType(_)) => return false,
-            Ok(XmlEvent::GeneralRef(reference)) if decode(&format!("&{};", reference.as_ref())).is_none() => return false,
-            Ok(XmlEvent::CData(_)) if depth == 0 => return false,
-            Ok(XmlEvent::Text(text)) if depth == 0 && !text.as_ref().trim().is_empty() => return false,
-            Ok(XmlEvent::Eof) => return roots == 1 && depth == 0,
-            Err(_) => return false,
-            _ => {}
-        }
-    }
+    text.len() <= MAX_SCHEMA_BYTES && !text.contains("<!DOCTYPE") && spring_text::xml::analysis_valid(text)
 }
 fn decode(value: &str) -> Option<String> {
     quick_xml::escape::unescape(value).ok().map(|value| value.into_owned())
@@ -494,7 +424,15 @@ impl FileActions for WsTools {
         let Some(project) = project_of(&doc.path) else {
             return vec![];
         };
-        if source_paths(&project).is_err() {
+        let capped = match self.generation.capped.get(&root).filter(|(at, _)| at.elapsed() < CAP_TTL) {
+            Some((_, capped)) => *capped,
+            None => {
+                let capped = source_paths(&project).is_err();
+                self.generation.capped.insert(root.clone(), (Instant::now(), capped));
+                capped
+            }
+        };
+        if capped {
             return vec![];
         }
         if self.generation.pending.len() >= 8 {
@@ -534,13 +472,13 @@ impl FileActions for WsTools {
             return Err(Error::Cancelled);
         };
         if !ident(&class) {
-            return Err("Use a non-keyword ASCII Java class identifier up to128 bytes.".into());
+            return Err("Use a non-keyword ASCII Java class identifier up to 128 bytes.".into());
         }
         let Some(method) = host::input("One-way DOM handler method", Some("handlePayload"))? else {
             return Err(Error::Cancelled);
         };
         if !ident(&method) {
-            return Err("Use a non-keyword ASCII Java method identifier up to128 bytes.".into());
+            return Err("Use a non-keyword ASCII Java method identifier up to 128 bytes.".into());
         }
         if class == "org" || before.types.contains(&format!("{}.org", package.name)) {
             return Err("A local org type would shadow the fully-qualified annotation/DOM package; generation withheld.".into());
@@ -797,6 +735,7 @@ fn conflicting_static_annotation_import_cannot_establish_generation_package() {
         for n in 0..MAX_FILES {
             host.add_file(&format!("src/C{n}.java"), "");
         }
-        assert!(plugin.file_actions(&doc, Range::new(at, at)).is_empty());
+        assert_eq!(plugin.file_actions(&doc, Range::new(at, at)).len(), 1, "the verdict is cached per root, not re-listed per caret");
+        assert!(WsTools::default().file_actions(&doc, Range::new(at, at)).is_empty());
     }
 }
