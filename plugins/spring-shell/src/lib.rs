@@ -6,9 +6,14 @@
 use openidea_plugin::diagnostics::DiagnosticsProvider;
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::{offset, position};
-use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Range, Severity, register_plugin};
-use spring_text::index::{Index, Indexes, PROVIDER_BUDGET};
+use openidea_plugin::{host, Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, register_plugin};
+use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
+use std::cell::RefCell;
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
+use std::rc::Rc;
 use spring_text::java::{self, Annotation, Arg, JavaFile, Member, Str};
+use spring_text::text::balanced;
 use spring_text::{SOURCE_GLOBS, parse_source, range};
 
 mod actions;
@@ -242,33 +247,7 @@ fn source_model(path: &str, text: &str) -> Option<JavaFile> {
     if text.len() > 128 << 10 {
         return None;
     }
-    let mut stack = Vec::new();
-    for token in java::tokens(text) {
-        let s = token.s;
-        if s.starts_with('"') || s.starts_with('\'') {
-            let quote = if s.starts_with("\"\"\"") { 3 } else { 1 };
-            if s.len() < 2 * quote || s.as_bytes().first() != s.as_bytes().last() {
-                return None;
-            }
-            continue;
-        }
-        match s {
-            "(" | "[" | "{" => stack.push(s),
-            ")" | "]" | "}" => {
-                if stack.pop()
-                    != Some(match s {
-                        ")" => "(",
-                        "]" => "[",
-                        _ => "{",
-                    })
-                {
-                    return None;
-                }
-            }
-            _ => {}
-        }
-    }
-    if !stack.is_empty() {
+    if !balanced(text, path.ends_with(".kt")) {
         return None;
     }
     let file = parse_source(path, text);
@@ -316,13 +295,48 @@ enum Inherited {
     Unknown,
 }
 
+/// Declared classes by qualified name, with the file declaring each.
+type ClassMap = HashMap<String, Vec<(String, ClassInfo)>>;
+
+struct Derived {
+    classes: ClassMap,
+    inherited: Vec<(String, String, Command)>,
+}
+
+thread_local! {
+    static DERIVED: RefCell<Option<((u64, u64), Rc<Derived>)>> = const { RefCell::new(None) };
+}
+
+/// What every project-wide lookup derives from the index, built once per
+/// index generation.
+fn derived(index: &Index<Shell>) -> Rc<Derived> {
+    let key = (index.id(), index.generation());
+    if let Some(found) = DERIVED.with(|cell| cell.borrow().as_ref().filter(|(k, _)| *k == key).map(|(_, d)| d.clone())) {
+        return found;
+    }
+    let mut classes = ClassMap::new();
+    for (path, shell) in index.iter() {
+        for class in &shell.classes {
+            classes.entry(class.qualified.clone()).or_default().push((path.to_owned(), class.clone()));
+        }
+    }
+    let inherited = index.iter().flat_map(|(p, s)| inherited_in(index, &classes, p, &s.classes, &s.commands)).collect();
+    let built = Rc::new(Derived { classes, inherited });
+    DERIVED.with(|cell| *cell.borrow_mut() = Some((key, built.clone())));
+    built
+}
+
 /// Project-declared superclass chain of `start`, nearest first, and whether it
 /// ends literally at `Object`. Anything not declared once as a class in the
 /// project ends the walk as incomplete.
 fn walk(index: &Index<Shell>, path: &str, local: &[ClassInfo], start: &ClassInfo) -> (Vec<(String, ClassInfo)>, bool) {
+    walk_in(&derived(index).classes, path, local, start)
+}
+
+fn walk_in(classes: &ClassMap, path: &str, local: &[ClassInfo], start: &ClassInfo) -> (Vec<(String, ClassInfo)>, bool) {
     let declared = |qualified: &str| -> Vec<(String, &ClassInfo)> {
-        let others = index.iter().filter(|(p, _)| *p != path).flat_map(|(p, s)| s.classes.iter().map(move |c| (p.to_owned(), c)));
-        others.chain(local.iter().map(|c| (path.to_owned(), c))).filter(|(_, c)| c.qualified == qualified).collect()
+        let others = classes.get(qualified).into_iter().flatten().filter(|(p, _)| p != path).map(|(p, c)| (p.clone(), c));
+        others.chain(local.iter().filter(|c| c.qualified == qualified).map(|c| (path.to_owned(), c))).collect()
     };
     let mut chain = Vec::new();
     let mut next = start.base.clone();
@@ -366,9 +380,13 @@ fn inherited_indicator(doc: &Document, f: &JavaFile, index: &Index<Shell>, class
 /// (`method.getDeclaringClass()`), so nothing about the group changes.
 /// Methods redeclared nearer in the chain are skipped.
 fn inherited_commands(index: &Index<Shell>, path: &str, classes: &[ClassInfo], own: &[Command]) -> Vec<(String, String, Command)> {
+    inherited_in(index, &derived(index).classes, path, classes, own)
+}
+
+fn inherited_in(index: &Index<Shell>, map: &ClassMap, path: &str, classes: &[ClassInfo], own: &[Command]) -> Vec<(String, String, Command)> {
     let mut out = Vec::new();
     for class in classes.iter().filter(|c| c.component && c.kind == "class") {
-        let (chain, complete) = walk(index, path, classes, class);
+        let (chain, complete) = walk_in(map, path, classes, class);
         if !complete {
             continue;
         }
@@ -388,8 +406,19 @@ fn inherited_commands(index: &Index<Shell>, path: &str, classes: &[ClassInfo], o
     out
 }
 
-fn all_inherited(index: &Index<Shell>) -> Vec<(String, String, Command)> {
-    index.iter().flat_map(|(p, s)| inherited_commands(index, p, &s.classes, &s.commands)).collect()
+fn all_inherited(index: &Index<Shell>) -> Rc<Derived> {
+    derived(index)
+}
+
+/// Every file parsed, none cut short, and nothing left unread: only then does
+/// a missing command or class prove anything.
+fn trustworthy(index: &Index<Shell>) -> bool {
+    index.complete() && !index.scanning() && index.iter().all(|(_, shell)| !shell.incomplete)
+}
+
+/// Whether an indexed class (other than `qualified` itself) extends it.
+fn extended(index: &Index<Shell>, qualified: &str) -> bool {
+    index.iter().any(|(_, shell)| shell.classes.iter().any(|c| c.base == Base::Named(qualified.to_owned())))
 }
 
 fn all_commands(index: &Index<Shell>) -> impl Iterator<Item = (&str, &Command)> {
@@ -422,7 +451,8 @@ fn problem(range: Range, severity: Severity, code: &str, message: String) -> Dia
 /// unrelated class's equal command name is not an availability target.
 fn named(index: &Index<Shell>, class: &str, key: &str) -> Vec<(String, Command)> {
     let own = all_commands(index).map(|(p, c)| (p.to_owned(), c.clone()));
-    let inherited = all_inherited(index).into_iter().map(|(_, declaring, c)| (declaring, c));
+    let derived = all_inherited(index);
+    let inherited = derived.inherited.iter().cloned().map(|(_, declaring, c)| (declaring, c));
     own.chain(inherited).filter(|(_, c)| c.class == class && c.key == key).collect()
 }
 
@@ -457,7 +487,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
     let local_inherited = inherited_commands(index, &doc.path, &local_infos, &mine);
     if !local_inherited.is_empty() {
         let siblings: Vec<_> = if index.fresh() {
-            all_inherited(index).into_iter().filter(|(owner, _, _)| *owner != doc.path).collect()
+            all_inherited(index).inherited.iter().filter(|(owner, _, _)| *owner != doc.path).cloned().collect()
         } else {
             Vec::new()
         };
@@ -547,7 +577,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
                             tooltip: format!("Availability method: {}() (inherited)", s.value),
                             target: Some(Location { path, range }),
                         }),
-                        Inherited::Missing if index.fresh() && !matches!(s.value.as_str(), "getClass" | "hashCode" | "toString" | "clone" | "finalize" | "wait" | "notify" | "notifyAll") => problems.push(problem(
+                        Inherited::Missing if index.fresh() && trustworthy(index) && !matches!(s.value.as_str(), "getClass" | "hashCode" | "toString" | "clone" | "finalize" | "wait" | "notify" | "notifyAll") => problems.push(problem(
                             rules::literal_range(text, s),
                             Severity::Warning,
                             "availability-method-reference",
@@ -567,7 +597,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
             }
         }
     }
-    problems.extend(rules::check(doc, f));
+    problems.extend(rules::check(doc, f, &|qualified| extended(index, qualified)));
     (problems, markers)
 }
 
@@ -697,7 +727,8 @@ impl Providers for ShellTools {
         let mut out: Vec<CompletionItem> = match (a.name.as_str(), arg.name.as_str()) {
             ("ShellMethodAvailability", "value") => {
                 let class = class_at(&f, offset);
-                let inherited = all_inherited(index).into_iter().map(|(_, _, c)| c);
+                let derived = all_inherited(index);
+                let inherited = derived.inherited.iter().cloned().map(|(_, _, c)| c);
                 let mut out: Vec<_> = all_commands(index).map(|(_, c)| c.clone()).chain(inherited)
                     .filter(|c| c.class == class)
                     .map(|c| {
@@ -723,6 +754,16 @@ impl Providers for ShellTools {
 }
 
 impl Plugin for ShellTools {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        let _ = host::subscribe_paths("files-changed", SOURCE_GLOBS);
+        let _ = host::subscribe(EventKind::FileSaved);
+        Ok(())
+    }
+
+    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        self.indexes.on_events(events, Instant::now() + Duration::from_secs(3));
+    }
+
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "command-occurrences" { return if let Some(arg)=arg{self.native_occurrences(ctx,arg)}else{command_rename::occurrences(ctx,None)}; }
         Err(Error::NotFound(format!("command {id}")))
@@ -847,6 +888,37 @@ class KtConfig {
     fun ktConnected(): AvailabilityProvider = AvailabilityProvider { Availability.available() }
 }
 "#;
+
+    #[test]
+    fn abstract_base_no_missing_component() {
+        let host = setup();
+        let mut tools = ShellTools::default();
+        let imports = "import org.springframework.shell.standard.ShellMethod;";
+        let abstract_base = format!("{imports} abstract class Base {{ @ShellMethod(\"Run\") void run(){{}} }}");
+        let codes = |tools: &mut ShellTools, text: &str| tools.diagnostics(&doc("Base.java", text)).into_iter().filter_map(|d| d.code).collect::<Vec<_>>();
+        assert!(!codes(&mut tools, &abstract_base).contains(&"missing-shell-component".into()));
+        let concrete = abstract_base.replace("abstract ", "");
+        assert!(codes(&mut tools, &concrete).contains(&"missing-shell-component".into()));
+        host.add_file("src/main/java/com/acme/cli/Child.java", "package com.acme.cli; import org.springframework.shell.standard.ShellComponent; @ShellComponent class Child extends Base {}");
+        let package = "package com.acme.cli; ";
+        let mut tools = ShellTools::default();
+        tools.line_markers(&doc("Child.java", "package com.acme.cli; import org.springframework.shell.standard.ShellComponent; @ShellComponent class Child extends Base {}"));
+        let base = format!("{package}{concrete}");
+        assert!(!codes(&mut tools, &base).contains(&"missing-shell-component".into()));
+    }
+
+    #[test]
+    fn deleted_file_drops_duplicate_command() {
+        let host = setup();
+        let mut tools = ShellTools::default();
+        let d = doc("UserCommands.java", LEGACY);
+        tools.line_markers(&d);
+        let duplicates = |tools: &mut ShellTools| tools.diagnostics(&d).into_iter().filter(|d| d.code.as_deref() == Some("duplicate-command")).count();
+        assert_eq!(duplicates(&mut tools), 1);
+        let gone = "/project/src/main/java/com/acme/cli/Other.java".to_owned();
+        tools.handle_events(&[openidea_plugin::Event::FilesChanged(openidea_plugin::FilesChanged { removed: vec![gone], ..Default::default() })], &host.invocation());
+        assert_eq!(duplicates(&mut tools), 0);
+    }
 
     #[test]
     fn diagnostics_skip_oversized_or_other_document_types() {
