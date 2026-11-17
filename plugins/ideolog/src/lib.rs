@@ -38,6 +38,7 @@ pub struct Ideolog {
     tail: live_tail::LiveTail,
     /// The `customPatterns` setting it was built from, and the config.
     config: Option<(String, Rc<Config>)>,
+    editor_denied: bool,
 }
 
 impl Ideolog {
@@ -84,24 +85,8 @@ fn refresh_changed_patterns(before: &str) {
     }
 }
 
-impl Plugin for Ideolog {
-    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
-        // Compile bounded stored regex configuration outside editor requests.
-        self.config();
-        Ok(())
-    }
-    fn deactivate(&mut self) {
-        self.stop_tail();
-        let _ = host::clear_decorations(semantic::DECORATION_SET);
-    }
-    fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
-        if !events.is_empty() { self.tail_lifecycle(ctx); self.invalidate_jvm_tokens(); let _ = host::clear_decorations(semantic::DECORATION_SET); }
-        if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
-            self.show_format(ctx);
-        }
-    }
-
-    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+impl Ideolog {
+    fn run_log_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "extend-log-selection" { self.extend_log_selection(ctx)?; return Ok(None); }
         if id == "live-tail" { ui_kit::web::reveal_view(live_tail::VIEW, include_str!("ui_config.json"))?; return Ok(None); }
         if id == "stop-tail" { self.stop_tail(); return Ok(None); }
@@ -124,7 +109,9 @@ impl Plugin for Ideolog {
             return Ok(None);
         }
 
-        let editor = ctx.editor().ok_or("No file is open.")?;
+        let Some(editor) = ctx.editor() else {
+            return Err(if self.editor_denied { Error::Denied("editor.read".into()) } else { Error::Invalid("No file is open.".into()) });
+        };
         if !matches!(editor.language().as_str(), "ideolog" | "log") {
             return Err("Not a log file.".into());
         }
@@ -157,6 +144,35 @@ impl Plugin for Ideolog {
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
+}
+
+impl Plugin for Ideolog {
+    fn activate(&mut self, ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        self.editor_denied = !ctx.has("editor.read");
+        // Compile bounded stored regex configuration outside editor requests.
+        self.config();
+        Ok(())
+    }
+    fn deactivate(&mut self) {
+        self.stop_tail();
+        let _ = host::clear_decorations(semantic::DECORATION_SET);
+    }
+    fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
+        if !events.is_empty() { self.tail_lifecycle(ctx); self.invalidate_jvm_tokens(); let _ = host::clear_decorations(semantic::DECORATION_SET); }
+        if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
+            self.show_format(ctx);
+        }
+    }
+
+    fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        let result = self.run_log_command(id, ctx, arg);
+        if !self.editor_denied {
+            return result;
+        }
+
+        result.map_err(|e| ui_kit::denied::map(e, "Log file commands", "editor.read", "Ideolog"))
+    }
+
 }
 
 impl SyntaxProvider for Ideolog {
@@ -721,6 +737,26 @@ java.lang.IllegalStateException: boom
         host.set_setting(CUSTOM_PATTERNS, &format!("{xml:?}"));
         let tokens = Ideolog::default().highlights("ideolog", IDEA);
         assert!(tokens.iter().any(|t| &IDEA[t.range.clone()] == "DEBUG" && t.kind == Highlight::Comment));
+    }
+
+    #[test]
+    fn log_commands_denied_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        open_log(&host, 0, 0);
+        let mut plugin = Ideolog::default();
+        plugin.activate(&host.context("aritti.ideolog")).unwrap();
+        let error = plugin.run_command("next-error", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains("needs the editor.read permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Ideolog"), "{error}");
+    }
+
+    #[test]
+    fn log_commands_without_an_editor_still_say_no_file_is_open() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read"]);
+        let mut plugin = Ideolog::default();
+        plugin.activate(&host.context("aritti.ideolog")).unwrap();
+        let error = plugin.run_command("next-error", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains("No file is open."), "{error}");
     }
 
     #[test]

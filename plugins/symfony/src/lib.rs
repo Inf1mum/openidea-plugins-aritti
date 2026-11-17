@@ -16,6 +16,8 @@ mod hover;
 mod ownership;
 mod intentions;
 mod make_commands;
+
+const PHP_DENIED: &str = "Running PHP needs the process:php permission. Allow it in Settings › Plugins › Symfony, and make sure php is on your PATH.";
 mod mcp;
 mod live;
 mod namespace_paths;
@@ -1254,7 +1256,7 @@ impl Main {
 
         let output = match project.run_process("php", &args, None) {
             Err(Error::Denied(_)) => {
-                return Err("Allow the process:php capability in Settings › Plugins.".into());
+                return Err(PHP_DENIED.into());
             }
             result => result?,
         };
@@ -1314,7 +1316,7 @@ impl Main {
         let mut args = vec!["bin/console".to_owned(), name.clone()];
         args.extend(arguments.split_whitespace().map(str::to_owned));
         match host::open_terminal(&format!("console {name}"), "php", &args) {
-            Err(Error::Denied(_)) => Err("Allow the process:php capability in Settings › Plugins.".into()),
+            Err(Error::Denied(_)) => Err(PHP_DENIED.into()),
             result => result.map(|()| None),
         }
     }
@@ -3223,6 +3225,39 @@ mod tests {
         host.add_file("src/Form/PostType.php", "<?php\nnamespace App\\Form;\n\nclass PostType\n{\n    function f($builder) { $builder->add('title')->add('body', TextareaType::class); }\n}\n");
         plugin.index_all();
         (host, plugin)
+    }
+
+    fn assert_names_php_permission(error: &str) {
+        assert!(error.contains("needs the process:php permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Symfony"), "{error}");
+        assert!(error.contains("php is on your PATH"), "{error}");
+    }
+
+    #[test]
+    fn console_command_denied_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read", "events"]);
+        let mut plugin = activated(&host);
+        let error = plugin.run_command("cache-clear", &host.invocation(), None).unwrap_err().to_string();
+        assert_names_php_permission(&error);
+    }
+
+    #[test]
+    fn console_terminal_denied_names_permission() {
+        let (host, mut plugin) = console_host();
+        host.answer_next_prompt(Some(&["app:sync"]));
+        host.answer_next_prompt(Some(&[""]));
+        let host = host.with_capabilities(&["project.read", "events"]);
+        let error = plugin.run_command("run-console-command", &host.invocation(), None).unwrap_err().to_string();
+        assert_names_php_permission(&error);
+    }
+
+    #[test]
+    fn make_terminal_denied_names_permission() {
+        let (host, mut plugin) = generator_host(&["project.read"]);
+        host.answer_next_prompt(Some(&["form"]));
+        host.answer_next_prompt(Some(&[""]));
+        let error = plugin.run_command("make", &host.invocation(), None).unwrap_err().to_string();
+        assert_names_php_permission(&error);
     }
 
     #[test]

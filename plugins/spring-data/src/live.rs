@@ -5,7 +5,11 @@ use openidea_plugin::hover::{Hover, HoverProvider};
 use openidea_plugin::inlay_hints::{InlayHint, InlayHints};
 use openidea_plugin::{Event, EventKind};
 use spring_text::index::project_of;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+// ponytail: once per instance, re-shown after idle reclaim
+static EVENTS_NOTICE: AtomicBool = AtomicBool::new(false);
 const MAX_TEXT: usize = 128 << 10;
 #[derive(Clone)]
 pub(super) struct Source {
@@ -191,7 +195,13 @@ impl DataTools {
 
     pub(crate) fn activate_live(&mut self) {
         self.live.watching = host::subscribe_paths("files-changed", SOURCE_GLOBS).is_ok();
-        let _ = host::subscribe(EventKind::FileOpened);
+        if matches!(host::subscribe(EventKind::FileOpened), Err(Error::Denied(_))) && !EVENTS_NOTICE.swap(true, Ordering::Relaxed) {
+            host::notify(
+                NotificationLevel::Info,
+                "Spring Data Tools",
+                "Live checking needs the events permission. Allow it in Settings › Plugins › Spring Data Tools.",
+            );
+        }
         let _ = host::subscribe(EventKind::FileSaved);
         let deadline = Instant::now() + Duration::from_secs(3);
         for project in host::projects().unwrap_or_default() {
@@ -655,6 +665,15 @@ mod tests {
     fn names(tools: &mut DataTools, d: &Document) -> Vec<String> {
         let at = d.text.find("findBy").unwrap() + "findBy".len();
         tools.completion(d, openidea_plugin::text::position(&d.text, at), None).into_iter().map(|c| c.label).collect()
+    }
+    #[test]
+    fn live_checks_notice_shown_once() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        DataTools::default().activate_live();
+        DataTools::default().activate_live();
+        let notices: Vec<_> = host.notifications().into_iter().filter(|n| n.body.contains("needs the events permission")).collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].body.contains("Settings › Plugins › Spring Data Tools"));
     }
     #[test]
     fn newly_opened_nested_project_cannot_supply_outer_cached_positive_facts() {

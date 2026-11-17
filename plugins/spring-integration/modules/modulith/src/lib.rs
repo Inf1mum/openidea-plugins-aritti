@@ -732,7 +732,7 @@ impl Plugin for ModulithTools {
             Err(Error::Denied(_)) => host::notify(
                 NotificationLevel::Warning,
                 TITLE,
-                "Allow the clipboard for Spring Modulith Tools in Settings › Plugins to copy the module diagram.",
+                &ui_kit::denied::message("Copying the module diagram", "clipboard", "Spring Structure Tools"),
             ),
             Err(e) => return Err(e),
         }
@@ -1133,6 +1133,15 @@ class Box<OrderRepository extends Object> { OrderRepository value; }
     }
 
     #[test]
+    fn copy_module_diagram_denied_names_permission() {
+        let denied = MockHost::install().with_capabilities(&["project.read"]);
+        denied.add_file("src/main/java/com/acme/Application.java", "package com.acme;\n@SpringBootApplication\nclass Application {}\n");
+        denied.add_file("src/main/java/com/acme/order/Order.java", "package com.acme.order;\nclass Order {}\n");
+        ModulithTools::default().run_command(&id(COPY_DOCS), &denied.invocation(), None).unwrap();
+        assert!(denied.notifications().iter().any(|n| n.body.contains("needs the clipboard permission") && n.body.contains("Settings › Plugins › Spring Structure Tools")));
+    }
+
+    #[test]
     fn modulith_plantuml_text_lists_modules_and_dependencies() {
         let host = setup();
         let mut tools = ModulithTools::default();
@@ -1144,7 +1153,7 @@ class Box<OrderRepository extends Object> { OrderRepository value; }
         denied.add_file("src/main/java/com/acme/order/Order.java", "package com.acme.order;\nclass Order {}\n");
         ModulithTools::default().run_command(&id(COPY_DOCS), &denied.invocation(), None).unwrap();
         assert_eq!(denied.clipboard(), None);
-        assert!(denied.notifications().iter().any(|n| n.body.contains("Allow the clipboard")));
+        assert!(denied.notifications().iter().any(|n| n.body.contains("needs the clipboard permission") && n.body.contains("Settings › Plugins › Spring Structure Tools")));
     }
 
     const PLANTUML: &str = "@startuml

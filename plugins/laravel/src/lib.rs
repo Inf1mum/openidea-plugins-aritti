@@ -796,7 +796,7 @@ impl Main {
 
         let output = match project.run_process("php", &args, None) {
             Err(Error::Denied(_)) => {
-                return Err(crate::ui_text::text("native.lib.a4c063bde3", "Allow the process:php capability in Settings › Plugins.").into());
+                return Err("Running PHP needs the process:php permission. Allow it in Settings › Plugins › Laravel, and make sure php is on your PATH.".into());
             }
             result => result?,
         };

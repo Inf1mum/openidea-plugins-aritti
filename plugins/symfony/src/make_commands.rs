@@ -59,7 +59,7 @@ impl Main {
         let mut args = vec!["bin/console".to_owned(), format!("make:{maker}")];
         args.extend(arguments.split_whitespace().map(str::to_owned));
         match host::open_terminal(&format!("make:{maker}"), "php", &args) {
-            Err(Error::Denied(_)) => Err("Allow the process:php capability in Settings › Plugins.".into()),
+            Err(Error::Denied(_)) => Err(crate::PHP_DENIED.into()),
             result => result.map(|()| None),
         }
     }

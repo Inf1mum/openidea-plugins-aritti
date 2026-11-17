@@ -38,7 +38,7 @@ impl GitLab {
             "Working repository: {}\nTarget: {repository}\nMerge request: !{iid}\nSource project ID: {}{}\nSource branch: {}\nReviewed head: {}\nLocal branch: {branch}\n\nRun official glab1.130.0 mr checkout with its independently configured credentials and Git transports. It fetches the MR source (including forks), may add/update remote tracking and local branch configuration, and switches the current working tree. No --force is used. Existing branch conflicts are delegated to glab/Git. This is a source-branch checkout, not a head-pinned snapshot: a server change after review can be fetched. Inspect terminal output and the resulting commit before review. Stop the native terminal to cancel; cancellation may leave fetched refs/configuration. CLI host overrides/hooks/configuration remain effective.",
             repo.status.root, proof.0, if proof.0 != proof.1 { " (fork)" } else { "" }, proof.2, proof.3))? { return Ok(None); }
         let project = ctx.project().ok_or(Error::Stale)?;
-        let probe = project.run_process("glab", &["version".into()], None)?;
+        let probe = project.run_process("glab", &["version".into()], None).map_err(|e| ui_kit::denied::map(e, "Fork checkout", "process:glab", "GitLab"))?;
         let version = probe.stdout.lines().next().and_then(|s|s.strip_prefix("glab ")).and_then(|s|s.split_whitespace().next());
         if probe.status != Some(0) || probe.stdout.len() > 4096 || version != Some("1.130.0") {
             return Err("This checkout profile is qualified for official glab1.130.0. Approve/install that version and authenticate it separately.".into());

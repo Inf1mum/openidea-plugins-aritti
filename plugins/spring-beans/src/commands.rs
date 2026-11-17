@@ -61,7 +61,7 @@ pub fn change_active_profiles(nav: &mut Navigator, ctx: &Invocation) -> Result<O
     };
     let Some(chosen) = host::pick_many(&title, &items)? else { return Ok(None) };
 
-    host::storage::set(ACTIVE_PROFILES, &chosen.join(","))?;
+    host::storage::set(ACTIVE_PROFILES, &chosen.join(",")).map_err(|e| ui_kit::denied::map(e, "Saving active Spring profiles", "storage", "Spring Beans Navigator"))?;
     let message = if chosen.is_empty() {
         "No active profile: every bean is considered.".to_owned()
     } else {

@@ -4531,6 +4531,14 @@ mod source_cli_checkout {
         assert!(writes(&h).is_empty());assert!(!git_runs(&h).iter().any(|args|args.starts_with("fetch ")||args.starts_with("checkout ")));
     }
     #[test]
+    fn fork_checkout_denied_names_permission(){
+        let h=setup();let h=h.with_capabilities(CAPS);
+        h.on_fetch(|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {ok(&MR.replace("\"source_project_id\": 5","\"source_project_id\": 9").replace("\"abc123\"",&format!("\"{SHA}\"")))}else{gitlab(r)});
+        let mut p=selected(&h);h.answer_next_prompt(Some(&["ok"]));
+        let error=p.checkout_source_cli(&h.invocation()).unwrap_err().to_string();
+        assert!(error.contains("needs the process:glab permission"),"{error}");assert!(error.contains("Settings › Plugins › GitLab"),"{error}");
+    }
+    #[test]
     fn canceled_review_never_probes_or_launches_cli(){let(h,mut p)=prepared();h.answer_next_prompt(None);p.checkout_source_cli(&h.invocation()).unwrap();assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());}
     #[test]
     fn dirty_worktree_refuses_even_version_probe(){let(h,mut p)=prepared();let mut s=status("main");s.changed_files=1;h.set_vcs_status(Some(s));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());}

@@ -881,6 +881,7 @@ fn self_invocations(text: &str, file: &JavaFile) -> Vec<Problem> {
 pub struct SecurityTools {
     actions: actions::State,
     watching: bool,
+    events_notice: std::sync::atomic::AtomicBool,
     roles: Indexes<Vec<String>>,
     beans: Indexes<Vec<String>>,
     mappings: Indexes<Vec<endpoints::Mapping>>,
@@ -891,6 +892,7 @@ impl Default for SecurityTools {
         Self {
             actions: actions::State::default(),
             watching: false,
+            events_notice: Default::default(),
             roles: Indexes::new(&["**/*.java"], roles),
             beans: Indexes::new(&beans::GLOBS, |path, text| {
                 if text.len() > 128 << 10 { Some(vec!["\0incomplete".into()]) } else { refs::bean_names(path, text) }

@@ -2496,6 +2496,16 @@ fn active_profiles_are_chosen_stored_and_narrow_duplicate_names() {
 }
 
 #[test]
+fn saving_active_profiles_denied_names_permission() {
+    let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+    host.add_file("src/main/resources/application-prod.yml", "a: b\n");
+    host.answer_next_prompt(Some(&["prod"]));
+    let error = warmed_navigator().run_command("change-active-profiles", &host.invocation(), None).unwrap_err().to_string();
+    assert!(error.contains("needs the storage permission"), "{error}");
+    assert!(error.contains("Settings › Plugins › Spring Beans Navigator"), "{error}");
+}
+
+#[test]
 fn overloads_all_carrying_the_annotation_are_self_invocations() {
     let host = MockHost::install();
     host.set_setting("springBeans.checkSelfInvocation", "true");
@@ -3270,7 +3280,7 @@ mod external_packaged_refresh_tests {
         assert!(matches!(nav.render(BEANS_VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
         host.set_project_root(Some("/project"));let host=host.with_capabilities(&["storage"]);
         let model=nav.render(BEANS_VIEW,None,&host.invocation()).unwrap();
-        assert!(matches!(model.body,Body::Message(text) if text.contains("Project identity is unavailable")));
+        assert!(matches!(model.body,Body::Message(text) if text.contains("Project identity is unavailable") && !text.contains("Allow project.read")));
     }
     #[test]
     fn closed_report_owner_is_invalidated_even_without_file_event(){

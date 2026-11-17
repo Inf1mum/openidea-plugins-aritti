@@ -576,17 +576,21 @@ pub struct SpringOsgi {
     known_roots: Option<Vec<String>>,
     generation: std::collections::BTreeMap<u64, (String, Document, u32)>,
     next_generation: u64,
+    project_notice: std::sync::atomic::AtomicBool,
 }
 
 impl Default for SpringOsgi {
     fn default() -> Self {
-        Self { indexes: Indexes::new(&["**/*.java", "**/*.xml"], parse), known_roots:None, generation: Default::default(), next_generation: 0 }
+        Self { indexes: Indexes::new(&["**/*.java", "**/*.xml"], parse), known_roots:None, generation: Default::default(), next_generation: 0, project_notice: Default::default() }
     }
 }
 
 impl SpringOsgi {
     fn source_scope(&mut self,path:&str)->ownership::Scope {
         let roots=ownership::roots();
+        if roots.is_none() && matches!(host::projects(),Err(Error::Denied(_))) {
+            ui_kit::denied::notify_once(&self.project_notice,"Service checks across files","project.read","Spring OSGi");
+        }
         if roots.is_none() || self.known_roots.as_ref().is_some_and(|old|Some(old)!=roots.as_ref()) {self.indexes.reset();}
         self.known_roots=roots.clone();
         ownership::Scope::new(roots,path)
@@ -1338,6 +1342,17 @@ public class AuditListener implements OsgiServiceLifecycleListener {
             host.refresh_diagnostics(&mut plugin);
             assert!(host.provider_diagnostics().is_empty());
         }
+    }
+
+    #[test]
+    fn service_check_notice_shown_once() {
+        let host = MockHost::install().with_capabilities(&[]);
+        let mut plugin = SpringOsgi::default();
+        plugin.diagnostics(&doc("plain.xml", "<beans/>"));
+        plugin.diagnostics(&doc("plain.xml", "<beans/>"));
+        let notices: Vec<_> = host.notifications().into_iter().filter(|n| n.body.contains("needs the project.read permission")).collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].body.contains("Settings › Plugins › Spring OSGi"));
     }
 
     #[test]

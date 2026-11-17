@@ -120,7 +120,8 @@ struct Session{root:String,profile:String,context:String,operation:Operation,chi
 pub(crate) struct Runtime{sessions:BTreeMap<u64,Session>,next:u64}
 impl Runtime {
  pub(crate) fn run_command(&mut self,id:&str,ctx:&Invocation)->Result<Option<String>,Error>{self.run_with(id,ctx,&mut Native)}
- fn run_with(&mut self,id:&str,ctx:&Invocation,launcher:&mut impl Launcher)->Result<Option<String>,Error>{
+ fn run_with(&mut self,id:&str,ctx:&Invocation,launcher:&mut impl Launcher)->Result<Option<String>,Error>{self.run_inner(id,ctx,launcher).map_err(|e|ui_kit::denied::map(e,"Spring Batch runtime","process:java","Spring Structure Tools"))}
+ fn run_inner(&mut self,id:&str,ctx:&Invocation,launcher:&mut impl Launcher)->Result<Option<String>,Error>{
   let project=ctx.project().ok_or_else(||invalid("Open the project owning the configured Batch runtime profile."))?;let root=project.root()?;
   let foreign:Vec<_>=self.sessions.iter().filter(|(_,s)|s.root!=root).map(|(id,_)|*id).collect();
   if !foreign.is_empty(){for id in &foreign{self.sessions.get(id).ok_or(Error::Stale)?.child.kill()?;self.sessions.remove(id);}return Ok(Some(format!("Project changed: ended {} previous-project owned CLI process(es) without forwarding their output here. This did not issue a Batch stop request. Retry the command for the current project.",foreign.len())));}
@@ -212,6 +213,10 @@ mod tests {
   let h=configured();let counter=std::rc::Rc::new(std::cell::Cell::new(0));let count=counter.clone();h.on_process("java",move|_,_|{count.set(count.get()+1);Ok(ProcessOutput{status:Some(0),stdout:proof("runner-5.2.6",SOURCE,&if count.get()==1{"a".repeat(64)}else{"c".repeat(64)}),stderr:String::new()})});answer(&h,"start","fixture","");assert!(matches!(Runtime::default().run_with("batch.runtime-operate",&h.invocation(),&mut Fake),Err(Error::Stale)));assert_eq!(h.process_runs().len(),2);
   let h=configured();process(&h);h.answer_next_prompt(Some(&["start"]));h.answer_next_prompt(Some(&["fixture"]));h.answer_next_prompt(Some(&[""]));h.answer_next_prompt(None);assert!(matches!(Runtime::default().run_with("batch.runtime-operate",&h.invocation(),&mut Fake),Err(Error::Cancelled)));assert_eq!(h.process_runs().len(),1);
   let h=configured();h.on_process("java",|_,_|Err(Error::Denied("process:java".into())));answer(&h,"start","fixture","");assert!(Runtime::default().run_with("batch.runtime-operate",&h.invocation(),&mut Fake).is_err());assert_eq!(h.process_runs().len(),1);
+ }
+ #[test]
+ fn spring_batch_runtime_denied_names_permission() {
+  let h=configured();h.on_process("java",|_,_|Err(Error::Denied("process:java".into())));answer(&h,"start","fixture","");let error=Runtime::default().run_with("batch.runtime-operate",&h.invocation(),&mut Fake).unwrap_err().to_string();assert!(error.contains("needs the process:java permission"),"{error}");assert!(error.contains("Settings › Plugins › Spring Structure Tools"),"{error}");
  }
  #[test]
  fn stop_acknowledgement_cancel_and_project_change_have_distinct_semantics() {

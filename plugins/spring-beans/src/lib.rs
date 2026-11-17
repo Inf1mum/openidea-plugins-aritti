@@ -1127,7 +1127,7 @@ impl Views for Navigator {
             };
             let root = match project.root() {
                 Ok(root) if !root.is_empty() => root,
-                _ => return Ok(View::message("Project identity is unavailable. Allow project.read to see this project's Spring beans.")),
+                _ => return Ok(View::message("Project identity is unavailable.")),
             };
             let section = self.sections.active();
             let mut shown = if section == REPORT_SECTION {

@@ -58,6 +58,7 @@ enum Form {
 #[derive(Default)]
 struct Tasks {
     git: bool,
+    git_notice: std::sync::atomic::AtomicBool,
     scope: view_scope::Scope,
     issue_search: search::Search,
     selected: Option<String>,
@@ -157,7 +158,7 @@ impl Plugin for Tasks {
             "apply-commit-message" => commit_message::run(&project)?,
             "copy-commit-message" => {
                 let message = tasks.commit_message(&commit_message_format())?;
-                host::copy_to_clipboard(&message)?;
+                host::copy_to_clipboard(&message).map_err(|e| ui_kit::denied::map(e, "Copy Commit Message", "clipboard", "Tasks"))?;
                 host::notify(NotificationLevel::Info, "Commit message copied", &message);
             }
             "refresh" => refresh_issues(&project, false)?,
@@ -728,6 +729,11 @@ impl Tasks {
         }
         let _progress = host::begin_task("Switching task", false);
         let git = self.git.then(|| Git::new(project));
+
+        if git.is_none() && new_task && choices.create_branch {
+            ui_kit::denied::notify_once(&self.git_notice, "Creating a branch per task", "process:git", "Tasks");
+        }
+
         let mut warnings = Vec::new();
 
         let files = update(&root, |tasks, now| {
@@ -1225,6 +1231,26 @@ mod tests {
     fn notified(host:&MockHost, after:usize) -> bool {
         host.refreshed_views()[after..].iter().any(|view| view == VIEW)
     }
+    #[test]
+    fn copy_commit_message_denied_names_permission() {
+        let (host, mut plugin) = seeded();
+        let error = plugin.run_command("copy-commit-message", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains("needs the clipboard permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Tasks"), "{error}");
+    }
+
+    #[test]
+    fn branch_per_task_notice_shown_once() {
+        let (host, plugin) = seeded();
+        update("/project", |tasks, _| { tasks.add_local("Second task", ""); tasks.add_local("Third task", ""); Ok(()) }).unwrap();
+        let project = host.invocation().project().unwrap();
+        plugin.switch_task(&project, "LOCAL-00002", true, &Choices::default()).unwrap();
+        plugin.switch_task(&project, "LOCAL-00003", true, &Choices::default()).unwrap();
+        let notices: Vec<_> = host.notifications().into_iter().filter(|n| n.body.contains("needs the process:git permission")).collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].body.contains("Settings › Plugins › Tasks"));
+    }
+
     #[test]
     fn native_primary_controls_distinguish_selection_from_active_task() {
         let (host, mut plugin) = seeded();

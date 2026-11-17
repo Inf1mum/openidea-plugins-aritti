@@ -1345,7 +1345,7 @@ impl Plugin for DataTools {
         let (doc, selections) = match (editor.document(), editor.selections()) {
             (Ok(doc), Ok(selections)) => (doc, selections),
             (Err(Error::Denied(_)), _) | (_, Err(Error::Denied(_))) => {
-                return Err("Grant the editor.read capability to show inherited members.".into());
+                return Err("Showing inherited members needs the editor.read permission. Allow it in Settings › Plugins › Spring Data Tools.".into());
             }
             (Err(error), _) | (_, Err(error)) => return Err(error),
         };
@@ -2053,6 +2053,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].code.as_deref(), Some("jdbc-shared-entity"));
         assert!(found[0].message.contains("`Line`") && found[0].message.contains("`Invoice`"));
+    }
+
+    #[test]
+    fn show_repository_members_denied_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.open_editor("/project/src/main/java/com/acme/UserRepository.java", "java", REPO, &[(2, 20, 2, 20)]);
+        let error = DataTools::default().run_command("show-repository-members", &host.invocation(), None).unwrap_err().to_string();
+        assert!(error.contains("needs the editor.read permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Spring Data Tools"), "{error}");
     }
 
     #[test]

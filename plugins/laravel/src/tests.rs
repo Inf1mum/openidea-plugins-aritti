@@ -387,6 +387,16 @@ fn runs_artisan_then_reindexes() {
 }
 
 #[test]
+fn artisan_denied_names_permission() {
+    let host = MockHost::install().with_capabilities(&["project.read", "events"]);
+    let mut plugin = activated(&host);
+    let error = plugin.run_command("cache-clear", &host.invocation(), None).unwrap_err().to_string();
+    assert!(error.contains("needs the process:php permission"), "{error}");
+    assert!(error.contains("Settings › Plugins › Laravel"), "{error}");
+    assert!(error.contains("php is on your PATH"), "{error}");
+}
+
+#[test]
 fn artisan_failure_keeps_the_cause_from_both_streams_without_terminal_formatting() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php"]);
     let mut plugin = activated(&host);

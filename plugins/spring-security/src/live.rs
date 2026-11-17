@@ -9,7 +9,9 @@ const MAX_TEXT: usize = 128 << 10;
 impl SecurityTools {
     pub(crate) fn activate_live(&mut self) {
         self.watching = host::subscribe_paths("files-changed", &beans::GLOBS).is_ok();
-        let _ = host::subscribe(EventKind::FileOpened);
+        if matches!(host::subscribe(EventKind::FileOpened), Err(Error::Denied(_))) {
+            ui_kit::denied::notify_once(&self.events_notice, "Missing-bean checks", "events", "Spring Security Tools");
+        }
         let _ = host::subscribe(EventKind::FileSaved);
         let deadline = Instant::now() + Duration::from_secs(3);
         for project in host::projects().unwrap_or_default() {
@@ -231,6 +233,16 @@ mod tests {
     fn java_doc(expression: &str) -> Document {
         Document {path:"/project/Security.java".into(),language:"java".into(),version:21,
             text:format!("import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;\r\nclass S {{Object f() {{ /* 😀 retained */ return {expression};}}}}")}
+    }
+    #[test]
+    fn missing_bean_checks_notice_shown_once() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut tools = SecurityTools::default();
+        tools.activate_live();
+        tools.activate_live();
+        let notices: Vec<_> = host.notifications().into_iter().filter(|n| n.body.contains("needs the events permission")).collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].body.contains("Settings › Plugins › Spring Security Tools"));
     }
     #[test]
     fn explicit_java_factory_hover_and_inlays_use_current_utf16_source_and_method() {
