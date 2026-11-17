@@ -15,6 +15,23 @@ mod hibernate_schema;
 mod info;
 mod naming;
 pub(crate) const PLACEHOLDER_MARKER: &str = "icons/marker-placeholder.svg";
+pub(crate) const TABLE_MARKER: &str = "icons/marker-table.svg";
+/// Markers one gutter button lists at most; the IDE merges a line's same-icon markers into one chooser.
+const MAX_LINE_TARGETS: usize = 200;
+
+/// One marker per target on `line`, all with `icon`: one target jumps, several open the chooser.
+pub(crate) fn line_markers(line: u32, icon: &str, tooltip: &str, targets: Vec<openidea_plugin::Location>) -> Vec<openidea_plugin::providers::LineMarker> {
+    let targets: Vec<_> = targets.into_iter().filter(|target| target.range.start != target.range.end).collect();
+    let tooltip = match targets.len() > MAX_LINE_TARGETS {
+        true => format!("{tooltip} (first {MAX_LINE_TARGETS} of {})", targets.len()),
+        false => tooltip.to_owned(),
+    };
+    targets
+        .into_iter()
+        .take(MAX_LINE_TARGETS)
+        .map(|target| openidea_plugin::providers::LineMarker { line, icon: Some(icon.into()), tooltip: tooltip.clone(), target: Some(target) })
+        .collect()
+}
 
 mod navigation;
 mod table_navigation;
@@ -1319,7 +1336,7 @@ mod marker_icon_guard {
     #[test]
     fn marker_icons_are_declared_in_the_manifest() {
         let manifest = include_str!("../plugin.toml");
-        for icon in [crate::PLACEHOLDER_MARKER] {
+        for icon in [crate::PLACEHOLDER_MARKER, crate::TABLE_MARKER] {
             assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
             assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
         }

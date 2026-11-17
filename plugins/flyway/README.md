@@ -74,7 +74,7 @@ The **New** menu offers **Flyway SQL Migration**, **Flyway Java Migration**, **F
 - The class is named after the file (`V2__Add_users`), so name the file first.
 - Take the version from **Flyway: Copy Next Migration Version**.
 - Java and Kotlin templates have no `package` line.
-- `V*__*.sql`, `U*__*.sql` and `R__*.sql` files get the Flyway icon. Placeholders get their own gutter marker.
+- `V*__*.sql`, `U*__*.sql` and `R__*.sql` files get the Flyway icon. Every placeholder on a line gets its own gutter marker; with several, the marker opens a list to pick from.
 
 ### Run Flyway commands
 
@@ -126,6 +126,7 @@ When the project has a Flyway config file (`flyway.toml` or `flyway.conf`), the 
 - **Placeholders:** Go to Definition on `${name}` in SQL jumps to where the placeholder is declared in `flyway.conf` or `flyway.toml`. Names match case-insensitively, as Flyway does. Values and credentials are never shown.
 - **Tables:** in migration SQL, table names after `FROM`, `JOIN`, `UPDATE`, `INSERT INTO`, `ALTER/DROP/TRUNCATE TABLE` and `REFERENCES` jump to the `CREATE TABLE` in your migrations.
 - **Entities:** when a JPA `@Entity` maps to that table, the entity class is offered too. This covers Java and Kotlin classes with `@Table`, and `orm.xml` / `persistence.xml` mapping files.
+- **Table gutter icon:** a line with table references gets a table icon listing the same targets: the `CREATE TABLE` migrations and the mapped entities. Click it to pick one; with a single target it opens right away.
 
 ### Review a Flyway comparison report
 
@@ -270,6 +271,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 - Schema-qualified names match exactly. Quoted identifiers (double quote, backtick, bracket) with doubled-delimiter escapes and per-dialect case folding are supported. The dialect comes only from an explicit datasource or a Flyway JDBC URL or driver; otherwise quoted names stay unresolved.
 - Declarations, comments and string literals don't link. Malformed or oversized sources are withheld.
 - Entities: literal Jakarta/javax `@Entity` + `@Table(name=…, schema=…)`, and literal `orm.xml` / `persistence.xml` mapping-file names. Kotlin named-argument classes and same-file constants are covered under the Spring Boot gate.
+- Gutter icons use the same cache as Go to Definition, one marker per target on the line, at most 200 per line (the tooltip says how many were left out). A cold or expired cache gives no icon; open, save or **Flyway: Check Migrations** warms it.
 - This is not runtime introspection or a Rename graph. The former document-index graph (table/JPA interchangeability, automatic indexed Rename and usages) is deliberately withheld.
 
 ### Comparison review

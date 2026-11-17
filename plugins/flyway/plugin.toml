@@ -5,7 +5,7 @@ description = "Flyway database migrations in OpenIDEA. Checks migration file nam
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Migration files show their Info state in the project tree, the status bar shows the target database, background runs offer Refresh Info, and Prepare opens the newest migration; run confirmations lead with the effect and target database, and a blocked runner permission shows how to allow it; the migration browser lists local migrations and their problems before Info runs and shows a finished Info right away; table names link to Kotlin and Java entities, long Hibernate schema runs show progress, and Start comparison works with an installed Flyway CLI; projects without Flyway are not scanned, hidden secrets no longer garble output, and placeholder markers have their own icon. \
+Next release: Migration files show their Info state in the project tree, the status bar shows the target database, background runs offer Refresh Info, and Prepare opens the newest migration; run confirmations lead with the effect and target database, and a blocked runner permission shows how to allow it; the migration browser lists local migrations and their problems before Info runs and shows a finished Info right away; table names link to Kotlin and Java entities and get a gutter icon listing their CREATE TABLE migrations and entities, long Hibernate schema runs show progress, and Start comparison works with an installed Flyway CLI; projects without Flyway are not scanned, hidden secrets no longer garble output, and placeholder markers have their own icon and cover every placeholder on a line. \
 0.3.0: Kotlin table mappings, configured placeholder delimiters and a consolidated window. \
 0.2.0: plugin icon and expanded migration checks."""
 categories = ["frameworks", "linters"]
@@ -160,3 +160,7 @@ path = "templates/hibernate7-profile.json"
 [[contributes.markerIcons]]
 id = "placeholder"
 icon = "icons/marker-placeholder.svg"
+
+[[contributes.markerIcons]]
+id = "table"
+icon = "icons/marker-table.svg"
