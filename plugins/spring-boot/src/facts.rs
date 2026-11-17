@@ -247,8 +247,13 @@ impl Summary {
         if crate::meta::library_type(last) {
             return None;
         }
+        // A package-qualified name (`org.vendor.Mode`) falls back only to the project enum it names;
+        // `Outer.Mode` (a nested type) may still mean the unique project `Mode`.
+        let package_qualified = ty != last && ty.starts_with(char::is_lowercase);
         match self.project.get(last)?.as_slice() {
-            [(_, values)] => Some(values).filter(|v| !v.is_empty()),
+            [(qualified, values)] if !package_qualified || qualified.ends_with(&format!(".{ty}")) => {
+                Some(values).filter(|v| !v.is_empty())
+            }
             _ => None,
         }
     }
@@ -298,5 +303,12 @@ mod tests {
         assert_eq!(twice.accepts("com.acme.Mode", "only"), Some(true));
         assert_eq!(twice.accepts("other.Mode", "x"), Some(true));
         assert_eq!(twice.accepts("other.Mode", "only"), Some(false));
+    }
+    #[test]
+    fn qualified_type_without_exact_match_skips_simple_name_fallback() {
+        let facts = read("A.java", "package com.acme;\nenum Mode { ONLY }\n").unwrap();
+        let summary = Summary::merge([&facts].into_iter(), true);
+        assert_eq!(summary.accepts("org.vendor.Mode", "anything"), None);
+        assert_eq!(summary.accepts("acme.Mode", "only"), Some(true));
     }
 }
