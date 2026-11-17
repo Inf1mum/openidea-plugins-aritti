@@ -1,4 +1,4 @@
-//! Finite, instance-owned commands. Never execute from render or replay a log tab.
+//! Finite, instance-owned commands. Never execute from render or replay a log tab; render only polls an owned child.
 use crate::*;
 use openidea_plugin::host::{Child, Chunk, Command};
 use openidea_plugin::views::{Field, FieldValue};
@@ -8,58 +8,100 @@ const MAX_OUTPUT: usize = 16 << 10;
 const MAX_INFO: usize = 1 << 20;
 #[derive(Clone, Default)]
 pub(crate) struct Redactor {
-    literals: Vec<String>,
+    /// Secret values, longest first; `true` means whole-token matching only.
+    literals: Vec<(String, bool)>,
     suppress: bool,
 }
-fn sensitive(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    [
-        "password",
-        "passwd",
-        "passphrase",
-        "secret",
-        "token",
-        "credential",
-        "authorization",
-        "username",
-        "user",
-        "url",
-        "privatekey",
-        "accesskey",
-    ]
-    .iter()
-    .any(|word| key.contains(word))
+#[derive(Clone, Copy, PartialEq)]
+enum Secret {
+    /// Password-like: hidden as a plain substring from 2 characters, a whole token below.
+    Always,
+    /// Connection URL: plain substring, and its `user:pass@` userinfo is split out.
+    Url,
+    /// User names and token-like settings: skipped under 4 characters, whole tokens under 8.
+    Name,
+}
+/// Credential keys. `user` counts in Flyway config, under a datasource/Flyway key, or as an
+/// undotted leaf whose parent is unknown (YAML); `app.user` is not a credential.
+fn secret(key: &str, flyway: bool) -> Option<Secret> {
+    let key = key.trim().to_ascii_lowercase();
+    if ["password", "passwd", "passphrase", "secret", "credential", "privatekey", "accesskey", "authorization", "licensekey"].iter().any(|word| key.contains(word)) {
+        return Some(Secret::Always);
+    }
+    if key.contains("url") {
+        return Some(Secret::Url);
+    }
+    let user = key.contains("user") && (flyway || key.contains("flyway") || key.contains("datasource") || !key.contains('.'));
+    (user || key.contains("token")).then_some(Secret::Name)
+}
+fn word(ch: Option<char>) -> bool {
+    ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+}
+/// Masks `scheme://user:pass@` userinfo wherever it appears.
+fn mask_userinfo(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let end = tail.find(|ch: char| ch == '/' || ch.is_whitespace()).unwrap_or(tail.len());
+        match tail[..end].rfind('@') {
+            Some(userinfo) if userinfo > 0 => {
+                out.push_str("[redacted]");
+                rest = &tail[userinfo..];
+            }
+            _ => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
 }
 impl Redactor {
-    fn add(&mut self, value: &str) {
+    fn add(&mut self, value: &str, kind: Secret) {
         let value = value.trim().trim_matches(['\'', '"']);
-        if value.is_empty() {
+        if kind == Secret::Url {
+            if let Some((_, tail)) = value.split_once("://") {
+                let authority = tail.split(['/', '?', '#']).next().unwrap_or_default();
+                if let Some((userinfo, _)) = authority.rsplit_once('@') {
+                    let (user, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
+                    self.add(user, Secret::Name);
+                    self.add(password, Secret::Always);
+                }
+            }
+        }
+        let length = value.chars().count();
+        if value.is_empty() || kind == Secret::Name && length < 4 {
             return;
         }
         if value.len() > 4096 || self.literals.len() >= 128 {
             self.suppress = true;
             return;
         }
-        if !self.literals.iter().any(|existing| existing == value) {
-            self.literals.push(value.into());
-            self.literals.sort_by_key(|value| std::cmp::Reverse(value.len()));
+        // A one-character secret hidden as a substring would erase that letter everywhere.
+        let whole = kind == Secret::Name && length < 8 || length < 2;
+        match self.literals.iter_mut().find(|(existing, _)| existing == value) {
+            Some(existing) => existing.1 &= whole,
+            None => {
+                self.literals.push((value.into(), whole));
+                self.literals.sort_by_key(|(value, _)| std::cmp::Reverse(value.len()));
+            }
         }
     }
-    fn source(&mut self, text: &str) {
+    fn source(&mut self, text: &str, flyway: bool) {
         for line in text.lines() {
             // Java properties keep an inline # as value text; YAML/TOML may
             // treat it as a comment. Retain both bounded candidates instead of
             // leaking the suffix of a known properties credential.
             if let Some((key,value))=line.split_once('=').or_else(||line.split_once(':')) {
-                if sensitive(key) {
+                if let Some(kind) = secret(key, flyway) {
                     let value=value.trim();
-                    self.add(value);
+                    self.add(value, kind);
                     if value.contains('\\') || value.contains("${") || value.contains("#{") || value.starts_with(['[','{']) {self.suppress=true;}
                 }
             }
             let line = config::strip_comment(line).trim();
             if let Some((key, value)) = line.split_once('=').or_else(|| line.split_once(':')) {
-                if sensitive(key) {
+                if let Some(kind) = secret(key, flyway) {
                     let value = value.trim();
                     if value.starts_with(['|', '>'])
                         || value.starts_with("\"\"\"")
@@ -69,17 +111,26 @@ impl Redactor {
                     {
                         self.suppress = true;
                     }
-                    self.add(value);
-                    self.add(&openidea_plugin::text::unescape_json(value.trim().trim_matches('"')));
+                    self.add(value, kind);
+                    self.add(&openidea_plugin::text::unescape_json(value.trim().trim_matches('"')), kind);
                 }
             }
         }
     }
+    /// Replaces secret values (short names only as whole tokens, so `sa` leaves `sales` alone)
+    /// and any URL userinfo.
     pub fn literals(&self, text: &str) -> String {
+        let text = mask_userinfo(text);
         let mut out = String::new();
         let mut at = 0;
         while at < text.len() {
-            if let Some(literal) = self.literals.iter().find(|literal| text[at..].starts_with(literal.as_str())) {
+            let before = text[..at].chars().next_back();
+            let found = self.literals.iter().find(|(literal, whole)| {
+                text[at..].starts_with(literal.as_str())
+                    && !(*whole && word(literal.chars().next()) && word(before))
+                    && !(*whole && word(literal.chars().next_back()) && word(text[at + literal.len()..].chars().next()))
+            });
+            if let Some((literal, _)) = found {
                 out.push_str("[redacted]");
                 at += literal.len();
             } else {
@@ -221,8 +272,8 @@ fn prepare(project: &Project, goal: &str, json: bool) -> Result<Prepared, Error>
     let mut shown = Vec::new();
     for arg in &args {
         if let Some((key, value)) = arg.split_once('=') {
-            if sensitive(key) {
-                redactor.add(value);
+            if let Some(kind) = secret(key, true) {
+                redactor.add(value, kind);
             }
             shown.push(format!("{key}=<value hidden>"));
         } else if arg.starts_with('-') {
@@ -263,7 +314,7 @@ fn prepare(project: &Project, goal: &str, json: bool) -> Result<Prepared, Error>
         }
         match project.read_file(&path) {
             Ok(text) if text.len() <= 64 * 1024 => {
-                redactor.source(&text);
+                redactor.source(&text, !is_config_file(&path));
                 files.push((path.clone(), Observed::Source(text.clone())));
                 lines.push(format!("{path}: source observed (values hidden)"));
             }
@@ -450,6 +501,9 @@ impl Execution {
         ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         if managed { refresh_migrations(); }
         Ok(())
+    }
+    pub(crate) fn running(&self, root: &str) -> bool {
+        self.session.as_ref().is_some_and(|session| session.root == root && session.child.is_some())
     }
     pub(crate) fn migration_status(&self, root: &str) -> Option<String> {
         self.session.as_ref().filter(|session|session.root==root).map(|session|format!("{}: {}",session.goal,session.status))
@@ -672,6 +726,20 @@ mod tests {
         assert!(host.process_runs().is_empty());
     }
     #[test]
+    fn info_result_accepted_on_render() {
+        let host = managed();
+        let mut plugin = Flyway::default();
+        host.answer_next_prompt(Some(&["yes"]));
+        plugin.execution.start(&host.invocation(), "info", true, true).unwrap();
+        plugin.render("migrations", None, &host.invocation()).unwrap();
+        assert!(plugin.info_cache.is_none(), "still running");
+        plugin.execution.session.as_ref().unwrap().child.as_ref().unwrap().kill().unwrap();
+        plugin.render("migrations", None, &host.invocation()).unwrap();
+        assert!(plugin.execution.session.as_ref().unwrap().child.is_none());
+        assert!(plugin.info_cache.is_some(), "render polled the owned child and accepted its result");
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
     fn foreign_missing_denied_render_neither_exposes_nor_kills_another_owned_job() {
         for case in 0..3 {
             let host=managed();let mut plugin=Flyway::default();start(&mut plugin.execution,&host,false);
@@ -701,7 +769,7 @@ mod tests {
         let host=managed();let mut plugin=Flyway::default();plugin.accept_finished(&host.invocation().project().unwrap(),finished_info(&host)).unwrap();
         host.set_setting("arguments","\"-password=UNDISPLAYED_SECRET\"");
         let view=plugin.render("migrations",None,&host.invocation()).unwrap();
-        assert!(matches!(view.body,Body::Message(ref text) if text.contains("No explicit")));
+        assert!(matches!(view.body,Body::Message(ref text) if text.contains("No local Flyway migrations")));
         assert!(!format!("{view:?}").contains("UNDISPLAYED_SECRET"));
         assert!(plugin.info_cache.is_some(),"a render only withholds; it does not erase another frame's snapshot");
         assert_eq!(invalidations(&host),1);assert!(host.process_runs().is_empty());
@@ -759,7 +827,7 @@ mod tests {
         let mut plugin = Flyway::default();
         for _ in 0..2 {
             let view = plugin.render("migrations", None, &host.invocation()).unwrap();
-            assert!(matches!(view.body,Body::Message(message) if message.contains("No explicit")));
+            assert!(matches!(view.body,Body::Message(message) if message.contains("No local Flyway migrations")));
         }
         assert!(host.process_runs().is_empty());
         assert!(host.terminals().is_empty());
@@ -793,7 +861,7 @@ mod tests {
             assert!(prepared.proof != before, "new nested ownership must change the approval proof");
             assert!(prepared.redactor.suppress);
             assert!(!prepared.proof.files.iter().any(|(path, _)| path.starts_with(&format!("{nested}/"))), "foreign sources must not be accepted into the outer proof");
-            assert!(!prepared.redactor.literals.iter().any(|value| value == "nested-only-secret"));
+            assert!(!prepared.redactor.literals.iter().any(|(value, _)| value == "nested-only-secret"));
             assert!(prepared.provenance.contains("foreign/unavailable owner"));
             assert!(host.process_runs().is_empty() && host.terminals().is_empty());
         }
@@ -853,6 +921,32 @@ mod tests {
         assert!(proof.affected("/project/flyway.user.toml"));
     }
     #[test]
+    fn short_user_value_not_redacted_in_words() {
+        let host = managed();
+        host.add_file("flyway.conf", "flyway.user=sa\nflyway.password=s3cretpw\nflyway.url=jdbc:postgresql://deploy:urlpass@db/app\n");
+        host.add_file("src/main/resources/application.properties", "spring.flyway.token-validity=10\napp.user=bob-the-builder\nspring.datasource.username=dbadmin\nspring.datasource.password=ab\n");
+        let redactor = prepare(&host.invocation().project().unwrap(), "validate", false).unwrap().redactor;
+        assert_eq!(redactor.label("V10 sales report"), "V10 sales report", "user=sa and token-validity=10 are too short to redact");
+        assert_eq!(redactor.label("bob-the-builder"), "bob-the-builder", "user outside datasource/flyway is not a credential");
+        assert_eq!(redactor.label("x s3cretpw y"), "x [redacted] y");
+        assert_eq!(redactor.label("s3cretpw_old s3cretpw123 Xs3cretpw"), "[redacted]_old [redacted]123 X[redacted]", "passwords are hidden even inside words");
+        assert_eq!(redactor.label("cabinet"), "c[redacted]inet", "a password is hidden wherever it appears literally, at any length");
+        assert_eq!(redactor.label("by dbadmin. dbadmins"), "by [redacted]. dbadmins", "a short user name is hidden as a whole token only");
+        assert_eq!(redactor.label("urlpass deploy deployment"), "[redacted] [redacted] deployment", "URL userinfo: password as a substring, short user as a whole token");
+        assert_eq!(redactor.label("see https://someone:hunter2@host/x"), "see https://[redacted]@host/x");
+        let mut toml = Redactor::default();
+        toml.source("[environments.dev]\nuser = \"deployer\"\npassword = \"pw\"\ntoken = \"0123456789abcdef\"\n", true);
+        assert_eq!(toml.label("deployer pw"), "[redacted] [redacted]", "Flyway config users and short passwords stay secret");
+        assert_eq!(toml.label("x0123456789abcdefy"), "x[redacted]y", "names of 8 or more characters are plain substrings");
+        let mut one = Redactor::default();
+        one.add("p", Secret::Always);
+        assert_eq!(one.label("plan p"), "plan [redacted]", "a one-character secret is a whole token");
+        let mut license = Redactor::default();
+        license.source("flyway.licenseKey=FL01ABCDEF\n", false);
+        assert_eq!(license.label("key FL01ABCDEF"), "key [redacted]");
+    }
+
+    #[test]
     fn known_properties_secret_hash_suffix_is_not_mistaken_for_a_comment() {
         let host=managed();
         host.add_file("flyway.conf","flyway.password=prefix#privateSuffix\n");
@@ -871,8 +965,8 @@ mod tests {
     #[test]
     fn streaming_redaction_buffers_split_literals_and_suppresses_urls_controls_and_auth_lines() {
         let mut redactor = Redactor::default();
-        redactor.add("topsecret");
-        redactor.add("a");
+        redactor.add("topsecret", Secret::Always);
+        redactor.add("a", Secret::Always);
         let mut output = Output::default();
         output.push("topsec", &redactor, false);
         assert!(output.text.is_empty());
@@ -931,7 +1025,7 @@ mod tests {
         assert!(session.child.is_some(), "inventory failure is not evidence of project closure");
         assert!(session.status.contains("unavailable"));
         assert!(!session.status.contains("Project closed"));
-        let host = host.with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
+        let _host = host.with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
         execution.closed_roots();
         assert!(execution.session.as_ref().unwrap().child.is_some());
         assert!(execution.session.as_ref().unwrap().status.contains("revalidated"));
@@ -970,7 +1064,7 @@ mod tests {
         assert!(prepared.redactor.suppress);
         for value in ["${DB_PASSWORD}", "|", "\"\"\"multiline"] {
             let mut redactor = Redactor::default();
-            redactor.source(&format!("password={value}"));
+            redactor.source(&format!("password={value}"), true);
             assert!(redactor.suppress);
         }
     }

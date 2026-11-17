@@ -12,7 +12,7 @@
       "title": "Show each key's value in completion and hover",
       "default": true,
       "group": "Value visibility",
-      "description": "Show cached/current source values in completion and hover. Turning this off hides those outputs; it does not erase cached values or hide file contents."
+      "description": "Show values in completion and hover. Keys containing PASS, SECRET, TOKEN, KEY or CREDENTIAL are masked; run Show Env Value at Caret to reveal one."
     }
   }
 }

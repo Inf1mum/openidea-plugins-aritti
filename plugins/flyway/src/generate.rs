@@ -300,6 +300,7 @@ impl FileActions for Flyway {
         if relative(&root, &doc.path).is_err() {
             return Vec::new();
         }
+        let migrations = self.flyway_project(&project);
         let mut actions = Vec::new();
         if let Some(key) = self.hibernate_schema.as_ref().and_then(|candidate| candidate.key(&root)) {
             actions.push(FileAction { title: "Save Hibernate schema SQL as migration…".into(), kind: Some("refactor.rewrite".into()),
@@ -315,6 +316,9 @@ impl FileActions for Flyway {
             (RENAME, "Rename Flyway migration…"),
         ] {
             if kind == PREPARED && !self.generation.as_ref().is_some_and(|d| d.root == root && d.ready) {
+                continue;
+            }
+            if kind != PREPARED && !migrations {
                 continue;
             }
             if kind == RENAME && doc.language != "sql" {
@@ -672,6 +676,23 @@ mod tests {
         assert!(candidate(d).is_err());
         assert_eq!(next_version(&["340282366920938463463374607431768211455"]), "340282366920938463463374607431768211456");
         assert_eq!(next_version(&["0099"]), "0100");
+    }
+}
+
+#[cfg(test)]
+mod project_gate_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn no_create_intentions_in_plain_project() {
+        let host = MockHost::install();
+        host.add_file("scripts/seed.sql", "select 1;");
+        let doc = Document { path: "/project/scripts/seed.sql".into(), language: "sql".into(), version: 1, text: "select 1;".into() };
+        let mut plugin = Flyway::default();
+        assert!(plugin.file_actions(&doc, Range::default()).is_empty());
+        host.add_file("flyway.toml", "[flyway]\nlocations = [\"filesystem:scripts\"]\n");
+        assert!(plugin.file_actions(&doc, Range::default()).iter().any(|action| action.title == "Create Flyway SQL migration…"));
+        assert!(host.process_runs().is_empty());
     }
 }
 

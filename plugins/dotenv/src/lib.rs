@@ -30,6 +30,8 @@ const SCAN_BUDGET: Duration = Duration::from_secs(3);
 pub struct DotEnv {
     /// Each open project's index, by root.
     projects: HashMap<String, Index>,
+    /// Changed paths an over-budget batch left unread, finished by the next batch.
+    backlog: Vec<(String, bool)>,
     updates: source_update::Updates,
 }
 
@@ -91,15 +93,19 @@ impl DotEnv {
         Some(self.projects.entry(root.clone()).or_insert_with(|| Index::quick(&project, &root)))
     }
 
-    /// Walks the open projects not walked yet. Too slow for editor requests:
+    /// Walks the open projects not walked yet; a walked index is only updated per file. Too slow for editor requests:
     /// only activation and events (5 s) do it.
     fn index_projects(&mut self) {
         let deadline = Instant::now() + SCAN_BUDGET;
         for project in host::projects().unwrap_or_default() {
             let Ok(root) = project.root() else { continue };
-            if !self.projects.get(&root).is_some_and(|index| index.complete) {
-                let index = Index::full(&project, &root, deadline);
-                self.projects.insert(root, index);
+            match self.projects.get_mut(&root) {
+                Some(index) if index.walked => {}
+                Some(index) if index.walk_in_progress() => index.resume(&project, &root, deadline),
+                _ => {
+                    let index = Index::full(&project, &root, deadline);
+                    self.projects.insert(root, index);
+                }
             }
         }
     }
@@ -171,12 +177,16 @@ impl Plugin for DotEnv {
         let _ = host::subscribe(EventKind::ExtensionsChanged);
         let _ = host::subscribe(EventKind::FileOpened);
         let _ = host::subscribe(EventKind::FileSaved);
+        watch_files();
         self.index_projects();
         Ok(())
     }
 
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
-        Err(Error::NotFound(format!("command {id}")))
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        match id {
+            "show-value" => self.show_value(ctx).map(|()| None),
+            _ => Err(Error::NotFound(format!("command {id}"))),
+        }
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
@@ -186,44 +196,133 @@ impl Plugin for DotEnv {
 
 impl DotEnv {
     fn apply_events(&mut self, events: &[Event]) {
+        self.apply_events_before(events, Instant::now() + SCAN_BUDGET);
+    }
+
+    fn apply_events_before(&mut self, events: &[Event], deadline: Instant) {
         if events.iter().any(|e| matches!(e, Event::Other { kind, .. } if kind == EventKind::ExtensionsChanged.name())) {
             index::set_extra_sources(contributed_sources());
+            watch_files();
             self.projects.clear();
         }
         self.index_projects();
-        for event in events {
-            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else {
-                continue;
-            };
-            if !Index::indexes(path) {
+        let mut pending = std::mem::take(&mut self.backlog);
+        pending.extend(changed_paths(events));
+        let mut pending = pending.into_iter();
+        while let Some((path, removed)) = pending.next() {
+            if !Index::indexes(&path) {
+                if removed {
+                    if let Some((root, _)) = project_of(&path) {
+                        if let Some(index) = self.projects.get_mut(&root) {
+                            index.forget_under(&path);
+                        }
+                    }
+                }
                 continue;
             }
-            let Some((root, project)) = project_of(path) else {
+            let Some((root, project)) = project_of(&path) else {
                 continue;
             };
-            let read = project.read_file(path);
-            if let Some(index) = self.projects.get_mut(&root) {
-                let owners = index.composes_building(path);
-                match read {
-                    Ok(text) => {
-                        index.update(path, Some(&text));
-                        index.add_compose_env_files(&project, &root, path, &text);
-                    }
-                    Err(Error::NotFound(_)) => {
-                        index.update(path, None);
-                        index.complete = false;
-                    }
-                    Err(_) => index.complete = false,
+            let Some(index) = self.projects.get_mut(&root) else {
+                continue;
+            };
+            if Instant::now() >= deadline {
+                self.backlog.push((path, removed));
+                self.backlog.extend(pending);
+                break;
+            }
+            let read = match removed {
+                true => Err(Error::NotFound(path.clone())),
+                false => project.read_file(&path),
+            };
+            index.touched(&path);
+            let owners = index.composes_building(&path);
+            match read {
+                Ok(text) => {
+                    index.update(&path, Some(&text));
+                    index.add_compose_env_files(&project, &root, &path, &text);
                 }
-                for compose in owners.iter().filter(|c| *c != path) {
-                    if let Ok(text) = project.read_file(compose) {
-                        index.update(compose, Some(&text));
-                        index.add_compose_env_files(&project, &root, compose, &text);
-                    }
+                Err(Error::NotFound(_)) => index.update(&path, None),
+                Err(_) => index.mark_incomplete(&path),
+            }
+            for compose in owners.iter().filter(|c| **c != path) {
+                if let Ok(text) = project.read_file(compose) {
+                    index.touched(compose);
+                    index.update(compose, Some(&text));
+                    index.add_compose_env_files(&project, &root, compose, &text);
                 }
             }
         }
     }
+
+    /// Shows the real value of the key under the caret, which hover and completion mask.
+    fn show_value(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        let editor = ctx.editor().ok_or("No file is open.")?;
+        let denied = |e: Error| match e {
+            Error::Denied(_) => Error::Invalid("Allow editor.read for .env files in Settings › Plugins".into()),
+            other => other,
+        };
+        let doc = editor.document().map_err(denied)?;
+        let at = editor.selections().map_err(denied)?.first().map(|r| r.start).ok_or("No caret.")?;
+        let doc = Document { path: editor.path(), language: editor.language(), version: doc.version, text: doc.text };
+        let key = match (doc.language == "dotenv").then(|| declared_key_at(&doc, at)).flatten() {
+            Some(key) => key,
+            None => key_at(&doc, at).map(|k| doc.text[k].to_owned()).ok_or("Put the caret on an environment variable name.")?,
+        };
+        let unsaved = (doc.language == "dotenv").then_some(doc.text.as_str());
+        let mut lines: Vec<String> = self
+            .known(&doc.path, unsaved)
+            .into_iter()
+            .filter(|d| d.key == key)
+            .map(|d| format!("{}:{} = {}", index::file_name(&d.location.path), d.location.range.start.line + 1, d.value))
+            .collect();
+        lines.dedup();
+        if lines.is_empty() {
+            return Err(Error::NotFound(format!("No declaration of {key} found.")));
+        }
+        host::notify(openidea_plugin::NotificationLevel::Info, &key, &lines.join("\n"));
+        Ok(())
+    }
+}
+
+/// Files the events touched, and whether each was removed.
+fn changed_paths(events: &[Event]) -> Vec<(String, bool)> {
+    let mut paths = Vec::new();
+    for event in events {
+        match event {
+            Event::FileOpened(path) | Event::FileSaved(path) => paths.push((path.clone(), false)),
+            Event::FilesChanged(changes) => {
+                paths.extend(changes.created.iter().chain(&changes.modified).map(|p| (p.clone(), false)));
+                paths.extend(changes.removed.iter().map(|p| (p.clone(), true)));
+            }
+            _ => {}
+        }
+    }
+    paths
+}
+
+/// Watches what the index reads, so edits made outside the editor are seen.
+/// External edits to a gitignored .env may not fire; opening or saving it does.
+fn watch_files() {
+    let mut globs: Vec<String> = ["**/.env", "**/.env.*", "**/*.env", "**/.flaskenv", "**/Dockerfile", "**/Dockerfile.*", "**/*.dockerfile", "**/*.Dockerfile", "**/phpunit.xml*"]
+        .into_iter()
+        .chain(["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"])
+        .map(|name| if name.starts_with("**/") { name.to_owned() } else { format!("**/{name}") })
+        .collect();
+    globs.extend(index::CODE.iter().map(|ext| format!("**/*.{ext}")));
+    globs.extend(contributed_sources().into_iter().map(|(name, _)| format!("**/{name}")));
+    let globs: Vec<&str> = globs.iter().map(String::as_str).collect();
+    if host::subscribe_paths("files-changed", &globs).is_err() && !WATCH_WARNED.replace(true) {
+        host::notify(
+            openidea_plugin::NotificationLevel::Warning,
+            ".env files",
+            "External file changes can't be tracked. Allow events for .env files in Settings › Plugins.",
+        );
+    }
+}
+
+thread_local! {
+    static WATCH_WARNED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 impl SyntaxProvider for DotEnv {
@@ -281,7 +380,7 @@ impl Providers for DotEnv {
                     false => CompletionItem::new(&d.key, CompletionKind::Variable),
                 };
                 if show_values && !d.value.is_empty() {
-                    item.detail = Some(format!("= {}", d.value));
+                    item.detail = Some(format!("= {}", index::shown_value(&d.key, &d.value)));
                 }
                 item.replace = Some(replace.clone());
                 item
@@ -441,6 +540,174 @@ mod tests {
         plugin.handle_events(&[Event::FileSaved("/p/worker.py".into())], &host.invocation());
         let env = doc("/p/.env", "dotenv", "API_URL=x\n");
         assert_eq!(plugin.definition(&env, Position::new(0, 1))[0].path, "/p/worker.py");
+    }
+
+    #[test]
+    fn gitignore_present_no_rewalk_on_save() {
+        let host = project();
+        host.add_file(".gitignore", "vendor/\nnode_modules/\n");
+        let mut plugin = walked();
+        assert!(plugin.projects["/p"].walked && plugin.projects["/p"].complete);
+        host.add_file("late.py", "os.getenv('LATE_KEY')\n");
+        plugin.apply_events(&[Event::FileSaved("/p/app.py".into())]);
+        assert!(plugin.projects["/p"].usages.iter().all(|u| u.key != "LATE_KEY"), "no re-walk found the unevented file");
+    }
+
+    #[test]
+    fn gitignore_present_keeps_undefined_variable_check() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let host = project();
+        host.add_file(".gitignore", "vendor/\n");
+        let mut plugin = walked();
+        let env = doc("/p/.env", "dotenv", "B=\"${NOPE}\"\n");
+        assert!(plugin.diagnostics(&env).iter().any(|p| p.code.as_deref() == Some("UndefinedNestedVariableInspection")));
+    }
+
+    #[test]
+    fn removing_a_folder_drops_its_facts() {
+        let host = project();
+        host.add_file("sub/.env", "SUB_KEY=1\n");
+        let mut plugin = walked();
+        assert!(plugin.projects["/p"].declarations.iter().any(|d| d.key == "SUB_KEY"));
+        plugin.apply_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed: vec!["/p/sub".into()], ..Default::default() })]);
+        assert!(plugin.projects["/p"].declarations.iter().all(|d| d.key != "SUB_KEY"));
+        assert!(plugin.projects["/p"].declarations.iter().any(|d| d.key == "API_URL"));
+    }
+
+    #[test]
+    fn external_delete_drops_declarations() {
+        let host = project();
+        let mut plugin = walked();
+        assert!(plugin.projects["/p"].declarations.iter().any(|d| d.key == "API_URL"));
+        plugin.apply_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed: vec!["/p/.env".into()], ..Default::default() })]);
+        assert!(plugin.projects["/p"].declarations.iter().all(|d| d.key != "API_URL"));
+        host.add_file("worker.py", "os.getenv('W')\n");
+        plugin.apply_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { created: vec!["/p/worker.py".into()], ..Default::default() })]);
+        assert!(plugin.projects["/p"].usages.iter().any(|u| u.key == "W"));
+    }
+
+    #[test]
+    fn activation_watches_env_compose_dockerfile_and_code_paths() {
+        let host = project();
+        DotEnv::default().activate(&Context::default()).ok();
+        let globs = &host.path_subscriptions()["files-changed"];
+        for expected in ["**/.env", "**/.env.*", "**/*.env", "**/Dockerfile", "**/compose.yaml", "**/*.py"] {
+            assert!(globs.iter().any(|g| g == expected), "{expected}");
+        }
+    }
+
+    #[test]
+    fn unfinished_walk_is_continued_by_the_next_event_batch() {
+        let host = project();
+        let mut plugin = DotEnv::default();
+        let (root, p) = project_of("/p/.env").unwrap();
+        plugin.projects.insert(root.clone(), Index::full(&p, &root, Instant::now() - Duration::from_secs(1)));
+        assert!(!plugin.projects["/p"].walked);
+        host.add_file("late.py", "os.getenv('LATE_KEY')\n");
+        plugin.apply_events(&[Event::FileSaved("/p/app.py".into())]);
+        assert!(plugin.projects["/p"].walked);
+        assert!(plugin.projects["/p"].usages.iter().any(|u| u.key == "LATE_KEY"));
+    }
+
+    #[test]
+    fn denied_events_notify_once_that_changes_cannot_be_tracked() {
+        let host = project();
+        let host = host.with_capabilities(&["project.read"]);
+        watch_files();
+        watch_files();
+        assert_eq!(host.notifications().len(), 1);
+    }
+
+    #[test]
+    fn empty_secret_like_values_are_not_masked() {
+        let host = project();
+        host.add_file(".env", "DB_PASSWORD=\n");
+        let php = doc("/p/index.php", "php", "<?php getenv('DB');");
+        let items = DotEnv::default().completion(&php, Position::new(0, 16), None);
+        assert!(items.iter().all(|i| i.detail.as_deref() != Some("= ••••")));
+        assert!(!index::is_secret_like("DB_PASSWORD", ""));
+    }
+
+    #[test]
+    fn owner_compose_reread_during_a_walk_is_not_added_twice() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "X=1\n");
+        host.add_file("compose.yaml", "services:\n  web:\n    build:\n      context: .\n      args:\n        A: ${X}\n    image: ${X}\n");
+        host.add_file("Dockerfile", "FROM php\nARG A\n");
+        let mut plugin = DotEnv::default();
+        let (root, project) = project_of("/p/.env").unwrap();
+        let mut index = Index::begin(&project, &root, Instant::now() + Duration::from_secs(60));
+        index.update("/p/compose.yaml", Some(&project.read_file("/p/compose.yaml").unwrap()));
+        plugin.projects.insert(root, index);
+        plugin.apply_events(&[Event::FileSaved("/p/Dockerfile".into())]);
+        assert!(plugin.projects["/p"].walked);
+        let image_usages = plugin.projects["/p"].usages.iter().filter(|u| u.key == "X" && u.location.path == "/p/compose.yaml" && u.location.range.start.line == 6).count();
+        assert_eq!(image_usages, 1);
+    }
+
+    #[test]
+    fn over_budget_events_finish_on_the_next_batch_without_a_relist() {
+        let host = project();
+        let mut plugin = walked();
+        host.add_file("unevented.py", "os.getenv('UNEVENTED')\n");
+        host.add_file("worker.py", "os.getenv('W')\n");
+        plugin.apply_events_before(&[Event::FileSaved("/p/worker.py".into())], Instant::now() - Duration::from_secs(1));
+        assert!(plugin.projects["/p"].walked, "no re-walk is forced");
+        assert!(plugin.projects["/p"].usages.iter().all(|u| u.key != "W"));
+        plugin.apply_events(&[]);
+        assert!(plugin.projects["/p"].usages.iter().any(|u| u.key == "W"));
+        assert!(plugin.projects["/p"].usages.iter().all(|u| u.key != "UNEVENTED"), "never re-listed");
+        assert!(plugin.backlog.is_empty());
+    }
+
+    #[test]
+    fn secret_like_values_masked_in_completion() {
+        let host = project();
+        host.add_file(".env", "DB_HOST=localhost\nDB_PASSWORD=hunter2\nAPP_KEY=base64:x\n");
+        let php = doc("/p/index.php", "php", "<?php getenv('DB');");
+        let items = DotEnv::default().completion(&php, Position::new(0, 16), None);
+        let detail = |label: &str| items.iter().find(|i| i.label == label).and_then(|i| i.detail.clone());
+        assert_eq!(detail("DB_HOST").as_deref(), Some("= localhost"));
+        assert_eq!(detail("DB_PASSWORD").as_deref(), Some("= ••••"));
+        assert!(items.iter().all(|i| !i.detail.as_deref().unwrap_or("").contains("hunter2")));
+    }
+
+    #[test]
+    fn show_value_command_reveals_the_value_under_the_caret() {
+        let host = project();
+        host.add_file(".env", "DB_PASSWORD=hunter2\n");
+        host.open_editor("/p/app.py", "python", "os.environ['DB_PASSWORD']", &[(0, 15, 0, 15)]);
+        let mut plugin = DotEnv::default();
+        plugin.run_command("show-value", &host.invocation(), None).unwrap();
+        let notes = host.notifications();
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].title.contains("DB_PASSWORD") && notes[0].body.contains("hunter2"));
+    }
+
+    #[test]
+    fn no_provider_panics_at_any_offset() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        use openidea_plugin::hover::HoverProvider;
+        let _host = project();
+        let mut plugin = walked();
+        let seeds = ["{{ x }}{#}", "café", "<?php\nuse $😀", "é::class", "<!-- Paramètres --><a/>", "A=\"${DB_HOST}😀\"\nB='é'\n", "getenv('é😀');"];
+        for seed in seeds {
+            for (language, path) in [("dotenv", "/p/.env"), ("php", "/p/a.php"), ("yaml", "/p/compose.yaml")] {
+                let document = doc(path, language, seed);
+                plugin.diagnostics(&document);
+                plugin.highlights(language, seed);
+                openidea_plugin::semantic_tokens::SemanticTokens::semantic_tokens(&mut plugin, &document);
+                for (offset, _) in seed.char_indices().chain([(seed.len(), ' ')]) {
+                    let at = text::position(seed, offset);
+                    plugin.completion(&document, at, None);
+                    plugin.definition(&document, at);
+                    plugin.hover(&document, at);
+                    plugin.code_actions(&document, Range::new(at, at));
+                    openidea_plugin::file_actions::FileActions::file_actions(&mut plugin, &document, Range::new(at, at));
+                }
+            }
+        }
     }
 
     fn compose_project() -> MockHost {

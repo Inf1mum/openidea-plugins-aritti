@@ -813,7 +813,7 @@ mod tests {
     #[test]
     fn metadata_bom_repository_version_and_provided_mapping_are_not_inferred() {
         for field in ["bom", "repository", "version", "scope"] {
-            let (h, mut l, d) = setup(GROOVY, false);
+            let (h, mut l, _d) = setup(GROOVY, false);
             let mut coords: serde_json::Value = serde_json::from_str(COORDS).unwrap();
             for dep in ["web", "data-jpa", "unknown-range"] {
                 coords["dependencies"][dep][field] = if field == "scope" {
@@ -839,7 +839,7 @@ mod tests {
             assert_eq!(h.editor_text(), GROOVY);
         }
     }
-    fn apply(h: &MockHost, d: &Document, a: &FileAction) -> (String, Option<String>) {
+    fn apply(_h: &MockHost, d: &Document, a: &FileAction) -> (String, Option<String>) {
         let edit = |text: &str, e: &openidea_plugin::TextEdit| {
             let mut out = text.to_owned();
             out.replace_range(offset(text, e.range.start).unwrap()..offset(text, e.range.end).unwrap(), &e.text);

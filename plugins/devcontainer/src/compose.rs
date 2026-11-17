@@ -137,9 +137,9 @@ pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::check
             }
             Err(_) => services = None,
             Ok(source) if source.len() > 256 * 1024 => services = None,
-            Ok(source) => match parse_source(&absolute, &source) {
-                Ok(value) if value.get("include").is_none() => {
-                    let facts = crate::compose_semantics::inspect(&value, files.len() == 1);
+            Ok(source) => match parsed(&absolute, &source, files.len() == 1) {
+                Some(parsed) => {
+                    let facts = &parsed.facts;
                     findings.extend(facts.messages.iter().map(|m| warn(range, format!("Compose file `{file}`: {m}"))));
                     let own_folder = absolute.rsplit_once('/').map_or("", |(f, _)| f);
                     for (what, path) in &facts.paths {
@@ -149,12 +149,12 @@ pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::check
                         }
                     }
                     depends.extend(facts.depends.iter().map(|(from, to)| (file.clone(), range.clone(), from.clone(), to.clone())));
-                    match (value.get("services").and_then(Value::as_object), services.as_mut()) {
-                        (Some(map), Some(all)) => all.extend(map.keys().cloned()),
+                    match (&parsed.services, services.as_mut()) {
+                        (Some(names), Some(all)) => all.extend(names.iter().cloned()),
                         _ => services = None,
                     }
                 }
-                _ => services = None,
+                None => services = None,
             },
         }
     }
@@ -171,6 +171,43 @@ pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::check
         }
     }
     findings
+}
+
+struct Parsed {
+    facts: crate::compose_semantics::Facts,
+    services: Option<Vec<String>>,
+}
+
+type ParsedEntry = (u64, Option<std::rc::Rc<Parsed>>);
+
+thread_local! {
+    static PARSED: std::cell::RefCell<std::collections::HashMap<(String, bool), ParsedEntry>> = Default::default();
+    #[cfg(test)]
+    static PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Facts of one Compose file, cached per path and content hash so unchanged files are not parsed on every edit.
+fn parsed(path: &str, source: &str, single: bool) -> Option<std::rc::Rc<Parsed>> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let hash = hasher.finish();
+    let key = (path.to_owned(), single);
+    if let Some((cached, facts)) = PARSED.with(|cache| cache.borrow().get(&key).cloned()) {
+        if cached == hash {
+            return facts;
+        }
+    }
+    #[cfg(test)]
+    PARSES.with(|n| n.set(n.get() + 1));
+    let facts = parse_source(path, source).ok().filter(|v| v.get("include").is_none()).map(|value| {
+        std::rc::Rc::new(Parsed {
+            facts: crate::compose_semantics::inspect(&value, single),
+            services: value.get("services").and_then(Value::as_object).map(|m| m.keys().cloned().collect()),
+        })
+    });
+    PARSED.with(|cache| cache.borrow_mut().insert(key, (hash, facts.clone())));
+    facts
 }
 
 /// `rel` resolved against `folder` as a normalised absolute path under `prefix`; None for absolute, dynamic or escaping paths.
@@ -205,7 +242,7 @@ impl Snapshot {
     pub(crate) fn capture(project: &Project, input: &str) -> Result<Self, Error> {
         if input.len() > 512 || input.chars().any(char::is_control) {
             return Err(
-                "Use a project Compose file path up to512bytes without control characters.".into(),
+                "Use a project Compose file path up to 512 bytes without control characters.".into(),
             );
         }
         let root = project.root()?;
@@ -214,12 +251,12 @@ impl Snapshot {
         let metadata = project.stat(&path)?;
         if metadata.kind != FileKind::File || metadata.size > MAX_BYTES as u64 {
             return Err(
-                "Choose an existing Compose YAML/JSON file up to8KiB for complete review.".into(),
+                "Choose an existing Compose YAML/JSON file up to 8 KiB for complete review.".into(),
             );
         }
         let source = project.read_file(&path)?;
         if source.len() > MAX_BYTES {
-            return Err("Compose source snapshot exceeds8KiB.".into());
+            return Err("Compose source snapshot exceeds 8 KiB.".into());
         }
         let value=parse_source(&path,&source)?;
         let map = value
@@ -227,7 +264,7 @@ impl Snapshot {
             .and_then(Value::as_object)
             .ok_or("Compose source needs an explicit services object.")?;
         if map.is_empty() || map.len() > 64 {
-            return Err("Choose a Compose YAML/JSON file with1–64 explicitly declared services.".into());
+            return Err("Choose a Compose YAML/JSON file with 1–64 explicitly declared services.".into());
         }
         let mut services = Vec::new();
         for (key, value) in map {
@@ -238,7 +275,7 @@ impl Snapshot {
                     .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
                 || !value.is_object()
             {
-                return Err("Each service needs a literal name up to128ASCII letters/digits/._- and an object definition.".into());
+                return Err("Each service needs a literal name up to 128 ASCII letters/digits/._- and an object definition.".into());
             }
             services.push(key.clone());
         }
@@ -282,7 +319,7 @@ impl Snapshot {
                 .any(|c| c.is_control() || matches!(c, '$' | '\\'))
             || workspace.split('/').any(|v| matches!(v, "." | ".."))
         {
-            return Err("Enter a literal absolute POSIX container path up to512bytes; variables and traversal are outside this form.".into());
+            return Err("Enter a literal absolute POSIX container path up to 512 bytes; variables and traversal are outside this form.".into());
         }
         let mut value: Value = serde_json::from_str(include_str!("../templates/compose.json"))
             .map_err(|_| "Bundled Compose template is invalid.")?;
@@ -326,6 +363,22 @@ impl Snapshot {
 mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
+    #[test]
+    fn compose_facts_cached() {
+        let host = MockHost::install();
+        host.add_file(".devcontainer/devcontainer.json", "");
+        host.add_file(".devcontainer/compose.yml", "services:\n  app:\n    image: x\n");
+        let text = r#"{"dockerComposeFile":"compose.yml","service":"app"}"#;
+        let path = "/project/.devcontainer/devcontainer.json";
+        let before = PARSES.with(|n| n.get());
+        assert!(reference_findings(path, text).is_empty());
+        assert!(reference_findings(path, text).is_empty());
+        assert_eq!(PARSES.with(|n| n.get()), before + 1, "unchanged content is parsed once");
+        host.add_file(".devcontainer/compose.yml", "services:\n  web:\n    image: x\n");
+        assert_eq!(reference_findings(path, text).len(), 1, "changed content is parsed again");
+        assert_eq!(PARSES.with(|n| n.get()), before + 2);
+    }
+
     #[test]
     fn reference_findings_report_missing_env_file_extends_file_and_depends_on_target() {
         let host = MockHost::install();

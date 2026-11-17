@@ -4,10 +4,10 @@ use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Doc
 use openidea_plugin::syntax::{SyntaxProvider, Token};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
+    Diagnostic, Error, Event, Invocation, Location, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
     TextEdit, host, text,
 };
-use std::collections::{HashSet,HashMap};
+use std::collections::HashSet;
 
 mod actions;
 mod unused;
@@ -32,20 +32,20 @@ fn range(text: &str, bytes: &std::ops::Range<usize>) -> Range {
     Range::new(text::position(text, bytes.start), text::position(text, bytes.end))
 }
 
-fn diagnostics(text: &str, dialect: Dialect) -> Vec<Diagnostic> {
-    check(text, dialect)
-        .into_iter()
+fn diagnostics(text: &str, problems: &[check::Problem]) -> Vec<Diagnostic> {
+    problems
+        .iter()
         .map(|p| {
             let severity = if p.warning { Severity::Warning } else { Severity::Error };
-            let mut diagnostic = Diagnostic::new(range(text, &(p.start..p.end)), severity, p.message);
+            let mut diagnostic = Diagnostic::new(range(text, &(p.start..p.end)), severity, p.message.clone());
             diagnostic.code = Some(p.code.into());
             diagnostic
         })
         .collect()
 }
 
-fn quick_fixes(doc: &Document, line: u32, dialect: Dialect) -> Vec<CodeAction> {
-    check(&doc.text, dialect)
+fn quick_fixes(doc: &Document, line: u32, problems: Vec<check::Problem>) -> Vec<CodeAction> {
+    problems
         .into_iter()
         .filter(|p| text::position(&doc.text, p.start).line == line)
         .flat_map(|p| p.fixes)
@@ -302,10 +302,10 @@ fn entry_target(doc: &Document, at: Position) -> Option<Location> {
 }
 
 /// Entries named from the files below the ignore file's folder. The host
-/// hides dot paths and ignored files from `find_files`, so those are never offered.
+/// skips `.git` and gitignored paths in `find_files`, so those are never offered.
 fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<CompletionItem> {
     let body = line.strip_prefix('!').unwrap_or(line);
-    if body.starts_with(|c: char| c.is_whitespace() || c == '#') || body.contains(['*', '?', '[', '\\']) {
+    if body.starts_with(|c: char| c.is_whitespace() || c == '#') || body.contains(['*', '?', '[', '{', '\\']) {
         return Vec::new();
     }
     let Some((project, root, relative)) = project_of(&doc.path) else {
@@ -320,11 +320,15 @@ fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<Completion
 
     let own_dir = relative.rsplit_once('/').map_or("", |(dir, _)| dir);
     let base = [own_dir, typed_dir].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("/");
-    let (glob, prefix) =
-        if base.is_empty() { ("**/*".to_owned(), format!("{root}/")) } else { (format!("{base}/**/*"), format!("{root}/{base}/")) };
-    let Ok(files) = project.find_files(&glob, 2000) else {
-        return Vec::new();
-    };
+    let (stem, prefix) =
+        if base.is_empty() { (String::new(), format!("{root}/")) } else { (format!("{base}/"), format!("{root}/{base}/")) };
+    let mut files = Vec::new();
+    for glob in [format!("{stem}{partial}*"), format!("{stem}{partial}*/**")] {
+        let Ok(found) = project.find_files(&glob, 500) else {
+            return Vec::new();
+        };
+        files.extend(found);
+    }
 
     let mut names: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
     for file in &files {
@@ -442,13 +446,36 @@ struct IgnorePlugin {
     inventory: git_inventory::State,
     unused: unused::State,
     directories: decorations::Directories,
-    checked_paths: HashSet<String>,
-    cached_checks: HashMap<String,(String,Vec<Diagnostic>)>,
+    cached_checks: Vec<(String,String,Vec<check::Problem>)>,
     selected: Option<String>,
     expanded: HashSet<String>,
 }
 
 impl IgnorePlugin {
+    /// The problems of `text`, checked once per path and text (diagnostics and quick fixes share them).
+    fn problems_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<check::Problem> {
+        if text.len() > 128 << 10 {
+            return Vec::new();
+        }
+
+        if let Some((_, _, items)) = self.cached_checks.iter().find(|(p, t, _)| p == path && t == text) {
+            return items.clone();
+        }
+
+        let items = check(text, dialect);
+        self.cached_checks.retain(|(p, _, _)| p != path);
+        if self.cached_checks.len() >= 8 {
+            self.cached_checks.remove(0);
+        }
+        self.cached_checks.push((path.to_owned(), text.to_owned(), items.clone()));
+        items
+    }
+
+    fn checks_for(&mut self, path: &str, text: &str, dialect: check::Dialect) -> Vec<Diagnostic> {
+        let problems = self.problems_for(path, text, dialect);
+        diagnostics(text, &problems)
+    }
+
     fn selected_user_template(&self) -> Option<&str> {
         self.selected_template().and_then(|k| k.strip_prefix("u:"))
     }
@@ -577,26 +604,14 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                     let Some(dialect) = dialect(path).filter(|_| checked.insert(path)) else {
                         continue;
                     };
-                    if self.checked_paths.len() >= 256 {
-                        self.checked_paths.clear();
-                    }
-                    self.checked_paths.insert(path.clone());
                     let Ok(text) = project.read_file(path) else {
                         continue;
                     };
                     self.directories.admit(path, &text, ctx);
                     if !preferences::checks(path) {
-                        let _ = host::publish_diagnostics(path, &[]);
                         continue;
                     }
-                    let items=diagnostics(&text,dialect);
-                    if self.cached_checks.len()>=8 {self.cached_checks.clear();}
-                    if text.len()<=64<<10&&text.lines().count()<=512 {
-                        self.cached_checks.insert(path.clone(),(text.clone(),items.clone()));
-                    }
-                    if let Err(e) = host::publish_diagnostics(path, &items) {
-                        host::log(LogLevel::Warn, &format!("{path}: {e}"));
-                    }
+                    self.problems_for(path, &text, dialect);
                 }
                 Event::EditorFocused(path) => show_ignored_status(path.as_deref()),
                 _ => {}
@@ -644,8 +659,11 @@ impl Providers for IgnorePlugin {
         if !preferences::checks(&doc.path) {
             return Vec::new();
         }
-        let mut actions=match dialect(&doc.path) {
-            Some(dialect) => quick_fixes(doc, selection.start.line, dialect),
+        let mut actions=match dialect(&doc.path).filter(|_| doc.text.len()<=128<<10) {
+            Some(dialect) => {
+                let problems = self.problems_for(&doc.path, &doc.text, dialect);
+                quick_fixes(doc, selection.start.line, problems)
+            }
             None => Vec::new(),
         };
         actions.extend(self.unused.actions(doc,selection));actions
@@ -785,10 +803,8 @@ impl Views for IgnorePlugin {
 impl openidea_plugin::diagnostics::DiagnosticsProvider for IgnorePlugin {
     fn diagnostics(&mut self,doc:&Document)->Vec<Diagnostic> {
         if doc.text.len()>128<<10||!preferences::checks(&doc.path){return Vec::new();}
-        if dialect(&doc.path).is_none(){return Vec::new();}
-        // The legacy coverage matcher is potentially expensive. Events warm
-        // source-identical checks; live providers only clone bounded cached facts.
-        let mut diagnostics=self.cached_checks.get(&doc.path).filter(|(text,_)|text==&doc.text).map(|(_,items)|items.clone()).unwrap_or_default();
+        let Some(dialect)=dialect(&doc.path) else{return Vec::new();};
+        let mut diagnostics=self.checks_for(&doc.path,&doc.text,dialect);
         diagnostics.extend(self.unused.diagnostics(doc));diagnostics
     }
 }

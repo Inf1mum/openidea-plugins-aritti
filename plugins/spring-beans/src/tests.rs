@@ -1007,7 +1007,7 @@ fn unresolved_references_are_quiet_on_a_partial_index() {
     let host = setup();
     host.set_setting("springBeans.checkUnresolvedReferences", "true");
     let text = "@org.springframework.stereotype.Service\n@DependsOn(\"cache\")\nclass A {}\n";
-    let mut index = Index::new(GLOBS, model::parse);
+    let mut index = cache::Cache::new();
     index.update(&format!("{ROOT}/Subject.java"), text);
     assert!(!index.complete());
     let file = java::parse(text);
@@ -2438,7 +2438,7 @@ fn java_generators_cancel_exact_preview_without_any_source_change() {
 
 #[test]
 fn java_generation_refuses_oversize_preview_unknown_owner_and_invalid_event_identifiers() {
-    let oversized = format!("{}{}", ORDERS, " ".repeat(12 * 1024));
+    let oversized = format!("{}{}", ORDERS, " ".repeat(17 * 1024));
     let host = command_host(&oversized);
     assert!(run(&host, "generate-event-listener", &[&["OrderPlaced"], &["ok"]]).is_err());
     assert_eq!(host.editor_text(), oversized);
@@ -2929,14 +2929,14 @@ fn externalize_host(text: &str, line: u32, column: u32) -> MockHost {
 }
 
 #[test]
-fn annotation_externalization_command_routes_to_atomic_intention_without_writes() {
+fn annotation_externalization_command_cancelled_at_the_first_prompt_changes_nothing() {
     let host = externalize_host(SCHEDULED, 2, 24);
     host.add_file("src/main/resources/application.properties", "a=1\n");
     run(&host, "externalize-annotation-string", &[]).unwrap();
     assert_eq!(host.editor_text(), SCHEDULED);
     assert_eq!(host.clipboard(), None);
     assert!(host.process_runs().is_empty());
-    assert!(host.notifications().last().unwrap().body.contains("editor intentions"));
+    assert_eq!(host::project_of("/project/src/main/resources/application.properties").unwrap().read_file("/project/src/main/resources/application.properties").unwrap(), "a=1\n");
     let outside = externalize_host(SCHEDULED, 3, 6);
     assert!(run(&outside, "externalize-annotation-string", &[]).is_err());
 }
@@ -3068,7 +3068,9 @@ fn relationship_targets_are_provider_navigation_never_host_rename_anchors() {
     for (path, text) in [("A.java", SERVICE), ("L.java", listener), ("P.java", publisher), ("application-dev.yml", "app:\n  name: hello\n")]
     {
         let graph = navigator.index(&IndexDocument { path: path.into(), text: text.into(), symbols: Vec::new() });
-        assert!(graph.definitions.is_empty() && graph.references.is_empty() && graph.aliases.is_empty() && graph.markers.is_empty());
+        let mut keys = graph.definitions.iter().chain(&graph.references).chain(&graph.markers).map(|a| a.key.as_str());
+        assert!(keys.all(|k| k.starts_with("class:") || k.starts_with("resource#") || k.starts_with("profile#")), "{path}");
+        assert!(graph.aliases.is_empty());
     }
     let markers = navigator.checked_markers(&java("Sender.java", publisher));
     assert!(markers.iter().any(|m| m.target.as_ref().is_some_and(|t| t.path.ends_with("ReadyListener.java"))), "{markers:?}");
@@ -3802,4 +3804,188 @@ fn bean_marker_icon_is_declared_in_the_manifest() {
     let manifest = include_str!("../plugin.toml");
     assert!(manifest.contains(&format!("icon = \"{BEAN_MARKER}\"")));
     assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(BEAN_MARKER).is_file());
+}
+
+#[test]
+fn conditional_on_missing_bean_build_files_memoized() {
+    let host = MockHost::install();
+    let config = "@org.springframework.context.annotation.Configuration class Cfg {\n @org.springframework.context.annotation.Bean @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean Clock clock() { return null; }\n}\n";
+    host.add_file("app/src/main/java/Cfg.java", config);
+    host.add_file("lib/src/main/java/SystemClock.java", "@org.springframework.stereotype.Component class SystemClock extends Clock {}\n");
+    let consumer = "@org.springframework.stereotype.Service class Consumer {\n @org.springframework.beans.factory.annotation.Autowired Clock clock;\n}\n";
+    host.add_file("app/src/main/java/Consumer.java", consumer);
+    let mut nav = warmed_navigator();
+    let source = doc("/project/app/src/main/java/Consumer.java", consumer);
+    let before = nav.line_markers(&source);
+    assert!(before.iter().any(|m| m.line == 1 && m.target.as_ref().is_some_and(|t| t.path.ends_with("/SystemClock.java"))), "{before:?}");
+    host.add_file("app/pom.xml", "<project/>");
+    host.add_file("lib/pom.xml", "<project/>");
+    assert_eq!(nav.line_markers(&source), before, "build modules are looked up once, not on every provider call");
+}
+
+#[test]
+fn cross_file_navigation_with_600_models() {
+    let host = MockHost::install();
+    for n in 0..600 {
+        host.add_file(&format!("src/main/java/p/Filler{n}.java"), &format!("package p; class Filler{n} {{}}\n"));
+    }
+    host.add_file("src/main/java/p/Repo.java", "package p; @org.springframework.stereotype.Repository class Repo {}\n");
+    let consumer = "package p;\n@org.springframework.stereotype.Service class Consumer {\n @org.springframework.beans.factory.annotation.Autowired Repo repo;\n}\n";
+    host.add_file("src/main/java/p/Consumer.java", consumer);
+    let mut nav = warmed_navigator();
+    let project = host.invocation().project().unwrap();
+    assert!(nav.indexes.cached(&project).unwrap().files().len() > 600);
+    let source = doc("/project/src/main/java/p/Consumer.java", consumer);
+    let markers = nav.line_markers(&source);
+    assert!(markers.iter().any(|m| m.line == 2 && m.target.as_ref().is_some_and(|t| t.path.ends_with("/Repo.java"))), "{markers:?}");
+    let at = position(consumer, consumer.find("Repo repo").unwrap() + 1);
+    assert!(nav.definition(&source, at).iter().any(|l| l.path.ends_with("/Repo.java")));
+}
+
+#[test]
+fn same_document_version_is_applied_and_parsed_once() {
+    let host = setup();
+    let mut nav = warmed_navigator();
+    let source = java("UserController.java", CONTROLLER);
+    let markers = nav.line_markers(&source);
+    let generation = nav.indexes.document(&source.path).unwrap().generation();
+    nav.diagnostics(&source);
+    nav.definition(&source, Position::new(5, 20));
+    nav.completion(&source, Position::new(5, 20), None);
+    assert_eq!(nav.indexes.document(&source.path).unwrap().generation(), generation, "one version is applied once");
+    host.add_file("src/main/java/com/acme/UserServiceImpl.java", "class Changed {}");
+    assert_eq!(nav.line_markers(&source), markers, "providers read the cache, never the disk");
+}
+
+#[test]
+fn large_sql_seed_keeps_index_complete() {
+    let host = MockHost::install();
+    host.add_file("src/main/java/A.java", "@org.springframework.stereotype.Component class A {}\n");
+    host.add_file("src/main/resources/data.sql", &"insert into t values (1);\n".repeat(30_000));
+    host.add_file("src/test/resources/fixture.xml", "<root><a:b/></root>");
+    host.add_file_bytes("src/main/resources/messages.properties", b"greeting=caf\xe9\n");
+    let mut nav = warmed_navigator();
+    let project = host.invocation().project().unwrap();
+    let cache = nav.indexes.cached(&project).unwrap();
+    assert!(cache.complete(), "{}", cache.state());
+    assert!(cache.files().contains_key("/project/src/main/java/A.java"));
+    host.add_file_bytes("src/main/java/B.java", b"class B { String s = \"caf\xe9\"; }");
+    nav.indexes.changed(&project, "/project/src/main/java/B.java", false);
+    assert!(!nav.indexes.cached(&project).unwrap().complete(), "an unreadable Java source still counts");
+}
+
+#[test]
+fn check_configuration_runs_in_a_task() {
+    let host = MockHost::install();
+    host.add_file("src/main/java/A.java", "@org.springframework.stereotype.Component class A {}\n");
+    Navigator::default().run_command("check-spring-configuration", &host.invocation(), None).unwrap();
+    assert!(!host.tasks().is_empty());
+}
+
+#[test]
+fn yaml_not_parsed_as_java() {
+    let host = MockHost::install();
+    let scheduled = "class Jobs { @org.springframework.scheduling.annotation.Scheduled(fixedRate = 1) void run(String a) {} }\n";
+    host.add_file("src/main/java/Jobs.java", scheduled);
+    host.add_file("src/main/resources/application.yml", scheduled);
+    host.add_file("src/main/resources/application.properties", scheduled);
+    let mut nav = Navigator::default();
+    nav.run_command("check-spring-configuration", &host.invocation(), None).unwrap();
+    let Report::Problems(files) = &nav.report else { panic!("problems report") };
+    assert!(files.iter().any(|(path, _)| path.ends_with("Jobs.java")), "the Java source is checked");
+    assert!(files.iter().all(|(path, _)| path.ends_with(".java")), "{files:?}");
+}
+
+#[test]
+fn generate_setter_on_20kib_file() {
+    let filler: String = (0..1200).map(|n| format!("    void m{n}() {{}}\n")).collect();
+    let text = format!("package com.acme;\n\npublic class Orders {{\n    private int count;\n{filler}}}\n");
+    assert!(text.len() > 20 * 1024);
+    let host = command_host(&text);
+    run(&host, "generate-setter", &[&["0"], &["ok"]]).unwrap();
+    let result = host.editor_text();
+    assert!(result.contains("    private Mailer mailer;\n") && result.contains("public void setMailer(Mailer mailer)"), "{}", &result[..400]);
+}
+
+#[test]
+fn no_repository_bean_not_a_bean() {
+    let java = "@org.springframework.data.repository.NoRepositoryBean\ninterface BaseRepository<T> extends JpaRepository<T, Long> {}\ninterface Users extends BaseRepository<User> {}\n";
+    let names: Vec<String> = model::parse("A.java", java).unwrap().beans.iter().map(|b| b.name.clone()).collect();
+    assert_eq!(names, ["users"]);
+    let kotlin = "@org.springframework.data.repository.NoRepositoryBean\ninterface BaseRepository<T> : JpaRepository<T, Long>\ninterface Users : BaseRepository<User>\n";
+    let names: Vec<String> = model::parse("A.kt", kotlin).unwrap().beans.iter().map(|b| b.name.clone()).collect();
+    assert_eq!(names, ["users"]);
+}
+
+#[test]
+fn target_classes_copy_ignored() {
+    let host = MockHost::install();
+    let beans = "<beans xmlns=\"http://www.springframework.org/schema/beans\"><bean id=\"worker\" class=\"a.Worker\"/></beans>";
+    host.add_file("src/main/resources/beans.xml", beans);
+    host.add_file("target/classes/beans.xml", beans);
+    host.add_file("module/build/resources/main/application.properties", "spring.profiles.active=dev\n");
+    host.add_file("src/main/java/a/build/Job.java", "package a.build; @org.springframework.stereotype.Component class Job {}\n");
+    let mut nav = warmed_navigator();
+    let project = host.invocation().project().unwrap();
+    let cache = nav.indexes.cached(&project).unwrap();
+    assert!(cache.complete(), "{}", cache.state());
+    assert!(cache.files().contains_key("/project/src/main/resources/beans.xml"));
+    assert!(cache.files().contains_key("/project/src/main/java/a/build/Job.java"), "a source package named build is kept");
+    assert!(cache.files().keys().all(|p| !p.starts_with("/project/target/") && !p.contains("/module/build/")), "{:?}", cache.files().keys());
+    nav.diagnostics(&doc("/project/target/classes/beans.xml", beans));
+    assert!(!nav.indexes.cached(&project).unwrap().files().contains_key("/project/target/classes/beans.xml"));
+}
+
+#[test]
+fn profiles_storage_denied_message() {
+    let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+    host.add_file("src/main/resources/application-prod.yml", "a: b\n");
+    host.answer_next_prompt(Some(&["prod"]));
+    assert!(warmed_navigator().run_command("change-active-profiles", &host.invocation(), None).is_ok());
+    assert!(
+        host.notifications().iter().any(|n| n.body.contains("Allow storage for Spring Beans in Settings › Plugins")),
+        "{:?}",
+        host.notifications()
+    );
+    let denied_set = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+    assert!(!commands::save_profiles(&["prod".to_owned()]).unwrap(), "a denied set is a notice, not an error");
+    assert!(denied_set.notifications().iter().any(|n| n.body.contains("Allow storage for Spring Beans in Settings › Plugins to remember active profiles.")));
+    let allowed = MockHost::install();
+    assert!(commands::save_profiles(&["prod".to_owned()]).unwrap());
+    assert_eq!(allowed.storage()["activeProfiles"], "prod");
+}
+
+#[test]
+fn reviewed_edits_show_changed_lines_with_three_lines_of_context() {
+    let text: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+    let at = |line: u32| Position::new(line, 0);
+    let edits = [
+        TextEdit { range: Range::new(at(1), at(1)), text: "added A\n".into() },
+        TextEdit { range: Range::new(at(15), at(16)), text: "replaced 16\n".into() },
+    ];
+    let (after, shown) = reviewed(&text, &edits).unwrap();
+    assert!(after.contains("line 1\nadded A\nline 2\n") && after.contains("line 15\nreplaced 16\nline 17\n"));
+    assert_eq!(shown, "Lines 1–5:\nline 1\nadded A\nline 2\nline 3\nline 4\n\nLines 14–20:\nline 13\nline 14\nline 15\nreplaced 16\nline 17\nline 18\nline 19");
+    assert!(!shown.contains("line 9"));
+    let overlapping = [edits[1].clone(), TextEdit { range: Range::new(at(15), at(17)), text: String::new() }];
+    assert!(matches!(reviewed(&text, &overlapping), Err(Error::Stale)));
+}
+
+#[test]
+fn providers_reuse_lookups_of_one_generation() {
+    let host = setup();
+    let mut nav = warmed_navigator();
+    let source = java("UserController.java", CONTROLLER);
+    let markers = nav.line_markers(&source);
+    nav.diagnostics(&source);
+    let built = nav.indexes.document(&source.path).unwrap().lookups(|| panic!("lookups rebuilt for an unchanged cache"));
+    nav.definition(&source, Position::new(5, 20));
+    nav.completion(&source, Position::new(5, 20), None);
+    assert_eq!(nav.line_markers(&source), markers);
+    let again = nav.indexes.document(&source.path).unwrap().lookups(|| panic!("lookups rebuilt for an unchanged cache"));
+    assert!(Rc::ptr_eq(&built, &again));
+    host.add_file("src/main/java/com/acme/Extra.java", "@org.springframework.stereotype.Component class Extra {}");
+    nav.indexes.changed(&host.invocation().project().unwrap(), "/project/src/main/java/com/acme/Extra.java", false);
+    let rebuilt = nav.indexes.document(&source.path).unwrap().lookups(|| Lookups::build(&BTreeMap::new(), false, &RefCell::default()));
+    assert!(!Rc::ptr_eq(&built, &rebuilt), "a changed cache gets new lookups");
 }

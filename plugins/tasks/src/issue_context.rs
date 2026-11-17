@@ -63,7 +63,7 @@ fn closed_identity(task: &Task) -> bool {
                 return false;
             }
             let expected = if github { format!("{}-{}", parts[1], parts[3]) } else { format!("#{}", parts[3]) };
-            let id_ok = task.id == expected || (!github && task.id == format!("{}/{}#{}", parts[0], parts[1], parts[3]));
+            let id_ok = task.id == expected || (github && task.id == format!("{}/{}-{}", parts[0], parts[1], parts[3])) || (!github && task.id == format!("{}/{}#{}", parts[0], parts[1], parts[3]));
             id_ok
                 && web
                     == format!(

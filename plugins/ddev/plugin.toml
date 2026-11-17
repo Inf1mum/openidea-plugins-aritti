@@ -1,12 +1,12 @@
 id = "aritti.ddev"
 name = "DDEV Integration"
 version = "0.2.0" # x-release-please-version
-description = "DDEV project controls, service links and streaming logs in Services. Requires an approved DDEV executable and OpenIDEA API 1.4. Native database credentials, keyed terminals and a project execution target for PHP, Node and Composer."
+description = "DDEV project controls, service links and streaming logs in Services. Requires an approved DDEV executable and OpenIDEA API 1.9. Native database credentials, keyed terminals and a project execution target for PHP, Node and Composer."
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ddev"
 license = "MIT"
 icon = "icon.svg"
-change-notes = "Run target maps Composer to `ddev composer` and refuses Run/Test when the project is not running. 0.1.0: first release, targeting API 1.4. Native Services, readable Overview, redacted Inspect, root logo and streaming logs. State-aware lifecycle controls and guided project preferences. Native owned Database sources, secure credentials and connection requests; non-secret legacy fallback/migration. DDEV execution target for host-selected PHP/Node/Composer runs and tests with project/cwd mapping. Keyed native terminals with command environment, exit-triggered refresh and success-only Configure opening. Window-scoped status and direct service links. Offline official v1.25.5 schema completion, hover and validation. Host-approved global/project executable selection."
+change-notes = "Services now render from the last DDEV status instead of running DDEV on every refresh, and keep separate status per project window. Run and Test reuse a recent status. Double-clicking a row without a link, or while the project is stopped, no longer shows an error. Settings are read once per update."
 categories = ["tools"]
 engines.openidea = "^1.9"
 wasm = "dist/plugin.wasm"

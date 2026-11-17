@@ -740,7 +740,7 @@ fn deprecated_class_usages(ctx: &Context, text: &str, out: &mut Vec<Finding>) {
     }
 
     for (at, _) in masked.match_indices("::class") {
-        let start = masked[..at].rfind(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '\\'))).map_or(0, |found| found + 1);
+        let start = masked[..at].char_indices().rev().find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '\\'))).map_or(0, |(found, c)| found + c.len_utf8());
         if start < at {
             candidates.push(start..at);
         }

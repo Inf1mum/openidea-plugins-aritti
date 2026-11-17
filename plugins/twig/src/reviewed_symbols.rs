@@ -616,7 +616,7 @@ pub fn occurrences(
 mod tests {
     use super::*;
     use openidea_plugin::{
-        indexing::DocumentIndexer, language_features::LanguageFeatures, mock::MockHost,
+        language_features::LanguageFeatures, mock::MockHost,
     };
     fn doc(path: &str, text: &str) -> Document {
         Document {
@@ -640,17 +640,11 @@ mod tests {
         actions[0].clone()
     }
     #[test]
-    fn public_index_is_empty_but_loop_navigation_highlights_lenses_and_reviewed_rename_work() {
+    fn loop_navigation_highlights_lenses_and_reviewed_rename_work() {
         let source = "😀 {% for item in items %}{{ item.name }}{% endfor %}";
         let host = install("a.twig", source);
         let d = doc("/project/a.twig", source);
         let mut plugin = Twig::default();
-        let public = plugin.index(&IndexedDocument {
-            path: d.path.clone(),
-            text: d.text.clone(),
-            symbols: vec![],
-        });
-        assert!(public.definitions.is_empty() && public.references.is_empty());
         let at = position(source, source.rfind("item.name").unwrap() + 1);
         assert_eq!(
             plugin.definition(&d, at)[0].range.start,

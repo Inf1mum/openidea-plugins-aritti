@@ -437,7 +437,7 @@ fn command(probe: bool) -> Command {
         "--".into(),
         if probe { "probe" } else { "run" }.into(),
     ];
-    // The released native host caps every argv item at4096 bytes. Chunk by
+    // The released native host caps every argv item at 4096 bytes. Chunk by
     // Unicode scalar count so each fragment is <=4000 bytes, preserving source.
     let chars = HELPER.chars().collect::<Vec<_>>();
     for chunk in chars.chunks(1000) {
@@ -471,7 +471,7 @@ impl Backend for Native {
             if let Some(status) = chunk.status {
                 if status != 0 {
                     return Err(invalid(
-                        "Install/approve Node22 or newer with its built-in WebSocket available.",
+                        "Install/approve Node 22 or newer with its built-in WebSocket available.",
                     ));
                 }
                 return parse_probe(&output);
@@ -501,7 +501,7 @@ fn parse_probe(output: &str) -> Result<String, Error> {
             .is_none_or(|v| v < 22)
     {
         return Err(invalid(
-            "Node22 or newer with built-in WebSocket is required.",
+            "Node 22 or newer with built-in WebSocket is required.",
         ));
     }
     Ok(version.into())
@@ -588,7 +588,7 @@ impl Runtime {
                 let operation = subscription_name(&source.text)?;
                 let node = backend.probe(&project)?;
                 let review = format!(
-                    "Project: {}\nDocument: {} (editor version {})\nSelected endpoint: {}\nProtocol: graphql-transport-ws\nNode runtime: {}\nConfigured local path suggestion: {}\n\nSubscription sent exactly as written:\n{}\n\nVariables:\n{}\n\nConnection initialization payload sent once:\n{}\n\nThis opens one selected WebSocket with normal runtime TLS validation. Initialization and variables are only those entered above; no Actuator/application credentials, custom HTTP headers or cookies are copied. The optional Node process uses the inherited local runtime environment. Input payloads go through stdin, not argv or disk. Server results appear in a bounded output pane. This finite session ends after120 seconds or plugin/window disposal. Cancellation first requests protocol Complete and close, with a bounded process-kill fallback. The selected document is not proof of current server schema or resolver behavior.",
+                    "Project: {}\nDocument: {} (editor version {})\nSelected endpoint: {}\nProtocol: graphql-transport-ws\nNode runtime: {}\nConfigured local path suggestion: {}\n\nSubscription sent exactly as written:\n{}\n\nVariables:\n{}\n\nConnection initialization payload sent once:\n{}\n\nThis opens one selected WebSocket with normal runtime TLS validation. Initialization and variables are only those entered above; no Actuator/application credentials, custom HTTP headers or cookies are copied. The optional Node process uses the inherited local runtime environment. Input payloads go through stdin, not argv or disk. Server results appear in a bounded output pane. This finite session ends after 120 seconds or plugin/window disposal. Cancellation first requests protocol Complete and close, with a bounded process-kill fallback. The selected document is not proof of current server schema or resolver behavior.",
                     source.root,
                     source.path,
                     source.version,
@@ -628,7 +628,7 @@ impl Runtime {
                 let _ = host::output_append(
                     OUTPUT,
                     &format!(
-                        "\nSubscription document: {}\nNode {node}; graphql-transport-ws; finite120-second session. Payloads are not logged.\n",
+                        "\nSubscription document: {}\nNode {node}; graphql-transport-ws; finite 120-second session. Payloads are not logged.\n",
                         source.path
                     ),
                 );
@@ -641,7 +641,7 @@ impl Runtime {
                     pending: String::new(),
                     terminal: false,
                 });
-                Ok(Some("Owned subscription started. Poll Subscription Output reads results; Cancel Subscription sends Complete/close before a bounded process-kill fallback. Session timeout is120 seconds; plugin/window disposal also ends the owned process.".into()))
+                Ok(Some("Owned subscription started. Poll Subscription Output reads results; Cancel Subscription sends Complete/close before a bounded process-kill fallback. Session timeout is 120 seconds; plugin/window disposal also ends the owned process.".into()))
             }
             POLL => {
                 let Some(session) = self.session.as_mut() else {
@@ -741,7 +741,7 @@ fn append(session: &mut Session, chunk: &host::Chunk) -> Result<(), Error> {
     if shown < data.len() {
         session.child.kill()?;
         return Err(invalid(
-            "Subscription process exceeded the256 KiB display bound and was ended.",
+            "Subscription process exceeded the 256 KiB display bound and was ended.",
         ));
     }
     Ok(())

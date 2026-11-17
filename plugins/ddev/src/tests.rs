@@ -2883,3 +2883,92 @@ fn run_target_validation_refuses_stopped_project_and_allows_running() {
         .unwrap_err();
     assert!(error.contains("Start it with DDEV: Start"), "{error}");
 }
+
+const ROOT: &str = "/work/my project";
+
+fn status_text(plugin: &mut Main, host: &MockHost) -> String {
+    plugin.render(VIEW, None, &host.invocation()).unwrap().status.unwrap_or_default()
+}
+
+fn launch() -> openidea_plugin::RunTargetLaunch {
+    openidea_plugin::RunTargetLaunch {
+        operation: openidea_plugin::RunTargetOperation::Run,
+        program: "php".into(),
+        cwd: ROOT.into(),
+    }
+}
+
+#[test]
+fn second_render_runs_no_describe() {
+    let host = mock();
+    let mut plugin = Main::default();
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    let runs = host.process_runs().len();
+    plugin.refreshed_at.insert(ROOT.into(), 0);
+    let status = status_text(&mut plugin, &host);
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    plugin
+        .detail(VIEW, PROJECT, &host.invocation())
+        .unwrap();
+    assert_eq!(host.process_runs().len(), runs);
+    assert!(status.contains("refreshing"), "{status}");
+}
+
+#[test]
+fn two_roots_cached_separately() {
+    let host = mock();
+    let mut plugin = Main::default();
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    host.set_project_root(Some("/work/other"));
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    let runs = host.process_runs().len();
+    assert_eq!(runs, 2);
+    host.set_project_root(Some(ROOT));
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    host.set_project_root(Some("/work/other"));
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    assert_eq!(host.process_runs().len(), runs);
+    assert_eq!(plugin.snapshots.len(), 2);
+}
+
+#[test]
+fn run_validation_uses_fresh_snapshot() {
+    use openidea_plugin::RunTargetValidation;
+    let host = mock();
+    let mut plugin = Main::default();
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    let runs = host.process_runs().len();
+    plugin.validate(ROOT, "ddev", &launch()).unwrap();
+    assert_eq!(host.process_runs().len(), runs);
+    plugin.refreshed_at.insert(ROOT.into(), 0);
+    plugin.validate(ROOT, "ddev", &launch()).unwrap();
+    assert_eq!(host.process_runs().len(), runs + 1);
+}
+
+#[test]
+fn activate_db_row_no_error() {
+    let host = mock();
+    let mut plugin = Main::default();
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    plugin
+        .handle(VIEW, ViewEvent::Activate("service:db".into()), &host.invocation())
+        .unwrap();
+    assert!(host.opened_urls().is_empty());
+    plugin
+        .handle(VIEW, ViewEvent::Activate("service:redis".into()), &host.invocation())
+        .unwrap();
+    assert_eq!(host.opened_urls(), ["http://localhost:9000"]);
+}
+
+#[test]
+fn background_failure_with_snapshot_shows_error_not_refreshing() {
+    let host = mock();
+    let mut plugin = Main::default();
+    plugin.render(VIEW, None, &host.invocation()).unwrap();
+    host.on_process("ddev", |_, _| Err(Error::from("docker down")));
+    plugin.refresh_background(&host.invocation().project().unwrap());
+    plugin.refreshed_at.insert(ROOT.into(), 0);
+    let status = status_text(&mut plugin, &host);
+    assert!(status.contains("DDEV not reachable"), "{status}");
+    assert!(!status.contains("refreshing"), "{status}");
+}

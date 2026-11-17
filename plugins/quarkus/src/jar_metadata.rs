@@ -262,7 +262,18 @@ impl State {
         ))
     }
     pub fn import(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        let result = self.import_at(ctx, CACHE);
+        self.import_from(ctx, CACHE)
+    }
+    fn import_from(&mut self, ctx: &Invocation, cache: &str) -> Result<Option<String>, Error> {
+        let result = self.import_at(ctx, cache);
+        if matches!(result, Err(Error::Denied(_))) {
+            host::notify(
+                openidea_plugin::NotificationLevel::Warning,
+                "Quarkus JAR metadata",
+                "Allow reading ~/.m2/repository for Quarkus Tools in Settings › Plugins.",
+            );
+            return Ok(None);
+        }
         if result.is_err()
             && ctx
                 .project()
@@ -895,5 +906,13 @@ mod tests {
         assert_eq!(dependencies(prefixed).unwrap().len(), 1);
         let mixed = POM.replace("<dependencies>", "<dependencies xmlns=\"\">");
         assert!(dependencies(&mixed).is_err());
+    }
+    #[test]
+    fn m2_denied_message() {
+        let h = setup().with_capabilities(&["project.read"]);
+        h.answer_next_prompt(Some(&["0"]));
+        let mut state = State::default();
+        assert!(state.import_from(&h.invocation(), "/m2").unwrap().is_none());
+        assert!(h.notifications().iter().any(|n| n.body.contains("Allow reading ~/.m2/repository for Quarkus Tools")));
     }
 }

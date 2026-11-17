@@ -322,6 +322,7 @@ name = "spring-text"
 version = "0.1.0"
 dependencies = [
  "openidea-plugin",
+ "quick-xml",
 ]
 
 [[package]]

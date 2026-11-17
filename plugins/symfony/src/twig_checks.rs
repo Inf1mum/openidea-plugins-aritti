@@ -635,7 +635,7 @@ fn component_mistakes(text: &str, regions: &[Range<usize>], out: &mut Vec<Findin
     for region in regions {
         let mut i = region.start;
 
-        while let Some(found) = text[i..region.end].find(['{', '<']) {
+        while let Some(found) = text.get(i..region.end).and_then(|slice| slice.find(['{', '<'])) {
             let at = i + found;
             i = at + 1;
             let rest = &text[at..region.end];

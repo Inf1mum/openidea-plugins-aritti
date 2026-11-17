@@ -543,7 +543,27 @@ pub fn events<'a>(format: Option<&Format>, text: &'a str) -> Vec<Event<'a>> {
 /// The same grouping with cooperative checkpoints before each physical line.
 /// A single synchronous regex match remains non-preemptible.
 pub fn events_checked<'a, E>(format: Option<&Format>, text: &'a str, mut checkpoint: impl FnMut() -> Result<(), E>) -> Result<Vec<Event<'a>>, E> {
-    let mut events: Vec<Event> = Vec::new();
+    let mut events = Vec::new();
+    group_events(format, text, &mut checkpoint, &mut events)?;
+    Ok(events)
+}
+
+/// The events complete when the checkpoint stopped the grouping; the event
+/// being extended at that point is dropped because it may continue.
+pub fn events_partial<'a, E>(format: Option<&Format>, text: &'a str, mut checkpoint: impl FnMut() -> Result<(), E>) -> Vec<Event<'a>> {
+    let mut events = Vec::new();
+    if group_events(format, text, &mut checkpoint, &mut events).is_err() {
+        events.pop();
+    }
+    events
+}
+
+fn group_events<'a, E>(
+    format: Option<&Format>,
+    text: &'a str,
+    checkpoint: &mut impl FnMut() -> Result<(), E>,
+    events: &mut Vec<Event<'a>>,
+) -> Result<(), E> {
     for (index, (offset, line)) in lines(text).enumerate() {
         checkpoint()?;
         let index = index as u32;
@@ -557,8 +577,7 @@ pub fn events_checked<'a, E>(format: Option<&Format>, text: &'a str, mut checkpo
 
         events.push(Event { text: &text[offset..offset + line.len()], offset, lines: index..index + 1 });
     }
-    checkpoint()?;
-    Ok(events)
+    checkpoint()
 }
 
 pub fn floor_char_boundary(text: &str, mut at: usize) -> usize {

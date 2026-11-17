@@ -368,7 +368,7 @@ fn no_quick_fix_off_the_dependency_line_or_in_lockfiles() {
 }
 
 #[test]
-fn deps_sharing_a_property_get_one_quick_fix_with_the_highest_fix() {
+fn shared_property_quick_fix_refused() {
     let other = r#"{"id": "GHSA-aaaa-bbbb-cccc", "modified": "2024-01-01T00:00:00Z", "summary": "Other",
  "affected": [{"package": {"ecosystem": "Maven", "name": "com.example:other"}, "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.13.0"}]}]}]}"#;
     let pom = "<project>\n<properties><jackson.version>2.12.3</jackson.version></properties>\n<dependencies>\n<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>\n<dependency><groupId>com.example</groupId><artifactId>other</artifactId><version>${jackson.version}</version></dependency>\n</dependencies>\n</project>\n";
@@ -388,9 +388,7 @@ fn deps_sharing_a_property_get_one_quick_fix_with_the_highest_fix() {
     let selection = Range::new(Position::new(3, 0), Position::new(4, 0));
     let actions = reviewed_upgrades(&host,&document("/project/pom.xml", "xml", pom), selection);
 
-    assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].title, "Upgrade jackson-databind to 2.13.0");
-    assert_eq!(actions[0].edits[0].1[0].text, "2.13.0");
+    assert!(actions.is_empty(), "a property shared with another artifact must not be bumped");
 }
 
 #[test]
@@ -668,7 +666,7 @@ databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref
 "#;
 
 #[test]
-fn quick_fix_audits_every_library_sharing_the_selected_version() {
+fn shared_catalog_version_quick_fix_refused() {
     let host = MockHost::install().with_capabilities(CAPS);
     host.on_fetch(osv);
     host.add_file("gradle/libs.versions.toml", SHARED_CATALOG);
@@ -678,8 +676,7 @@ fn quick_fix_audits_every_library_sharing_the_selected_version() {
 
     let actions = reviewed_upgrades(&host,&catalog, line(4));
 
-    assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].title, "Upgrade jackson-databind to 2.12.7.1");
+    assert!(actions.is_empty());
 }
 
 #[test]
@@ -822,7 +819,7 @@ fn failure_to_store_new_results_does_not_delete_a_previous_report() {
     let key = rows_key(&project).unwrap();
     let before = host.storage()[&key].clone();
     let host = host.with_capabilities(&["project.read", "net:api.osv.dev"]);
-    let body = scan(&host.invocation().project().unwrap(), &mut live::Live::default()).unwrap();
+    let body = scan(&host.invocation().project().unwrap(), &mut live::Live::default(), Instant::now() + COMMAND_BUDGET).unwrap();
     assert!(body.contains("previous report remains"));
     assert_eq!(host.storage()[&key], before);
     let host = host.with_capabilities(CAPS);
@@ -1447,6 +1444,21 @@ fn report_lists_checked_coordinates_and_skipped_files() {
 }
 
 #[test]
+fn report_lists_private_notes_as_not_checked() {
+    let _host = MockHost::install();
+    let report: Report = serde_json::from_value(json!({
+        "rows":[],
+        "notes":[["Private, not queried","secret","npm","1.0.0","/project/package-lock.json"]]
+    })).unwrap();
+    let Body::Other { data, .. } = resource_body("/project", &report, None) else { panic!() };
+    let value: Value = serde_json::from_str(&data).unwrap();
+    let item = &value["items"][0];
+    assert_eq!(item["cells"][0], "Private, not queried");
+    assert_eq!(item["cells"][5], "Not checked");
+    assert!(item["details"][1]["value"].as_str().unwrap().contains("never sent to OSV.dev"));
+}
+
+#[test]
 fn report_lists_local_workspace_and_marker_notes() {
     let _host = MockHost::install();
     let report: Report = serde_json::from_value(json!({
@@ -1491,4 +1503,94 @@ fn npm_graph_tab_inspect_button_renders_the_root_lockfile_tree() {
     let response=send(&mut plugin,2,json!({"op":"event","event":{"kind":"button","key":"inspect-npm-graph"}}));
     assert!(response.get("error").is_none(),"{response}");
     assert_eq!(response["model"]["body"]["kind"],"tree","{response}");
+}
+
+#[test]
+fn gradle_division_keeps_dependencies() {
+    let text = "def half = Runtime.runtime.availableProcessors() / 2\ndependencies {\n    implementation 'org.yaml:snakeyaml:2.2'\n}\n";
+
+    let deps = manifest::parse("/project/build.gradle", text, None);
+
+    assert_eq!(deps.len(), 1);
+    assert_eq!(deps[0].name, "org.yaml:snakeyaml");
+    let regex = "def r = /a'b/\ndependencies {\n    implementation 'org.yaml:snakeyaml:2.2'\n}\n";
+    assert!(manifest::parse("/project/build.gradle", regex, None).is_empty());
+}
+
+#[test]
+fn saving_readme_keeps_manifest_diagnostics() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    host.add_file("web/package.json", PACKAGE);
+    host.add_file("web/package-lock.json", PACKAGE_LOCK);
+    let mut plugin = DependencyAudit::default();
+    plugin.handle_events(&[Event::FileOpened("/project/web/package.json".into())], &host.invocation());
+    let package = document("/project/web/package.json", "json", PACKAGE);
+    assert_eq!(plugin.diagnostics(&package).len(), 1);
+
+    plugin.handle_events(&[Event::FileSaved("/project/README.md".into())], &host.invocation());
+
+    assert_eq!(plugin.diagnostics(&package).len(), 1);
+}
+
+#[test]
+fn pep440_post_and_rc_order() {
+    use std::cmp::Ordering::{Greater, Less};
+
+    assert_eq!(osv::compare("1.0.post1", "1.0"), Greater);
+    assert_eq!(osv::compare("1.10rc1", "1.9"), Greater);
+    assert_eq!(osv::compare("1.0.post1", "1.0rc1"), Greater);
+    assert_eq!(osv::compare("1.0.post1", "1.0.1"), Less);
+    assert_eq!(osv::compare("1.0rc1", "1.0"), Less);
+    assert_eq!(osv::compare("1.0rc10", "1.0rc9"), Greater);
+}
+
+#[test]
+fn quick_fix_unsaved_says_save_first() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    host.add_file("pom.xml", POM);
+    opened(&host, "/project/pom.xml");
+    let unsaved = format!("{POM}<!-- unsaved -->");
+    let doc = document("/project/pom.xml", "xml", &unsaved);
+    let mut plugin = DependencyAudit::default();
+    let action = plugin.code_actions(&doc, line(3)).into_iter().find(|a| a.title.starts_with("Upgrade ")).unwrap();
+
+    let error = plugin.resolve_code_action(&doc, action).unwrap_err();
+
+    assert!(matches!(&error, Error::Invalid(message) if message == "Save the file first"), "{error:?}");
+}
+
+#[test]
+fn import_ignores_missing_profile_message() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = DependencyAudit::default();
+
+    let error = plugin.run_command("import-ignores", &host.invocation(), None).unwrap_err();
+
+    assert!(matches!(&error, Error::Invalid(message) if message == "No profile file; export one first"), "{error:?}");
+}
+
+#[test]
+fn event_checks_query_only_the_first_uncached_coordinates() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    let deps: Vec<Dep> = (0..1500).map(|i| dep(Ecosystem::Npm, &format!("pkg{i}"), "1.0.0")).collect();
+    let mut budget = EVENT_COORDINATES;
+
+    osv::audit_within(&deps, true, 0, soon(), &mut budget).unwrap();
+
+    assert_eq!(posts(&host), 1);
+    assert_eq!(budget, 0);
+}
+
+#[test]
+fn auto_resolve_is_skipped_when_little_time_remains() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read", "process:mvn", "storage"]);
+    host.add_file("pom.xml", "<project/> ");
+    host.answer_next_prompt(Some(&[]));
+
+    DependencyAudit::default().auto_resolve(&host.invocation(), Instant::now() + Duration::from_secs(5));
+
+    assert!(host.process_runs().is_empty());
 }

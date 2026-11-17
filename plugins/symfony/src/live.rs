@@ -3,7 +3,7 @@ use crate::*;
 use openidea_plugin::diagnostics::DiagnosticsProvider;
 impl DiagnosticsProvider for Main {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
-        if doc.text.len() > 32 << 10
+        if doc.text.len() > 256 << 10
             || !host::setting_bool("diagnostics").unwrap_or(true)
             || !matches!(
                 (doc.language.as_str(), doc.path.rsplit('.').next()),
@@ -20,7 +20,11 @@ impl DiagnosticsProvider for Main {
         // Keep current-document checks available, without any rejected cache facts.
         let unavailable=Index{partial:true,..Index::default()};
         let index=if cached.settings_current() {cached} else {&unavailable};
-        let groups = Groups::from_settings();
+        let mut groups = Groups::from_settings();
+        if doc.language == "twig" && index.custom_twig_lexer() {
+            groups.twig = false;
+            groups.twig_syntax = false;
+        }
         let mut found = if doc.language == "twig" && groups.twig_syntax {
             twig_checks::syntax(&doc.text)
         } else if doc.language == "yaml" && groups.yaml_syntax {
@@ -115,6 +119,37 @@ mod tests {
         owner.indexes.insert("/project".into(), Index::default());
         (host, owner)
     }
+    #[test]
+    fn diagnostics_run_on_64kib_controller() {
+        let (_host, mut owner) = setup();
+        let padding = format!("// {}\n", "x".repeat(64 << 10));
+        let text = format!("<?php\n#[Route('/x')]\nclass C {{}}\n{padding}");
+        let doc = Document { path: "/project/src/C.php".into(), language: "php".into(), version: 1, text };
+        assert!(doc.text.len() > 64 << 10);
+        assert!(owner.diagnostics(&doc).iter().any(|finding| finding.code.as_deref() == Some("controller-method-missing")));
+    }
+
+    #[test]
+    fn custom_twig_lexer_skips_symfony_twig_checks() {
+        let missing = Document { path: "/project/templates/a.twig".into(), language: "twig".into(), version: 1, text: "{{ path('missing') }}".into() };
+        let checked = |lexer: Option<&str>| {
+            let (host, mut owner) = setup();
+            if let Some(source) = lexer {
+                host.add_file("src/Twig/Custom.php", source);
+            }
+            let mut index = Index::build(&host.invocation().project().unwrap());
+            index.partial = false;
+            index.compiled_routes = true;
+            owner.indexes.insert("/project".into(), index);
+            owner.diagnostics(&missing).iter().any(|finding| finding.code.as_deref() == Some("twig-missing-route"))
+        };
+        let twig = "<?php\nuse Twig\\Lexer;\n$twig->setLexer(new Lexer($twig, ['tag_block' => ['<%', '%>']]));\n";
+        let doctrine = "<?php\nuse Doctrine\\ORM\\Query\\Lexer;\n$lexer = new Lexer($dql);\n";
+        assert!(checked(None));
+        assert!(checked(Some(doctrine)));
+        assert!(!checked(Some(twig)));
+    }
+
     #[test]
     fn stale_setting_cache_keeps_source_checks_without_cached_reference_facts() {
         let (host,mut owner)=setup();let mut index=Index::build(&host.invocation().project().unwrap());

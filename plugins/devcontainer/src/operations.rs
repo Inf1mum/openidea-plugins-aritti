@@ -58,7 +58,7 @@ fn append(session: &mut Session, label: &str, value: &str) {
 impl Operations {
     pub(crate) fn idle(&self) -> Result<(), Error> {
         if self.session.as_ref().is_some_and(|s| s.child.is_some()) {
-            return Err("An owned CLI handle is still active or draining output. Open Finite CLI Output and Refresh Status or Cancel CLI before starting another.".into());
+            return Err("An owned CLI handle is still active or draining output. Open Show Services Output and Refresh Status or Cancel before starting another.".into());
         }
         Ok(())
     }
@@ -153,13 +153,13 @@ impl Operations {
         };
         let failure = self.failed.as_ref().filter(|(owner, _)| owner == &root).map(|(_, error)| error.as_str());
         let Some(session) = self.session.as_ref().filter(|s| s.root == root) else {
-            return row(failure.unwrap_or("No accepted finite CLI operation for this project. Use Start/Rebuild Container (Finite Managed CLI). Existing terminal commands remain available."));
+            return row(failure.unwrap_or("Nothing is running for this project. Use Start Container (in Services) or Rebuild Container (in Services)."));
         };
         let mut view = View::new(Body::List(vec![ListItem::new(&session.key, "Dev Container CLI operation")
             .detail(&format!("{} · {}", session.config, session.status))]))
             .button(Button::new("refresh-managed", "Refresh Status").icon("refresh"))
             .button(Button::new(&format!("cancel-{}", session.key), "Cancel CLI / Close Handle").enabled(session.child.is_some()))
-            .status("Finite instance-owned CLI · manual status polling · no durable container/IDE owner · cancellation is not rollback");
+            .status("Refresh to see progress · cancelling does not undo a started container or build");
         if let Some(error) = failure { view = view.status(error); }
         view
     }
@@ -169,8 +169,8 @@ impl Operations {
         let Some(session) = self.session.as_ref().filter(|s| s.key == key && s.root == root) else { return Ok(Vec::new()); };
         Ok(vec![
             Tab::new("target", "Target / State", Pane::Text(format!(
-                "Project / CLI cwd: {}\nConfiguration: {}\nProgram: devcontainer\nArguments: {}\n\n{}\n\nThe CLI reads disk and may execute referenced build/lifecycle code. This is one client handle, normally reclaimed with the plugin after about300seconds idle. Closing/killing it does not prove a container or Docker build stopped. Existing terminal commands support independent terminal sessions.", session.root, session.config, serde_json::to_string(&session.args).unwrap_or_default(), session.status))),
-            Tab::new("output", "Captured Output", Pane::Text(format!("{}{}", if session.truncated { "[Earlier captured output truncated; latest64KiB retained]\n" } else { "" }, if session.output.is_empty() { "No captured output yet. Refresh Status reads a bounded chunk." } else { &session.output }))),
+                "Project: {}\nConfiguration: {}\nProgram: devcontainer\nArguments: {}\n\n{}\n\nThe CLI reads the configuration and may run the build and lifecycle commands it references. Closing it does not prove the container or build stopped. The handle is released after about 300 seconds idle.", session.root, session.config, serde_json::to_string(&session.args).unwrap_or_default(), session.status))),
+            Tab::new("output", "Captured Output", Pane::Text(format!("{}{}", if session.truncated { "[Earlier output truncated; the latest 64 KiB is kept]\n" } else { "" }, if session.output.is_empty() { "No captured output yet. Refresh Status reads a bounded chunk." } else { &session.output }))),
         ])
     }
 

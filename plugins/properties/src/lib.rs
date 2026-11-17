@@ -24,7 +24,7 @@ use format::{is_sorted, reformat_edits, sorted_text};
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::{
-    Error, Event, Invocation, Location, LogLevel, NotificationLevel, Plugin, Position, Project, Range, TextEdit, TextEditor, host,
+    Error, Event, EventKind, Invocation, Location, LogLevel, NotificationLevel, Plugin, Position, Project, Range, TextEdit, TextEditor, host,
     register_plugin,
 };
 use props::{Prop, append_line, dir, file_name, locale_name, parse, range_of, split_locale, stem, suffix, whole_lines};
@@ -444,6 +444,13 @@ impl Properties {
 }
 
 impl Plugin for Properties {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        for kind in [EventKind::FileOpened, EventKind::FileSaved, EventKind::FilesChanged] {
+            host::subscribe(kind)?;
+        }
+        Ok(())
+    }
+
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
             "discard-staged-grid" => self.discard_grid(ctx),
@@ -530,11 +537,6 @@ impl Providers for Properties {
             return Vec::new();
         }
         self.property_actions(doc, selection).into_iter().filter(|a| a.data.is_none()).collect()
-    }
-
-    fn resolve_code_action(&mut self, doc: &Document, mut action: CodeAction) -> Result<CodeAction, Error> {
-        let _ = (doc, &mut action);
-        Err("Bundle actions now use the native FileActions provider. Invoke the action again.".into())
     }
 
     /// `GotoPropertyParentDeclarationHandler` in `.properties` files (the same
@@ -1137,5 +1139,84 @@ mod tests {
         assert!(plugin.run_command("copy-value", &host.invocation(), None).is_err());
         assert_eq!(host.clipboard().as_deref(), Some("😀"));
         assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn activate_subscribes_to_the_events_the_plugin_handles() {
+        let host = MockHost::install();
+        let mut plugin = Properties::default();
+        plugin.activate(&host.context("aritti.properties")).unwrap();
+        let kinds = host.subscriptions();
+        for kind in [EventKind::FileOpened, EventKind::FileSaved, EventKind::FilesChanged] {
+            assert!(kinds.contains(&kind), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn java_key_navigation_works_after_a_source_open_event() {
+        let host = MockHost::install();
+        host.add_file("src/main/resources/messages.properties", "greeting=Hello\n");
+        let mut plugin = Properties::default();
+        plugin.activate(&host.context("aritti.properties")).unwrap();
+        let path = "/project/src/main/java/A.java";
+        let text = "java.util.ResourceBundle.getBundle(\"messages\").getString(\"greeting\");";
+        host.add_file(path, text);
+        plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
+        assert!(plugin.index.is_some());
+        let column = text.find("greeting").unwrap() as u32 + 2;
+        let found = plugin.definition(&doc(path, "java", text), Position::new(0, column));
+        assert_eq!(found.len(), 1);
+        assert!(found[0].path.ends_with("messages.properties"));
+    }
+
+    #[test]
+    fn providers_survive_every_offset_of_non_ascii_seeds() {
+        use openidea_plugin::hover::HoverProvider;
+        use openidea_plugin::language_features::LanguageFeatures;
+        let host = MockHost::install();
+        host.add_file("/project/messages.properties", "café=é\n");
+        let seeds = ["{{ x }}{#}", "café", "<?php\nuse $😀", "é::class", "<!-- Paramètres --><a/>", "caf\\\n é=😀\\\r\n x\x0c=\x0c\\u00e9"];
+        for (path, language) in [("/project/messages.properties", "properties"), ("/project/A.java", "java"), ("/project/A.kt", "kotlin")] {
+            for seed in seeds {
+                let d = doc(path, language, seed);
+                let mut plugin = Properties::default();
+                for (i, _) in seed.char_indices().chain([(seed.len(), ' ')]) {
+                    let at = openidea_plugin::text::position(seed, i);
+                    let selection = Range::new(at, at);
+                    let _ = plugin.definition(&d, at);
+                    let _ = plugin.completion(&d, at, None);
+                    let _ = plugin.hover(&d, at);
+                    let _ = plugin.code_actions(&d, selection);
+                    let _ = plugin.file_actions(&d, selection);
+                }
+                let _ = plugin.folding(&d);
+                let _ = plugin.diagnostics(&d);
+            }
+        }
+    }
+
+    #[test]
+    fn html_and_jsp_key_definitions_work_on_a_fresh_instance() {
+        let host = MockHost::install();
+        host.add_file("src/main/resources/messages.properties", "a.b=Value\n");
+        for (language, path, text) in [
+            ("html", "/project/t.html", "<p th:text=\"#{a.b}\"></p>"),
+            ("jsp", "/project/t.jsp", "<fmt:message key=\"a.b\"/>"),
+        ] {
+            let mut plugin = Properties::default();
+            plugin.activate(&host.context("aritti.properties")).unwrap();
+            let at = Position::new(0, text.find("a.b").unwrap() as u32 + 1);
+            let found = plugin.definition(&doc(path, language, text), at);
+            assert_eq!(found.len(), 1, "{language}");
+            assert!(found[0].path.ends_with("messages.properties"));
+        }
+    }
+
+    #[test]
+    fn manifest_activates_for_every_provider_language() {
+        let manifest = include_str!("../plugin.toml");
+        for language in ["properties", "java", "kotlin", "html", "jsp"] {
+            assert!(manifest.contains(&format!("\"on-language:{language}\"")), "{language}");
+        }
     }
 }

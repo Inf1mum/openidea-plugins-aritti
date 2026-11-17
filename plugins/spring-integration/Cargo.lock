@@ -182,6 +182,7 @@ dependencies = [
  "openidea-plugin-aritti-spring-batch",
  "openidea-plugin-aritti-spring-modulith",
  "quick-xml",
+ "serde_json",
  "sha2",
  "spring-text",
  "ui-kit",
@@ -298,6 +299,7 @@ name = "spring-text"
 version = "0.1.0"
 dependencies = [
  "openidea-plugin",
+ "quick-xml",
 ]
 
 [[package]]

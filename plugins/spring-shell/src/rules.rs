@@ -167,10 +167,10 @@ fn known_wrong_return(f: &JavaFile, text:&str, kotlin: bool, m: &Member) -> bool
     )
 }
 
-pub(super) fn check(doc: &Document, f: &JavaFile) -> Vec<Diagnostic> {
+pub(super) fn check(doc: &Document, f: &JavaFile, extended: &dyn Fn(&str) -> bool) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     let text = &doc.text;
-    for t in &f.types {
+    for (ti, t) in f.types.iter().enumerate() {
         let legacy: Vec<_> = t
             .methods()
             .filter(|m| {
@@ -181,7 +181,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile) -> Vec<Diagnostic> {
         let mut indicators = HashSet::new();
         for command in &legacy {
             let a = command.annotation("ShellMethod").unwrap();
-            if t.annotations.is_empty() && t.supers().next().is_none() && t.kind == "class" {
+            if t.annotations.is_empty() && t.supers().next().is_none() && t.kind == "class" && !t.modifiers.iter().any(|m| m == "abstract") && !extended(&f.qualified(ti)) {
                 out.push(problem(range(text,command.at,command.at+command.name.len()),Severity::Warning,"missing-shell-component","Legacy command's unannotated enclosing class has no ShellComponent declaration. Registration through external/meta configuration is not inferred.".into()));
             }
             let missing = a.arg("value").is_none()
@@ -416,7 +416,9 @@ mod tests {
     }
     fn codes(text: &str) -> Vec<String> {
         let doc = doc(text, false);
-        ShellTools::default()
+        let mut tools = ShellTools::default();
+        tools.line_markers(&doc);
+        tools
             .diagnostics(&doc)
             .into_iter()
             .map(|d| d.code.unwrap())
@@ -637,7 +639,7 @@ mod tests {
     }
     #[test]
     fn component_placement_warns_only_for_unannotated_closed_classes() {
-        let _host = MockHost::install().with_capabilities(&[]);
+        let _host = MockHost::install();
         let bare = "import org.springframework.shell.standard.ShellMethod; class C { @ShellMethod(\"Run\") void run(){} }";
         assert_eq!(codes(bare), ["missing-shell-component"]);
         for quiet in [
