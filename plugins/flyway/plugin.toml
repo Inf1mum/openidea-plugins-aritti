@@ -10,7 +10,7 @@ Next release: Prepare in New Migration opens the newest migration so you can pre
 0.2.0: plugin icon and expanded migration checks."""
 categories = ["frameworks", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-view:migrations"]
 

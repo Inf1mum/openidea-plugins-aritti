@@ -11,7 +11,7 @@ Next release: Unreleased: Fresh Migration and Seed Database ask for confirmation
 0.2.0: plugin icon and window consolidation."""
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:php", "on-language:blade", "on-file:pint.json", "on-file:phpstan.neon", "on-file:phpstan.dist.neon", "on-file:resources/js/**", "on-schedule:60"]
 

@@ -10,7 +10,7 @@ Next release: The Spring Runtime window and its Tools menu item now appear only 
 0.2.0: plugin icon and Actuator support."""
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:runtime", "on-language:java", "on-language:kotlin", "on-file:**/application*.properties", "on-file:**/application*.yml", "on-file:**/application*.yaml", "on-file:**/bootstrap*.properties", "on-file:**/bootstrap*.yml", "on-file:**/bootstrap*.yaml"]
 

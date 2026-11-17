@@ -11,7 +11,7 @@ Next release: Merge request Details drops the five duplicate attribute buttons a
 0.2.0: Merge Request window sections, distinct window icons and plugin icon."""
 categories = ["vcs"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:merge-requests", "on-event:vcs-changed", "on-event:file-opened", "on-event:file-saved", "on-file:**/.gitlab-ci.yml", "on-file:**/*.gitlab-ci.yml"]
 

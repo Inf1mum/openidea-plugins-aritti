@@ -10,7 +10,7 @@ Next release: Background Start and Rebuild use plain names and status text, the 
 0.2.0: plugin icon, container list with Open Shell, Stop and Start."""
 categories = ["tools"]
 icon = "icon.svg"
-engines.openidea = "^1.9"
+engines.openidea = "^1.10"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:containers", "on-view:run-target-review"]
 
