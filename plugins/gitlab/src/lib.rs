@@ -305,6 +305,8 @@ fn date(timestamp: &str) -> &str {
 /// Buttons that run only on a second click, relabelled "Confirm …" in between.
 const CONFIRMED: [&str; 4] = ["merge", "close", "delete-note", "cancel"];
 
+const MORE: &str = "more-actions";
+
 const NOTE_ACTIONS: [&str; 3] = ["edit-note", "delete-note", "react"];
 
 fn approvals_text(approvals: &Approvals) -> String {
@@ -899,6 +901,9 @@ impl GitLab {
             self.checked_selection(&repo, ctx)?;
         }
         if let ViewEvent::Button(id) = &event {
+            if id == MORE {
+                return self.pick_more_action(ctx);
+            }
             if id == "open-overview-snapshot" {
                 return self.open_content_snapshot(ctx, content_tabs::Kind::Overview);
             }
@@ -984,8 +989,6 @@ impl GitLab {
                     .button(Button::new("delete-note", delete).icon("trash"));
             }
 
-            let react = if thread.is_some() { "React to Comment" } else { "React" };
-            view = view.button(Button::new("react", react).icon("star"));
         }
 
         if opened {
@@ -1013,22 +1016,13 @@ impl GitLab {
                 view = view.button(Button::new("rebase", "Rebase").icon("branch"));
             }
 
-            if !mr.reviewers.iter().any(|u| u.id == me.id) {
-                view = view.button(Button::new("review", "Add Me as Reviewer").icon("github-review"));
-            }
-
-            view = view.button(Button::new("rerequest-review", "Re-request Review…").icon("github-review").enabled(!mr.reviewers.is_empty()));
             view = view.button(Button::new("edit", "Edit Labels, People, Milestone…").icon("edit"));
 
-            let (draft, draft_icon) = match mr.draft {
-                true => ("Mark as Ready", "github-pr-open"),
-                false => ("Mark as Draft", "github-pr-draft"),
-            };
             let close = match self.confirm == Some(format!("close:{}", mr.iid)) {
                 true => format!("Confirm Close !{}", mr.iid),
                 false => "Close".into(),
             };
-            view = view.button(Button::new("draft", draft).icon(draft_icon)).button(Button::new("close", &close).icon("github-pr-closed"));
+            view = view.button(Button::new("close", &close).icon("github-pr-closed"));
         }
 
         if mr.state == "closed" {
@@ -1040,11 +1034,8 @@ impl GitLab {
         }
 
         view = view
-            .button(Button::new("open-overview-snapshot", "Open MR Snapshot").icon("file"))
-            .button(Button::new("open-diff-snapshot", "Open Diff Snapshot").icon("diff"))
-            .button(Button::new("open-existing-worktree", "Open Existing Worktree").icon("folder"))
             .button(Button::new("browser", "Open on GitLab").icon("external-link"))
-            .button(Button::new("copy", "Copy Link").icon("copy"))
+            .button(Button::new(MORE, "More…").icon("more"))
             .button(Button::new("refresh", "Refresh").icon("refresh"));
 
         let mut summary = details_summary(details);
@@ -1055,6 +1046,52 @@ impl GitLab {
             Some(status) => view.status(&format!("{status} · {summary}")),
             None => view.status(&summary),
         })
+    }
+
+    /// Secondary Overview actions behind More…; only those available for the loaded merge request.
+    fn more_actions(&mut self) -> Result<Vec<(&'static str, &'static str)>, Error> {
+        let me = self.me()?;
+        let details = self.details.as_ref().ok_or("The merge request is not loaded; refresh it.")?;
+        let mr = &details.mr;
+        let mut actions = Vec::new();
+
+        if note_actions_enabled() {
+            actions.push(("react", if self.thread(mr.iid).is_some() { "React to Comment" } else { "React" }));
+        }
+
+        if mr.state == "opened" {
+            if !mr.reviewers.iter().any(|u| u.id == me.id) {
+                actions.push(("review", "Add Me as Reviewer"));
+            }
+
+            if !mr.reviewers.is_empty() {
+                actions.push(("rerequest-review", "Re-request Review…"));
+            }
+
+            actions.push(("draft", if mr.draft { "Mark as Ready" } else { "Mark as Draft" }));
+        }
+
+        actions.extend([
+            ("open-overview-snapshot", "Open MR Snapshot"),
+            ("open-diff-snapshot", "Open Diff Snapshot"),
+            ("open-existing-worktree", "Open Existing Worktree"),
+            ("copy", "Copy Link"),
+        ]);
+        Ok(actions)
+    }
+
+    fn pick_more_action(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        let actions = self.more_actions()?;
+        let items: Vec<PickItem> = actions.iter().map(|(id, label)| PickItem::new(id, label)).collect();
+        let Some(chosen) = host::pick("More merge request actions", &items)? else {
+            return Ok(());
+        };
+
+        if !actions.iter().any(|(id, _)| *id == chosen) {
+            return Err(Error::Stale);
+        }
+
+        self.handle_section(ViewEvent::Button(chosen), ctx)
     }
 
     fn handle_details(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

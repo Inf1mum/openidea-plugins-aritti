@@ -306,19 +306,13 @@ fn details_offer_the_review_flow() {
         actions,
         [
             "comment",
-            "react",
             "approve",
             "merge",
-            "review",
             "edit",
-            "draft",
             "close",
             "checkout",
-            "open-overview-snapshot",
-            "open-diff-snapshot",
-            "open-existing-worktree",
             "browser",
-            "copy",
+            "more-actions",
             "refresh"
         ]
     );
@@ -334,6 +328,28 @@ fn details_offer_the_review_flow() {
     assert_eq!(fields[5].label, "Description");
     assert_eq!(fields[5].value, FieldValue::readonly_text("Adds it", true));
     assert!(!fields.iter().any(|f| matches!(f.value, FieldValue::Text(_))), "no read-only facts as inputs: {fields:?}");
+}
+
+#[test]
+fn more_lists_only_available_secondary_actions_and_runs_the_chosen_one() {
+    let host = setup();
+    let mut plugin = selected(&host);
+    plugin.render(DETAILS, None, &host.invocation()).unwrap();
+
+    let offered: Vec<&str> = plugin.more_actions().unwrap().into_iter().map(|(id, _)| id).collect();
+    assert_eq!(offered, ["react", "review", "draft", "open-overview-snapshot", "open-diff-snapshot", "open-existing-worktree", "copy"]);
+
+    host.answer_next_prompt(Some(&["rerequest-review"]));
+    assert!(plugin.handle(DETAILS, ViewEvent::Button("more-actions".into()), &host.invocation()).is_err(), "no reviewers: not offered");
+
+    host.answer_next_prompt(None);
+    plugin.handle(DETAILS, ViewEvent::Button("more-actions".into()), &host.invocation()).unwrap();
+    assert!(writes(&host).is_empty(), "a cancelled picker does nothing");
+
+    host.answer_next_prompt(Some(&["draft"]));
+    plugin.handle(DETAILS, ViewEvent::Button("more-actions".into()), &host.invocation()).unwrap();
+    assert!(writes(&host)[0].2.contains(r#""draft":true"#));
+    assert_eq!(plugin.status.as_deref(), Some("Marked as draft."));
 }
 
 #[test]
@@ -3697,8 +3713,9 @@ mod content_snapshot_tests {
     }
     fn open_in_frame(host: &MockHost, plugin: &mut GitLab, button: &str, frame: &str) -> Result<(), Error> {
         ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json"))?;
+        host.answer_next_prompt(Some(&[button]));
         let message = serde_json::json!({"channel":"ui-kit","sequence":1,"targetView":DETAILS,"frameId":frame,"project":"/project", "op":"event",
-            "event":{"kind":"button","key":button}})
+            "event":{"kind":"button","key":"more-actions"}})
         .to_string();
         plugin.handle(LIST, ViewEvent::Message(message), &host.invocation())?;
         let response: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
