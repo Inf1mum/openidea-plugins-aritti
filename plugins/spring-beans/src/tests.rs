@@ -436,7 +436,22 @@ fn beans_window_has_three_sections() {
     n.handle(BEANS_VIEW, ViewEvent::Button("section:report".into()), &host.invocation()).unwrap();
     let report = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
     assert!(matches!(report.body, Body::Message(_)));
-    assert_eq!(toolbar_ids(&report), ["section:beans", "section:graph", "section:report"]);
+    assert_eq!(toolbar_ids(&report), ["section:beans", "section:graph", "section:report", "check"]);
+    n.handle(BEANS_VIEW, ViewEvent::Button("check".into()), &host.invocation()).unwrap();
+    let checked = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(!toolbar_ids(&checked).contains(&"check"));
+}
+
+#[test]
+fn empty_beans_view_says_when_the_project_has_no_build_file() {
+    let host = MockHost::install();
+    host.add_file("src/Plain.java", "class Plain {}");
+    let mut n = warmed_navigator();
+    let view = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(matches!(view.body, Body::Message(ref text) if text.contains("doesn't look like a Spring project")), "{:?}", view.body);
+    host.add_file("build.gradle.kts", "plugins {}");
+    let view = n.render(BEANS_VIEW, None, &host.invocation()).unwrap();
+    assert!(matches!(view.body, Body::Message(ref text) if text == "No Spring beans found."), "{:?}", view.body);
 }
 
 #[test]
@@ -3294,7 +3309,7 @@ mod external_packaged_refresh_tests {
     #[test]
     fn cold_foreign_cache_and_irrelevant_event_do_not_scan_or_notify(){
         let host=setup();let mut nav=warmed_navigator();host.set_project_root(Some("/other"));let before=host.view_messages().len();
-        let model=nav.render(BEANS_VIEW,None,&host.invocation()).unwrap();assert!(matches!(model.body,Body::Message(text) if text.contains("cold")));
+        let model=nav.render(BEANS_VIEW,None,&host.invocation()).unwrap();assert!(matches!(model.body,Body::Message(text) if text.contains("Not scanned yet")));
         nav.handle_events(&[Event::EditorFocused(None)],&host.invocation());assert!(notices(&host,before).is_empty());
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
     }

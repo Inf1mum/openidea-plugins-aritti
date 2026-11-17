@@ -137,7 +137,7 @@ impl Cache {
         if self.index.scanning() {
             "Bounded source scan pending; Refresh to continue.".into()
         } else if !self.index.walked() {
-            "Source cache cold/current-document only; Refresh to index project.".into()
+            "Not scanned yet. Click Refresh to find this project's Spring beans.".into()
         } else if self.index.unreadable() > 0 {
             format!(
                 "{} source files unreadable, oversized or unsupported XML; unaffected cached facts retained; Refresh to retry.",
@@ -389,7 +389,7 @@ mod tests {
                 .all(|marker| marker.target.as_ref().is_none_or(|target| !target.path.ends_with("Hidden.java")))
         );
         let shown = nav.render(BEANS_VIEW, None, &host.invocation()).unwrap();
-        assert!(shown.status.as_deref().unwrap().contains("cold"));
+        assert!(shown.status.as_deref().unwrap().contains("Not scanned yet"));
         assert!(!nav.indexes.cached(&host.invocation().project().unwrap()).unwrap().files().contains_key("/project/src/Hidden.java"));
         nav.handle_events(&[Event::FileOpened("/project/src/Hidden.java".into())], &host.invocation());
         assert!(nav.indexes.cached(&host.invocation().project().unwrap()).unwrap().files().contains_key("/project/src/Hidden.java"));
@@ -502,7 +502,7 @@ mod tests {
         nav.handle_events(&vec![Event::FileSaved("/project/src/A.java".into()); 257], &host.invocation());
         assert!(nav.indexes.cached(&host.invocation().project().unwrap()).is_none());
         let shown = nav.render(BEANS_VIEW, None, &host.invocation()).unwrap();
-        assert!(matches!(shown.body,Body::Message(message) if message.contains("cold")));
+        assert!(matches!(shown.body,Body::Message(message) if message.contains("Not scanned yet")));
     }
     #[test]
     fn partial_report_never_renders_a_clean_bill_and_build_changes_invalidate() {

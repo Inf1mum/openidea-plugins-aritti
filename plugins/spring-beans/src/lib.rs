@@ -41,7 +41,7 @@ use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Doc
 use openidea_plugin::text::{offset, position};
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, LogLevel, Plugin, Position, Range, Severity, TextEdit, host,
+    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, LogLevel, Plugin, Position, Project, Range, Severity, TextEdit, host,
 };
 use sites::{Hit, Site, Word};
 use spring_text::diagram;
@@ -1229,7 +1229,7 @@ fn location_key(path: &str, range: Range) -> String {
 }
 
 impl Navigator {
-    fn tree(index: &Cache) -> View {
+    fn tree(index: &Cache, empty: &str) -> View {
         let world = World::new(index);
         let mut groups: BTreeMap<&str, Vec<Found>> = BTreeMap::new();
         for (path, b) in world.beans() {
@@ -1237,7 +1237,7 @@ impl Navigator {
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if groups.is_empty() {
-            let text = if index.complete() { "No Spring beans found in inventoried sources.".to_owned() } else { index.state() };
+            let text = if index.complete() { empty.to_owned() } else { index.state() };
             return View::message(&text).button(refresh);
         }
         let mut items = Vec::new();
@@ -1273,7 +1273,7 @@ impl Navigator {
 
     fn report_view(&self) -> View {
         match &self.report {
-            Report::Empty => View::message("Run Check Spring Configuration or Dump Spring Configuration from the Tools menu."),
+            Report::Empty => View::message("Check the project for Spring configuration problems.").button(check_button()),
             Report::Dump(text) => {
                 let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
                 View::new(Body::Html(format!("<pre class=\"ui-code\" style=\"font-family: var(--ui-mono); white-space: pre-wrap\">{escaped}</pre>")))
@@ -1304,13 +1304,13 @@ impl Navigator {
         }
     }
 
-    fn graph(index: &Cache) -> View {
+    fn graph(index: &Cache, empty: &str) -> View {
         let world = World::new(index);
         let total = world.beans().count();
         let beans: Vec<Found> = world.beans().take(MAX_GRAPH).collect();
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if beans.is_empty() {
-            let text = if index.complete() { "No Spring beans found in inventoried sources.".to_owned() } else { index.state() };
+            let text = if index.complete() { empty.to_owned() } else { index.state() };
             return View::message(&text).button(refresh);
         }
         let node_of: BTreeMap<(&str, Range), usize> = beans.iter().enumerate().map(|(i, (p, b))| ((*p, b.range), i)).collect();
@@ -1332,9 +1332,21 @@ impl Navigator {
         let edges: Vec<diagram::Edge> = edges.into_iter().map(|(a, b)| diagram::Edge::new(&nodes[a].id, &nodes[b].id)).collect();
         let shown = if total > nodes.len() { format!("{} of {total} beans shown", nodes.len()) } else { bean_count(total) };
         let status = format!("{shown} · {} dependencies · arrows point to dependencies{}", edges.len(), scanning(index));
-        View::new(Body::Html(diagram::html(&nodes, &edges, "No Spring beans found in inventoried sources.")))
+        View::new(Body::Html(diagram::html(&nodes, &edges, empty)))
             .button(refresh)
             .status(&status)
+    }
+}
+
+fn check_button() -> Button {
+    Button::new("check", "Check Spring Configuration").icon("check")
+}
+
+fn no_beans_message(project: &Project) -> &'static str {
+    if checks::BUILD_FILES.iter().any(|file| project.exists(file).unwrap_or(false)) {
+        "No Spring beans found."
+    } else {
+        "No Spring beans found. This project doesn't look like a Spring project: it has no pom.xml or build.gradle."
     }
 }
 
@@ -1359,24 +1371,25 @@ impl Views for Navigator {
             let section = self.sections.active();
             let mut shown = if section == REPORT_SECTION {
                 if self.report_root.as_deref() != Some(root.as_str()) {
-                    View::message("No configuration report for this project; run Check or Dump Spring Configuration.")
+                    View::message("No configuration report for this project yet.").button(check_button())
                 } else {
                     self.report_view()
                 }
             } else {
                 let Some(index) = self.indexes.cached(&project) else {
                     return Ok(self.sections.buttons(
-                        View::message("Source cache cold; Refresh to index this project.")
+                        View::message("Not scanned yet. Click Refresh to find this project's Spring beans.")
                             .button(Button::new("refresh", "Refresh").icon("refresh")),
                         &[],
                     ));
                 };
+                let empty = no_beans_message(&project);
                 if section == GRAPH_SECTION {
-                    Self::graph(index)
+                    Self::graph(index, empty)
                 } else if ui_kit::web::is_rendering() {
-                    resources::view(index)
+                    resources::view(index, empty)
                 } else {
-                    Self::tree(index)
+                    Self::tree(index, empty)
                 }
             };
             if let Body::Tree(items) = &mut shown.body {
@@ -1397,6 +1410,10 @@ impl Views for Navigator {
         }
 
         let key = match event {
+            ViewEvent::Button(b) if b == "check" => {
+                commands::check_configuration(self, ctx)?;
+                return Ok(());
+            }
             ViewEvent::Button(b) if b == "refresh" => {
                 if let Some(project) = ctx.project() {
                     if !self.indexes.cached(&project).is_some_and(|index| index.scanning()) {

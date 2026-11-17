@@ -20,7 +20,7 @@ fn fact(label: &str, value: &str) -> Value {
     json!({"label":label,"value":clip(value)})
 }
 
-pub(crate) fn view(index: &Cache) -> View {
+pub(crate) fn view(index: &Cache, empty: &str) -> View {
     let world = World::new(index);
     let mut beans: Vec<_> = world
         .files
@@ -30,7 +30,7 @@ pub(crate) fn view(index: &Cache) -> View {
     beans.sort_by(|a, b| a.3.name.cmp(&b.3.name).then_with(|| a.0.cmp(b.0)).then_with(|| a.3.range.start.cmp(&b.3.range.start)));
     let total = beans.len();
     if total == 0 {
-        let text = if index.complete() { "No Spring beans found in inventoried sources.".to_owned() } else { index.state() };
+        let text = if index.complete() { empty.to_owned() } else { index.state() };
         return View::message(&text)
             .button(Button::new("refresh", "Refresh").icon("refresh"));
     }
@@ -142,7 +142,7 @@ mod tests {
         host.add_file("src/Orders.java", source);
         let mut indexes = Indexes::default();
         let project = host.invocation().project().unwrap();
-        let model = data(view(indexes.get(&project, COMMAND_BUDGET)));
+        let model = data(view(indexes.get(&project, COMMAND_BUDGET), "No Spring beans found."));
         let row = &model["items"][0];
         assert_eq!(row["cells"][0], "orders");
         assert_eq!(row["cells"][1], "Orders");
@@ -157,7 +157,7 @@ mod tests {
         let host = MockHost::install();
         let mut indexes = Indexes::default();
         let index = indexes.for_cached_document("/project/src/C.java", "@org.springframework.stereotype.Component class C {}").unwrap();
-        let shown = view(index);
+        let shown = view(index, "No Spring beans found.");
         assert!(shown.status.as_deref().unwrap().contains("partial source index"));
         assert!(
             data(shown)["items"][0]["details"]
