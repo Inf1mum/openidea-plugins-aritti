@@ -150,7 +150,7 @@ fn snapshot(project: &Project, root: &str) -> Result<BTreeMap<String, String>, E
         let source = project.read_file(&path)?;
         bytes += source.len();
         if result.len() >= 500 || bytes > 512 << 10 {
-            return Err("Call-analysis sources exceed500 files/512KiB.".into());
+            return Err("Call analysis supports at most 500 source files and 512 KiB.".into());
         }
         result.insert(path, source);
     }
@@ -362,14 +362,20 @@ impl State {
             stderr_tail: String::new(),
         };
         current(&probe, ctx)?;
-        let version = p.run_process(language.program(), &["--version".into()], None)?;
+        let version = p
+            .run_process(language.program(), &["--version".into()], None)
+            .map_err(|e| ui_kit::denied::map(e, "Vulnerable call analysis", &format!("process:{}", language.program()), "Dependency Audit"))?;
         if version.status != Some(0) || !version_matches(&version.stdout, language) {
-            return Err(format!(
-                "Approve {} {} for this explicit profile.",
-                language.program(),
-                language.version()
-            )
-            .into());
+            let found = version
+                .stdout
+                .lines()
+                .find_map(|l| l.trim().strip_prefix("osv-scanner version: "))
+                .filter(|found| found.len() <= 64);
+            let needed = language.version();
+            return Err(Error::Invalid(match found {
+                Some(found) => format!("Found {} {found}; needs {needed}. Install that version and try again.", language.program()),
+                None => format!("Couldn't read the {} version; needs {needed}.", language.program()),
+            }));
         }
         current(&probe, ctx)?;
         let stamp = SystemTime::now()

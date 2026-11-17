@@ -6,7 +6,7 @@ Support for ignore files: `.gitignore`, `.dockerignore`, `.npmignore`, `.hgignor
 
 - OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - Optional: `git` on the `PATH` for **Ignore: Scan Git for Ignored Files…**.
-- Optional: `python3` on the `PATH` for **Ignore: Find Unused Entries from Complete Directory Snapshot…**.
+- Optional: `python3` on the `PATH` for **Ignore: Find Unused Entries…**.
 - No accounts or network access.
 
 ## Quick start
@@ -38,8 +38,8 @@ Quick fixes on ⌥⏎: remove the entry, remove the relative part, or switch to 
 ### Ignore or unignore a file from anywhere
 
 - In any project file, ⌥⏎ offers **Add … to .gitignore** and an unignore variant with `!`. The project root needs a `.gitignore`.
-- In the Project view or editor, right-click and choose **Add Selected Paths to the Open Ignore File** or **Unignore Selected Paths in the Open Ignore File**.
-- Each change is shown before it is applied and can be undone. CRLF line endings stay CRLF.
+- In the Project view or editor, right-click and choose **Add Selected Paths to the Open Ignore File** or **Unignore Selected Paths in the Open Ignore File**. With several ignore files you pick one. An ignore file that isn't open is written directly and then opened (needs `project.write`).
+- Each ⌥⏎ change is shown before it is applied and can be undone. CRLF line endings stay CRLF.
 - Turn off the unignore variant with **Offer Add to .gitignore (unignore) in the quick-fix menu**.
 
 ### Create an ignore file
@@ -47,7 +47,7 @@ Quick fixes on ⌥⏎: remove the entry, remove the relative part, or switch to 
 - **New › .gitignore File** and 19 more exact names (`.dockerignore`, `.npmignore`, `.hgignore`…). The Git template has a starter list. Others start with a comment; `.hgignore` starts in glob mode.
 - ⌥⏎ › **Create exact-name ignore file…** in any project editor. Pick a name and a folder (empty means the project root), then confirm.
 - ⌥⏎ › **Create ignore file from templates…** combines up to 16 templates into one new file.
-- **Ignore: New Ignore File…** (Project view, Tools menu) creates the file directly. From a project editor it runs **Create exact-name ignore file…**; without an editor it creates an empty file of the type you pick at the project root. You confirm first, and the file opens. It is not a single undo step.
+- **Ignore: New Ignore File…** (Project view, Tools menu) creates the file directly. From a project editor it runs **Create exact-name ignore file…**; from a folder or file selected in the Project view, or without an editor, it creates an empty file of the type you pick in that folder (or at the project root). You confirm first, and the file opens. It is not a single undo step.
 
 ### Use templates
 
@@ -81,7 +81,7 @@ The four workflow flags (warning, status, caret insertion, unignore) take **Inhe
 
 ### Find unused entries (optional)
 
-**Ignore: Find Unused Entries from Complete Directory Snapshot…** scans the folder of the focused `.gitignore` with `python3`. Entries that match no file get a hint and a reviewed removal fix. Results reflect the moment of the scan; run it again to refresh.
+**Ignore: Find Unused Entries…** scans the folder of the focused `.gitignore` with `python3`. Entries that match no file get a hint and a reviewed removal fix. Results reflect the moment of the scan; run it again to refresh.
 
 ### Sample what Git ignores (optional)
 
@@ -101,16 +101,16 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ignore**; bind keys 
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Ignore: Add Selected Paths to the Open Ignore File** | Adds the paths selected in the Project view to the open ignore file. Also in the Project view and editor context menus. | none |
+| **Ignore: Add Selected Paths to the Open Ignore File** | Adds the paths selected in the Project view to the open ignore file, or to a root ignore file you pick. Also in the Project view and editor context menus. | none |
 | **Ignore: Unignore Selected Paths in the Open Ignore File** | Adds `!` entries for the selected paths. Also in the Project view and editor context menus. | none |
-| **Ignore: New Ignore File…** | Creates an ignore file directly after you confirm (not a single undo step): the editor's **Create exact-name ignore file…**, or an empty file of the picked type at the project root. Also in the Project view menu and Tools. | none |
+| **Ignore: New Ignore File…** | Creates an ignore file directly after you confirm (not a single undo step): the editor's **Create exact-name ignore file…**, or an empty file of the picked type in the selected folder or at the project root. Also in the Project view menu and Tools. | none |
 | **Ignore: Dialect Checks and Preferences** | Opens the per-file-type preferences form. Also in Tools. | none |
 | **Ignore: Scan Git for Ignored Files…** | Shows the Git command, then collects a sample of ignored paths. | none |
 | **Ignore: Show Last Git Scan of Ignored Files** | Shows the cached sample and rule match counts. | none |
 | **Ignore: Clear Last Git Scan of Ignored Files** | Forgets this project's cached sample. | none |
 | **Ignore: Mark Ignored Files from Last Git Scan** | Badges up to 16 sampled files with **I**. | none |
 | **Ignore: Clear Ignored-File Marks** | Removes those badges. | none |
-| **Ignore: Find Unused Entries from Complete Directory Snapshot…** | Scans the `.gitignore` folder and marks entries that match nothing. | none |
+| **Ignore: Find Unused Entries…** | Scans the `.gitignore` folder and marks entries that match nothing. | none |
 
 ## Settings
 
@@ -132,8 +132,8 @@ Optional permissions are off until you allow them in Settings › Plugins › .i
 |---|---|---|
 | `process:git` | Running `git ls-files` for the Git observation commands. | Those commands are refused. |
 | `vcs.read` | Finding the repository root and HEAD for the Git observation commands. | Those commands are refused. |
-| `process:python3` | Running the helper for **Ignore: Find Unused Entries from Complete Directory Snapshot…**. | That command is refused. |
-| `project.write` | **Ignore: New Ignore File…** writing the new file. | That command says which permission to allow. New and ⌥⏎ still create files. |
+| `process:python3` | Running the helper for **Ignore: Find Unused Entries…**. | That command is refused. |
+| `project.write` | **Ignore: New Ignore File…** writing the new file; **Add/Unignore Selected Paths** writing an ignore file that isn't open. | That command says which permission to allow. New and ⌥⏎ still create files; adding to the focused ignore file still works. |
 
 ## Troubleshooting
 
@@ -142,8 +142,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | "Open the ignore file to add the selected paths to." | Open the target ignore file in the editor, then run the command again. |
-| "Opened … Run the command again to add the selected paths to it." | The plugin opened the ignore file for you. Run the command again. |
-| "The selected paths are already listed or are outside the open ignore file's folder." | Select paths below the ignore file's folder that aren't listed yet. |
+| "Select files or folders in the Project view first." | Select the paths to add, or run the command from the editor of the file to add. |
+| "The selected paths are already listed or are outside the ignore file's folder." | Select paths below the ignore file's folder that aren't listed yet. |
 | "Selected-path append supports glob-syntax ignore file types only." | Use a glob-syntax file. `.hgignore` in regexp mode isn't supported. |
 | "Editor assistance is disabled for this ignore file type." | Turn **Editor assistance** back on in **Ignore: Dialect Checks and Preferences**. |
 | "No enabled Ignore Create actions are available." | Turn on **Allow Create action** for at least one type in the preferences form. |
@@ -153,7 +153,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Enable checks for this ignore file before collecting unused-entry hints." | Turn **Checks** on for `.gitignore` in the preferences form. |
 | "Complete unused-entry checks require delivered filesystem events; reload Ignore after granting events." | Reload the plugin in Settings › Plugins. |
 | "Complete inventory refused an error, bound or concurrent change; no absence conclusions." | The folder is too large, changed during the scan, or has unsupported names. See the limits below. |
-| "No cached observations for this project. Start an explicit scan first." | Run **Ignore: Scan Git for Ignored Files…** first. |
+| "No Git scan for this project yet. Run Ignore: Scan Git for Ignored Files… first." | Run **Ignore: Scan Git for Ignored Files…** first. |
 | "Eight project inventories are retained. Clear an unneeded project's cache first." | Run **Ignore: Clear Last Git Scan of Ignored Files** in another project. |
 | "Git inventory supports a concrete Unix project/repository root of at most 512 bytes." | The project must be the repository root on macOS or Linux. Worktrees, submodules and Windows roots aren't supported. |
 | "Stored Ignore preferences are malformed…; preserved without changes." | The stored form data is damaged. The plugin won't overwrite it, and create/append actions are refused until it's fixed. |
@@ -185,7 +185,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - **Create exact-name ignore file…** offers the 20 supported names and an existing project-relative directory. You confirm the exact destination and initial content, and the new file opens. Existing files or buffers, outside paths, traversal and invalid directories are refused.
 - **Create ignore file from templates…** is an atomic intention combining up to 16 bundled or user templates into one new glob-dialect file. The exact combined content and destination are reviewed first. Dismissal, duplicate or unknown selections, existing files or buffers and changed source context return no operation. Regexp dialects (including `.hgignore`) are excluded from template workflows.
 - **Append ignore template…** confirms the exact insertion. Existing template headers are refused instead of silently duplicating a block. Template pickers list the up-to-16 most recently chosen templates first (stored locally, bounds-checked).
-- **Ignore: New Ignore File…** applies the same confirmed creation from a command, writing through `project.write`; it refuses existing files. **Add Selected Paths…** and **Unignore Selected Paths…** keep their version-checked editor workflow.
+- **Ignore: New Ignore File…** applies the same confirmed creation from a command, writing through `project.write`; it refuses existing files. **Add Selected Paths…** and **Unignore Selected Paths…** edit the focused ignore file through the version-checked editor; another ignore file is written through `project.write`, which the IDE refuses while that file has unsaved changes.
 - Native New uses the `fileName` field for exact dotfile names rather than an appended extension.
 - Native-intention creation and append hold no filesystem lock after resolution. Final application, encoding/BOM preservation, conflict detection and undo are owned by the host.
 

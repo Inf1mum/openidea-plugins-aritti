@@ -5,7 +5,7 @@
     "command": "preview-upgrade",
     "when": "viewItemKind == dep",
     "icon": "diff",
-    "label": "Preview upgrade in open declaration"
+    "label": "Preview Upgrade…"
   },
   {
     "menu": "viewItem.context",
@@ -13,7 +13,7 @@
     "command": "open-declaration",
     "when": "viewItemKind == dep",
     "icon": "file",
-    "label": "Go to Declaration"
+    "label": "Go to Declaration…"
   },
   {
     "menu": "viewItem.context",
@@ -21,7 +21,7 @@
     "command": "open-advisory",
     "when": "viewItemKind == dep",
     "icon": "external-link",
-    "label": "Open advisory on OSV.dev"
+    "label": "Open Advisory on OSV.dev…"
   },
   {
     "menu": "viewItem.context",
@@ -29,7 +29,7 @@
     "command": "ignore-finding",
     "when": "viewItemKind == dep",
     "icon": "hide",
-    "label": "Ignore this exact finding with reason"
+    "label": "Ignore Finding with Reason…"
   },
   {
     "menu": "viewItem.context",
@@ -38,7 +38,7 @@
     "when": "viewItemKind == advisory",
     "replaces_open": true,
     "icon": "external-link",
-    "label": "Open advisory on OSV.dev"
+    "label": "Open Advisory on OSV.dev…"
   },
   {
     "menu": "viewItem.context",
@@ -46,6 +46,6 @@
     "command": "ignore-finding",
     "when": "viewItemKind == advisory",
     "icon": "hide",
-    "label": "Ignore this exact finding with reason"
+    "label": "Ignore Finding with Reason…"
   }
 ]

@@ -1215,7 +1215,7 @@ fn scoped_ignores_remain_separate_from_global_setting_and_project_identity() {
     host.set_project_root(Some("/another"));
     assert!(scoped::load("/another").is_empty());
     assert!(plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).is_err());
-    assert!(plugin.run_command("review-ignores",&host.invocation(),None).unwrap().unwrap().contains("No project-scoped"));
+    assert!(plugin.run_command("review-ignores",&host.invocation(),None).unwrap().unwrap().contains("No ignored findings"));
     host.set_project_root(None);
     assert!(plugin.run_command("review-ignores",&host.invocation(),None).is_err());
     assert_eq!(host.storage()["scoped-ignores:/project"],scopes);
@@ -1601,6 +1601,20 @@ fn event_checks_query_only_the_first_uncached_coordinates() {
 
     assert_eq!(posts(&host), 1);
     assert_eq!(budget, 0);
+}
+
+#[test]
+fn a_failed_automatic_resolution_is_reported_once() {
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "editor.read", "process:mvn", "storage"]);
+    host.set_setting("autoResolveBuilds", "true");
+    let mut plugin = DependencyAudit::default();
+
+    plugin.auto_resolve(&host.invocation(), Instant::now() + Duration::from_secs(60));
+    plugin.auto_resolve(&host.invocation(), Instant::now() + Duration::from_secs(60));
+
+    let notifications = host.notifications();
+    assert_eq!(notifications.len(), 1);
+    assert!(notifications[0].body.starts_with("Automatic build resolution didn't run: No pom.xml"), "{}", notifications[0].body);
 }
 
 #[test]

@@ -6,10 +6,10 @@ const HELPER:&str=include_str!("../adapters/complete_inventory.py");
 const TTL:Duration=Duration::from_secs(120);
 #[derive(Default)]
 pub(crate) struct State { snapshot:Option<Snapshot>, watching:bool, serial:u64 }
-struct Snapshot {root:String,base:String,doc:Document,serial:u64,at:Instant,unused:Vec<Span<usize>>,fingerprint:String,count:usize,unsupported:usize}
+struct Snapshot {root:String,base:String,doc:Document,serial:u64,at:Instant,unused:Vec<Span<usize>>,count:usize,unsupported:usize}
 fn owned(root:&str,path:&str)->bool {host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root)}
 fn inventory(text:&str,base:&str)->Result<Vec<(String,bool)>,Error> {
-    if text.len()>1<<20 {return Err("Complete inventory output exceeds 1MiB.".into());}
+    if text.len()>1<<20 {return Err("Complete inventory output exceeds 1 MiB.".into());}
     let data:serde_json::Value=serde_json::from_str(text).map_err(|_|"Invalid complete inventory output.")?;
     if data["schema"]!="ignore-complete-v1"||data["root"].as_str()!=Some(base)||data["complete"]!=true
         ||data["fingerprint"].as_str().is_none_or(|s|s.len()!=64||!s.bytes().all(|b|b.is_ascii_hexdigit())) {return Err("Incomplete or foreign inventory output.".into());}
@@ -86,7 +86,7 @@ impl State {
         let span=data[2].as_u64().zip(data[3].as_u64()).and_then(|(a,b)|s.unused.iter().find(|span|span.start as u64==a&&span.end as u64==b)).ok_or(Error::Stale)?;
         let project=host::project_of(&doc.path).ok_or(Error::Stale)?;
         if project.read_file(&doc.path)?!=doc.text {return Err(Error::Stale);}
-        if !ui_kit::prompts::confirm_exact("Remove unmatched ignore entry?",&format!("File: {}\nSnapshot directory: {}\nComplete entries: {}\nFingerprint: {}\n\nEntry: {}\n\nThis entry matched no path at capture time. Future generated files may still need it. Remove this source line only?",doc.path,s.base,s.count,s.fingerprint,serde_json::to_string(&doc.text[span.clone()]).unwrap_or_default()))?{return Err(Error::Cancelled);}
+        if !ui_kit::prompts::confirm_exact("Remove unmatched ignore entry?",&format!("File: {}\nScanned folder: {}\nEntries scanned: {}\n\nEntry: {}\n\nThis entry matched no file when the folder was scanned. Files generated later may still need it. Remove this line?",doc.path,s.base,s.count,serde_json::to_string(&doc.text[span.clone()]).unwrap_or_default()))?{return Err(Error::Cancelled);}
         if self.valid(doc).is_none()||project.read_file(&doc.path)?!=doc.text{return Err(Error::Stale);}
         let mut end=span.end;
         if doc.text.as_bytes().get(end)==Some(&b'\r'){end+=1;}
@@ -102,7 +102,7 @@ impl State {
         let source=editor.document()?;let doc=Document{path:path.clone(),language:editor.language(),text:source.text,version:source.version};
         if doc.text.len()>128<<10{return Err("Ignore source exceeds 128 KiB.".into());}
         let base=path.rsplit_once('/').ok_or(Error::Stale)?.0.to_owned();
-        if !ui_kit::prompts::confirm_exact("Capture complete unused-entry inventory?",&format!("Directory: {base}\nSource: {path}\n\nRun approved python3 in isolated mode with the bundled filesystem-only helper. It scans every entry (including hidden/ignored paths) twice, follows no symlinks and refuses errors, concurrent changes, more than 4096 entries, 512 directories, depth 24, 1 MiB of output or 8 seconds. Source files are not changed. Unmatched entries are hints about this snapshot, not future-file guarantees."))? {return Ok(None);}
+        if !ui_kit::prompts::confirm_exact("Find unused entries?",&format!("Folder: {base}\nIgnore file: {path}\n\nRuns python3 to list every file in this folder, including hidden and ignored ones. Large folders (over 4096 entries) are refused. No file is changed; entries that match nothing get a hint."))? {return Ok(None);}
         let current=editor.document()?;if current.version!=doc.version||current.text!=doc.text||!owned(&root,&path){return Err(Error::Stale);}
         self.serial=self.serial.checked_add(1).ok_or(Error::Stale)?;
         let private=host::fs::plugin_dir()?;let helper=format!("{private}/complete_inventory.py");
@@ -117,8 +117,7 @@ impl State {
         let _=host::fs::write_file(&output,"");let output=result?;let entries=inventory(&output,&base)?;
         let current=editor.document()?;if current.version!=doc.version||current.text!=doc.text||!owned(&root,&path){return Err(Error::Stale);}
         let (unused,unsupported)=find_unused(&doc.text,&entries)?;
-        let value:serde_json::Value=serde_json::from_str(&output).map_err(|_|Error::Stale)?;
-        self.snapshot=Some(Snapshot{root,base,doc:doc.clone(),serial:self.serial,at:Instant::now(),unused,fingerprint:value["fingerprint"].as_str().ok_or(Error::Stale)?.into(),count:entries.len(),unsupported});
+        self.snapshot=Some(Snapshot{root,base,doc:doc.clone(),serial:self.serial,at:Instant::now(),unused,count:entries.len(),unsupported});
         host::notify(NotificationLevel::Info,"Complete unused-entry snapshot",&format!("{} paths captured; {} unmatched entries; {} unsupported rules withheld. Glob matching conservatively ignores case; non-ASCII patterns are judged only by exact bytes and withheld when non-ASCII paths exist without a match, or when they use ? or [. Snapshot eligibility lasts 120 seconds and delivered filesystem/source changes withdraw it. Results describe capture time; rerun to refresh. Source unchanged.",entries.len(),self.snapshot.as_ref().unwrap().unused.len(),self.snapshot.as_ref().unwrap().unsupported));
         Ok(None)
     }
@@ -129,7 +128,7 @@ mod tests {
     use super::*;
     use openidea_plugin::{mock::MockHost,diagnostics::DiagnosticsProvider,Event,FilesChanged};
     fn cache(doc:&Document)->State {
-        State{watching:true,serial:1,snapshot:Some(Snapshot{root:"/project".into(),base:"/project".into(),doc:doc.clone(),serial:1,at:Instant::now(),unused:find_unused(&doc.text,&[("present.log".into(),false),("empty-dir".into(),true)]).unwrap().0,fingerprint:"a".repeat(64),count:2,unsupported:0})}
+        State{watching:true,serial:1,snapshot:Some(Snapshot{root:"/project".into(),base:"/project".into(),doc:doc.clone(),serial:1,at:Instant::now(),unused:find_unused(&doc.text,&[("present.log".into(),false),("empty-dir".into(),true)]).unwrap().0,count:2,unsupported:0})}
     }
     #[test]
     fn complete_inventory_matches_globs_directories_negations_and_escaped_literals() {

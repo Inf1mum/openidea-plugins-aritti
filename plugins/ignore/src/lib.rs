@@ -4,7 +4,7 @@ use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Doc
 use openidea_plugin::syntax::{SyntaxProvider, Token};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Diagnostic, Error, Event, Invocation, Location, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
+    Diagnostic, Error, Event, FileKind, Invocation, Location, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
     TextEdit, host, text,
 };
 use std::collections::HashSet;
@@ -104,7 +104,7 @@ fn literal_entry(relative: &str) -> Result<String, Error> {
 const ROOT_IGNORE_FILES: [&str; 5] = [".gitignore", ".dockerignore", ".npmignore", ".prettierignore", ".eslintignore"];
 
 /// The focused ignore file and the ignore files at the project root; asks which one when there are several.
-fn pick_target(ctx: &Invocation, focused: Option<&str>) -> Result<Option<String>, Error> {
+fn pick_target(ctx: &Invocation, focused: Option<&str>, unignore: bool) -> Result<Option<String>, Error> {
     let mut candidates: Vec<String> = focused.filter(|path|preferences::can_edit(path)).map(str::to_owned).into_iter().collect();
 
     if let Some(project) = ctx.project() {
@@ -123,7 +123,7 @@ fn pick_target(ctx: &Invocation, focused: Option<&str>) -> Result<Option<String>
         _ => {
             let items: Vec<PickItem> = candidates.iter().map(|path| PickItem::new(path, path.rsplit('/').next().unwrap_or(path))).collect();
 
-            host::pick("Add to ignore file", &items)
+            host::pick(if unignore { "Unignore in ignore file" } else { "Add to ignore file" }, &items)
         }
     }
 }
@@ -138,12 +138,17 @@ fn selected_or_focused(ctx: &Invocation) -> Vec<String> {
 }
 
 fn add_selected(ctx: &Invocation, unignore: bool) -> Result<(), Error> {
+    let selected = selected_or_focused(ctx);
+    if selected.is_empty() {
+        return Err("Select files or folders in the Project view first.".into());
+    }
+
     let focused = ctx.editor().filter(|e| dialect(&e.path()).is_some());
-    let Some(file) = pick_target(ctx, focused.as_ref().map(|e| e.path()).as_deref())? else {
+    let Some(file) = pick_target(ctx, focused.as_ref().map(|e| e.path()).as_deref(), unignore)? else {
         return Ok(());
     };
 
-    let (_, root, _) = project_of(&file).ok_or("The ignore file must belong to the current project.")?;
+    let (project, root, _) = project_of(&file).ok_or("The ignore file must belong to the current project.")?;
     if !preferences::can_edit(&file) {return Err("Editor assistance is disabled for this ignore file type.".into());}
     if ctx.project().ok_or(Error::Stale)?.root()?.trim_end_matches('/') != root {
         return Err(Error::Stale);
@@ -151,28 +156,20 @@ fn add_selected(ctx: &Invocation, unignore: bool) -> Result<(), Error> {
     if !dialect(&file).is_some_and(|d| d.syntax == check::Syntax::Glob) {
         return Err("Selected-path append supports glob-syntax ignore file types only.".into());
     }
-    let editor = match focused.filter(|e| e.path() == file) {
-        Some(editor) => editor,
-        None => {
-            host::open_location(&file, 0, 0)?;
-            let Some(opened) = ctx.editor().filter(|e| e.path() == file) else {
-                host::notify(
-                    NotificationLevel::Info,
-                    ".ignore",
-                    &format!("Opened {file}. Run the command again to add the selected paths to it."),
-                );
-                return Ok(());
-            };
-            opened
+    let editor = focused.filter(|e| e.path() == file);
+    let (content, version) = match &editor {
+        Some(editor) => {
+            let doc = editor.document()?;
+            (doc.text, doc.version)
         }
+        None => (project.read_file(&file)?, 0),
     };
 
     let base = file.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let doc = editor.document()?;
-    let listed: HashSet<&str> = doc.text.lines().collect();
+    let listed: HashSet<&str> = content.lines().collect();
     let negation = if unignore { "!" } else { "" };
     let mut entries: Vec<String> = Vec::new();
-    for path in selected_or_focused(ctx) {
+    for path in selected {
         let Some(relative) = path.strip_prefix(base).and_then(|r| r.strip_prefix('/')) else {
             continue;
         };
@@ -182,13 +179,25 @@ fn add_selected(ctx: &Invocation, unignore: bool) -> Result<(), Error> {
         }
     }
     if entries.is_empty() {
-        return Err("The selected paths are already listed or are outside the open ignore file's folder.".into());
+        return Err("The selected paths are already listed or are outside the ignore file's folder.".into());
     }
 
     let addition: String = entries.iter().map(|e| format!("{e}\n")).collect();
-    editor.apply_edits(doc.version, &[append(&doc.text, &addition, false)])?;
+    let edit = append(&content, &addition, false);
+    match editor {
+        Some(editor) => {
+            editor.apply_edits(version, &[edit])?;
+        }
+        None => {
+            project
+                .write_file(&file, &format!("{content}{}", edit.text))
+                .map_err(|e| ui_kit::denied::map(e, "Adding paths to an ignore file that is not open", "project.write", ".ignore"))?;
+            let _ = host::open_location(&file, 0, 0);
+        }
+    }
 
-    host::notify(NotificationLevel::Info, ".ignore", &format!("Added {} to the open ignore file.", entries.len()));
+    let name = file.rsplit('/').next().unwrap_or(&file);
+    host::notify(NotificationLevel::Info, ".ignore", &format!("Added {} to {name}.", entries.len()));
     Ok(())
 }
 
@@ -217,7 +226,12 @@ const IGNORE_FILE_NAMES: [&str; 20] = [
 
 fn new_ignore_file(plugin: &mut IgnorePlugin, ctx: &Invocation) -> Result<(), Error> {
     let project = ctx.project().ok_or("Open a project first.")?;
-    if let Some(editor) = ctx.editor() {
+    let selected_dir = match ctx.selected_paths().first() {
+        Some(path) if project.stat(path).is_ok_and(|stat| stat.kind == FileKind::Directory) => Some(path.clone()),
+        Some(path) => path.rsplit_once('/').map(|(dir, _)| dir.to_owned()),
+        None => None,
+    };
+    if let Some(editor) = ctx.editor().filter(|_| selected_dir.is_none()) {
         if ui_kit::command_file_action::run_titled(plugin, &project, &editor, "Create exact-name ignore file", ".ignore")? {
             return Ok(());
         }
@@ -230,7 +244,11 @@ fn new_ignore_file(plugin: &mut IgnorePlugin, ctx: &Invocation) -> Result<(), Er
 
     let items: Vec<_> = names.iter().map(|name| PickItem::new(name, name)).collect();
     let Some(name) = host::pick("Ignore file type (exact filename)", &items)? else { return Ok(()) };
-    let target = format!("{}/{name}", project.root()?.trim_end_matches('/'));
+    let dir = match selected_dir {
+        Some(dir) => dir,
+        None => project.root()?,
+    };
+    let target = format!("{}/{name}", dir.trim_end_matches('/'));
     ui_kit::command_file_action::create_empty(&project, &target, "Create ignore file?", ".ignore")
 }
 
