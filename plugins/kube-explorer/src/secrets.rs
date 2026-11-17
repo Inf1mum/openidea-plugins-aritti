@@ -310,6 +310,7 @@ impl KubeExplorer {
         let data = edit.data()?;
         let (namespace, _) = self.split_scope("secrets", &edit.row)?;
         let manifest = replace_data(&edit.json, &data)?;
+        self.confirm_replace("secrets", &edit.row)?;
         let args = self.args_in(namespace.as_deref(), &["replace", "-f", "-"]);
         let out = self.process(KUBECTL, &args, Some(&manifest)).map_err(|error|command_error("save",error))?;
         if out.status != Some(0) {
@@ -401,6 +402,7 @@ mod tests {
         type_into(&mut kube, "secret-edit:user", "root");
         type_into(&mut kube, "secret-new-key", "token");
         type_into(&mut kube, "secret-new-value", "t0p");
+        _host.answer_next_prompt(Some(&[]));
         kube.button("submit-secret-edit").unwrap();
         let (args, stdin) = runs.borrow().last().cloned().unwrap();
         assert_eq!(args, ["--namespace=shop", "replace", "-f", "-"]);
@@ -415,10 +417,23 @@ mod tests {
     }
 
     #[test]
+    fn declining_the_save_confirm_keeps_the_form_and_runs_nothing() {
+        let (host, runs) = host(true, "");
+        let mut kube = editing();
+        runs.borrow_mut().clear();
+        type_into(&mut kube, "secret-edit:user", "root");
+        host.answer_next_prompt(None);
+        assert!(matches!(kube.button("submit-secret-edit"), Err(Error::Cancelled)));
+        assert!(runs.borrow().is_empty());
+        assert!(kube.editing_secret.is_some());
+    }
+
+    #[test]
     fn removed_keys_are_dropped() {
         let (_host, runs) = host(true, "");
         let mut kube = editing();
         type_into(&mut kube, "secret-remove", "user blob");
+        _host.answer_next_prompt(Some(&[]));
         kube.button("submit-secret-edit").unwrap();
         let manifest = runs.borrow().last().unwrap().1.clone().unwrap();
         assert!(manifest.contains(r#""data":{}"#));
@@ -429,6 +444,7 @@ mod tests {
         let (_host, _) = host(true, "Operation cannot be fulfilled on secrets \"db\": the object has been modified; root");
         let mut kube = editing();
         type_into(&mut kube, "secret-edit:user", "root");
+        _host.answer_next_prompt(Some(&[]));
         let error = format!("{:?}", kube.button("submit-secret-edit").unwrap_err());
         assert!(error.contains("changed in the cluster") && !error.contains("root"));
         assert!(kube.editing_secret.is_some());

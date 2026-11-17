@@ -168,7 +168,7 @@ impl Cache {
             })
             .markers(&source);
         for marker in &mut markers {
-            marker.tooltip = format!("Read-only source candidate · {} · deployment/cluster identity unresolved", marker.tooltip);
+            marker.tooltip = format!("{} · in project files; the cluster may differ", marker.tooltip);
         }
         markers
     }
@@ -216,7 +216,7 @@ mod tests {
         let found = kube.definition(&src, namespace);
         assert_eq!(found.len(), 1);
         assert!(found[0].path.ends_with("namespace.yaml"));
-        assert!(kube.line_markers(&src).iter().all(|m| m.tooltip.contains("Read-only source candidate")));
+        assert!(kube.line_markers(&src).iter().all(|m| m.tooltip.contains("the cluster may differ")));
         let config = doc("config.yaml", CONFIG);
         let pos = text::position(CONFIG, CONFIG.find("namespace: app").unwrap() + 12);
         assert_eq!(kube.definition(&config, pos).len(), 1);

@@ -183,6 +183,7 @@ mod tests {
         kube.run_command("resource-show-secret",&h.invocation(),Some(&secret)).unwrap();
         kube.run_command("resource-edit-secret",&h.invocation(),Some(&secret)).unwrap();
         kube.handle(PANEL,ViewEvent::Field(kube.test_control_key("secret-edit:password"),"changed".into()),&h.invocation()).unwrap();
+        h.answer_next_prompt(Some(&[]));
         kube.handle(PANEL,ViewEvent::Button(kube.test_control_key("submit-secret-edit")),&h.invocation()).unwrap();
         kube.run_command("customize-namespaces",&h.invocation(),None).unwrap();
         kube.run_command("cache-cluster-namespaces",&h.invocation(),None).unwrap();
@@ -556,6 +557,7 @@ mod tests {
         kube.run_command("delete-manifest",&h.invocation(),None).unwrap();let before=h.process_runs().len();
         assert!(matches!(kube.handle(PANEL,ViewEvent::Button(old_confirm),&h.invocation()),Err(Error::Stale)));
         assert_eq!(h.process_runs().len(),before);
+        h.answer_next_prompt(Some(&[]));
         kube.handle(PANEL,ViewEvent::Button(kube.test_control_key("confirm-delete-manifest")),&h.invocation()).unwrap();
         let key=row(&mut kube,&h,"pods","web");
         kube.handle(TREE,ViewEvent::Select(key.clone()),&h.invocation()).unwrap();
@@ -591,6 +593,7 @@ mod tests {
             let current_field=fields.iter().find(|field|field.label=="password").unwrap().key.clone();
             let current_save=view.toolbar.iter().find(|button|button.label=="Save").unwrap().id.clone();
             kube.handle(PANEL,ViewEvent::Field(current_field,"current-value".into()),&h.invocation()).unwrap();
+            h.answer_next_prompt(Some(&[]));
             kube.handle(PANEL,ViewEvent::Button(current_save.clone()),&h.invocation()).unwrap();
             let accepted=h.process_runs().len();assert!(accepted>before);assert!(kube.editing_secret.is_none());
             assert!(matches!(kube.handle(PANEL,ViewEvent::Button(current_save),&h.invocation()),Err(Error::Stale)));
@@ -609,6 +612,7 @@ mod tests {
             kube.run_command("resource-yaml",&h.invocation(),Some(&key)).unwrap();
             let message=kube.test_apply_message("kind: Secret # edited");
             h.on_process(KUBECTL,move |_,_|if process_error {Err(Error::Failed("private-yaml-error c2VjcmV0".into()))}else{Ok(ProcessOutput{status:Some(1),stdout:String::new(),stderr:"private-yaml-error c2VjcmV0".into()})});
+            h.answer_next_prompt(Some(&[]));
             kube.handle(PANEL,ViewEvent::Message(message.clone()),&h.invocation()).unwrap();
             let error=h.view_messages().last().unwrap().1.clone();
             assert!(!error.contains("private-yaml-error")&&!error.contains("c2VjcmV0"),"{error}");
@@ -743,6 +747,7 @@ mod tests {
         let current=kube.test_apply_message("kind: Pod # current page");
         assert!(matches!(kube.handle(PANEL,ViewEvent::Message("apply\nkind: Pod # unproved".into()),&h.invocation()),Err(Error::Stale)));
         assert_eq!(h.process_runs().len(),before);
+        h.answer_next_prompt(Some(&[]));
         kube.handle(PANEL,ViewEvent::Message(current.clone()),&h.invocation()).unwrap();
         let accepted=h.process_runs().len();assert!(accepted>before);
         assert!(matches!(kube.handle(PANEL,ViewEvent::Message(current),&h.invocation()),Err(Error::Stale)));

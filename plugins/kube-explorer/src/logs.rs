@@ -347,17 +347,14 @@ impl KubeExplorer {
             ],
         };
         let run = |args: &[&str]| {
-            project.run_process(crate::KUBECTL, &scope.args(args), None).map_err(|error| match error {
-                Error::Denied(_) | Error::Cancelled => error,
-                _ => Error::Failed("Log snapshot read failed; raw tool errors withheld.".into()),
-            })
+            project.run_process(crate::KUBECTL, &scope.args(args), None).map_err(|error| crate::tool_error("Reading logs", self.context.as_deref(), error))
         };
         let mut out = run(&args)?;
         if out.status != Some(0) && out.stderr.contains("unknown flag") && args.contains(&"--all-pods=true") {
             let older_kubectl: Vec<&str> = args.iter().copied().filter(|arg| *arg != "--all-pods=true").collect();
             out = run(&older_kubectl)?;
         }
-        if out.status!=Some(0) {return Err(Error::Failed("Log snapshot read failed; raw tool output withheld.".into()));}
+        if out.status!=Some(0) {return Err(Error::Failed(crate::failure_reason("Reading logs", self.context.as_deref(), &out.stderr)));}
         let (text, truncated) = cap(out.stdout);
         Ok((text.lines().map(str::to_owned).collect(), truncated))
     }
