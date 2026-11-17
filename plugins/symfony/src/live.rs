@@ -38,7 +38,7 @@ impl DiagnosticsProvider for Main {
                     let mut forms = Vec::new();
                     checks::form_type_strings(&doc.text, &mut forms);
                     found.extend(forms.into_iter().map(|mut finding| {
-                        finding.message.push_str(&format!(" [Advisory: cached composer.json requires symfony/framework-bundle {}; installed/runtime version is unknown. Receiver type is unverified.]", evidence.constraint));
+                        finding.message.push_str(&format!(" (based on composer.json constraint {})", evidence.constraint));
                         finding
                     }));
                 }
@@ -58,7 +58,7 @@ impl DiagnosticsProvider for Main {
                     let read = |_: &str| None;
                     let ctx = checks::Context::new(index, &read);
                     found.extend(php_checks::deprecations(&ctx,&doc.text).into_iter().map(|mut f| {
-                        f.message.push_str(&format!(" [Advisory: cached composer.json requires symfony/framework-bundle {}; installed/runtime version is unknown.]",evidence.constraint));
+                        f.message.push_str(&format!(" (based on composer.json constraint {})",evidence.constraint));
                         f
                     }));
                 }
@@ -407,7 +407,7 @@ mod tests {
             let evidence=index::VersionEvidence::from_composer(&format!(r#"{{"require":{{"symfony/framework-bundle":"{constraint}"}}}}"#)).unwrap();
             let facts=owner.indexes.get_mut("/project").unwrap();facts.framework_version=Some(evidence.floor);facts.deprecation_version=Some(evidence);
             let found=owner.diagnostics(&doc);assert_eq!(found.len(),count);
-            if count>0 {assert_eq!(found[0].code.as_deref(),Some("form-type-string"));assert!(found[0].message.contains("Receiver type is unverified"));}
+            if count>0 {assert_eq!(found[0].code.as_deref(),Some("form-type-string"));assert!(found[0].message.contains("(based on composer.json constraint "));}
         }
         owner.indexes.get_mut("/project").unwrap().partial=true;assert!(owner.diagnostics(&doc).is_empty());
         owner.indexes.get_mut("/project").unwrap().partial=false;host.set_setting("phpCallChecks","false");assert!(owner.diagnostics(&doc).is_empty());
@@ -440,7 +440,7 @@ mod tests {
         let evidence=index::VersionEvidence::from_composer(r#"{"require":{"symfony/framework-bundle":"^6.4"}}"#).unwrap();
         let facts=owner.indexes.get_mut("/project").unwrap();facts.partial=false;facts.framework_version=Some(evidence.floor);facts.deprecation_version=Some(evidence);
         let found=owner.diagnostics(&doc);assert_eq!(found.len(),3);
-        assert!(found.iter().any(|d|d.message.contains("^6.4; installed/runtime version is unknown")));
+        assert!(found.iter().any(|d|d.message.contains("(based on composer.json constraint ^6.4)")));
         owner.indexes.get_mut("/project").unwrap().framework_version=Some((8,1));assert_eq!(owner.diagnostics(&doc).len(),2,"mismatched loose hint cannot enable annotation warning");
         doc.text="blog:\n  path: /new\n  type: attribute\n  methods: [GET]\n".into();doc.version+=1;assert!(owner.diagnostics(&doc).is_empty());
         doc.path="/project/config/routes.xml".into();doc.language="xml".into();doc.text="<routes><!-- 😀 --><route id=\"blog\" pattern=\"/old\"/></routes>".into();
@@ -460,7 +460,7 @@ mod tests {
         let start=text::offset(&doc.text,found[0].range.start).unwrap();let end=text::offset(&doc.text,found[0].range.end).unwrap();
         assert_eq!(&doc.text[start..end],"pattern");assert_eq!(start,doc.text.find("pattern =").unwrap());
         let start=text::offset(&doc.text,found[1].range.start).unwrap();let end=text::offset(&doc.text,found[1].range.end).unwrap();assert_eq!(&doc.text[start..end],"Blog:Post:index");
-        assert!(found[2].message.contains("Advisory"));
+        assert!(found[2].message.contains("(based on composer.json constraint "));
     }
 
     #[test]
@@ -695,11 +695,11 @@ mod tests {
             found[0].code.as_deref(),
             Some("filesystem-mirror-copy-on-windows")
         );
-        assert!(found[0].message.contains("Advisory: cached composer.json"));
+        assert!(found[0].message.contains("(based on composer.json constraint "));
         assert!(
             found[0]
                 .message
-                .contains("^8.1; installed/runtime version is unknown")
+                .contains("constraint ^8.1)")
         );
         assert!(host.diagnostics().is_empty());
         host.set_setting("deprecationChecks", "false");
@@ -749,7 +749,7 @@ mod tests {
         assert!(
             owner.diagnostics(&doc)[0]
                 .message
-                .contains("8.1.*; installed/runtime version is unknown")
+                .contains("constraint 8.1.*)")
         );
         host.set_project_root(Some("/other"));
         assert!(owner.diagnostics(&doc).is_empty());

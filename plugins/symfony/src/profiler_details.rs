@@ -148,9 +148,10 @@ pub fn load(project: &Project, root: &str, source: &str, token: &str) -> Result<
         &path,
         token,
     ]);
-    let result = host::run_command(&command, Some(project), None)?;
+    let result = host::run_command(&command, Some(project), None)
+        .map_err(|e| ui_kit::denied::map(e, "Inspect Profile", "process:php", "Symfony"))?;
     if result.status != Some(0) {
-        return Err(Error::Invalid("Profile cannot be decoded. PHP 8+, raw/GZIP Symfony storage and the approved process:php grant are required; unsupported profiles stay unavailable.".into()));
+        return Err(Error::Invalid("Couldn't read this profile. Inspect Profile needs PHP 8 or newer and Symfony's standard profiler storage.".into()));
     }
     if project.root()? != root
         || host::project_of(&path)

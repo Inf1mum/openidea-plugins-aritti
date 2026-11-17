@@ -160,12 +160,12 @@ The toolbar has **Reindex** and **Warm Up Cache**. A tab that fails to load show
 
 ### Look at recent requests in the profiler
 
-1. Run **Symfony: Show Profiler** or click **Refresh index snapshot** in the **Profiler** tab.
+1. Run **Symfony: Show Profiler** or click **Refresh** in the **Profiler** tab.
 2. The latest 100 requests from `var/cache/dev/profiler/index.csv` appear.
 3. Open a row to jump to its line in the CSV.
 4. With `process:php` allowed, select a request and click **Inspect Profile** to see its collectors and numeric metrics.
 
-Rows don't refresh by themselves. They're marked **STALE** when the file changes; click refresh to reload. Use **Choose CSV Source…** or **Find Cached CSV Source** if your profiler index lives elsewhere.
+Rows don't refresh by themselves. When the file changes, the status line says *The profiler index changed*; click **Refresh** to reload. Use **Choose CSV Source…** or **Find Cached CSV Source** if your profiler index lives elsewhere.
 
 ### Run console commands
 
@@ -194,7 +194,7 @@ Nine read-only MCP tools return CSV from the cached index. None runs PHP.
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys in Settings › Keymap. Except **Symfony: Make…**, commands show only in projects with `symfony.lock` or `bin/console`.
+Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys in Settings › Keymap. Commands show only in projects with `symfony.lock` or `bin/console`; the Twig ones only while a Twig file is focused.
 
 | Command | What it does | Shortcut |
 |---|---|---|
@@ -203,11 +203,11 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys
 | **Symfony: Clear Cache** | Runs `php bin/console cache:clear`, then reindexes. | none |
 | **Symfony: Run Console Command…** | Picks a `bin/console` command and runs it in a terminal. | none |
 | **Symfony: Make…** | Picks a `make:*` command, asks for its inputs and runs it. | none |
-| **Symfony: Go to Route…** | Jumps to a route definition. | none |
-| **Symfony: Go to Service…** | Jumps to a service definition. | none |
+| **Symfony: Go to Route…** | Jumps to a route definition. | ⌥⇧U (Alt+Shift+U) |
+| **Symfony: Go to Service…** | Jumps to a service definition. | ⌥⇧S (Alt+Shift+S) |
 | **Symfony: Go to Console Command…** | Jumps to a console command class. | none |
 | **Symfony: Go to Template…** | Opens a Twig template. | none |
-| **Symfony: Find Source Occurrences** | Lists literal references to the route, service or template at the caret. | none |
+| **Symfony: Find Source Occurrences** | Lists usages in project sources of the route, service or template at the caret. | none |
 | **Symfony: Extend Twig Template…** | Inserts an `extends` tag in the open template. Also in the editor context menu of Twig files. | none |
 | **Symfony: Create Twig Template…** | Creates the template directly after you confirm (not a single undo step). On a quoted reference it runs **Create missing Twig template…**; otherwise, or without `editor.read`, it asks for a name and creates an empty `templates/<name>`. The name must end in `.twig` and cannot start with `/` or contain `..`, `\` or empty parts. | none |
 | **Symfony: Insert Form Rows from a Form Type…** | Inserts `form_start`, one `form_row` per field and `form_end` at the caret. | none |
@@ -226,16 +226,16 @@ Each switch is on by default.
 
 | Setting | Key | Default |
 |---|---|---|
-| Report missing routes, templates, services and translation keys, and duplicate routes | `diagnostics` | on |
+| Report missing routes, templates, services and translation keys | `diagnostics` | on |
 | Report route controllers without the named method and deprecated route settings | `controllerChecks` | on |
-| Report deprecated service classes, duplicate parameters and unknown named arguments | `serviceChecks` | on |
-| Report removed form type names, missing assets and unknown translation domains in PHP | `phpCallChecks` | on |
-| Report missing routes, assets and translation domains and unknown route comparisons in Twig templates | `twigChecks` | on |
+| Report deprecated service classes and service definition mistakes | `serviceChecks` | on |
+| Report removed form type names, missing assets and domains in PHP | `phpCallChecks` | on |
+| Report missing routes, assets and translation domains in Twig | `twigChecks` | on |
 | Report deprecated for conditions and component syntax mistakes in Twig | `twigSyntaxChecks` | on |
 | Report syntax problems in YAML configuration files | `yamlSyntaxChecks` | on |
-| Report invokable commands without an int return type and invalid console input modes | `commandChecks` | on |
+| Report console command return types and input mode mistakes | `commandChecks` | on |
 | Report deprecated Symfony APIs the project's version no longer supports | `deprecationChecks` | on |
-| Hint at container access in controllers and constructors and report removed form and Twig APIs | `practiceChecks` | on |
+| Hint at Symfony best practices and removed form and Twig APIs | `practiceChecks` | on |
 | Report problems in Doctrine mappings | `doctrineChecks` | on |
 
 ### Project layout
@@ -244,10 +244,10 @@ Each switch is on by default.
 |---|---|---|---|
 | Public directory that asset() paths start from (project-relative) | `publicDirectory` | `public` | Where asset completion and checks look. |
 | Extra compiled container XML files (project-relative, comma-separated) | `compiledContainers` | empty | More compiled containers to read services and parameters from. |
-| Extra compiled route files, like url_generating_routes.php (project-relative, comma-separated) | `compiledRoutes` | empty | More compiled route files. |
-| Extra service definition files outside config/ (project-relative, comma-separated YAML or XML) | `extraServiceFiles` | empty | More service files to index. |
-| Extra routing files outside config/ (project-relative, comma-separated YAML or XML) | `extraRoutingFiles` | empty | More routing files to index. |
-| Project-relative profiler CSV index (explicit refresh; empty uses default) | `profilerIndexPath` | `var/cache/dev/profiler/index.csv` | Which profiler index the **Profiler** tab reads. |
+| Extra compiled route files | `compiledRoutes` | empty | More compiled route files. |
+| Extra service definition files outside config/ | `extraServiceFiles` | empty | More service files to index. |
+| Extra routing files outside config/ | `extraRoutingFiles` | empty | More routing files to index. |
+| Profiler index path | `profilerIndexPath` | `var/cache/dev/profiler/index.csv` | Which profiler index the **Profiler** tab reads. |
 | Extra Twig namespaces (legacy) | `twigNamespaces` | empty | Extra Twig namespaces. Prefer **Symfony: Configure Twig Namespace Paths**. |
 
 ## Permissions
@@ -280,12 +280,12 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Attribute completion doesn't appear | Press the completion shortcut inside the attribute. |
 | A check doesn't fire | The name may be dynamic, from `vendor/`, or not indexed yet. Check the group switch in Settings. |
 | **Copy Route as cURL** or **Create HTTP Request File for Route** says "No routes are indexed." | Click **Reindex**, or check that the project defines routes. |
-| Symfony commands are missing from Search Everywhere | They show only when the project has `symfony.lock` or `bin/console`. Open the folder that holds them. |
-| "Place the caret inside a plain literal route, service or template reference. …" | Put the caret inside a quoted name, not a variable or concatenation. |
+| Symfony commands are missing from Search Everywhere | They show only when the project has `symfony.lock` or `bin/console`, and the Twig ones only in a Twig file. Open the folder that holds them. |
+| "Put the caret on a route, service or template name written as a plain string. …" | Put the caret inside a quoted name, not a variable or concatenation. |
 | "The open file is not a Twig template." | Focus a `.twig` file. |
 | "This template already extends another." | The template already has an `extends` tag. |
-| The **Profiler** tab says "Refresh to read this project's profiler index …" | Click **Refresh index snapshot**. Load a page in dev first so the index exists. |
-| Profiler rows are marked **STALE** | The file changed or couldn't be read. Click **Refresh index snapshot**. |
+| The **Profiler** tab says "Refresh to read this project's profiler index …" or "No profiler data yet" | Load a page in dev mode so the index exists, then click **Refresh**. |
+| The **Profiler** status says "The profiler index changed" | Click **Refresh** to load the new requests. |
 | "Cannot load project Twig hints: … Optional storage permission is required." | Allow `storage` for Symfony. |
 | The status bar shows "Index incomplete" | The project hit a discovery, read or time limit. Click **Reindex**; see the limits below. |
 
@@ -425,7 +425,7 @@ File-creating actions are lazy file actions with exact resulting-file confirmati
 - Rows don't execute URLs or look up serialized profiles automatically. Selected details label the target as a source index row, not a collector/profile page.
 - Open/double-click/Enter rechecks the invocation root, current key membership, exact source-file owner, file/byte/parser bounds and a unique current record against its cached physical line and displayed request facts, then opens that index line. Unknown, foreign, ambiguous, moved or changed records refuse navigation. The editor shows the original project-owned CSV.
 - Bounds: the index file is limited to 1 MiB (checked by metadata before and by returned size after reading), at most 10,000 physical records and 16 KiB per record. The latest 100 valid unambiguous main requests are kept. Strict single-line CSV (quoted commas and escaped quotes supported); multiline or malformed data refuses the refresh. Unsupported IDs and case-insensitive duplicate tokens are omitted.
-- Snapshots are bound to the project root and selected source path in session memory. Changing either hides former rows until an explicit refresh. A failed refresh keeps only that pair's last good data, marked **STALE** (missing, denied, unreadable, malformed and oversized outcomes are distinct). Switching or losing roots clears the single cache slot. Refresh and Open also need the index file's exact current project owner. File-system events on the selected source mark rows **STALE**; data is adopted only on explicit refresh.
+- Snapshots are bound to the project root and selected source path in session memory. Changing either hides former rows until an explicit refresh. A failed refresh keeps only that pair's last good data, with a note that it comes from the previous Refresh (missing, denied, unreadable, malformed and oversized outcomes are distinct). Switching or losing roots clears the single cache slot. Refresh and Open also need the index file's exact current project owner. File-system events on the selected source show *The profiler index changed*; data is adopted only on explicit refresh.
 - The source is `profilerIndexPath` (empty uses the default; a normalized project-relative path up to 4096 bytes / 32 components, never absolute/traversal/glob) or a project-owned override stored by **Choose CSV Source…**. Blank input removes the override. Discovery lists owned existing CSV files plus the bounded compiled-container files, uses file metadata only, deduplicates shared cache directories and always asks. Invalid values hide cached data and refuse Open, never silently falling back to another source.
 - **Inspect Profile** uses the selected request, or asks for one. `process:php` runs `php -n` with a 64 MiB memory limit and a two-second execution limit, without bootstrapping the application or loading Composer. Raw and GZIP file-storage profiles are bounded to 1 MiB input and decoded data, a 32-level serialized-data limit and at most 128 collectors. Only collector names, types and a fixed allowlist of nonnegative numeric metrics enter the UI; headers, request payloads, SQL, messages and arbitrary strings are withheld. PHP 8+ and built-in zlib are needed for GZIP. Seven-column legacy and eight-column `virtual_type` CSV are accepted; only request profiles are shown. Missing or denied tools or malformed profiles leave inspection unavailable.
 - Per-request profiler details run project PHP and aren't offered as an MCP tool.

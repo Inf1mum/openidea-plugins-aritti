@@ -109,7 +109,7 @@ impl LanguageFeatures for Twig {
         }
         let raw = host::setting("formatterPhar").ok_or_else(|| {
             Error::Invalid(
-                "Configure the reviewed official Twig-CS-Fixer 4.1.1 PHAR path before formatting."
+                "Set the path to the official Twig-CS-Fixer 4.1.1 PHAR in Settings › Plugins › Twig before formatting."
                     .into(),
             )
         })?;
@@ -124,7 +124,7 @@ impl LanguageFeatures for Twig {
             || !path.ends_with(".phar")
         {
             return Err(Error::Invalid(
-                "Choose an absolute reviewed .phar path.".into(),
+                "The Twig-CS-Fixer path must be an absolute path to a .phar file.".into(),
             ));
         }
         let before = structure(&doc.text).ok_or_else(|| {

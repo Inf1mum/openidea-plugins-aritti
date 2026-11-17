@@ -207,7 +207,7 @@ fn config(project: &Project) -> Result<Vec<(String, Option<String>)>, Error> {
         if let Some(text) = &text {
             if text.len() > 64 << 10 || !path.ends_with("yaml") && !path.ends_with("yml") {
                 return Err(
-                    "Twig configuration cannot be verified by this bounded YAML workflow.".into(),
+                    "Can't create the template: the Twig configuration is not YAML or is over 64 KiB. Create the file by hand.".into(),
                 );
             }
             let keys = index::yaml_keys(text);

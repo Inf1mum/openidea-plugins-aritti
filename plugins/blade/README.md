@@ -71,7 +71,11 @@ Settings › Plugins › *Blade*.
 
 ## Permissions
 
-Blade needs only `project.read`. It has no optional permissions.
+Optional permissions are off until you allow them in Settings › Plugins › *Blade*. Blade needs no required permissions.
+
+| Permission | Used for | Without it |
+|---|---|---|
+| `project.read` (optional) | Reading `ide.json` and Composer packages for custom directives in injected PHP, JavaScript and CSS | Highlighting, checks and navigation still work; those custom directives aren't recognised in injections. |
 
 ## Troubleshooting
 

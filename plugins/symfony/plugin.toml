@@ -6,7 +6,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/symfony"
 license = "MIT"
 change-notes = """\
-Next release: Copy Route as cURL and Create HTTP Request File ask which route to use when run from the command palette, Symfony commands only show in Symfony projects, and Extend Twig Template only shows in Twig files. Window with Routes, Templates, Services, Translations, Config, Env, Entities, About and Processes tabs, each listed as a searchable table with columns and filters; read-only MCP tools and completion for Stimulus controllers, Vite entries and Twig components, type-based completion in Twig and PHP; saving a file updates only its index entries so completion no longer stalls on large projects, route usages get a gutter icon, and controllers, entities and templates a Related files icon listing their routes, templates and entity family; renaming a route updates its declaration and every usage, console arguments keep quoted values, and no more crashes on accents or emoji; New commands create the file, short setting titles and clearer permission messages. \
+Next release: Copy Route as cURL and Create HTTP Request File ask which route to use when run from the command palette, Symfony commands only show in Symfony projects, Extend Twig Template and Insert Form Rows only show in Twig files, and Go to Route and Go to Service get Alt+Shift+U and Alt+Shift+S. Window with Routes, Templates, Services, Translations, Config, Env, Entities, About and Processes tabs, each listed as a searchable table with columns and filters; read-only MCP tools and completion for Stimulus controllers, Vite entries and Twig components, type-based completion in Twig and PHP; saving a file updates only its index entries so completion no longer stalls on large projects, route usages get a gutter icon, and controllers, entities and templates a Related files icon listing their routes, templates and entity family; renaming a route updates its declaration and every usage, console arguments keep quoted values, and no more crashes on accents or emoji; New commands create the file, short setting titles, plainer Profiler, occurrence and deprecation messages and clearer permission messages. \
 0.3.0: indexer, Twig and Doctrine support. \
 0.2.0: plugin icon and route navigation."""
 categories = ["frameworks"]
@@ -94,12 +94,13 @@ when = "workspaceContains:symfony.lock || workspaceContains:bin/console"
 id = "twig-extends"
 title = "Symfony: Extend Twig Template…"
 category = "Symfony"
-when = "workspaceContains:symfony.lock || workspaceContains:bin/console"
+when = "editorLangId == twig && (workspaceContains:symfony.lock || workspaceContains:bin/console)"
 
 [[contributes.commands]]
 id = "make"
 title = "Symfony: Make…"
 category = "Symfony"
+when = "workspaceContains:symfony.lock || workspaceContains:bin/console"
 
 [[contributes.commands]]
 id = "create-template"
@@ -111,7 +112,15 @@ when = "workspaceContains:symfony.lock || workspaceContains:bin/console"
 id = "twig-form-fields"
 title = "Symfony: Insert Form Rows from a Form Type…"
 category = "Symfony"
-when = "workspaceContains:symfony.lock || workspaceContains:bin/console"
+when = "editorLangId == twig && (workspaceContains:symfony.lock || workspaceContains:bin/console)"
+
+[[contributes.keymaps]]
+command = "go-to-route"
+key = "Alt+Shift+U"
+
+[[contributes.keymaps]]
+command = "go-to-service"
+key = "Alt+Shift+S"
 
 [[contributes.menus]]
 menu = "editor.context"

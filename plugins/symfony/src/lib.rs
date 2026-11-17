@@ -4289,14 +4289,14 @@ mod tests {
         plugin.handle_events(&[Event::FileSaved("/project/var/cache/dev/profiler".into())], &ctx);
         assert_eq!(&host.view_messages()[messages..], &[(VIEW.to_owned(), r#"{"channel":"ui-kit-refresh","targetView":"symfony-profiler"}"#.to_owned())]);
         let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
-        assert!(view.status.unwrap().contains("STALE filesystem change"));
+        assert!(view.status.unwrap().contains("profiler index changed"));
         let Body::Table(table) = view.body else { panic!("cached rows") };
         assert_eq!(table.rows[0][3], "/old", "event does not adopt changed record");
         assert_eq!(plugin.profiler_snapshot.row_key("abcdef"), key);
         assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(key), &ctx).is_err());
         plugin.run_command("show-profiler", &ctx, None).unwrap();
         let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
-        assert!(!view.status.unwrap().contains("STALE"));
+        assert!(!view.status.unwrap().contains("profiler index changed"));
         let Body::Table(table) = view.body else { panic!("refreshed rows") };
         assert_eq!(table.rows[0][3], "/new");
         for field in 0..3 {
@@ -4305,11 +4305,11 @@ mod tests {
             let list = match field { 0 => &mut files.created, 1 => &mut files.modified, _ => &mut files.removed };
             list.push(format!("/project/{}", profiler::INDEX_FILE));
             plugin.handle_events(&[Event::FilesChanged(files)], &ctx);
-            assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("STALE filesystem change"));
+            assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("profiler index changed"));
         }
         plugin.run_command("show-profiler", &ctx, None).unwrap();
         plugin.handle_events(&vec![Event::FileSaved("/unrelated".into()); 1025], &ctx);
-        assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("STALE filesystem change"));
+        assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("profiler index changed"));
         assert!(host.requests().is_empty() && host.process_runs().is_empty());
     }
 
@@ -4540,6 +4540,17 @@ mod tests {
 
         host.set_setting("yamlSyntaxChecks", "false");
         assert!(plugin.code_actions(&yaml, all).is_empty());
+    }
+
+    #[test]
+    fn every_command_is_scoped_and_twig_only_commands_need_a_twig_editor() {
+        let manifest = include_str!("../plugin.toml");
+        for block in manifest.split("[[contributes.commands]]").skip(1) {
+            let block = block.split("\n[").next().unwrap();
+            let when = block.lines().find_map(|l| l.strip_prefix("when = ")).unwrap_or_else(|| panic!("no when: {block}"));
+            let twig_only = block.contains("id = \"twig-extends\"") || block.contains("id = \"twig-form-fields\"");
+            assert_eq!(twig_only, when.contains("editorLangId == twig"), "{block}");
+        }
     }
 
     #[test]
