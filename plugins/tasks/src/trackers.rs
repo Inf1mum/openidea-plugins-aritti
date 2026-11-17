@@ -188,7 +188,13 @@ fn issue_api(task: &Task) -> Result<(&'static Tracker, &str), Error> {
     let tracker = TRACKERS.iter().find(|t| Some(t.id) == task.tracker.as_deref()).ok_or("The task isn't a tracker issue.")?;
     let api = task.api.as_deref().ok_or("The issue has no API address. Update issues and try again.")?;
 
-    if expected_origin(tracker).as_deref() != Some(origin(api)) {
+    let expected = match tracker.id {
+        "youtrack" => Some(format!("https://{}", site("youtrackHost", "YouTrack")?)),
+        "jira" => Some(format!("https://{}", site("jiraHost", "Jira")?)),
+        _ => expected_origin(tracker),
+    };
+
+    if expected.as_deref() != Some(origin(api)) {
         return Err(format!("The issue's API address isn't on the configured {} server. Update issues and try again.", tracker.name).into());
     }
 
@@ -238,6 +244,10 @@ fn github(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
 
     if repos.is_empty() {
         return Err("No github.com remote. Set the repository in Settings › Plugins › Tasks.".into());
+    }
+
+    if let Some(bad) = repos.iter().find(|r| !valid_repo(r)) {
+        return Err(format!("\"{bad}\" isn't a GitHub repository. Use owner/name.").into());
     }
 
     let mut query = format!("{} is:issue{}", repos.iter().map(|r| format!("repo:{r}")).collect::<Vec<_>>().join(" "),
@@ -642,7 +652,9 @@ fn site(key: &str, tracker: &str) -> Result<String, Error> {
     };
 
     if !allowed {
-        return Err(format!("The {tracker} host in the {key} setting isn't a valid {tracker} host. Fix it in Settings › Plugins › Tasks.").into());
+        let label = if key == "jiraHost" { "Jira Cloud host" } else { "YouTrack host" };
+
+        return Err(format!("The \"{label}\" setting isn't a valid {tracker} host. Fix it in Settings › Plugins › Tasks.").into());
     }
 
     Ok(host)
@@ -1015,7 +1027,7 @@ mod tests {
         let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &no_repositories() });
 
         assert!(host.requests().is_empty());
-        assert!(fetched.errors[0].contains("jiraHost"), "{:?}", fetched.errors);
+        assert!(fetched.errors[0].contains("Jira Cloud host"), "{:?}", fetched.errors);
     }
 
     #[test]
@@ -1045,6 +1057,19 @@ mod tests {
     }
 
     #[test]
+    fn github_repo_must_be_owner_slash_name() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        host.set_secret("github-token", "t");
+        host.set_setting("githubRepository", "\"a/b is:private\"");
+        respond(&host, r#"{"items":[]}"#);
+
+        let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &no_repositories() });
+
+        assert!(host.requests().is_empty());
+        assert_eq!(fetched.errors.len(), 1);
+    }
+
+    #[test]
     fn jira_key_encoded_in_path() {
         let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
         host.set_secret("jira-token", "Zm9v");
@@ -1054,6 +1079,7 @@ mod tests {
         let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &no_repositories() });
 
         assert_eq!(fetched.issues[0].api.as_deref(), Some("https://acme.atlassian.net/rest/api/3/issue/A-1%2F..%2Fx"));
+        assert_eq!(fetched.issues[0].url.as_deref(), Some("https://acme.atlassian.net/browse/A-1%2F..%2Fx"));
     }
 
     #[test]
