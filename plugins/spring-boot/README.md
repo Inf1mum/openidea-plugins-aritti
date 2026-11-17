@@ -128,8 +128,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Boot**; bind 
 |---|---|---|
 | **Spring Boot: Show Configuration Problems** | Checks every configuration and metadata file and lists the problems, errors first. Pick one to open it. | — |
 | **Spring Boot: Read Metadata from Dependency JAR…** | Loads configuration metadata from one Maven or Gradle dependency JAR you choose. | — |
-| **Spring Boot: Find Property in File…** | Lists the key under the caret and its `${…}` uses in the current file. Also in the editor context menu. | — |
-| **Spring Boot: Find Property in Project…** | Lists the key under the caret across the project's `.properties` configuration files. Also in the editor context menu. | — |
+| **Spring Boot: Find Property in File…** | Lists the key under the caret and its `${…}` uses in the current file. Also in the context menu of `.properties` editors. | — |
+| **Spring Boot: Find Property in Project…** | Lists the key under the caret across the project's `.properties` configuration files. Also in the context menu of `.properties` editors. | — |
 | **Spring Boot: Run with Profiles/Arguments…** | Asks for profiles and arguments, shows the Maven or Gradle command, then runs it in a terminal. | — |
 | **Spring Boot: Configure Database from Current Source…** | Creates a native Database source from the datasource values in the current file. | — |
 
@@ -153,8 +153,8 @@ Settings › Plugins › *Spring Boot Tools*. All are on/off switches.
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
 | Warn about values that do not match the key type | `springBoot.checkPropertyValues` | on | Value type check |
-| Check (additional-)spring-configuration-metadata.json files (shape, defaults, deprecation, hints, project classes) | `springBoot.checkMetadataFiles` | on | Metadata file checks |
-| Hint when a spring.datasource.url names a JDBC driver the build files do not declare (transitive drivers are not seen) | `springBoot.checkDriverDependency` | off | JDBC driver hint |
+| Check spring-configuration-metadata.json files | `springBoot.checkMetadataFiles` | on | Metadata file checks |
+| Hint when the JDBC driver of spring.datasource.url is missing from the build | `springBoot.checkDriverDependency` | off | JDBC driver hint |
 | Offer native Boot Maven/Gradle run profiles | `springBoot.nativeRunProfiles` | off | Adds Spring Boot entries to native Run |
 
 ## Permissions
@@ -163,11 +163,11 @@ Optional permissions are off until you allow them in Settings › Plugins › *S
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `events` | Keeping the project view current as files change. | Checks that need the whole project (unknown keys, test constructors…) stay quiet. |
-| `fs.read:~/.m2/repository` | Reading a Maven dependency JAR and cached parent/BOM POMs. | The JAR metadata command can't read Maven dependencies. |
+| `events` | Keeping the project's configuration facts current as files change. | Checks that need the whole project (unknown keys, test constructors…) stay quiet, and a notice says so once. |
+| `fs.read:~/.m2/repository` | Reading a Maven dependency JAR and cached parent/BOM POMs. | The JAR metadata command says which permission to allow. |
 | `fs.read:~/.gradle/caches/modules-2/files-2.1` | Reading a Gradle dependency JAR from the module cache. | A notice asks you to allow it; Gradle dependencies are skipped. |
-| `editor.read` | **Find Property in File…** reads the open editor's text and caret. | That command can't run. |
-| `database.sources` | **Configure Database from Current Source…** creates a Database source. | That command can't run. |
+| `editor.read` | **Find Property in File…**, **Find Property in Project…** and **Configure Database from Current Source…** read the open editor's text and caret. | Those commands say which permission to allow. |
+| `database.sources` | **Configure Database from Current Source…** creates a Database source. | That command says which permission to allow. |
 | `process:mvn` | Running `mvn` from **Run with Profiles/Arguments…** and native Run. | Maven runs are refused. |
 | `process:gradle` | Running `gradle` from **Run with Profiles/Arguments…** and native Run. | Gradle runs are refused. |
 
@@ -180,12 +180,13 @@ General steps are in the [repository guide](../../README.md#using-the-plugins).
 | No unknown-key or test-constructor warnings | These wait until the whole project has been read. Allow `events`. |
 | A third-party or custom key isn't flagged as unknown | Expected: unknown groups are never reported. Add the key to `additional-spring-configuration-metadata.json` to document it. |
 | Keys from a newer Boot version show as unknown | Run **Spring Boot: Read Metadata from Dependency JAR…** and pick the Boot or Cloud artifact. |
-| "No problems found … metadata inventory is incomplete" | Results are partial. If `events` is off, allow it, then run the command again. |
-| JAR command: "Open the owning Maven project first." | Open the project whose root holds `pom.xml` or `build.gradle(.kts)`. |
-| JAR command: "No supported direct/version-property JAR dependencies…" | The root build file has no dependency the plugin can resolve. Use a literal version, a root property, or the Boot parent/BOM. |
+| "No problems found … but the project isn't fully read yet" | Results are partial. If `events` is off, allow it; then run **Spring Boot: Show Configuration Problems** again. |
+| JAR command: "Open the Maven or Gradle project first." | Open the project whose root holds `pom.xml` or `build.gradle(.kts)`. |
+| JAR command: "Found no dependency with a known version in the root build file…" | Use a literal version, a root property, or the Boot parent/BOM, and build the project once so the parent/BOM is in the local cache. |
 | JAR command: "Selected JAR is not in the Gradle module cache." | Build the project once with Gradle so the JAR is downloaded. |
 | *Reading Gradle JAR metadata needs the fs.read:~/.gradle/caches/modules-2/files-2.1 permission…* | Allow `fs.read:~/.gradle/caches/modules-2/files-2.1` in Settings › Plugins › Spring Boot Tools. |
-| "Project/POM changed. Select the dependency again." | The build file changed during the read. Run the command again. |
+| "The build file changed. Run Read Metadata from Dependency JAR… again." | The build file changed during the read. Run the command again. |
+| "Find Property works in application*.properties and bootstrap*.properties files…" | Open one of those files (not YAML) and place the caret on a key. |
 | "Eight project snapshots are already retained; reload before importing another project." | Reload the plugin in Settings › Plugins, then run the command again. |
 | Run command: "No Spring Boot run found. Apply the Spring Boot Maven or Gradle plugin." | Apply the Spring Boot plugin directly in the root `pom.xml` (build plugins) or the root Gradle `plugins` block. |
 | The run terminal doesn't start | Allow `process:mvn` or `process:gradle`, and check the tool is on the IDE's `PATH`. |

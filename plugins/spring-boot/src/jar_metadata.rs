@@ -358,7 +358,7 @@ impl State {
     fn import_at(&mut self, ctx: &Invocation, cache: &str) -> Result<Option<String>, Error> {
         let project = ctx
             .project()
-            .ok_or("Open the owning Maven project first.")?;
+            .ok_or("Open the Maven or Gradle project first.")?;
         let root = project.root()?;
         let pom_path = format!("{root}/pom.xml");
         if root.len() > 4096 || root.chars().any(char::is_control) {
@@ -438,7 +438,7 @@ impl State {
         }
         if dependencies.is_empty() {
             return Err(invalid(
-                "No supported direct/version-property JAR dependencies or locally cached official parent/BOM catalog entries in the current root build file.",
+                "Found no dependency with a known version in the root build file (snapshot versions are skipped). Build the project once so its Spring Boot parent or BOM is in the local Maven or Gradle cache, then try again.",
             ));
         }
         let choices: Vec<_> = dependencies
@@ -465,24 +465,22 @@ impl State {
         } else {
             selected.path(cache)
         };
-        let grant_probe = host::fs::stat(&jar)?;
+        let grant_probe = host::fs::stat(&jar).map_err(|error| if gradle_build {
+            ui_kit::denied::map(error, "Reading Gradle JAR metadata", "fs.read:~/.gradle/caches/modules-2/files-2.1", "Spring Boot Tools")
+        } else {
+            ui_kit::denied::map(error, "Reading Maven JAR metadata", "fs.read:~/.m2/repository", "Spring Boot Tools")
+        })?;
         if grant_probe.kind != FileKind::File
             || grant_probe.size > super::jar_archive::MAX_ARCHIVE as u64
         {
             return Err(invalid("Selected JAR must be a file of at most 8 MiB."));
         }
-        let (tool, build_label) = build_tool_labels(gradle_build);
         let review = format!(
-            "Read local dependency JAR metadata?\n\nProject: {root}\n{build_label}: {pom}\nDeclared dependency/catalog entry: {}\nDeclared scope: {}\nVersion catalogs: {}\nExact archive: {jar}\n\nReads only META-INF/spring-configuration-metadata.json and additional-spring-configuration-metadata.json from this selected archive. No extraction, code execution, build or network. This is a source-declared snapshot, not a resolved/runtime classpath. Retains other selected artifact snapshots; replaces only this artifact on success. Conflicting metadata is refused.",
+            "Dependency: {} ({} scope), declared in {pom}\nJAR: {jar}\n\nReads only the Spring configuration metadata inside the JAR; nothing runs. Metadata read from other JARs is kept.",
             selected.gav(),
             selected.scope,
-            catalog_sources
-                .iter()
-                .map(|(path, hash)| format!("{path} SHA-256 {hash}"))
-                .collect::<Vec<_>>()
-                .join("; ")
         );
-        if !ui_kit::prompts::confirm_exact(&format!("Read selected {tool} JAR metadata"), &review)? {
+        if !ui_kit::prompts::confirm_exact(&format!("Read Spring metadata from {}?", selected.gav()), &review)? {
             return Ok(None);
         }
         let ensure = || -> Result<(), Error> {
@@ -493,7 +491,7 @@ impl State {
                     != Some(&root)
                 || project.read_file(&pom)? != source
             {
-                return Err(invalid("Project/POM changed. Select the dependency again."));
+                return Err(invalid("The build file changed. Run Read Metadata from Dependency JAR… again."));
             }
             for (path, digest) in &catalog_sources {
                 let raw = host::fs::read_bytes(path)?;
@@ -609,7 +607,7 @@ impl State {
             openidea_plugin::NotificationLevel::Info,
             "Spring Boot JAR metadata",
             &format!(
-                "Loaded {count} properties from one selected dependency snapshot. Runtime classpath is unverified."
+                "Loaded {count} properties from {artifact}.", artifact = retained.last().map_or(String::new(), |s| s.dep.gav())
             ),
         );
         Ok(None)
@@ -738,18 +736,8 @@ fn gradle_denied() -> Result<Option<String>, Error> {
     Ok(None)
 }
 
-fn build_tool_labels(gradle_build: bool) -> (&'static str, &'static str) {
-    if gradle_build { ("Gradle", "Build file") } else { ("Maven", "POM") }
-}
-
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn confirm_labels_follow_the_build_tool() {
-        assert_eq!(build_tool_labels(true), ("Gradle", "Build file"));
-        assert_eq!(build_tool_labels(false), ("Maven", "POM"));
-    }
-
     use super::*;
     use openidea_plugin::hover::HoverProvider;
     use openidea_plugin::mock::MockHost;
@@ -1174,7 +1162,7 @@ mod tests {
         h.answer_next_prompt(Some(&["0"]));
         assert!(matches!(
             state.import_at(&h.invocation(), "/m2"),
-            Err(Error::Denied(_))
+            Err(Error::Invalid(message)) if message == "Reading Maven JAR metadata needs the fs.read:~/.m2/repository permission. Allow it in Settings › Plugins › Spring Boot Tools."
         ));
         assert_eq!(
             state.provenance("/project/application.properties").unwrap(),
@@ -1469,7 +1457,7 @@ mod tests {
         boot_bom(&h, "4.0.2-SNAPSHOT", MANAGED);
         let mut state = State::default();
         let error = state.import_at(&h.invocation(), "/m2").unwrap_err();
-        assert!(format!("{error:?}").contains("No supported"));
+        assert!(format!("{error:?}").contains("Found no dependency with a known version"));
     }
 
     #[test]

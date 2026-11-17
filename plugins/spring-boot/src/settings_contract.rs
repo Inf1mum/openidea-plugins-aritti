@@ -59,6 +59,6 @@ fn settings_metadata_action_requires_an_invoking_project_and_never_substitutes_r
     let error = boot
         .run_command("read-dependency-jar-metadata", &host.invocation(), None)
         .unwrap_err();
-    assert!(error.to_string().contains("Open the owning Maven project"));
+    assert!(error.to_string().contains("Open the Maven or Gradle project first"));
     assert!(host.requests().is_empty());
 }
