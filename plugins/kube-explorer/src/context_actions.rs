@@ -20,7 +20,7 @@ impl KubeExplorer {
                 actions.extend([("resource-describe", "Describe", "info"), ("resource-yaml", "Edit YAML…", "file-yaml")]);
             }
             if kind == "pods" || WORKLOADS.contains(&kind.as_str()) {
-                actions.extend([("resource-logs", "Follow Logs", "file-log"), ("resource-log-view", "View Log Snapshot…", "filter"), ("resource-log-sources", "Select Log Sources…", "settings")]);
+                actions.extend([("resource-logs", "Follow Logs (Terminal)", "file-log"), ("resource-log-view", "Log Snapshot…", "filter"), ("resource-log-sources", "Follow Logs from Selected Sources…", "settings")]);
             }
             if kind == "pods" {
                 actions.extend([("resource-shell", "Open Shell", "terminal"), ("resource-attach", "Attach", "attach-to-process"), ("resource-debug", "Debug…", "debug")]);

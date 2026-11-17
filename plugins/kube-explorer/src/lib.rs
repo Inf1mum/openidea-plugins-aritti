@@ -66,6 +66,8 @@ fn refresh_views() {
 }
 
 const KUBECTL: &str = "kubectl";
+/// The context shown when kubectl runs but no current context is set.
+const NO_CONTEXT: &str = "(no current context)";
 const HELM: &str = "helm";
 const DEFAULT_DEBUG_IMAGE: &str = "busybox:stable";
 /// Keeps reads under the 5 s call budget on an unreachable cluster.
@@ -535,7 +537,7 @@ impl KubeExplorer {
     }
 
     fn confirm_apply(&self, what: &str) -> Result<(), Error> {
-        if host::confirm("Apply to the cluster", &format!("Apply {what} to {}?", self.target()))? {
+        if host::confirm("Apply to the cluster", &self.apply_question(what))? {
             return Ok(());
         }
         Err(Error::Cancelled)
@@ -543,6 +545,11 @@ impl KubeExplorer {
 
     /// `context/namespace` the cluster calls go to, for messages.
     fn target(&self) -> String {
+        let (context, namespace) = self.target_parts();
+        format!("{context}/{namespace}")
+    }
+
+    fn target_parts(&self) -> (String, &str) {
         let current = || self.kubectl(&["config", "current-context"], None).ok().map(|out| out.trim().to_owned());
         let context = self.context.clone().or_else(|| self.current_context.clone()).or_else(current);
         let context = context.unwrap_or_else(|| "(kubectl unavailable)".into());
@@ -551,7 +558,25 @@ impl KubeExplorer {
             Some(namespace) => namespace,
             None => "(default)",
         };
-        format!("{context}/{namespace}")
+        (context, namespace)
+    }
+
+    /// The question asked before applying `what` (a file or Kustomization directory).
+    fn apply_question(&self, what: &str) -> String {
+        let (context, namespace) = self.target_parts();
+        format!("Apply {what} to context {context}, namespace {namespace}?")
+    }
+
+    /// The question asked before deleting a resource row: kind, name, namespace and context.
+    fn delete_question(&self, kind: &str, row: &str) -> Result<String, Error> {
+        let (namespace, name) = self.split_scope(kind, row)?;
+        let context = self.context.as_ref().or(self.current_context.as_ref()).map_or("the current context", String::as_str);
+        let scope = match namespace.as_deref() {
+            _ if CLUSTER_SCOPED.contains(&kind) => String::new(),
+            Some(namespace) => format!(" in namespace {namespace}"),
+            None => " in the default namespace".into(),
+        };
+        Ok(format!("Delete {kind}/{name}{scope} on context {context}?"))
     }
 
     fn save(&self) {
@@ -743,7 +768,7 @@ impl KubeExplorer {
             // failed spawn offers the install hint.
             self.current_context = match self.process(KUBECTL, &self.args(&["config", "current-context"]), None) {
                 Ok(out) if out.status == Some(0) => Some(out.stdout.trim().to_owned()),
-                Ok(_) => Some("(kubectl unavailable)".into()),
+                Ok(_) => Some(NO_CONTEXT.into()),
                 Err(Error::Denied(_)) => {
                     return Ok(View::new(Body::Tree(vec![
                         TreeItem::new("kube:status", "Kubernetes — permission required")
@@ -799,6 +824,9 @@ impl KubeExplorer {
         if self.kubectl_failed {
             view = view.button(Button::new("how-to-install-kubectl", "How to Install kubectl").icon("help"));
         }
+        if context == NO_CONTEXT {
+            view = view.button(Button::new("choose-kubeconfig", "Choose Kubeconfig…").icon("folder-open"));
+        }
         Ok(self.actions(view))
     }
 
@@ -853,8 +881,8 @@ impl KubeExplorer {
         };
         self.protect_rich_view(view.button(Button::new("describe", "Describe").icon("info").enabled(self.selected.is_some()))
             .button(Button::new("yaml", "YAML").icon("file-yaml").enabled(self.selected.is_some()))
-            .button(Button::new("logs", "Logs").icon("file-log").enabled(logs))
-            .button(Button::new("log-view", "Log Viewer").icon("list-filter").enabled(logs))
+            .button(Button::new("logs", "Follow Logs (Terminal)").icon("file-log").enabled(logs))
+            .button(Button::new("log-view", "Log Snapshot…").icon("list-filter").enabled(logs))
             .button(Button::new("shell", "Shell").icon("terminal").enabled(pod_selected))
             .button(Button::new("attach", "Attach").icon("attach-to-process").enabled(pod_selected))
             .button(Button::new("show-secret", "Show Secret").icon("eye").enabled(kind == "secrets"))
@@ -1026,6 +1054,9 @@ impl KubeExplorer {
         if button == "how-to-install-kubectl" {
             notify_install_hint();
             return Ok(());
+        }
+        if button == "choose-kubeconfig" {
+            return self.choose_kubeconfig();
         }
         if button.starts_with("log-") && button != "log-view" {
             return self.log_button(button, ctx);
@@ -1660,7 +1691,7 @@ impl KubeExplorer {
         if !applies {
             return Err(format!("{action} does not apply to {kind}.").into());
         }
-        if action == "delete" && !host::confirm("Delete resource", &format!("Delete {kind}/{row}?"))? {
+        if action == "delete" && !host::confirm("Delete Resource", &self.delete_question(&kind, &row)?)? {
             return Ok(());
         }
         if action == "log-sources" {
@@ -2502,6 +2533,9 @@ mod tests {
         let view = KubeExplorer::default().render_tree().unwrap();
 
         assert!(!toolbar(&view).contains(&"how-to-install-kubectl".to_owned()));
+        assert!(toolbar(&view).contains(&"choose-kubeconfig".to_owned()));
+        let Body::Tree(items) = &view.body else { panic!("tree") };
+        assert!(items.iter().any(|item| item.label == "Context: (no current context)"));
     }
 
     #[test]
@@ -2740,11 +2774,26 @@ mod tests {
     fn apply_sends_the_open_manifest() {
         let host = host();
         host.open_editor("/project/web.yaml", "yaml", "kind: Deployment", &[]);
-        host.answer_next_prompt(Some(&["ok"]));
+        host.answer_next_prompt(None);
 
+        assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
+        assert!(!host.process_runs().iter().any(|r| r.args.contains(&"apply".to_owned())));
+
+        host.answer_next_prompt(Some(&[]));
         KubeExplorer::default().run_command("apply", &host.invocation(), None).unwrap();
 
         assert_eq!(host.notifications()[0].body, "minikube/(default): deployment.apps/web configured");
+        assert_eq!(KubeExplorer::default().apply_question("/project/web.yaml"), "Apply /project/web.yaml to context minikube, namespace (default)?");
+    }
+
+    #[test]
+    fn delete_question_names_kind_name_namespace_and_context() {
+        let _host = host();
+        let kube = KubeExplorer { context: Some("prod-eu".into()), namespace: Some("shop".into()), ..Default::default() };
+        assert_eq!(kube.delete_question("pods", "web-1").unwrap(), "Delete pods/web-1 in namespace shop on context prod-eu?");
+        assert_eq!(kube.delete_question("nodes", "node-a").unwrap(), "Delete nodes/node-a on context prod-eu?");
+        let all = KubeExplorer { namespace: Some(ALL_NAMESPACES.into()), current_context: Some("minikube".into()), ..Default::default() };
+        assert_eq!(all.delete_question("pods", "shop/web-1").unwrap(), "Delete pods/web-1 in namespace shop on context minikube?");
     }
 
     #[test]
@@ -3392,6 +3441,9 @@ mod tests {
             let host = host();
             host.open_editor("/project/k/web.yaml", "yaml", "kind: Deployment", &[]);
             let mut kube = KubeExplorer { namespace: Some("shop".into()), current_context: Some("minikube".into()), ..Default::default() };
+            if command != "delete-manifest" {
+                host.answer_next_prompt(Some(&[]));
+            }
 
             host.answer_next_prompt(Some(&["ok"]));
             kube.run_command(command, &host.invocation(), None).unwrap();

@@ -128,7 +128,8 @@ impl KubeExplorer {
             let action = button.id.rsplit(':').next().unwrap_or(&button.id);
             match action {
                 "yaml" => button.label = "Edit YAML…".into(),
-                "logs" => button.label = "Follow Logs".into(),
+                "logs" => button.label = "Follow Logs (Terminal)".into(),
+                "log-view" => button.label = "Log Snapshot…".into(),
                 "shell" => button.label = "Open Shell".into(),
                 "port-forward" => button.label = "Port Forward…".into(),
                 "create-secret" => button.icon = Some("plus".into()),
@@ -169,8 +170,8 @@ impl KubeExplorer {
         };
         let mut items = Vec::new();
         if kind == "pods" || WORKLOADS.contains(&kind.as_str()) {
-            items.push(PickItem::new("log-view", "View Log Snapshot…"));
-            items.push(PickItem::new("log-sources", "Select Log Sources…"));
+            items.push(PickItem::new("log-view", "Log Snapshot…"));
+            items.push(PickItem::new("log-sources", "Follow Logs from Selected Sources…"));
         }
         if kind == "pods" {
             items.push(PickItem::new("attach", "Attach"));
@@ -618,7 +619,7 @@ mod tests {
                 "Refresh",
                 "Describe",
                 "Edit YAML…",
-                "Follow Logs",
+                "Follow Logs (Terminal)",
                 "Open Shell",
                 "Port Forward…",
                 "Delete",

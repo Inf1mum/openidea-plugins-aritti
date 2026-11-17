@@ -5,7 +5,7 @@ description = "Browse a Kubernetes cluster with kubectl. Switch context and name
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: Validation reports unknown fields in custom resources, and manifest problems show once and stay in place while you type; Helm template and Kustomize navigation improved, and saving or checking out files keeps navigation, label and CRD completion; imported kubeconfigs can be used and deleted, and watch keeps going after a malformed or oversized event; port forward and watch start after one confirmation, Apply asks which context and namespace it targets, and Reload from Cluster keeps Secret values out unless Show Secret is allowed; row commands say what to select, with shorter setting titles and consistent command names. \
+Next release: Delete and Apply now ask first and name the target context and namespace, a missing current context offers Choose Kubeconfig, and command and log action names are clearer. Validation reports unknown fields in custom resources, and manifest problems show once and stay in place while you type; Helm template and Kustomize navigation improved, and saving or checking out files keeps navigation, label and CRD completion; imported kubeconfigs can be used and deleted, and watch keeps going after a malformed or oversized event; port forward and watch start after one confirmation, Apply asks which context and namespace it targets, and Reload from Cluster keeps Secret values out unless Show Secret is allowed; row commands say what to select, with shorter setting titles and consistent command names. \
 0.3.0: consolidated panels, label graph and native service actions. \
 0.2.0: plugin icon and window consolidation."""
 categories = ["tools"]
@@ -172,19 +172,19 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-log-sources"
-title = "Kube Explorer: Select Log Sources…"
+title = "Kube Explorer: Follow Logs from Selected Sources…"
 icon = "settings"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-log-view"
-title = "Kube Explorer: View Log Snapshot…"
+title = "Kube Explorer: Log Snapshot…"
 icon = "filter"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-describe"
-title = "Kube Explorer: Describe"
+title = "Kube Explorer: Describe Resource"
 icon = "info"
 category = "Kube Explorer"
 
@@ -196,7 +196,7 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-logs"
-title = "Kube Explorer: Follow Logs"
+title = "Kube Explorer: Follow Logs (Terminal)"
 icon = "file-log"
 category = "Kube Explorer"
 
@@ -208,13 +208,13 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-attach"
-title = "Kube Explorer: Attach"
+title = "Kube Explorer: Attach to Pod"
 icon = "attach-to-process"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-debug"
-title = "Kube Explorer: Debug…"
+title = "Kube Explorer: Debug Pod…"
 icon = "debug"
 category = "Kube Explorer"
 
@@ -238,7 +238,7 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-delete"
-title = "Kube Explorer: Delete…"
+title = "Kube Explorer: Delete Resource…"
 icon = "trash"
 category = "Kube Explorer"
 
@@ -259,10 +259,12 @@ languages = ["yaml", "json", "jsonc"]
 [[contributes.menus]]
 menu = "editor.context"
 command = "apply"
+when = "editorLangId == yaml"
 
 [[contributes.menus]]
 menu = "editor.context"
 command = "reload-from-cluster"
+when = "editorLangId == yaml"
 
 
 
@@ -573,17 +575,17 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "retire-private-yaml"
-title = "Kube Explorer: Retire Private YAML Editor"
+title = "Kube Explorer: End Private YAML Editing Session"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "cache-cluster-resources"
-title = "Kube Explorer: Read Cluster Resource Names for Completion…"
+title = "Kube Explorer: Load Resource Names from Cluster for Completion…"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "tree-switch"
-title = "Kube Explorer: Switch"
+title = "Kube Explorer: Switch Context or Namespace"
 icon = "check"
 category = "Kube Explorer"
 
@@ -595,7 +597,7 @@ when = "viewItemKind == svc-context || viewItemKind == svc-namespace"
 
 [[contributes.commands]]
 id = "tree-expand"
-title = "Kube Explorer: Expand"
+title = "Kube Explorer: Expand Group"
 icon = "chevron-down"
 category = "Kube Explorer"
 
@@ -607,7 +609,7 @@ when = "viewItemKind == svc-group || viewItemKind == svc-secrets || viewItemKind
 
 [[contributes.commands]]
 id = "tree-collapse"
-title = "Kube Explorer: Collapse"
+title = "Kube Explorer: Collapse Group"
 icon = "chevron-up"
 category = "Kube Explorer"
 
@@ -619,7 +621,7 @@ when = "viewItemKind == svc-group-open || viewItemKind == svc-secrets-open || vi
 
 [[contributes.commands]]
 id = "tree-refresh"
-title = "Kube Explorer: Refresh"
+title = "Kube Explorer: Refresh Group"
 icon = "refresh"
 category = "Kube Explorer"
 
