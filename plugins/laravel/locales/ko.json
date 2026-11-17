@@ -170,5 +170,8 @@
   "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL": "create(), update(), fill()에 필터링 없이 전달되는 요청 데이터와 원시 SQL의 변수를 보고합니다",
   "Report translation keys that some locales have and others lack": "일부 로케일에만 있고 다른 로케일에는 없는 번역 키를 보고합니다",
   "Report where() values that the column's enum cast does not have": "컬럼의 enum 캐스트에 없는 where() 값을 보고합니다",
-  "Show code that breaks on the next Laravel major version": "다음 Laravel 메이저 버전에서 깨지는 코드를 표시합니다"
+  "Show code that breaks on the next Laravel major version": "다음 Laravel 메이저 버전에서 깨지는 코드를 표시합니다",
+  "Check Eloquent models and queries": "Eloquent 모델 및 쿼리 검사",
+  "Offer scope-to-attribute intentions": "스코프를 특성으로 변환하는 작업 제공",
+  "Show route and controller hints": "라우트 및 컨트롤러 힌트 표시"
 }

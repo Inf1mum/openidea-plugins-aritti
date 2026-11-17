@@ -170,5 +170,8 @@
   "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL": "报告未经过滤传给 create()、update() 或 fill() 的请求数据,以及原生 SQL 中的变量",
   "Report translation keys that some locales have and others lack": "报告部分语言有而其他语言缺少的翻译键",
   "Report where() values that the column's enum cast does not have": "报告列的 enum 转换中不存在的 where() 值",
-  "Show code that breaks on the next Laravel major version": "显示在下一个 Laravel 主版本中会失效的代码"
+  "Show code that breaks on the next Laravel major version": "显示在下一个 Laravel 主版本中会失效的代码",
+  "Check Eloquent models and queries": "检查 Eloquent 模型和查询",
+  "Offer scope-to-attribute intentions": "提供将作用域转换为特性的操作",
+  "Show route and controller hints": "显示路由和控制器提示"
 }
