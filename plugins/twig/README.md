@@ -119,7 +119,7 @@ It fixes spacing around delimiters, operators, punctuation and macro arguments. 
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Twig**; bind keys in Settings › Keymap.
+Find them in Search Everywhere › Actions (⇧⇧) under **Twig** while a Twig file is open; bind keys in Settings › Keymap.
 
 | Command | What it does | Shortcut |
 |---|---|---|
@@ -157,7 +157,6 @@ Optional permissions are off until you allow them in Settings › Plugins › *T
 | `events` | Running inspections and refreshing PHP extension and template caches when files are opened, saved or changed. | Caches refresh at activation and on save only. |
 | `editor.read` | **Twig: Toggle Comment** and the formatter read the current editor. | Toggle Comment and formatting don't work. |
 | `editor.write` | **Twig: Toggle Comment** edits the current editor. | Toggle Comment doesn't work. |
-| `project.write` | Applying **Preview Rename Static Twig Symbol…**. | You can preview a rename but not apply it. |
 | `process:php` | Running Twig-CS-Fixer. | No formatting. |
 
 ## Troubleshooting
