@@ -92,6 +92,8 @@ fn is_spec_file(path: &str) -> bool {
 }
 
 pub(crate) const REF_MARKER: &str = "icons/marker-ref.svg";
+pub(crate) const REFERENCED_BY_MARKER: &str = "icons/marker-referenced-by.svg";
+const MAX_LINE_TARGETS: usize = 200;
 const PREVIEWS: [&str; 2] = ["preview", "preview-any"];
 
 fn escape_json(text: &str) -> String {
@@ -1066,15 +1068,25 @@ impl Providers for OpenApi {
 
         let Some(model)=pointer_status::Proof::parse(&doc.text) else {return Vec::new();};
         let Some(spec) = spec::parse(&doc.text) else {return Vec::new();};
-        spec::operations(&doc.text,&spec.keys).into_iter().filter_map(|operation| {
-            let (reference,range)=model.operation_reference(&operation)?;
-            Some(LineMarker {
-                line:position(&doc.text,operation.at).line,
-                icon:Some(REF_MARKER.into()),
-                tooltip:format!("{} {}: {reference}",operation.method,operation.path),
+        // Same icon on one line: the IDE merges them into one button with a target chooser.
+        let operations=spec::operations(&doc.text,&spec.keys).into_iter().filter_map(|operation| {
+            let references=model.operation_references(&operation);
+            let targets:Vec<_>=references.into_iter().map(|(reference,range)|(format!("{} {}: {reference}",operation.method,operation.path),range)).collect();
+            (!targets.is_empty()).then(||(position(&doc.text,operation.at).line,REF_MARKER,targets))
+        });
+        let components=model.component_usages().into_iter().map(|(base,declaration,uses)| {
+            let targets=uses.into_iter().map(|range|(format!("#{base} is referenced on line {}",range.start.line+1),range)).collect();
+            (declaration.start.line,REFERENCED_BY_MARKER,targets)
+        });
+        operations.chain(components).take(256).flat_map(|(line,icon,targets):(u32,&str,Vec<(String,Range)>)| {
+            let total=targets.len();
+            targets.into_iter().take(MAX_LINE_TARGETS).map(move |(tooltip,range)| LineMarker {
+                line,
+                icon:Some(icon.into()),
+                tooltip:if total>MAX_LINE_TARGETS {format!("{tooltip} (first {MAX_LINE_TARGETS} of {total} shown)")} else {tooltip},
                 target:Some(Location {path:doc.path.clone(),range}),
             })
-        }).take(256).collect()
+        }).collect()
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
@@ -1255,13 +1267,16 @@ mod marker_integrity_tests {
         let host=MockHost::install().with_capabilities(&[]);
         let text=r##"{"openapi":"3.1.1","paths":{"/😀pets":{"get":{"z":{"$ref":"#/components/schemas/😀A~1B"},"a":{"$ref":"#/components/schemas/Later"}}}},"components":{"schemas":{"😀A/B":{"type":"object"},"Later":{}}}}"##;
         let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text:text.into(),version:1};
-        let mut plugin=OpenApi::default();let markers=plugin.line_markers(&doc);assert_eq!(markers.len(),1);
-        assert!(markers[0].tooltip.contains("😀A~1B"));
+        let mut plugin=OpenApi::default();
+        let refs=|markers:Vec<LineMarker>|markers.into_iter().filter(|m|m.icon.as_deref()==Some(REF_MARKER)).collect::<Vec<_>>();
+        let markers=refs(plugin.line_markers(&doc));assert_eq!(markers.len(),2);
+        assert!(markers[0].tooltip.contains("😀A~1B"));assert!(markers[1].tooltip.contains("Later"));
+        assert_eq!(markers[0].line,markers[1].line);
         let range=markers[0].target.as_ref().unwrap().range;
         assert_eq!(&text[offset(text,range.start).unwrap()..offset(text,range.end).unwrap()],"😀A/B");
         assert_eq!(range.end.character-range.start.character,5);
         let changed=Document {text:text.replace("#/components/schemas/😀A~1B","#/Missing"),version:2,..doc};
-        assert!(plugin.line_markers(&changed)[0].tooltip.contains("Later"));
+        let markers=refs(plugin.line_markers(&changed));assert_eq!(markers.len(),1);assert!(markers[0].tooltip.contains("Later"));
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());assert!(host.opened_locations().is_empty());
     }
     #[test]
@@ -1283,7 +1298,7 @@ mod marker_integrity_tests {
             "openapi: 3.1.1\npaths:\n  /p:\n    get:\n      x:\n        $ref: '#/components/schemas/P%65t'\ncomponents:\n  schemas:\n    Pet: {}\n",
         ] {
             let doc=Document {path:"/project/openapi.yaml".into(),language:"yaml".into(),text:text.into(),version:1};
-            assert!(OpenApi::default().line_markers(&doc).is_empty(),"{text}");
+            assert!(OpenApi::default().line_markers(&doc).iter().all(|m|m.icon.as_deref()!=Some(REF_MARKER)),"{text}");
         }
         let paths=(0..300).map(|n|(format!("/p{n}"),serde_json::json!({"get":{"x":{"$ref":"#/components/schemas/Pet"}}}))).collect::<serde_json::Map<_,_>>();
         let text=serde_json::json!({"openapi":"3.1.1","paths":paths,"components":{"schemas":{"Pet":{}}}}).to_string();
@@ -2911,13 +2926,56 @@ mod tests {
     fn operations_get_a_marker_that_navigates_to_their_schema() {
         let _host = MockHost::install();
         let text = "openapi: 3.0.0\npaths:\n  /pets:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: '#/components/schemas/Pet'\n    post:\n      responses: {}\ncomponents:\n  schemas:\n    Pet:\n      type: object\n";
-        let markers = OpenApi::default().line_markers(&named("/p/openapi.yaml", text));
+        let markers: Vec<_> = OpenApi::default().line_markers(&named("/p/openapi.yaml", text)).into_iter().filter(|m| m.icon.as_deref() == Some(REF_MARKER)).collect();
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].line, 3);
         assert_eq!(markers[0].icon.as_deref(), Some(REF_MARKER));
         assert_eq!(markers[0].tooltip, "GET /pets: #/components/schemas/Pet");
         let target = markers[0].target.as_ref().unwrap();
         assert_eq!(target.range.start.line, 14);
+    }
+
+    #[test]
+    fn every_ref_of_an_operation_is_a_same_icon_marker_on_its_line() {
+        let _host = MockHost::install();
+        let text = "openapi: 3.0.0\npaths:\n  /pets:\n    post:\n      requestBody:\n        $ref: '#/components/requestBodies/NewPet'\n      responses:\n        '200':\n          $ref: '#/components/responses/Pet'\n        '404':\n          $ref: '#/components/responses/Pet'\ncomponents:\n  requestBodies:\n    NewPet: {}\n  responses:\n    Pet: {}\n";
+        let markers: Vec<_> = OpenApi::default().line_markers(&named("/p/openapi.yaml", text)).into_iter().filter(|m| m.icon.as_deref() == Some(REF_MARKER)).collect();
+        assert_eq!(markers.len(), 2);
+        assert!(markers.iter().all(|m| m.line == 3));
+        let targets: Vec<_> = markers.iter().map(|m| m.target.as_ref().unwrap().range).collect();
+        assert_eq!(targets[0].start.line, 13);
+        assert_eq!(targets[1].start.line, 15);
+        assert!(targets.iter().all(|r| r.start != r.end));
+    }
+
+    #[test]
+    fn component_declarations_list_their_local_refs() {
+        let _host = MockHost::install();
+        let text = "openapi: 3.0.0\npaths:\n  /a:\n    get:\n      x:\n        $ref: '#/components/schemas/Pet'\n  /b:\n    get:\n      x:\n        $ref: '#/components/schemas/Pet/properties/id'\ncomponents:\n  schemas:\n    Pet:\n      properties:\n        id: {}\n    Pets:\n      $ref: '#/components/schemas/Pet'\n    Unused: {}\n";
+        let markers: Vec<_> = OpenApi::default().line_markers(&named("/p/openapi.yaml", text)).into_iter().filter(|m| m.icon.as_deref() == Some(REFERENCED_BY_MARKER)).collect();
+        assert_eq!(markers.len(), 3);
+        assert!(markers.iter().all(|m| m.line == 12));
+        let lines: Vec<_> = markers.iter().map(|m| m.target.as_ref().unwrap().range.start.line).collect();
+        assert_eq!(lines, [5, 9, 16]);
+        for marker in &markers {
+            let range = marker.target.as_ref().unwrap().range;
+            assert_eq!(range.start.line, range.end.line);
+            assert!(text.lines().nth(range.start.line as usize).unwrap()[range.start.character as usize..range.end.character as usize].contains("#/components/schemas/Pet"));
+        }
+        let single = text.replace("$ref: '#/components/schemas/Pet/properties/id'", "type: string").replace("      $ref: '#/components/schemas/Pet'\n    Unused", "      type: array\n    Unused");
+        let markers: Vec<_> = OpenApi::default().line_markers(&named("/p/openapi.yaml", &single)).into_iter().filter(|m| m.icon.as_deref() == Some(REFERENCED_BY_MARKER)).collect();
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].tooltip, "#/components/schemas/Pet is referenced on line 6");
+    }
+
+    #[test]
+    fn markers_on_one_line_are_bounded_and_say_so() {
+        let _host = MockHost::install();
+        let uses = (0..250).map(|n| (format!("u{n}"), serde_json::json!({"$ref": "#/components/schemas/Pet"}))).collect::<serde_json::Map<_, _>>();
+        let text = serde_json::json!({"openapi": "3.1.0", "paths": {}, "x": uses, "components": {"schemas": {"Pet": {}}}}).to_string();
+        let markers = OpenApi::default().line_markers(&named("/p/openapi.json", &text));
+        assert_eq!(markers.len(), 200);
+        assert!(markers.iter().all(|m| m.tooltip.ends_with("(first 200 of 250 shown)")));
     }
 
     #[test]
@@ -2990,8 +3048,10 @@ mod marker_icon_tests {
     #[test]
     fn ref_marker_icon_is_declared_in_the_manifest() {
         let manifest = include_str!("../plugin.toml");
-        assert!(manifest.contains(&format!("icon = \"{REF_MARKER}\"")));
-        assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(REF_MARKER).is_file());
+        for icon in [REF_MARKER, REFERENCED_BY_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
     }
 }
 
