@@ -6,6 +6,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/gitlab"
 license = "MIT"
 change-notes = """\
+A Repository button on the merge request list picks which GitLab repository of a multi-repository workspace the panel shows: the window's own repository, or an independent one in a child folder; a workspace whose window repository has no GitLab remote follows its only GitLab repository, and Open on GitLab and Copy Link follow the repository containing the file. \
 Editor gutter markers for unresolved review threads use a packaged icon. \
 Draft and diff comments omit the unused old/new line instead of sending null, matching the GitLab draft notes API. \
 Bounded CommonMark descriptions/diff comments escape raw HTML, block unsafe links and remote image fetching, with shared native tokens and snapshot-bound link activation. \
@@ -33,8 +34,9 @@ activation = ["on-view:merge-requests", "on-event:vcs-changed", "on-event:file-o
 
 [capabilities]
 required = ["vcs.read", "editor.read", "net:gitlab.com", "secrets", "storage"]
-# clipboard: Copy Link and the snippet URL. project.read: jump to a line, review threads in the editor.
-# events: the current branch's merge request. process:git: check out, clone, share.
+# clipboard: Copy Link and the snippet URL. project.read: jump to a line, review threads in the editor,
+# and find the GitLab repositories of a multi-repository workspace for the Repository picker.
+# events: the current branch's merge request. process:git: check out, clone, share, and read the remotes of child repositories.
 optional = ["clipboard", "project.read", "events", "process:git", "process:glab", "net:ask"]
 # net:ask: a self-hosted HTTPS server set in the server setting, approved on first use.
 
