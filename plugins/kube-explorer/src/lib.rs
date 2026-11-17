@@ -50,7 +50,7 @@ use std::path::Path;
 
 use openidea_plugin::providers::{CodeAction, CompletionItem, Document, Providers};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Context, Error, Event, EventKind, Invocation, LogLevel, NotificationLevel, Plugin, Position, Range, host};
+use openidea_plugin::{Context, Error, Event, EventKind, FileDiff, Invocation, LogLevel, NotificationAction, NotificationLevel, PickItem, Plugin, Position, Range, StatusItem, host};
 
 pub const TREE: &str = "kube";
 const PANEL: &str = "resource-details";
@@ -66,8 +66,14 @@ fn refresh_views() {
 }
 
 const KUBECTL: &str = "kubectl";
+/// Status bar item naming the context and namespace kubectl calls go to.
+const CONTEXT_STATUS: &str = "kube-context";
+/// Reveals the cluster tree: the status item's and Apply notification's action.
+const SHOW_TREE: &str = "show-tree";
 /// The context shown when kubectl runs but no current context is set.
 const NO_CONTEXT: &str = "(no current context)";
+const KUBECTL_UNAVAILABLE: &str = "(kubectl unavailable)";
+const POD_SHELL: &str = "command -v bash >/dev/null && exec bash || exec sh";
 const HELM: &str = "helm";
 const DEFAULT_DEBUG_IMAGE: &str = "busybox:stable";
 /// Keeps reads under the 5 s call budget on an unreachable cluster.
@@ -520,6 +526,7 @@ impl KubeExplorer {
         self.children.clear();
         self.current_context = None;
         self.kubectl_failed = false;
+        self.update_context_status();
         let mut first_failure: Option<String> = None;
         for key in self.expanded.clone() {
             let loaded = match &first_failure {
@@ -543,6 +550,68 @@ impl KubeExplorer {
         Err(Error::Cancelled)
     }
 
+    /// Shows `⎈ context / namespace` in the status bar, or nothing while the context is unknown.
+    fn update_context_status(&self) {
+        let context = self.context.as_deref().or(self.current_context.as_deref())
+            .filter(|context| !context.is_empty() && ![NO_CONTEXT, KUBECTL_UNAVAILABLE].contains(context));
+        let Some(context) = context else {
+            host::remove_status_item(CONTEXT_STATUS);
+            return;
+        };
+        let namespace = match self.namespace.as_deref() {
+            Some(ALL_NAMESPACES) => "(all namespaces)",
+            Some(namespace) => namespace,
+            None => "(default)",
+        };
+        host::set_status_item(CONTEXT_STATUS, &StatusItem {
+            text: format!("⎈ {context} / {namespace}"),
+            tooltip: Some(format!("Kube Explorer runs kubectl against context {context}, namespace {namespace}. Click to show the cluster tree and switch.")),
+            command: Some(SHOW_TREE.into()),
+        });
+    }
+
+    /// One terminal per action and target: running it again focuses the open one.
+    fn open_pod_terminal(&self, action: &str, title: &str, args: Vec<String>) -> Result<(), Error> {
+        let context = self.context.as_deref().or(self.current_context.as_deref()).unwrap_or_default();
+        let key = terminal_key(action, context, &args);
+        let command = host::Command::new(KUBECTL).args(&args);
+        // A window without a project may have no keyed terminal; fall back to a plain one.
+        host::open_terminal_session(&key, title, &command).map(drop).or_else(|_| host::open_terminal(title, KUBECTL, &args))
+    }
+
+    #[cfg(test)]
+    fn shell_terminal_key(&self, namespace: Option<&str>, pod: &str) -> String {
+        let context = self.context.as_deref().or(self.current_context.as_deref()).unwrap_or_default();
+        terminal_key("shell", context, &self.args_in(namespace, &["exec", "-it", pod, "--", "sh", "-c", POD_SHELL]))
+    }
+
+    /// Opens the live objects next to the open manifest; Secrets stay masked unless Show Secret is allowed.
+    fn diff_manifest(&mut self, manifest: &str, path: &str) -> Result<String, Error> {
+        if !Self::reveal_allowed() && !secret_free(manifest) {
+            let out = self.process(KUBECTL, &self.args(&["diff", "-f", "-"]), Some(manifest))?;
+            return match out.status {
+                Some(0) => Ok("No differences with the cluster.".into()),
+                Some(1) => {
+                    self.show(format!("Diff: {path}"), out.stdout, "diff")?;
+                    Ok("The differences are shown in Kube Explorer (Secret values masked).".into())
+                }
+                status => Err(failure(KUBECTL, &out.stderr, status)),
+            };
+        }
+        let live = self.kubectl(&["get", "-f", "-", "-o", "yaml", "--ignore-not-found", REQUEST_TIMEOUT], Some(manifest))?;
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let new = live.trim().is_empty();
+        let diff = FileDiff {
+            left: (!new).then_some(live),
+            right: Some(manifest.to_owned()),
+            left_label: Some(format!("Cluster ({})", self.target())),
+            right_label: Some(format!("Local ({name})")),
+            title: Some(format!("{name}: cluster and local")),
+        };
+        host::open_file_diff(&diff, Some(name))?;
+        Ok(if new { "These resources are not in the cluster yet." } else { "The diff with the cluster is open." }.into())
+    }
+
     /// `context/namespace` the cluster calls go to, for messages.
     fn target(&self) -> String {
         let (context, namespace) = self.target_parts();
@@ -552,7 +621,7 @@ impl KubeExplorer {
     fn target_parts(&self) -> (String, &str) {
         let current = || self.kubectl(&["config", "current-context"], None).ok().map(|out| out.trim().to_owned());
         let context = self.context.clone().or_else(|| self.current_context.clone()).or_else(current);
-        let context = context.unwrap_or_else(|| "(kubectl unavailable)".into());
+        let context = context.unwrap_or_else(|| KUBECTL_UNAVAILABLE.into());
         let namespace = match self.namespace.as_deref() {
             Some(ALL_NAMESPACES) => "(all namespaces)",
             Some(namespace) => namespace,
@@ -770,6 +839,7 @@ impl KubeExplorer {
                 Ok(out) if out.status == Some(0) => Some(out.stdout.trim().to_owned()),
                 Ok(_) => Some(NO_CONTEXT.into()),
                 Err(Error::Denied(_)) => {
+                    host::remove_status_item(CONTEXT_STATUS);
                     return Ok(View::new(Body::Tree(vec![
                         TreeItem::new("kube:status", "Kubernetes — permission required")
                             .icon(k8s!("cluster"))
@@ -778,10 +848,11 @@ impl KubeExplorer {
                 }
                 Err(_) => {
                     self.kubectl_failed = true;
-                    Some("(kubectl unavailable)".into())
+                    Some(KUBECTL_UNAVAILABLE.into())
                 }
             };
         }
+        self.update_context_status();
         let context = self.context.as_ref().or(self.current_context.as_ref()).cloned().unwrap_or_default();
         let namespace = match self.namespace.as_deref() {
             Some(ALL_NAMESPACES) => "All namespaces",
@@ -1134,16 +1205,16 @@ impl KubeExplorer {
                 KUBECTL,
                 &args(&["logs", "-f", &target, "--all-pods=true", "--all-containers", "--max-log-requests=20", "--tail=200"]),
             )?,
-            "attach" => host::open_terminal(&format!("Attach: {row}"), KUBECTL, &args(&["attach", "-it", &name]))?,
+            "attach" => self.open_pod_terminal("attach", &format!("Attach: {row}"), args(&["attach", "-it", &name]))?,
             "debug" => self.debug_pod(&row)?,
             "show-secret" if kind == "secrets" => self.show_secret(&row)?,
             "edit-secret" if kind == "secrets" => self.edit_secret(&row)?,
             "log-view" => self.open_log_view(&kind, &row, ctx)?,
             "port-forward" => self.start_port_forward(&kind, &row, ctx)?,
-            "shell" => host::open_terminal(
+            "shell" => self.open_pod_terminal(
+                "shell",
                 &format!("Shell: {row}"),
-                KUBECTL,
-                &args(&["exec", "-it", &name, "--", "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"]),
+                args(&["exec", "-it", &name, "--", "sh", "-c", POD_SHELL]),
             )?,
             "delete" if !self.confirm_delete => {
                 self.new_rich_callback();
@@ -1324,6 +1395,19 @@ fn chart_dir(ctx: &Invocation, file: &str) -> Result<String, Error> {
         directory = candidate.rsplit_once('/').map(|(parent, _)| parent);
     }
     Err("The open file is not in a Helm chart (no Chart.yaml in its folder or above).".into())
+}
+
+/// True when every document names a kind and none is a Secret or a List (which could hold one).
+fn secret_free(manifest: &str) -> bool {
+    manifest::documents(manifest).iter().all(|doc| doc.kind.as_ref().is_some_and(|kind| kind.text != "Secret" && !kind.text.ends_with("List")))
+}
+
+/// A terminal session key (at most 128 bytes) for an action, context and argv.
+fn terminal_key(action: &str, context: &str, args: &[String]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (context, args).hash(&mut hasher);
+    format!("{action}-{:016x}", hasher.finish())
 }
 
 fn file_safe(s: &str) -> String {
@@ -1570,6 +1654,9 @@ impl Plugin for KubeExplorer {
         }
         self.context = host::storage::get("context").ok().flatten();
         self.namespace = host::storage::get("namespace").ok().flatten();
+        if self.context.is_some() {
+            self.update_context_status();
+        }
         Ok(())
     }
 
@@ -1599,6 +1686,7 @@ impl Plugin for KubeExplorer {
 
     /// The IDE drops a command's result text: it is shown in a notification.
     fn run_command(&mut self,id:&str,ctx:&Invocation,arg:Option<&str>)->Result<Option<String>,Error>{
+        if id==SHOW_TREE {host::reveal_view(TREE)?;return Ok(None);}
         if id=="source-occurrences" {return self.label_refs.show_occurrences(ctx);}
         if id=="helm-refresh-dependency-catalog" {
             let count=self.helm_assistance.refresh_dependency_catalog(ctx)?;
@@ -1672,7 +1760,10 @@ impl KubeExplorer {
         };
         let _task = host::begin_task(working, false);
         let text = self.command(id, ctx)?;
-        config::notify_success(done, &text);
+        match id {
+            "apply" | "kustomize-apply" => config::notify_success_with(done, &text, &[NotificationAction::new("Show in Kube Explorer", SHOW_TREE)]),
+            _ => config::notify_success(done, &text),
+        }
         Ok(None)
     }
 }
@@ -1787,7 +1878,16 @@ impl KubeExplorer {
                 Ok(out.stdout.trim().to_owned())
             }
             "apply" => {
-                self.confirm_apply("this manifest")?;
+                let choices = [PickItem::new("apply", "Apply"), PickItem::new("diff", "Show Diff with Cluster First (applies nothing)")];
+                match host::pick(&self.apply_question(&path), &choices)?.as_deref() {
+                    Some("apply") => {}
+                    Some("diff") => {
+                        let shown = self.diff_manifest(&manifest, &path)?;
+                        host::notify(NotificationLevel::Info, "Nothing applied", &format!("{shown} Run Apply again to apply."));
+                        return Err(Error::Cancelled);
+                    }
+                    _ => return Err(Error::Cancelled),
+                }
                 let out = self.kubectl(&["apply", "-f", "-"], Some(&manifest))?;
                 let target = self.target();
                 self.reload();
@@ -1797,17 +1897,7 @@ impl KubeExplorer {
                 let out = self.kubectl(&["apply", "--dry-run=server", "-f", "-"], Some(&manifest))?;
                 Ok(out.trim().to_owned())
             }
-            "diff" => {
-                let out = self.process(KUBECTL, &self.args(&["diff", "-f", "-"]), Some(&manifest))?;
-                match out.status {
-                    Some(0) => Ok("No differences with the cluster.".into()),
-                    Some(1) => {
-                        self.show(format!("Diff: {}", editor.path()), out.stdout, "diff")?;
-                        Ok("The differences are shown in Kube Explorer.".into())
-                    }
-                    status => Err(failure(KUBECTL, &out.stderr, status)),
-                }
-            }
+            "diff" => self.diff_manifest(&manifest, &path),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
@@ -2322,7 +2412,8 @@ mod tests {
         kube.handle(TREE, ViewEvent::Button(kube.test_control_key("attach")), &host.invocation()).unwrap();
 
         assert!(host.terminals()[0].args.starts_with(&["logs".into(), "-f".into(), "deployments/web".into(), "--all-pods=true".into()]));
-        assert_eq!(host.terminals()[1].args, ["attach", "-it", "web-1"]);
+        let attach = ["attach", "-it", "web-1"].map(str::to_owned);
+        assert!(host.finish_terminal(&terminal_key("attach", "", &attach)).is_some());
     }
 
     #[test]
@@ -2779,11 +2870,76 @@ mod tests {
         assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
         assert!(!host.process_runs().iter().any(|r| r.args.contains(&"apply".to_owned())));
 
-        host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["apply"]));
         KubeExplorer::default().run_command("apply", &host.invocation(), None).unwrap();
 
         assert_eq!(host.notifications()[0].body, "minikube/(default): deployment.apps/web configured");
+        assert_eq!(host.notifications_with_actions()[0].actions, [NotificationAction::new("Show in Kube Explorer", SHOW_TREE)]);
         assert_eq!(KubeExplorer::default().apply_question("/project/web.yaml"), "Apply /project/web.yaml to context minikube, namespace (default)?");
+    }
+
+    #[test]
+    fn apply_can_show_the_diff_first_without_applying() {
+        let host = host();
+        host.open_editor("/project/web.yaml", "yaml", "apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n", &[]);
+
+        host.answer_next_prompt(Some(&["diff"]));
+        assert_eq!(KubeExplorer::default().run_command("apply", &host.invocation(), None), Err(Error::Cancelled));
+
+        assert!(!kubectl_calls(&host).iter().any(|args| args.contains(&"apply".to_owned())));
+        let (diff, name) = &host.opened_diffs()[0];
+        assert_eq!(diff.left.as_deref(), Some("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n"));
+        assert_eq!(diff.left_label.as_deref(), Some("Cluster (minikube/(default))"));
+        assert_eq!(name.as_deref(), Some("web.yaml"));
+        assert_eq!(host.notifications()[0].title, "Nothing applied");
+    }
+
+    #[test]
+    fn diff_shows_a_new_resource_alone_and_keeps_secrets_masked() {
+        let host = host();
+        host.on_process(KUBECTL, |args, _| {
+            if args.contains(&"diff".to_owned()) {
+                return Ok(ProcessOutput { status: Some(1), stdout: "+ data: ***\n".into(), stderr: String::new() });
+            }
+            ok(if args.contains(&"current-context".to_owned()) { "minikube\n" } else { "" })
+        });
+        host.open_editor("/project/new.yaml", "yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: new\n", &[]);
+        KubeExplorer::default().run_command("diff", &host.invocation(), None).unwrap();
+        let (diff, _) = &host.opened_diffs()[0];
+        assert!(diff.left.is_none() && diff.right.as_deref().is_some_and(|r| r.contains("ConfigMap")));
+
+        host.open_editor("/project/secret.yaml", "yaml", "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n", &[]);
+        KubeExplorer::default().run_command("diff", &host.invocation(), None).unwrap();
+        assert_eq!(host.opened_diffs().len(), 1);
+        assert!(kubectl_calls(&host).last().unwrap().contains(&"diff".to_owned()));
+    }
+
+    #[test]
+    fn status_bar_names_the_context_and_namespace_and_hides_without_one() {
+        let host = host();
+        let mut kube = KubeExplorer { namespace: Some("shop".into()), ..Default::default() };
+        kube.render(TREE, None, &host.invocation()).unwrap();
+        let item = &host.status_items()[CONTEXT_STATUS];
+        assert_eq!(item.text, "⎈ minikube / shop");
+        assert_eq!(item.command.as_deref(), Some(SHOW_TREE));
+
+        kube.current_context = Some(NO_CONTEXT.into());
+        kube.update_context_status();
+        assert!(!host.status_items().contains_key(CONTEXT_STATUS));
+    }
+
+    #[test]
+    fn repeating_open_shell_focuses_the_same_terminal() {
+        let host = host();
+        let mut kube = KubeExplorer { current_context: Some("minikube".into()), ..Default::default() };
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("shell")), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("shell")), &host.invocation()).unwrap();
+
+        assert!(host.terminals().is_empty());
+        let key = kube.shell_terminal_key(None, "web-1");
+        assert!(host.finish_terminal(&key).is_some());
+        assert!(host.finish_terminal(&key).is_none());
     }
 
     #[test]
@@ -2807,7 +2963,7 @@ mod tests {
             assert!(matches!(kube.run_command(command, &host.invocation(), None), Err(Error::Cancelled)), "{command}");
             assert!(kubectl_calls(&host).iter().all(|call| !call.contains(&"apply".to_owned())), "{command}");
 
-            host.answer_next_prompt(Some(&["ok"]));
+            host.answer_next_prompt(Some(&["apply"]));
             kube.run_command(command, &host.invocation(), None).unwrap();
             assert!(kubectl_calls(&host).iter().any(|call| call.contains(&"apply".to_owned())), "{command}");
         }
@@ -3442,7 +3598,7 @@ mod tests {
             host.open_editor("/project/k/web.yaml", "yaml", "kind: Deployment", &[]);
             let mut kube = KubeExplorer { namespace: Some("shop".into()), current_context: Some("minikube".into()), ..Default::default() };
             if command != "delete-manifest" {
-                host.answer_next_prompt(Some(&[]));
+                host.answer_next_prompt(Some(&["apply"]));
             }
 
             host.answer_next_prompt(Some(&["ok"]));

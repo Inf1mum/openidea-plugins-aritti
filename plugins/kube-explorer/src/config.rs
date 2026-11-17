@@ -39,6 +39,16 @@ pub fn notify_success(title: &str, body: &str) {
     host::notify(NotificationLevel::Info, title, body);
 }
 
+/// `notify_success` with buttons; a plain balloon if the host refuses them.
+pub fn notify_success_with(title: &str, body: &str, actions: &[openidea_plugin::NotificationAction]) {
+    if host::setting_bool("notifySuccess") == Some(false) {
+        return;
+    }
+    if host::notify_with_actions(NotificationLevel::Info, title, body, actions).is_err() {
+        host::notify(NotificationLevel::Info, title, body);
+    }
+}
+
 enum Token {
     Literal(u8),
     AnyChar,
