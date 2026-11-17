@@ -1161,7 +1161,7 @@ impl Plugin for WebTools {
                 host::notify(
                     NotificationLevel::Warning,
                     "Spring Endpoints",
-                    &ui_kit::denied::message("Copy as curl", "clipboard", PLUGIN_NAME),
+                    &ui_kit::denied::message("Copy as cURL", "clipboard", PLUGIN_NAME),
                 )
             }
             result => result?,

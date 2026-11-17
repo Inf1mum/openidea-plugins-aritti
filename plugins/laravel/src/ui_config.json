@@ -28,7 +28,7 @@
     {
       "view": "laravel",
       "id": "route-copy-curl",
-      "label": "Copy as curl",
+      "label": "Copy as cURL",
       "kind": "route",
       "icon": "copy"
     },

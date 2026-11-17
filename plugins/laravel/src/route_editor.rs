@@ -256,7 +256,7 @@ pub(crate) fn lenses(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool
                 ),
                 (
                     "curl",
-                    crate::ui_text::text("routeEditor.copyCurl", "Copy as curl"),
+                    crate::ui_text::text("routeEditor.copyCurl", "Copy as cURL"),
                 ),
                 (
                     "http",
@@ -432,7 +432,7 @@ pub(crate) fn action(
                 ),
                 PickItem::new(
                     "curl",
-                    crate::ui_text::text("routeEditor.copyCurl", "Copy as curl"),
+                    crate::ui_text::text("routeEditor.copyCurl", "Copy as cURL"),
                 ),
                 PickItem::new(
                     "http",
