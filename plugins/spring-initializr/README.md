@@ -7,7 +7,7 @@ Start a new Spring Boot project from a tool window, or add starters to an existi
 - OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A web browser for **Download ZIP** and **Explore in Browser**.
 - Optional tools:
-  - Spring Boot CLI (`spring`) on the `PATH`, for **Generate with Spring Boot CLI**.
+  - Spring Boot CLI (`spring`) on the `PATH`, for **Run Spring Boot CLI in Terminal**.
   - `python3` 3.8 or newer, for **Generate and Open…**.
 - The `net:start.spring.io` permission for the dependency catalogue, Add Starters and the in-IDE generation paths.
 
@@ -52,22 +52,22 @@ The toolbar shows one main button. It is **Generate and Open…** when the serve
 
 - **Download ZIP**: your browser downloads the ZIP. You extract it yourself. Works without an open project.
 - **Explore in Browser**: opens the server's web page with the same options.
-- **Generate with Spring Boot CLI**: runs `spring init` in an IDE terminal. It creates a folder named after the artifact in the open project. Needs `process:spring`. Without it, the browser download runs instead.
-- **Review and Open Generated Folder…**: after the CLI finishes, shows every generated file and opens the folder as a project once you confirm.
+- **Run Spring Boot CLI in Terminal**: runs `spring init` in an IDE terminal. It creates a folder named after the artifact in the open project. Needs `process:spring`. Without it, the browser download runs instead.
+- **Open Generated Folder…**: after the CLI finishes, shows every generated file and opens the folder as a project once you confirm.
 - **Generate and Open…** (also **Spring Initializr: Generate and Open…**): asks for a parent folder, downloads the ZIP from start.spring.io, then shows the destination and file list in one confirmation before extracting it with `python3` and opening it. The folder can be anywhere, including outside the project. Without `net:start.spring.io` or `process:python3`, a notification says which is missing and the browser download runs instead.
 
 The status line says what the main button will do, or what's wrong with the form. An artifact must be a plain folder name (letters, digits, `.`, `_` or `-`, not starting with `.`); the generate buttons stay hidden until it is.
 
-The CLI section also has a managed run: **Review and run CLI…**, **Check status / output** and **Cancel CLI**.
+The CLI section can also run the CLI inside the tool window: **Run Spring Boot CLI…**, **Refresh Output** and **Stop Spring Boot CLI**.
 
 ### Add starters to an existing build
 
 1. Open your `pom.xml`, `build.gradle` or `build.gradle.kts`.
-2. Run **Spring Initializr: Prepare Add Spring Boot Starters** (also in the **Tools** menu). It loads the starters that match your build's Spring Boot version.
-3. Press ⌥⏎ in the build file and choose **Preview Add Spring Boot Starters…**.
-4. Pick up to eight starters. Review the complete resulting file, then confirm.
+2. Run **Spring Initializr: Add Spring Boot Starters…** (also in the **Tools** menu of Maven and Gradle projects). It loads the starters that match your build's Spring Boot version.
+3. Pick up to eight starters and confirm the changed lines.
+4. Press ⌥⏎ in the build file and choose **Add N Spring Boot Starters** to insert them.
 
-The edit is a single undoable change. Starters already in the build are skipped.
+The plugin can't write files itself, so the last step goes through ⌥⏎. The edit is a single undoable change. Starters already in the build are skipped. To pick again later, ⌥⏎ also offers **Preview Add Spring Boot Starters…** for 15 minutes.
 
 Supported builds:
 
@@ -84,7 +84,7 @@ For a small Maven/Java/Jar project created inside the current project:
 1. Run **Spring Initializr: Prepare Maven Project Import…** (also in the **Tools** menu).
 2. Choose a parent folder inside the project. The new project goes into a child folder named after the artifact.
 3. Press ⌥⏎ › **Preview Import Maven Sources…** to see every file and its content, then confirm.
-4. Run **Spring Initializr: Open Source Folder** to open it in a new window.
+4. Click **Open Folder** in the notification, or run **Spring Initializr: Open Source Folder** (in the **Tools** menu once the files exist), to open it in a new window.
 
 Maven wrapper files (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/…`) are left out, and the preview says so.
 
@@ -96,9 +96,9 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Initializr**;
 |---|---|
 | **Spring Initializr: Open start.spring.io** | Opens the start.spring.io site. |
 | **Spring Initializr: Generate and Open…** | Downloads, reviews, extracts and opens a complete project. |
-| **Spring Initializr: Prepare Add Spring Boot Starters** | Loads starters for the open build file, ready for ⌥⏎ › **Preview Add Spring Boot Starters…**. Also in **Tools**. |
+| **Spring Initializr: Add Spring Boot Starters…** | Picks starters for the open build file and shows the change, ready for ⌥⏎ › **Add N Spring Boot Starters**. Also in **Tools** for Maven and Gradle projects. |
 | **Spring Initializr: Prepare Maven Project Import…** | Downloads a Maven project into memory, ready for ⌥⏎ › **Preview Import Maven Sources…**. Also in **Tools**. |
-| **Spring Initializr: Open Source Folder** | Checks the imported files and opens the folder in a new window. Also in **Tools**. |
+| **Spring Initializr: Open Source Folder** | Checks the imported files and opens the folder in a new window. In **Tools** once an import created its files. |
 
 ## Permissions
 
@@ -108,9 +108,9 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 |---|---|---|
 | `net:start.spring.io` | The dependency catalogue, Boot versions, Add Starters, source-only import and **Generate and Open…**. | The tree shows a message. Type dependency ids by hand. **Generate and Open…** downloads in the browser instead. |
 | `project.read` | CLI generation, Add Starters and source-only import (checks the project and destination). | Those actions refuse. |
-| `process:spring` | **Generate with Spring Boot CLI**. | A notification says so and the browser download runs instead. |
+| `process:spring` | **Run Spring Boot CLI in Terminal** and **Run Spring Boot CLI…**. | A notification says so and the browser download runs instead. |
 | `process:python3` | Extracting the ZIP for **Generate and Open…**. | The main button is **Download ZIP**; **Generate and Open…** downloads in the browser instead. |
-| `editor.read` | Reading the open build file for **Prepare Add Spring Boot Starters**. | Add Starters can't start. |
+| `editor.read` | Reading the open build file for **Add Spring Boot Starters…**. | Add Starters can't start. |
 
 ## Troubleshooting
 
@@ -120,19 +120,21 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | The status line says what's missing | Fill in an `http(s)` server URL, a group and an artifact. |
 | "The artifact must be a plain folder name…" | Use only letters, digits, `.`, `_` or `-` in the artifact, not starting with `.`. |
-| "Generate and Open needs the … capability; downloading … in the browser instead." | Allow the named permission (`net:start.spring.io` or `process:python3`) to generate and open in the IDE. |
+| "Generate and Open needs the … permission…" | Allow the named permission (`net:start.spring.io` or `process:python3`) to generate and open in the IDE. |
 | "No saved catalogue. Refresh to load the server choices." | Allow `net:start.spring.io`, then click **Refresh** in **Dependencies**. |
 | "Catalogue access is limited to https://start.spring.io; custom-server compatibility is unverified." | With a custom server, type dependency ids by hand. |
 | "Catalogue refresh failed: …" | Check your connection and `net:start.spring.io`. The previous catalogue stays. |
 | "(not compatible with <version>)" next to a dependency | Choose another Spring Boot version or remove the dependency. |
 | "compatibility range unverified" | The server's range couldn't be parsed. The server still decides at generation. |
-| "The Spring Boot CLI path needs the process:spring capability…" | Allow `process:spring` and install the Spring Boot CLI on the `PATH`. |
+| "Run Spring Boot CLI in Terminal needs the process:spring permission…" | Allow `process:spring` and install the Spring Boot CLI on the `PATH`. |
 | "CLI destination already exists…" | Change the artifact or remove the existing folder. |
 | "Project type … is not supported by this Spring Boot CLI adapter." | Use **Download ZIP** for that build type. |
-| "A generation terminal is still active…" | Close the previous terminal, or click **Cancel CLI**. |
+| "A generation terminal is still active…" | Close the previous terminal, or click **Stop Spring Boot CLI**. |
 | "Archive adapter refused or failed. No project was opened…" | Check `python3` (3.8+) is allowed. The staging folder is kept for review. |
-| "Load verified Initializr metadata first." | Run **Spring Initializr: Prepare Add Spring Boot Starters** again (the cache lasts 15 minutes). |
-| "Use a supported literal Boot-managed Maven POM, a literal Maven aggregator or project-root Gradle build…" | Your build uses something Add Starters doesn't handle. Add the starter by hand. |
+| "Couldn't load the starter list from start.spring.io…" | Check the connection and `net:start.spring.io`, then run **Add Spring Boot Starters…** again. |
+| "This build file isn't supported…" | Your build uses something Add Starters doesn't handle. Add the starter by hand. |
+| "The build file changed since the starters were chosen…" | Run **Add Spring Boot Starters…** again. |
+| "Nothing to open yet…" | Finish the import first: ⌥⏎ › **Preview Import Maven Sources…**. |
 | "Saved form or server selection changed in another window; draft retained. Reload saved form to continue." | Choose **Reload saved form…** in **More Actions…**. |
 
 ## Limitations
@@ -179,7 +181,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Preflight: the project must match the form owner and both root/output-child owners. The non-hidden artifact child is at most 128 bytes and must not exist. The terminal's cwd is the project root. A refused preflight launches nothing. The checks are preflight, not exclusive creation.
 - Supported types: `maven-project`, `gradle-project` and `gradle-project-kotlin`. Others use the browser. When the catalogue declares a type's `tags.build`/`tags.format`, they must agree with the adapter; missing tags stay unknown.
 - Managed run: one child, 32 KiB observed output, overflow requests stop, a failed stop blocks duplicate starts, scope changes and deactivation request stop. No idle deadline, exclusive target reservation, cleanup, tree validation or project opening follows from exit status.
-- **Review and Open Generated Folder…** inspects the physical tree, shows a complete path/size/mode/hash manifest, rechecks it, then requests the normal trust/open flow. Exit 0 alone never opens a folder or certifies a build.
+- **Open Generated Folder…** inspects the physical tree, shows a complete path/size/mode/hash manifest, rechecks it, then requests the normal trust/open flow. Exit 0 alone never opens a folder or certifies a build.
 
 ### Generate and Open (complete ZIP)
 

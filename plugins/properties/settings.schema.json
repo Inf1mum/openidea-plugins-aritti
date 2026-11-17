@@ -54,7 +54,7 @@
     "compilerClasspathProfile": {
       "type": "string",
       "title": "Optional compiler dependency JAR profile (absolute path)",
-      "description": "Externally provisioned PROPERTIES_CLASSPATH_V1 profile listing exact absolute JAR paths, one per line. Only explicit manual Java analysis uses it; no annotation processors or application bootstrap.",
+      "description": "A text file whose first line is PROPERTIES_CLASSPATH_V1, followed by the absolute path of each dependency JAR your sources need, one per line. Used only when you run the compiler-based usage search or key change.",
       "default": ""
     }
   }

@@ -117,18 +117,18 @@ Each needs its program on `PATH` and its `process:` permission allowed.
 - **Quarkus: Open code.quarkus.io** opens the official project generator in your browser.
 - Or build a small offline Maven + Qute starter:
   1. Open a Java or XML file of the parent project.
-  2. Run **Quarkus: Prepare Offline Maven/Qute Starter…**.
-  3. Enter the groupId (default `org.acme`), folder/artifactId (default `qute-starter`), version (default `1.0.0-SNAPSHOT`) and an exact Quarkus 3 platform version.
-  4. Review the four files in the preview and confirm. Nothing is written yet.
-  5. Within five minutes, press ⌥⏎ in the same file and choose **Create Reviewed Quarkus/Qute Starter…**. The files are created and the new `pom.xml` opens.
-  6. Run **Quarkus: Open Starter…** to open the new folder as a project.
+  2. Run **Quarkus: Create Maven/Qute Starter…**.
+  3. Enter the groupId (default `org.acme`), folder/artifactId (default `qute-starter`), version (default `1.0.0-SNAPSHOT`) and the Quarkus platform version (default `3.40.1`, the version of the bundled metadata).
+  4. Review the four files in the preview and confirm.
+  5. Within five minutes, press ⌥⏎ in the same file and choose **Create Quarkus Starter qute-starter**. The files are created and the new `pom.xml` opens. The plugin can't write files itself, so this step goes through ⌥⏎.
+  6. Click **Open Starter** in the notification, or run **Quarkus: Open Starter…**, to open the new folder as a project.
 
 The starter has `pom.xml`, `src/main/resources/application.properties`, `src/main/resources/templates/hello.txt` and a README. It has no Java sources, REST endpoint or tests.
 
 ### Read keys from a dependency JAR
 
 1. Allow the optional `fs.read:~/.m2/repository` permission.
-2. Run **Quarkus: Read Config Model from Selected Maven Dependency JAR…**.
+2. Run **Quarkus: Load Config Keys from a Dependency JAR…**.
 3. Pick a dependency from the root `pom.xml` and review the details.
 
 The JAR's keys then feed completion, hover, checks and inlays for ten minutes. Your own source declarations win over the JAR; the JAR wins over the bundled metadata.
@@ -140,10 +140,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Quarkus**; bind keys
 | Command | What it does | Shortcut |
 |---|---|---|
 | **Quarkus: Open code.quarkus.io** | Opens the official project generator in the browser. | None |
-| **Quarkus: Prepare Offline Maven/Qute Starter…** | Asks for coordinates and previews a four-file starter. Writes nothing. | None |
-| **Quarkus: Open Starter…** | Checks the created starter and opens it as a project. | None |
-| **Quarkus: Read Config Model from Selected Maven Dependency JAR…** | Loads config keys from a dependency JAR in your local Maven cache. | None |
-| **Quarkus: Inspect Source Declaration** | Shows the declaration behind a JAX-RS or scheduler code lens. Run it from the lens. | None |
+| **Quarkus: Create Maven/Qute Starter…** | Asks for coordinates and previews a four-file starter, ready for ⌥⏎ › **Create Quarkus Starter …**. Needs a Java or XML editor. | None |
+| **Quarkus: Open Starter…** | Checks the created starter and opens it as a project. Available once a starter was created. | None |
+| **Quarkus: Load Config Keys from a Dependency JAR…** | Loads config keys from a dependency JAR in your local Maven cache. | None |
+| **Quarkus: Show Endpoint or Schedule Details…** | Shows the declaration behind a JAX-RS or scheduler code lens. From Search Everywhere, pick one of the current Java file. | None |
 
 Run configurations: **Quarkus Dev Mode (mvn)**, **Quarkus Dev Mode (gradle)**, **Quarkus Dev Mode (quarkus CLI)**.
 
@@ -168,8 +168,8 @@ The plugin always reads project files (`project.read`). Optional permissions are
 | Permission | Used for | Without it |
 |---|---|---|
 | `events` | Reading the project in the background: unknown-key, unassigned-key, required-key and REST-client checks; template inventories. | Local syntax, value and annotation checks still work. Cross-file checks stay quiet. |
-| `fs.read:~/.m2/repository` | Reading a dependency JAR from your local Maven cache. | **Quarkus: Read Config Model from Selected Maven Dependency JAR…** fails. |
-| `editor.read` | Reading the current file for the starter and code-lens commands. | **Quarkus: Prepare Offline Maven/Qute Starter…** and **Quarkus: Inspect Source Declaration** can't run. |
+| `fs.read:~/.m2/repository` | Reading a dependency JAR from your local Maven cache. | **Quarkus: Load Config Keys from a Dependency JAR…** fails. |
+| `editor.read` | Reading the current file for the starter and code-lens commands. | **Quarkus: Create Maven/Qute Starter…** and **Quarkus: Show Endpoint or Schedule Details…** can't run. |
 | `process:mvn`, `process:gradle`, `process:quarkus` | Running Dev Mode. | The matching run configuration isn't offered. |
 
 ## Troubleshooting
@@ -180,17 +180,17 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | No completion or checks at all | The module must declare `io.quarkus` in its build file (a dependency, plugin or catalogue alias, not just a comment). Edits to the build file can take up to 30 seconds to be noticed. |
 | Unknown-key warnings never appear | Allow `events`. They show only after the whole project has been read. Keys of extensions that aren't bundled are never flagged. |
-| A key from an extension is missing | The bundled metadata covers about 170 extensions. Use **Quarkus: Read Config Model from Selected Maven Dependency JAR…** for others. |
+| A key from an extension is missing | The bundled metadata covers about 170 extensions. Use **Quarkus: Load Config Keys from a Dependency JAR…** for others. |
 | *Open the owning Maven project first.* | Open a file of the Maven project whose root `pom.xml` lists the dependency. |
 | *No supported direct literal JAR dependencies in the current root POM.* | Only direct dependencies with literal coordinates in the root `pom.xml` are listed. BOM-managed, property-based and Gradle dependencies aren't. |
 | *No supported Quarkus config model in the selected JAR.* | The JAR has no `META-INF/quarkus-config-doc/quarkus-config-model.json`. Older layouts aren't supported. |
 | The JAR read is denied | Allow `fs.read:~/.m2/repository` in Settings › Plugins › *Quarkus Tools*. |
 | *Selected JAR must be a file of at most 8 MiB.* | The JAR is too large, or not in your Maven cache yet. Build the project once so Maven downloads it. |
-| *Open a source file in the destination parent project first.* | Open a Java or XML file of the parent project, then run the starter command again. |
+| *Open a Java file or pom.xml of the project that should contain the starter first.* | Open a Java or XML file of the parent project, then run the starter command again. |
 | *Use plain Maven coordinates, a lowercase folder name and a Quarkus 3 version.* | Use a dotted groupId, a lowercase folder name and a platform version starting with `3.`. |
-| **Create Reviewed Quarkus/Qute Starter…** isn't offered | The plan expires after five minutes. Run **Quarkus: Prepare Offline Maven/Qute Starter…** again from the same file. |
-| *Apply a reviewed starter FileAction first.* | Create the starter with ⌥⏎ before running **Quarkus: Open Starter…**. |
-| *Select a current Quarkus source lens.* | Click a JAX-RS or scheduler code lens instead of running the command from Search Everywhere. |
+| **Create Quarkus Starter …** isn't offered | The plan expires after five minutes. Run **Quarkus: Create Maven/Qute Starter…** again from the same file. |
+| *No starter created yet.* | Create the starter with ⌥⏎ before running **Quarkus: Open Starter…**. |
+| *This file has no Quarkus REST endpoint or @Scheduled method.* | Open the Java file with the endpoint or scheduled method, then run **Quarkus: Show Endpoint or Schedule Details…** again. |
 | Dev Mode run configuration is missing | Allow `process:mvn` / `process:gradle` / `process:quarkus` and make sure the program is on `PATH`. |
 | Dev Mode shows in a non-Quarkus project | Expected: run detectors match `pom.xml` or `build.gradle` by name only. |
 
@@ -247,7 +247,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **Dev Mode detectors.** A detector can only match marker files by name, so once the `process:` permission is granted the run configurations show in every Maven or Gradle project, Quarkus or not.
 
-**Offline starter.** The artifactId must be a portable lowercase folder name; the Quarkus platform version is not fetched or resolved by the plugin. The preview shows every destination and exact UTF-8 content for four files: `pom.xml`, `src/main/resources/application.properties`, `src/main/resources/templates/hello.txt` and a scope/provenance README. The create step re-previews and returns four atomic non-overwriting Create operations. Existing destinations, open unsaved targets, changed source/version/owner and expired or replayed plans are refused. It only creates a vacant direct child of the existing project: no merge, source edit, wrapper, build, process or HTTP request. **Quarkus: Open Starter…** checks all four files and uses the ordinary project trust/open flow, with no build or automatic language-server settings. The scaffold has the platform BOM, the Quarkus Maven plugin, a direct `quarkus-qute` dependency and a literal text template. Version availability, JDK compatibility, dependency resolution and remote registry workflows are not verified.
+**Offline starter.** The artifactId must be a portable lowercase folder name; the Quarkus platform version is not fetched or resolved by the plugin. The preview shows every destination and exact UTF-8 content for four files: `pom.xml`, `src/main/resources/application.properties`, `src/main/resources/templates/hello.txt` and a scope/provenance README. The ⌥⏎ step returns four atomic non-overwriting Create operations without asking again. Existing destinations, open unsaved targets, changed source/version/owner and expired or replayed plans are refused. It only creates a vacant direct child of the existing project: no merge, source edit, wrapper, build, process or HTTP request. **Quarkus: Open Starter…** checks all four files and uses the ordinary project trust/open flow, with no build or automatic language-server settings. The scaffold has the platform BOM, the Quarkus Maven plugin, a direct `quarkus-qute` dependency and a literal text template. Version availability, JDK compatibility, dependency resolution and remote registry workflows are not verified.
 
 **Dependency JAR models.** The command lists supported literal direct dependencies of the current project's root `pom.xml`, reviews the exact project/POM, GAV, declared scope and standard Maven-cache archive, then reads bytes. No Maven/Gradle/Java execution, cache scan, network or extraction. Only the modern `META-INF/quarkus-config-doc/quarkus-config-model.json` layout is supported: plain property names with declared types, scalar defaults, deprecation replacements and static enum hints; optional javadoc descriptions joined by exact `sourceType.sourceElementName`. `quarkus-extension.properties` deployment coordinates, `quarkus-config-roots.list` and older javadoc layouts are deliberately not converted into a catalogue. Conflicting names and unsupported structures fail without installing a partial replacement. The snapshot is retained ten minutes per project (up to eight exact project roots, session-only, invalidated by matching POM events). Maven scope is narrow: root direct literal GAVs, JAR type, compile/runtime/provided/test scope, no classifier; BOMs, property resolution, Gradle and transitives are gaps. POMs must be complete supported XML (256 KiB, 4,096 elements, nesting 32, 128 dependencies) with coherent namespaces. Archives are classic ZIP bounded at 8 MiB, 2,048 entries, 512 KiB per metadata entry and 100:1 expansion; encryption, ZIP64 and path tricks are refused.
 

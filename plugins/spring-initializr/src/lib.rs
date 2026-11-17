@@ -432,7 +432,7 @@ impl Launcher {
                 host::notify(
                     NotificationLevel::Warning,
                     "Spring Initializr",
-                    "The Spring Boot CLI path needs the process:spring capability; downloading the project in the browser instead.",
+                    &format!("{} Downloading the project in the browser instead.", ui_kit::denied::message("Run Spring Boot CLI in Terminal", "process:spring", "Spring Initializr Launcher")),
                 );
                 host::open_url(&self.starter_url())
             }
@@ -550,7 +550,7 @@ impl Launcher {
         view = view
             .button(Button::new("generate-archive", "Generate and Open…").icon("folder-open").enabled(local_generation))
             .button(generate(Button::new("generate", "Download ZIP").icon("export")))
-            .button(generate(Button::new("cli", "Generate with Spring Boot CLI").icon("terminal")))
+            .button(generate(Button::new("cli", "Run Spring Boot CLI in Terminal").icon("terminal")))
             .button(generate(Button::new("explore", "Explore in Browser").icon("external-link")))
             .button(Button::new("prepare-import", "Prepare Maven Project Import…").icon("import").enabled(_ctx.project().is_some()&&local_generation))
             .button(Button::new("open-reviewed-import", "Open Source Folder").icon("folder-open").enabled(_ctx.project().is_some()&&self.import_issued()));

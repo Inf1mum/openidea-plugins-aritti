@@ -287,7 +287,7 @@ impl State {
             host::notify(
                 openidea_plugin::NotificationLevel::Warning,
                 "Quarkus JAR metadata",
-                "Read failed. The previous selected dependency snapshot remains available until expiry or source invalidation; no new metadata was installed.",
+                "Read failed; the previously loaded config keys are still used.",
             );
         }
         result

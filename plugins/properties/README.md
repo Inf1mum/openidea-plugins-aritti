@@ -5,7 +5,7 @@ Inspections and editing tools for Java `.properties` files and resource bundles.
 ## Requirements
 
 - OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
-- Optional: Java 17 or later on the `PATH` for compiler-proved usages and Rename. See [compiler profile setup](adapters/README.md).
+- Optional: Java 17 or later on the `PATH` for the compiler-based usage search and key change. See [compiler profile setup](adapters/README.md).
 - No accounts, network access or storage.
 
 ## Quick start
@@ -37,7 +37,7 @@ Quick fixes on ⌥⏎: remove the property, unescape, remove trailing spaces, re
 - In Java and Kotlin, Go to Declaration works on explicit JDK calls such as `ResourceBundle.getBundle("com.acme.messages").getString("app.title")`.
 - A `final` (Java) or `val` (Kotlin) local bundle variable also works: `bundle.getString("app.title")`.
 - In templates, navigation works on `#{a.b}` in `.html` (Thymeleaf), `.xhtml` and JSP, and on `<spring:message code>` / `<fmt:message key>`.
-- **Properties: Find Explicit Bundle Key Usages** lists the Java and Kotlin calls that read the key at the caret.
+- **Properties: Find Bundle Key Usages** lists the Java and Kotlin calls that read the key at the caret.
 
 ### Complete keys and read values on hover
 
@@ -48,19 +48,19 @@ Quick fixes on ⌥⏎: remove the property, unescape, remove trailing spaces, re
 
 Right-click a `.properties` file › Open With › **Resource Bundle**. You get keys × locales.
 
-- Select a property, then use **Edit Value…** or **Rename Key in This File…**.
-- **Add Property…** and **Remove from This File…** change the current file after a review.
-- **Open Translation…** opens another locale's file.
+- Select a property, then use **Edit Value…**. **More…** holds **Rename Key in This File…**, **Open Translation…** and **Remove from This File…** for the selected property.
+- **Add Property…** adds a property to the current file after a review.
+- Double-click a row to open another locale's file.
 - **Show Incomplete Only** keeps the keys some locale lacks. **Show All Keys** brings the rest back.
-- **Revert last reviewed bundle edit…** undoes the last reviewed edit, after its own review.
+- **Undo Last Table Edit…** undoes the last edit made from the table, after its own review.
 
 To edit several locales at once:
 
-1. Click **Edit All Locales…**. Source files stay unchanged while you edit.
+1. Click **Edit All Locales**. Files stay unchanged while you edit.
 2. Edit values, rename keys or add and remove rows.
-3. Press ⌥⏎ and choose **Apply staged bundle changes…**. Review, then apply. One Undo reverses it.
+3. Click **Apply Locale Edits…**, then press ⌥⏎ in the file and choose **Apply Locale Edits…**. Review, then apply. One Undo reverses it. The ⌥⏎ step is needed because only it can change several files in one undoable step.
 
-Drafts live in memory only and are lost when the plugin reloads. **Properties: Discard Staged Locale Grid…** throws a draft away.
+Edits live in memory only and are lost when the plugin reloads. **Discard Locale Edits…** (also **Properties: Discard Locale Edits…**) throws them away.
 
 ### Browse keys in the structure view
 
@@ -81,7 +81,7 @@ All of these are on ⌥⏎ in a `.properties` file. Each shows the exact change 
 - **Rename this locale file…** and **Remove this locale file…** (not offered on the default bundle).
 - **Change key in this bundle only…**: renames a key in every locale. Code is unchanged.
 - **Change bundle key and local JDK literals…**: renames the key and the matching JDK calls in the same module.
-- **Change key with compiler-proved Java contracts…**: renames using the Java compiler. Needs Java.
+- **Change key and its Java usages (compiler)…**: renames using the Java compiler. Needs Java.
 - **Convert property keys and values to Unicode escapes…** and **Convert Unicode escapes to native property text…**.
 
 ### Format, copy and fold
@@ -94,9 +94,9 @@ All of these are on ⌥⏎ in a `.properties` file. Each shows the exact change 
 
 **Properties: Find Unused Properties** counts keys that a text search can't find in your sources. It's a hint: generated or runtime uses may be missed, so no warnings are shown.
 
-### Compiler-proved Java usages (optional)
+### Java usages found by the compiler (optional)
 
-**Properties: Inspect Compiler-Proved Java Bundle Usages…** runs the Java compiler on your sources to find real `ResourceBundle` and `@PropertyKey` uses of the key at the caret. Your application never runs. For projects with dependencies, set **Optional compiler dependency JAR profile (absolute path)**; see [compiler profile setup](adapters/README.md).
+**Properties: Find Java Bundle Usages with the Compiler…** runs the Java compiler on your sources to find real `ResourceBundle` and `@PropertyKey` uses of the key at the caret. Your application never runs. For projects with dependencies, set **Optional compiler dependency JAR profile (absolute path)**; see [compiler profile setup](adapters/README.md).
 
 ## Commands
 
@@ -104,13 +104,13 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Properties**; bind k
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Properties: Copy Property Key** | Copies the decoded key at the caret. Also in the editor context menu. | none |
-| **Properties: Copy Property Value** | Copies the decoded value at the caret. Also in the editor context menu. | none |
+| **Properties: Copy Property Key** | Copies the decoded key at the caret. Also in the editor context menu of `.properties` files. | none |
+| **Properties: Copy Property Value** | Copies the decoded value at the caret. Also in the editor context menu of `.properties` files. | none |
 | **Properties: Reformat File** | Applies the code style settings to the file. Also in the editor context menu of `.properties` files. | none |
 | **Properties: Find Unused Properties** | Counts keys a text search can't find in your sources. | none |
-| **Properties: Find Explicit Bundle Key Usages** | Lists Java/Kotlin JDK bundle calls that read the key at the caret. | none |
-| **Properties: Discard Staged Locale Grid…** | Throws away the staged **Edit All Locales…** draft. | none |
-| **Properties: Inspect Compiler-Proved Java Bundle Usages…** | Uses the Java compiler to find uses of the key at the caret. | none |
+| **Properties: Find Bundle Key Usages** | Lists Java/Kotlin JDK bundle calls that read the key at the caret. | none |
+| **Properties: Discard Locale Edits…** | Throws away unapplied **Edit All Locales** edits. | none |
+| **Properties: Find Java Bundle Usages with the Compiler…** | Uses the Java compiler to find uses of the key at the caret. | none |
 
 ## Settings
 
@@ -126,7 +126,7 @@ Settings › Plugins › Properties.
 | Missing translations: ignored locales | `incompleteProperty.ignoredSuffixes` | empty | Comma-separated locale suffixes to skip, such as `fr, de_CH`. |
 | Report three dots used instead of an ellipsis | `inspections.useEllipsis` | off | Turns on the `...` check. |
 | Report alphabetically unsorted files | `inspections.alphaUnsorted` | off | Turns on the sort-order check. |
-| Optional compiler dependency JAR profile (absolute path) | `compilerClasspathProfile` | empty | JAR list for compiler-proved usages. See [setup](adapters/README.md). |
+| Optional compiler dependency JAR profile (absolute path) | `compilerClasspathProfile` | empty | A text file listing the dependency JARs for the compiler-based usage search. See [setup](adapters/README.md). |
 
 ## Permissions
 
@@ -134,8 +134,8 @@ Optional permissions are off until you allow them in Settings › Plugins › Pr
 
 | Permission | Used for | Without it |
 |---|---|---|
-| `clipboard` | **Properties: Copy Property Key** and **Properties: Copy Property Value**. | The copy commands fail. |
-| `process:java` | Compiler-proved usages and **Change key with compiler-proved Java contracts…**. | Those two fail; all other tools keep working. |
+| `clipboard` | **Properties: Copy Property Key** and **Properties: Copy Property Value**. | The copy commands say how to allow it. |
+| `process:java` | **Properties: Find Java Bundle Usages with the Compiler…** and **Change key and its Java usages (compiler)…**. | Those two fail; all other tools keep working. |
 
 ## Troubleshooting
 
@@ -153,8 +153,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Use an ISO 639 language, optional _Script and _REGION, then optional variants (eng, zh_Hans_CN, en_US_POSIX)." | Fix the locale name you typed in **Create locale files…**. |
 | "The locale file already exists; nothing will be overwritten." | Pick a locale that doesn't exist yet. |
 | "This value has an invalid character and can't be copied." | The value has a lone surrogate or broken escape. Fix it in the file, or copy it by hand. |
-| "No compiler-proved JDK or @PropertyKey literals for this bundle/key. Use the bundle-only action if intended." | Use **Change key in this bundle only…** instead. |
-| The grid is read-only after editing a source | A file changed under the staged draft. Run **Properties: Discard Staged Locale Grid…**. |
+| "The compiler found no Java code that reads this key…" | Use **Change key in this bundle only…** instead. |
+| The grid is read-only after editing a source | A locale file changed outside the grid. Click **Discard Locale Edits…** and edit again. |
 
 ## Limitations
 
@@ -210,8 +210,8 @@ One `line-markers` entry per locale file with the same icon on the key's line, w
 - The overview is read-only. Foreign typed cell submissions are refused, not discarded. Other-locale cells open the file rather than writing to it.
 - Table mutations require a rendered source/layout binding and an exact confirmation naming the current key(s), file, version, UTF-16 ranges and complete before/after text. A review over 16 KiB refuses; cancel changes nothing. Callbacks without a matching rendered source/version, callbacks after invalidation, unknown rows, duplicate targets and destination-key collisions refuse.
 - Bundle preparation requires a complete visible inventory of at most 199 files, 256 KiB per source, 1 MiB source text, 4096 distinct keys and 32768 cells. Foreign, unreadable or oversized sources are refused.
-- **Revert last reviewed bundle edit…** restores the single last reviewed edit through a separate exact inverse review. It's memory-only, not native Undo. It requires the identical project, file, full text and version, keeps one record of at most 256 KiB + 256 KiB, and disappears after a successful revert or plugin restart.
-- **Edit All Locales…** refuses entry or mutation on duplicate keys, incomplete inventories, foreign owners and bounded overflows. Key changes update this bundle only; code references are unchanged. Cancel preserves the draft. If any source changes, the grid becomes read-only until you discard it. The extra ⌥⏎ step to apply is required by the API.
+- **Undo Last Table Edit…** restores the single last reviewed edit through a separate exact inverse review. It's memory-only, not native Undo. It requires the identical project, file, full text and version, keeps one record of at most 256 KiB + 256 KiB, and disappears after a successful revert or plugin restart.
+- **Edit All Locales** refuses entry or mutation on duplicate keys, incomplete inventories, foreign owners and bounded overflows. Key changes update this bundle only; code references are unchanged. Cancel preserves the draft. If any source changes, the grid becomes read-only until you discard it. The extra ⌥⏎ step to apply is required by the API.
 
 ### Structure tool window
 
@@ -234,11 +234,11 @@ Creation, discovery and JDK reference filtering share one locale grammar: known 
 ### Commands
 
 - **Properties: Copy Property Key** / **Copy Property Value**: the selected decoded string must cross the SDK's UTF-8 clipboard boundary losslessly. An unsupported lone surrogate or malformed escape errors before changing the clipboard; a valid key or value on the same property stays copyable.
-- **Properties: Find Explicit Bundle Key Usages** is a read-only picker over the strict JDK bundle contexts used by navigation. It's bounded to 400 files, 128 KiB per file, 8 MiB total, 128 occurrences per file, 128 results and one second. Exceeded bounds or read errors refuse the result. Ignored files, framework references and dynamic loaders aren't resolved; an empty result never proves a property is unused.
+- **Properties: Find Bundle Key Usages** is a read-only picker over the strict JDK bundle contexts used by navigation. It's bounded to 400 files, 128 KiB per file, 8 MiB total, 128 occurrences per file, 128 results and one second. Exceeded bounds or read errors refuse the result. Ignored files, framework references and dynamic loaders aren't resolved; an empty result never proves a property is unused.
 
 ### Compiler-proved usages and Rename
 
-- The command and the **Change key with compiler-proved Java contracts…** intention use an approved Java 17+ JDK source launcher. They analyze actual canonical JDK `ResourceBundle` and `org.jetbrains.annotations.PropertyKey` bindings, including final fields, exactly bound effectively-final local aliases, overloaded parameters, annotated fields/assignments/returns and Java-escaped literals.
+- The command and the **Change key and its Java usages (compiler)…** intention use an approved Java 17+ JDK source launcher. They analyze actual canonical JDK `ResourceBundle` and `org.jetbrains.annotations.PropertyKey` bindings, including final fields, exactly bound effectively-final local aliases, overloaded parameters, annotated fields/assignments/returns and Java-escaped literals.
 - The compiler receives explicit current editor snapshots with annotation processing, implicit source loading and class generation disabled. Application classes and static initializers never run.
 - An optional exact JAR profile supplies dependency classes. Its profile and JAR hashes are reviewed and rechecked (see [compiler profile setup](adapters/README.md)).
 - The declared-source graph includes ignored Java files in the focused conventional `src/main/java` or `src/test/java` tree. A complete graph requires ordinary bounded sources (400 files, 128 KiB per file, 4 MiB total), a complete physical sibling locale inventory and no Kotlin, dynamic or unresolved contracts. Missing dependencies, class-based bundle collisions, custom loaders and ambiguous contracts refuse compiler Rename.
