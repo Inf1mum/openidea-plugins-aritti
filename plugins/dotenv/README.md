@@ -106,6 +106,11 @@ Settings › Plugins › *.env files*.
 |---|---|---|---|
 | Complete environment variables in code | `completion` | on | Completion of keys in code. `.env` file completion stays on. |
 | Show each key's value in completion and hover | `showValues` | on | When off, completion and hover show keys and source locations only. |
+| Check key names | `checkKeyNames` | on | Warns about `-`, lowercase letters or a wrong first character in a key. |
+| Warn about duplicate keys | `checkDuplicateKeys` | on | Warns when a key is declared more than once in a file. |
+| Check spacing and blank lines | `checkFormatting` | on | Warns about spaces around `=`, trailing whitespace and extra blank lines. |
+| Check value quotes | `checkValueQuotes` | on | Warns about unquoted values with spaces and `${…}` values outside double quotes. |
+| Check ${…} references | `checkVariableReferences` | on | Warns about an empty `${}` and variables declared in no `.env`, Dockerfile or compose file. |
 
 `showValues` hides output only. It doesn't remove values from the index or hide values already visible in source files.
 

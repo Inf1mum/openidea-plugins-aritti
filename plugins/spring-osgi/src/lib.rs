@@ -450,6 +450,15 @@ fn check_refs(doc: &OsgiXml, index: &impl Facts, out: &mut Vec<Diagnostic>) {
     }
 }
 
+fn setting_of(code: &str) -> &'static str {
+    match code {
+        "osgi-service-common" => "checkService",
+        "osgi-listener" => "checkListener",
+        "unresolved-osgi-ref" => "checkUnresolvedRef",
+        _ => "checkElements",
+    }
+}
+
 const BOOLEANS: &[&str] = &["true", "false"];
 
 /// The enumerated and numeric attributes of the Spring DM schema: allowed values per element.
@@ -621,6 +630,7 @@ impl DiagnosticsProvider for SpringOsgi {
         };
         let index=ownership::Scoped::new(index,&scope);
         let mut found = validate_generation_xml(&doc.text).ok().and_then(|_|OsgiXml::new(&doc.text)).map(|osgi| check(&osgi, &index)).unwrap_or_default();
+        found.retain(|d| host::setting_bool(setting_of(d.code.as_deref().unwrap_or_default())).unwrap_or(true));
         found.truncate(500);
         found
     }
@@ -1383,6 +1393,17 @@ public class AuditListener implements OsgiServiceLifecycleListener {
             ]
         );
         assert!(problems.iter().all(|d| d.severity == Severity::Error));
+    }
+
+    #[test]
+    fn unresolved_ref_check_can_be_disabled() {
+        let host = setup();
+        let text = "<beans xmlns=\"http://www.springframework.org/schema/beans\"\n       xmlns:osgi=\"http://www.springframework.org/schema/osgi\">\n<osgi:service ref=\"ghost\"/>\n</beans>\n";
+        assert_eq!(warmed_diagnostics(&doc("refs.xml", text)).len(), 1);
+
+        host.set_setting("checkUnresolvedRef", "false");
+
+        assert!(warmed_diagnostics(&doc("refs.xml", text)).is_empty());
     }
 
     #[test]

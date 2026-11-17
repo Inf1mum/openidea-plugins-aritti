@@ -141,7 +141,9 @@ impl DotEnv {
         if let Some(index) = cached {
             known.extend(index.declarations.iter().take(MAX_CACHED_KEYS).filter(|d| d.location.path != path).map(|d| d.key.clone()));
         }
-        lint::check(text, &tokens, &properties, |key| !complete || known.contains(key))
+        let mut problems = lint::check(text, &tokens, &properties, |key| !complete || known.contains(key));
+        problems.retain(|problem| host::setting_bool(lint::setting_of(problem.code)).unwrap_or(true));
+        problems
     }
 
 
@@ -359,6 +361,20 @@ mod tests {
         let mut plugin = DotEnv::default();
         plugin.index_projects();
         plugin
+    }
+
+    #[test]
+    fn disabled_lowercase_key_check_reports_nothing() {
+        let host = project();
+        let env = doc("/p/.env", "dotenv", "my_key=1\n");
+        let lowercase = |plugin: &mut DotEnv| {
+            openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(plugin, &env).iter().filter(|d| d.code.as_deref() == Some("DotEnvLowercaseKeyInspection")).count()
+        };
+        assert_eq!(lowercase(&mut walked()), 1);
+
+        host.set_setting("checkKeyNames", "false");
+
+        assert_eq!(lowercase(&mut walked()), 0);
     }
 
     #[test]

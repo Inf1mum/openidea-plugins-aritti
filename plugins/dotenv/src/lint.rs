@@ -39,6 +39,19 @@ impl Problem {
     }
 }
 
+/// The setting that turns the inspection `code` on or off.
+pub fn setting_of(code: &str) -> &'static str {
+    match code {
+        "DotEnvIncorrectDelimiterInspection" | "DotEnvLeadingCharacterInspection" | "DotEnvLowercaseKeyInspection" => "checkKeyNames",
+        "DotEnvDuplicateKeyInspection" => "checkDuplicateKeys",
+        "DotEnvSpaceAroundSeparatorInspection" | "DotEnvTrailingWhitespaceInspection" | "DotEnvExtraBlankLineInspection" => {
+            "checkFormatting"
+        }
+        "DotEnvSpaceInsideNonQuotedInspection" | "NestedVariableOutsideDoubleQuotesInspection" => "checkValueQuotes",
+        _ => "checkVariableReferences",
+    }
+}
+
 /// `defined` tells whether a key is declared anywhere (for `${KEY}`).
 pub fn check(text: &str, tokens: &[Token], properties: &[Property], defined: impl Fn(&str) -> bool) -> Vec<Problem> {
     let mut problems = Vec::new();

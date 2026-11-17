@@ -57,6 +57,17 @@ Hover on an OSGi interface, bean reference or listener method. It shows the matc
 
 Undo reverts the insertion. Cancelling any prompt changes nothing. The list and set choices create a collection declaration named `apiList` or `apiSet`.
 
+## Settings
+
+Settings › Plugins › *Spring OSGi*.
+
+| Setting | Key | Default | What it changes |
+|---|---|---|---|
+| Check that service beans implement their interfaces | `checkService` | on | The Service check. |
+| Check listeners | `checkListener` | on | Listener method and interface checks. |
+| Hint at unknown bean references | `checkUnresolvedRef` | on | The info hint for a `ref` no project source defines. |
+| Check OSGi elements and attribute values | `checkElements` | on | Conflicting declarations and invalid attribute values. |
+
 ## Permissions
 
 Optional permissions are off until you allow them in Settings › Plugins › *Spring OSGi*.

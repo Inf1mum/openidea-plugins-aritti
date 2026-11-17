@@ -15,6 +15,10 @@ activation = ["on-language:xml"]
 required = []
 optional = ["project.read", "events"]
 
+[contributes.settings]
+schema = "settings.schema.json"
+title = "Spring OSGi"
+
 [[contributes.providers]]
 kinds = ["completion", "definition", "diagnostics", "code-actions", "hover"]
 languages = ["xml"]
