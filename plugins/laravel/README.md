@@ -186,7 +186,7 @@ Seven tools are declared to OpenIDEA's built-in MCP server, prefixed `aritti_lar
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; change keys in Settings › Keymap. Default shortcuts: **Search Routes…** ⌥⇧U, **Search Names…** ⌥⇧K, **Show Laravel Tool Window** ⌥⇧Q (Alt+Shift on Windows and Linux); a shortcut your keymap already uses is skipped. Commands show only in projects with an `artisan` file, except **Show Laravel Tool Window**, **New Laravel Project…** and **Recover Project Installation…**.
+Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; change keys in Settings › Keymap. Default shortcuts: **Search Routes…** ⌥⇧Q, **Search Names…** ⌥⇧E (Alt+Shift on Windows and Linux); a shortcut your keymap already uses is skipped. Commands show only in projects with an `artisan` file, except **Show Laravel Tool Window**, **New Laravel Project…** and **Recover Project Installation…**.
 
 **Project and search**
 

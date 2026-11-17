@@ -193,15 +193,11 @@ category = "Laravel"
 
 [[contributes.keymaps]]
 command = "route-search"
-key = "Alt+Shift+U"
+key = "Alt+Shift+Q"
 
 [[contributes.keymaps]]
 command = "search-names"
-key = "Alt+Shift+K"
-
-[[contributes.keymaps]]
-command = "reveal"
-key = "Alt+Shift+Q"
+key = "Alt+Shift+E"
 
 [[contributes.menus]]
 menu = "editor.context"
