@@ -648,4 +648,17 @@ mod tests {
         let keys = tools.live.env[ROOT].as_ref().unwrap();
         assert!(keys.contains("b") && !keys.contains("a"));
     }
+    #[test]
+    fn quarkus_dependency_added_later_starts_warming() {
+        let host = MockHost::install();
+        host.add_file("pom.xml", "<project/>");
+        host.add_file(".env", "a=1\n");
+        let mut tools = QuarkusTools::default();
+        tools.activate_live();
+        tools.warm_live(JAVA, None, Instant::now() + Duration::from_secs(1));
+        assert!(tools.live.env.is_empty());
+        host.add_file("pom.xml", "<project><dependencies><dependency><groupId>io.quarkus</groupId><artifactId>quarkus-rest</artifactId></dependency></dependencies></project>");
+        tools.live_events(&[Event::FileSaved(format!("{ROOT}/pom.xml"))]);
+        assert!(tools.live.env.contains_key(ROOT));
+    }
 }
