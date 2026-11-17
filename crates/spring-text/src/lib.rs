@@ -4,6 +4,7 @@
 //! source as written, types by simple name.
 
 pub mod beans;
+pub mod build;
 pub mod config;
 pub mod constants;
 pub mod diagram;
@@ -12,13 +13,15 @@ pub mod index;
 pub mod java;
 pub mod kotlin;
 pub mod metadata;
+pub mod scope;
 pub mod sibling;
+pub mod text;
 pub mod tree;
 pub mod xml;
 pub mod xml_check;
 
 use openidea_plugin::text::position;
-use openidea_plugin::{Position, Range};
+use openidea_plugin::{Error, Position, Range};
 
 /// Globs of the JVM sources the scanners read.
 pub const SOURCE_GLOBS: &[&str] = &["**/*.java", "**/*.kt"];
@@ -59,6 +62,16 @@ pub fn decapitalize(name: &str) -> String {
     }
 }
 
+/// Whether `err` means the path does not exist. Project reads say `NotFound`;
+/// `host::fs` outside the project says `Invalid("…: no such file")`.
+pub fn fs_missing(err: &Error) -> bool {
+    match err {
+        Error::NotFound(_) => true,
+        Error::Invalid(message) => message.ends_with("no such file") || message.ends_with("no such directory"),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +82,14 @@ mod tests {
         assert_eq!(decapitalize("URLMapper"), "URLMapper");
         assert_eq!(decapitalize("A"), "a");
         assert_eq!(decapitalize(""), "");
+    }
+
+    #[test]
+    fn fs_missing_invalid_no_such_file() {
+        assert!(fs_missing(&Error::Invalid("x: no such file".into())));
+        assert!(fs_missing(&Error::Invalid("x: no such directory".into())));
+        assert!(fs_missing(&Error::NotFound("x".into())));
+        assert!(!fs_missing(&Error::Invalid("bad".into())));
+        assert!(!fs_missing(&Error::Denied("x: no such file".into())));
     }
 }

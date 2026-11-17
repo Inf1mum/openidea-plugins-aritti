@@ -807,17 +807,17 @@ fn validate_generation_namespaces<R>(
     use quick_xml::name::ResolveResult;
     const XML: &str = "http://www.w3.org/XML/1998/namespace";
     const XMLNS: &str = "http://www.w3.org/2000/xmlns/";
-    if element.name().as_ref().starts_with(b"xmlns:") || element.name().as_ref().iter().filter(|b|**b==b':').count()>1
+    if element.name().as_ref().starts_with("xmlns:") || element.name().as_ref().matches(':').count()>1
         || matches!(reader.resolver().resolve_element(element.name()).0, ResolveResult::Unknown(_))
     {
         return Err("Invalid or unbound element namespace.".into());
     }
     for attribute in element.attributes() {
         let attribute = attribute.map_err(|_| Error::Invalid("Malformed or duplicate XML attributes.".into()))?;
-        let key = std::str::from_utf8(attribute.key.as_ref()).map_err(|_| Error::Stale)?;
+        let key = attribute.key.as_ref();
         if key.matches(':').count()>1 { return Err("Invalid qualified attribute name.".into()); }
         if key == "xmlns" || key.starts_with("xmlns:") {
-            let value = attribute.decode_and_unescape_value(reader.decoder()).map_err(|_| Error::Stale)?;
+            let value = attribute.normalized_value(quick_xml::XmlVersion::Implicit1_0).map_err(|_| Error::Stale)?;
             if key == "xmlns:xmlns"
                 || key.starts_with("xmlns:") && value.is_empty()
                 || key == "xmlns:xml" && value != XML
@@ -860,7 +860,7 @@ fn validate_generation_xml(text: &str) -> Result<(), Error> {
             Ok(Event::DocType(_) | Event::GeneralRef(_)) => {
                 return Err("DTD/entity XML is not supported for generation.".into());
             }
-            Ok(Event::Text(t)) if depth == 0 && !t.as_ref().iter().all(u8::is_ascii_whitespace) => {
+            Ok(Event::Text(t)) if depth == 0 && !t.as_ref().trim_ascii().is_empty() => {
                 return Err("Text outside the beans root.".into());
             }
             Ok(Event::CData(_)) if depth == 0 => return Err(Error::Stale),

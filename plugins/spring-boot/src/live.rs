@@ -189,17 +189,7 @@ impl BootTools {
 }
 // Bounded current ownership inventory; unknown or malformed scope fails closed.
 fn scope_path(path: &str) -> bool {
-    (path.starts_with('/')
-        || path.as_bytes().get(1) == Some(&b':')
-            && path.as_bytes().get(2) == Some(&b'/')
-            && path.as_bytes()[0].is_ascii_alphabetic())
-        && path.len() <= 4096
-        && !path.contains('\\')
-        && !path.chars().any(char::is_control)
-        && !path
-            .split('/')
-            .skip(usize::from(path.starts_with('/')))
-            .any(|part| matches!(part, "" | "." | ".."))
+    !path.contains('\\') && spring_text::scope::scope_path(path).is_some()
 }
 pub(super) fn current_roots() -> Option<Vec<String>> {
     let projects = host::projects().ok()?;
@@ -215,17 +205,11 @@ pub(super) fn current_roots() -> Option<Vec<String>> {
         .collect()
 }
 pub(super) fn current_owner<'a>(roots: &'a [String], path: &str) -> Option<&'a str> {
-    if !scope_path(path) {
+    if path.contains('\\') {
         return None;
     }
-    roots
-        .iter()
-        .filter(|root| {
-            path.strip_prefix(root.as_str())
-                .is_some_and(|tail| tail.starts_with('/'))
-        })
-        .max_by_key(|root| root.len())
-        .map(String::as_str)
+    let owner = spring_text::scope::current_owner(path, roots)?;
+    roots.iter().map(String::as_str).find(|root| *root == owner)
 }
 struct Snapshot {
     catalog: Catalog,

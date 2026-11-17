@@ -6,8 +6,7 @@ use std::time::{Duration,Instant};
 
 pub(crate) struct Scope { root:String, nested:Vec<String> }
 fn normalized(path:&str)->bool {
-    path.starts_with('/') && path.len()<=4096 && !path.contains('\\') && !path.chars().any(char::is_control)
-        && path.split('/').skip(1).all(|part|!matches!(part,""|"."|".."))
+    path.starts_with('/') && spring_text::scope::scope_path(path).as_deref()==Some(path)
 }
 
 #[cfg(test)]

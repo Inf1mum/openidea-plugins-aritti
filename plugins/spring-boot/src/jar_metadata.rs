@@ -48,54 +48,7 @@ fn literal(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
-fn namespace_valid<R>(
-    reader: &quick_xml::reader::NsReader<R>,
-    element: &quick_xml::events::BytesStart<'_>,
-) -> bool {
-    use quick_xml::name::ResolveResult;
-    const XML: &str = "http://www.w3.org/XML/1998/namespace";
-    const XMLNS: &str = "http://www.w3.org/2000/xmlns/";
-    let qualified = |name: &str| {
-        let parts: Vec<_> = name.split(':').collect();
-        parts.len() <= 2 && parts.iter().all(|p| !p.is_empty())
-    };
-    if !qualified(element.name().as_ref())
-        || element.name().as_ref().starts_with("xmlns:")
-        || matches!(
-            reader.resolver().resolve_element(element.name()).0,
-            ResolveResult::Unknown(_)
-        )
-    {
-        return false;
-    }
-    for attribute in element.attributes() {
-        let Ok(attribute) = attribute else {
-            return false;
-        };
-        let key = attribute.key.as_ref();
-        if !qualified(key) {
-            return false;
-        }
-        if key == "xmlns" || key.starts_with("xmlns:") {
-            let Ok(value) = attribute.normalized_value(quick_xml::XmlVersion::Implicit1_0) else {
-                return false;
-            };
-            if key == "xmlns:xmlns"
-                || key.starts_with("xmlns:") && value.is_empty()
-                || key == "xmlns:xml" && value != XML
-                || key != "xmlns:xml" && matches!(value.as_ref(), XML | XMLNS)
-            {
-                return false;
-            }
-        } else if matches!(
-            reader.resolver().resolve_attribute(attribute.key).0,
-            ResolveResult::Unknown(_)
-        ) {
-            return false;
-        }
-    }
-    true
-}
+use spring_text::xml::namespace_valid;
 fn pom_namespace<R>(
     reader: &quick_xml::reader::NsReader<R>,
     element: &quick_xml::events::BytesStart<'_>,
