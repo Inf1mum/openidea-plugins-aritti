@@ -3318,11 +3318,28 @@ mod tests {
     }
 
     #[test]
+    fn create_twig_template_command_prompts_when_editor_read_is_denied() {
+        let (host, mut plugin) = generator_host(&["project.read", "project.write"]);
+        host.open_editor("/project/templates/caller.html.twig", "twig", "x\n", &[(0, 0, 0, 0)]);
+        host.answer_next_prompt(Some(&["blog/show.html.twig"]));
+        host.answer_next_prompt(Some(&[]));
+
+        plugin.run_command("create-template", &host.invocation(), None).unwrap();
+
+        assert_eq!(host.invocation().project().unwrap().read_file("templates/blog/show.html.twig").unwrap(), "");
+    }
+
+    #[test]
     fn create_twig_template_command_prompts_without_caret_reference() {
         let (host, mut plugin) = generator_host(&["project.read", "project.write"]);
-        host.answer_next_prompt(Some(&["../x.html.twig"]));
-        let error = plugin.run_command("create-template", &host.invocation(), None).unwrap_err().to_string();
-        assert!(error.contains(".twig"), "{error}");
+        for bad in ["../x.html.twig", "a\\b.html.twig", "a//b.html.twig", "/a.html.twig", "a.html"] {
+            host.answer_next_prompt(Some(&[bad]));
+            let error = plugin.run_command("create-template", &host.invocation(), None).unwrap_err().to_string();
+            assert!(error.contains(".twig"), "{bad}: {error}");
+        }
+        assert!(host.process_runs().is_empty());
+        assert!(!host.invocation().project().unwrap().exists("templates/a.html").unwrap());
+        assert!(!host.invocation().project().unwrap().exists("templates/x.html.twig").unwrap());
 
         host.answer_next_prompt(Some(&["blog/show.html.twig"]));
         host.answer_next_prompt(Some(&[]));

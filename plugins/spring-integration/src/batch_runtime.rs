@@ -120,7 +120,7 @@ struct Session{root:String,profile:String,context:String,operation:Operation,chi
 pub(crate) struct Runtime{sessions:BTreeMap<u64,Session>,next:u64}
 impl Runtime {
  pub(crate) fn run_command(&mut self,id:&str,ctx:&Invocation)->Result<Option<String>,Error>{self.run_with(id,ctx,&mut Native)}
- fn run_with(&mut self,id:&str,ctx:&Invocation,launcher:&mut impl Launcher)->Result<Option<String>,Error>{self.run_inner(id,ctx,launcher).map_err(|e|ui_kit::denied::map(e,"Spring Batch runtime","process:java","Spring Structure Tools"))}
+ fn run_with(&mut self,id:&str,ctx:&Invocation,launcher:&mut impl Launcher)->Result<Option<String>,Error>{self.run_inner(id,ctx,launcher).map_err(|e|ui_kit::denied::map_capability(e,"Spring Batch runtime","process:java","Spring Structure Tools"))}
  fn run_inner(&mut self,id:&str,ctx:&Invocation,launcher:&mut impl Launcher)->Result<Option<String>,Error>{
   let project=ctx.project().ok_or_else(||invalid("Open the project owning the configured Batch runtime profile."))?;let root=project.root()?;
   let foreign:Vec<_>=self.sessions.iter().filter(|(_,s)|s.root!=root).map(|(id,_)|*id).collect();

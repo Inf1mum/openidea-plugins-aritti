@@ -46,6 +46,8 @@ fn refresh_browser() {
 
 #[derive(Default)]
 pub struct Liquibase {
+    /// Set while a command resolves an action, so its failure is reported once by the command.
+    command_resolving: bool,
     browser_filter: Option<(String, String)>,
     browser_selection: Option<native_browser::Selection>,
     expansion: Expansion,

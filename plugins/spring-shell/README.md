@@ -96,7 +96,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | "Open a supported Java or Kotlin ShellComponent and select a literal command or availability name." | Open the command class in the editor first. Check that `editor.read` is allowed. |
-| "Select a supported literal command or availability name in a closed Java or Kotlin source scope." | Put the caret inside a quoted command key or availability name, then run the command again. |
+| "Put the caret on a Spring Shell command key first." | Put the caret inside a quoted command key or availability name, then run the command again. |
 | Cross-file checks and duplicate warnings don't appear | They wait until the project has been read once. Open a few files or use completion to warm the cache. |
 | A `@Command` method isn't recognised | Import `org.springframework.shell.command.annotation.Command` explicitly or write it fully qualified. A wildcard or aliased import isn't enough. |
 | The rename or annotation fix isn't offered | The class must be a single, closed source class with literal keys. Inherited, nested, wildcard-imported or already annotated classes are refused. |

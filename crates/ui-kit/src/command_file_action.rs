@@ -11,9 +11,10 @@ fn unsupported() -> Error {
     Error::Invalid(ONLY_FROM_CODE_ACTIONS.into())
 }
 
+/// `editor` pairs the open editor with the document version the action was resolved from.
 pub fn apply(
     project: &Project,
-    editor: Option<&TextEditor>,
+    editor: Option<(&TextEditor, u64)>,
     action: &FileAction,
     plugin: &str,
 ) -> Result<(), Error> {
@@ -35,7 +36,7 @@ pub fn apply(
             continue;
         }
         match editor {
-            Some(editor) if editor.path() == *path => editor_edits = edits,
+            Some((editor, _)) if editor.path() == *path => editor_edits = edits,
             _ => return Err(unsupported()),
         }
     }
@@ -46,8 +47,7 @@ pub fn apply(
             .map_err(|e| denied::map(e, "Creating files", "project.write", plugin))?;
     }
 
-    if let Some(editor) = editor.filter(|_| !editor_edits.is_empty()) {
-        let version = editor.document()?.version;
+    if let Some((editor, version)) = editor.filter(|_| !editor_edits.is_empty()) {
         editor
             .apply_edits(version, editor_edits)
             .map_err(|e| denied::map(e, "Editing the file", "editor.write", plugin))?;
@@ -80,7 +80,7 @@ pub fn run_titled(
 
     match provider.resolve_file_action(&doc, action) {
         Err(Error::Cancelled) => Ok(true),
-        resolved => apply(project, Some(editor), &resolved?, plugin).map(|()| true),
+        resolved => apply(project, Some((editor, doc.version)), &resolved?, plugin).map(|()| true),
     }
 }
 
@@ -135,7 +135,7 @@ mod tests {
 
     fn run(host: &MockHost, action: &FileAction) -> Result<(), Error> {
         let invocation = host.invocation();
-        apply(&invocation.project().unwrap(), invocation.editor().as_ref(), action, "P")
+        apply(&invocation.project().unwrap(), invocation.editor().as_ref().map(|e| (e, e.document().unwrap().version)), action, "P")
     }
 
     #[test]
@@ -176,6 +176,23 @@ mod tests {
         run(&host, &action).unwrap();
 
         assert_eq!(host.editor_text(), "<!-- x --><a/>");
+    }
+
+    #[test]
+    fn edits_fail_with_stale_when_the_document_changed_since_resolution() {
+        let host = writable();
+        host.open_editor("log.xml", "xml", "<a/>", &[]);
+        let invocation = host.invocation();
+        let editor = invocation.editor().unwrap();
+        let resolved_version = editor.document().unwrap().version;
+        host.type_in_editor("x");
+        let insert = TextEdit { range: Range::new(Position::new(0, 0), Position::new(0, 0)), text: "<!-- x -->".into() };
+        let action = FileAction { edits: vec![("log.xml".into(), vec![insert])], ..FileAction::default() };
+
+        let result = apply(&invocation.project().unwrap(), Some((&editor, resolved_version)), &action, "P");
+
+        assert!(matches!(result, Err(Error::Stale)), "{result:?}");
+        assert!(!host.editor_text().contains("<!--"));
     }
 
     #[test]

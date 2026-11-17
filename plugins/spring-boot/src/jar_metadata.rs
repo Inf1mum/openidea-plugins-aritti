@@ -748,6 +748,10 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
 }
 
 fn gradle_denied(error: Error) -> Error {
+    if !matches!(&error, Error::Denied(capability) if capability.starts_with("fs.read")) {
+        return error;
+    }
+
     ui_kit::denied::map(
         error,
         "Reading Gradle JAR metadata",

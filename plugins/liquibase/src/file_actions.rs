@@ -114,7 +114,10 @@ impl Liquibase {
         let editor = ctx.editor().ok_or(UNAVAILABLE)?;
         let project = ctx.project().ok_or("Open a project first.")?;
         let prefix = if id == SET { "Add Liquibase changeset" } else { "Create Liquibase changelog" };
-        if !ui_kit::command_file_action::run_titled(self, &project, &editor, prefix, TITLE)? {
+        self.command_resolving = true;
+        let applied = ui_kit::command_file_action::run_titled(self, &project, &editor, prefix, TITLE);
+        self.command_resolving = false;
+        if !applied? {
             return Err(UNAVAILABLE.into());
         }
         Ok(None)
@@ -152,6 +155,7 @@ impl FileActions for Liquibase {
         actions
     }
     fn resolve_file_action(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
+        let notify_failure = !self.command_resolving;
         (|| {
         let data: serde_json::Value =
             serde_json::from_str(action.data.as_deref().filter(|d| d.len() < 8192).ok_or(Error::Stale)?).map_err(|_| Error::Stale)?;
@@ -337,7 +341,7 @@ impl FileActions for Liquibase {
             Some(target),
         ))
         })().inspect_err(|error| {
-            if !matches!(error,Error::Cancelled) {host::notify(NotificationLevel::Warning,"Liquibase action could not be prepared",&error.to_string());}
+            if notify_failure && !matches!(error,Error::Cancelled) {host::notify(NotificationLevel::Warning,"Liquibase action could not be prepared",&error.to_string());}
         })
     }
 }
@@ -381,6 +385,15 @@ mod tests {
         assert_eq!(plugin.run_command("new-changeset", &host.invocation(), None).unwrap(), None);
         assert_eq!(generate::xml_log(&host.editor_text()).unwrap().identities, [("7".into(), "ann".into())]);
         assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn new_changeset_command_reports_a_resolver_failure_once() {
+        let (host, mut plugin, _) = setup();
+        let host = host.with_capabilities(&COMMAND_CAPABILITIES);
+        answers(&host, &["bad:id", "ann"], true);
+        let error = plugin.run_command("new-changeset", &host.invocation(), None).unwrap_err();
+        assert!(!error.to_string().is_empty());
+        assert!(host.notifications().is_empty());
     }
     #[test]
     fn new_changelog_command_creates_file() {

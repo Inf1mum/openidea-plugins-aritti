@@ -15,6 +15,14 @@ pub fn map(err: Error, feature: &str, capability: &str, plugin: &str) -> Error {
     }
 }
 
+/// Like `map`, but rewrites only a denial of `capability` (prefix match); other denials pass through.
+pub fn map_capability(err: Error, feature: &str, capability: &str, plugin: &str) -> Error {
+    match err {
+        Error::Denied(denied) if denied.starts_with(capability) => map(Error::Denied(denied), feature, capability, plugin),
+        other => other,
+    }
+}
+
 pub fn notify_once(flag: &AtomicBool, feature: &str, capability: &str, plugin: &str) {
     if flag.swap(true, Ordering::Relaxed) {
         return;
@@ -38,6 +46,14 @@ mod tests {
     fn map_rewrites_only_denied() {
         assert!(matches!(map(Error::Denied("x".into()), "F", "clipboard", "P"), Error::Invalid(m) if m.contains("clipboard")));
         assert!(matches!(map(Error::Stale, "F", "clipboard", "P"), Error::Stale));
+    }
+
+    #[test]
+    fn map_capability_rewrites_only_the_named_capability() {
+        let other = map_capability(Error::Denied("storage".into()), "F", "editor.read", "P");
+        assert!(matches!(other, Error::Denied(c) if c == "storage"));
+        let named = map_capability(Error::Denied("editor.read".into()), "F", "editor.read", "P");
+        assert!(matches!(named, Error::Invalid(m) if m.contains("editor.read permission")));
     }
 
     #[test]

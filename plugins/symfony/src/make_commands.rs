@@ -66,7 +66,8 @@ impl Main {
 
     pub(crate) fn create_template(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let project = ctx.project().ok_or("No project is open.")?;
-        if let Some(editor) = ctx.editor() {
+        let editor = ctx.editor().filter(|editor| editor.document().is_ok());
+        if let Some(editor) = editor {
             if ui_kit::command_file_action::run_titled(self, &project, &editor, "Create missing Twig template", SOURCE)? {
                 return Ok(None);
             }
@@ -74,11 +75,14 @@ impl Main {
 
         let Some(name) = host::input("Template name (e.g. blog/show.html.twig)", None)? else { return Ok(None) };
         let name = name.trim();
-        if name.starts_with('/') || name.split('/').any(|part| part == "..") || !name.ends_with(".twig") {
-            return Err("Use a template name inside templates/ ending in .twig, without '..'.".into());
+        let invalid_name = name.contains('\\')
+            || name.split('/').any(|part| part.is_empty() || part == "..")
+            || !name.ends_with(".twig");
+        if invalid_name {
+            return Err("Use a template name inside templates/ ending in .twig, without '..', empty parts or '\\'.".into());
         }
 
-        let target = format!("{}/templates/{name}", project.root()?);
+        let target = format!("{}/templates/{name}", project.root()?.trim_end_matches('/'));
         ui_kit::command_file_action::create_empty(&project, &target, "Create Twig template?", SOURCE)?;
         Ok(None)
     }

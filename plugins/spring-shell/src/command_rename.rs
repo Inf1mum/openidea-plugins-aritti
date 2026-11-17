@@ -976,7 +976,7 @@ pub(super) fn occurrences(ctx: &Invocation,at_override:Option<Position>) -> Resu
     let project=ctx.project().ok_or(Error::Stale)?;let root=project.root()?;
     if root=="/" || !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
     let edges=public_edges(&openidea_plugin::indexing::Document {path:path.clone(),text:snapshot.text.clone(),symbols:vec![]});
-    let selected=edges.definitions.iter().chain(&edges.references).find(|a|a.range.start<=at && at<a.range.end).ok_or("Select a supported literal command or availability name in a closed Java or Kotlin source scope.")?;
+    let selected=edges.definitions.iter().chain(&edges.references).find(|a|a.range.start<=at && at<a.range.end).ok_or("Put the caret on a Spring Shell command key first.")?;
     let mut spans:Vec<_>=edges.definitions.iter().chain(&edges.references).filter(|a|a.key==selected.key).map(|a|a.range).collect();
     spans.sort_by_key(|r|(r.start.line,r.start.character));
     let items:Vec<_>=spans.iter().enumerate().map(|(i,r)|openidea_plugin::PickItem::new(&i.to_string(),&format!("Literal occurrence · {}:{}",r.start.line+1,r.start.character+1)).description("Current document only; command selectors and indicator method names have separate identity")).collect();
@@ -997,6 +997,13 @@ mod occurrence_command_tests {
         h.open_editor("/project/C.java","java","class C {}",&[]);
         let error=ShellTools::default().run_command("command-occurrences",&h.invocation(),None).unwrap_err();
         assert!(matches!(error,Error::Invalid(ref message) if message=="Put the caret on a Spring Shell command key first."),"{error:?}");
+    }
+    #[test]
+    fn command_occurrences_with_the_caret_off_a_key_explains() {
+        let h=MockHost::install();
+        h.open_editor("/project/C.java","java","class C {}",&[(0,0,0,0)]);
+        let error=ShellTools::default().run_command("command-occurrences",&h.invocation(),None).unwrap_err();
+        assert!(error.to_string().contains("Put the caret on a Spring Shell command key first."),"{error:?}");
     }
     #[test]
     fn registered_picker_keeps_selector_and_indicator_roles_separate() {

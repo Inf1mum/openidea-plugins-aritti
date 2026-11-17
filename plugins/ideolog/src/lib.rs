@@ -174,7 +174,7 @@ impl Plugin for Ideolog {
             return result;
         }
 
-        result.map_err(|e| ui_kit::denied::map(e, "Log file commands", "editor.read", "Ideolog"))
+        result.map_err(|e| ui_kit::denied::map_capability(e, "Log file commands", "editor.read", "Ideolog"))
     }
 
 }
