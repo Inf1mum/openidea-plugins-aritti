@@ -293,12 +293,25 @@ pub fn namespace_valid<R>(
 /// allowed. Bounded by size (512 KiB) and depth (128), never by time, so the
 /// answer doesn't depend on machine speed.
 pub fn analysis_valid(text: &str) -> bool {
-    if text.len() > 512 * 1024 {
-        return false;
-    }
+    text.len() <= 512 * 1024 && walk(text, false)
+}
+
+/// Whether `text` is safe to generate into: [`analysis_valid`]'s envelope
+/// without a DOCTYPE or any entity reference, with well-formed comments, and
+/// at most 8192 parse events.
+pub fn generation_valid(text: &str) -> bool {
+    walk(text, true)
+}
+
+/// The shared well-formedness walk; `strict` is [`generation_valid`]'s rules.
+fn walk(text: &str, strict: bool) -> bool {
     let mut reader = NsReader::from_str(text);
+    reader.config_mut().check_comments = strict;
     let (mut depth, mut roots, mut declaration) = (0usize, 0usize, false);
-    loop {
+    for events in 0usize.. {
+        if strict && events == 8192 {
+            return false;
+        }
         match reader.read_event() {
             Ok(Event::Start(e)) => {
                 if !open(&reader, &e, depth, &mut roots) {
@@ -328,7 +341,7 @@ pub fn analysis_valid(text: &str) -> bool {
                 } else {
                     matches!(&*r, "amp" | "lt" | "gt" | "quot" | "apos")
                 };
-                if depth == 0 || !known {
+                if strict || depth == 0 || !known {
                     return false;
                 }
             }
@@ -338,12 +351,13 @@ pub fn analysis_valid(text: &str) -> bool {
                 }
                 declaration = true;
             }
-            Ok(Event::DocType(_)) if depth != 0 || roots != 0 => return false,
+            Ok(Event::DocType(_)) if strict || depth != 0 || roots != 0 => return false,
             Ok(Event::Eof) => return depth == 0 && roots == 1,
             Err(_) => return false,
             _ => {}
         }
     }
+    false
 }
 
 /// Counts a root and checks the namespaces of an opening tag at `depth`.
@@ -352,47 +366,6 @@ fn open<R>(reader: &NsReader<R>, element: &BytesStart<'_>, depth: usize, roots: 
         *roots += 1;
     }
     *roots == 1 && namespace_valid(reader, element)
-}
-
-/// Whether `text` is safe to generate into: [`analysis_valid`]'s envelope
-/// without a DOCTYPE or any entity reference, with well-formed comments, and
-/// at most 8192 parse events.
-pub fn generation_valid(text: &str) -> bool {
-    let mut reader = NsReader::from_str(text);
-    reader.config_mut().check_comments = true;
-    let (mut depth, mut roots) = (0usize, 0usize);
-    for _ in 0..8192 {
-        match reader.read_event() {
-            Ok(Event::Start(e)) => {
-                if !open(&reader, &e, depth, &mut roots) {
-                    return false;
-                }
-                depth += 1;
-                if depth > 128 {
-                    return false;
-                }
-            }
-            Ok(Event::Empty(e)) => {
-                if !open(&reader, &e, depth, &mut roots) {
-                    return false;
-                }
-            }
-            Ok(Event::End(_)) => {
-                let Some(next) = depth.checked_sub(1) else {
-                    return false;
-                };
-                depth = next;
-            }
-            Ok(Event::DocType(_) | Event::GeneralRef(_)) => return false,
-            Ok(Event::Text(t)) if depth == 0 && !t.as_ref().trim_ascii().is_empty() => return false,
-            Ok(Event::CData(_)) if depth == 0 => return false,
-            Ok(Event::Decl(_)) if depth != 0 || roots != 0 => return false,
-            Ok(Event::Eof) => return depth == 0 && roots == 1,
-            Err(_) => return false,
-            _ => {}
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -466,6 +439,7 @@ mod tests {
         let deep = format!("{}{}", "<r>".repeat(129), "</r>".repeat(129));
         assert!(!analysis_valid(&deep));
         assert!(!analysis_valid(&format!("<a>{}</a>", " ".repeat(512 * 1024))));
+        assert!(analysis_valid("<beans><!-- a -- b --></beans>"));
     }
 
     #[test]
@@ -484,9 +458,12 @@ mod tests {
             "<beans><bean></beans>",
             "<beans/><beans/>",
             "<a><b:c/></a>",
+            "<?xml version='1.0'?><?xml version='1.0'?><beans/>",
         ] {
             assert!(!generation_valid(bad), "{bad}");
         }
+        let many: String = (0..5000).map(|i| format!("<b id='b{i}'/>\n")).collect();
+        assert!(!generation_valid(&format!("<beans>{many}</beans>")));
     }
 
     #[test]

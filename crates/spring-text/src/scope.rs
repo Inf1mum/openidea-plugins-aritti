@@ -23,10 +23,22 @@ pub fn current_owner(path: &str, roots: &[String]) -> Option<String> {
     roots
         .iter()
         .filter(|root| {
-            scope_path(root).is_some_and(|root| path.strip_prefix(root.as_str()).is_some_and(|tail| tail.starts_with('/')))
+            scope_path(root).is_some_and(|root| {
+                path.get(..root.len())
+                    .is_some_and(|head| same_root(head, &root) && path[root.len()..].starts_with('/'))
+            })
         })
         .max_by_key(|root| root.len())
         .cloned()
+}
+
+/// Byte-equal, except that a Windows drive letter matches in either case.
+fn same_root(a: &str, b: &str) -> bool {
+    let drive = |p: &str| p.as_bytes().get(1) == Some(&b':');
+    if drive(a) && drive(b) {
+        return a[..1].eq_ignore_ascii_case(&b[..1]) && a[1..] == b[1..];
+    }
+    a == b
 }
 
 #[cfg(test)]
@@ -52,5 +64,14 @@ mod tests {
         assert_eq!(current_owner("/work-other/A.java", &roots), None);
         assert_eq!(current_owner("/work", &roots), None);
         assert_eq!(current_owner("/work/../etc/A.java", &roots), None);
+    }
+
+    #[test]
+    fn current_owner_drive_letter_ignores_case() {
+        let roots = ["C:/work".to_owned()];
+        assert_eq!(current_owner("c:/work/A.java", &roots), Some("C:/work".to_owned()));
+        assert_eq!(current_owner(r"c:\work\A.java", &roots), Some("C:/work".to_owned()));
+        assert_eq!(current_owner("C:/WORK/A.java", &roots), None);
+        assert_eq!(current_owner("d:/work/A.java", &roots), None);
     }
 }
