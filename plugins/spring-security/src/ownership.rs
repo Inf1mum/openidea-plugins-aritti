@@ -56,7 +56,7 @@ fn candidate(doc: &Document, at: Position) -> Option<Candidate> {
                 }
             }
             Ok(Event::End(_)) => depth = depth.checked_sub(1)?,
-            Ok(Event::DocType(_) | Event::GeneralRef(_)) | Err(_) => return None,
+            Ok(Event::GeneralRef(_)) | Err(_) => return None,
             Ok(Event::Text(t)) if depth == 0 && !t.as_ref().trim().is_empty() => return None,
             Ok(Event::CData(_)) if depth == 0 => return None,
             Ok(Event::Decl(_)) if depth != 0 || roots != 0 => return None,

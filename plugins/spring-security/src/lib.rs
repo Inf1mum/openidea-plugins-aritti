@@ -705,8 +705,8 @@ fn problems(path: &str, text: &str) -> Vec<Problem> {
     if security && !kotlin && host::setting_bool("springSecurity.checkSelfInvocation").unwrap_or(false) {
         out.extend(self_invocations(text, &file));
     }
+    let code = if security { code_only(text, kotlin) } else { String::new() };
     if security {
-        let code = code_only(text, kotlin);
         if host::setting_bool("springSecurity.checkMatchers").unwrap_or(true) {
             out.extend(matcher_problems(text, &code, kotlin));
         }
@@ -715,7 +715,6 @@ fn problems(path: &str, text: &str) -> Vec<Problem> {
         }
     }
     if security && kotlin {
-        let code = code_only(text, kotlin);
         for (at, _) in code.match_indices("authorizeRequests") {
             let after = at + "authorizeRequests".len();
             let standalone = !code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
@@ -839,13 +838,19 @@ fn self_invocations(text: &str, file: &JavaFile) -> Vec<Problem> {
     out
 }
 
+struct BeanNames {
+    key: (u64, u64),
+    incomplete: bool,
+    names: Rc<BTreeSet<String>>,
+}
+
 pub struct SecurityTools {
     actions: actions::State,
     watching: bool,
     roles: Indexes<Vec<String>>,
     beans: Indexes<Vec<String>>,
     mappings: Indexes<Vec<endpoints::Mapping>>,
-    bean_names: Option<((u64, u64), Rc<BTreeSet<String>>)>,
+    bean_names: Option<BeanNames>,
 }
 
 impl Default for SecurityTools {
@@ -869,18 +874,22 @@ impl SecurityTools {
             return None;
         }
         let index = self.beans.for_cached_document_warm(&doc.path, &doc.text, DIAGNOSTICS_WARM)?;
-        if !index.fresh() || index.iter().any(|(_, names)| names.iter().any(|n| n == "\0incomplete")) {
+        if !index.fresh() {
             return None;
         }
         let key = (index.id(), index.generation());
-        if let Some((cached, names)) = &self.bean_names
-            && *cached == key
-        {
-            return Some(Rc::clone(names));
+        if self.bean_names.as_ref().is_none_or(|cached| cached.key != key) {
+            self.bean_names = Some(BeanNames {
+                key,
+                incomplete: index.iter().any(|(_, names)| names.iter().any(|n| n == "\0incomplete")),
+                names: Rc::new(index.iter().flat_map(|(_, n)| n.clone()).collect()),
+            });
         }
-        let names = Rc::new(index.iter().flat_map(|(_, n)| n.clone()).collect::<BTreeSet<_>>());
-        self.bean_names = Some((key, Rc::clone(&names)));
-        Some(names)
+        let cached = self.bean_names.as_ref()?;
+        if cached.incomplete {
+            return None;
+        }
+        Some(Rc::clone(&cached.names))
     }
 
     /// Table checks of the security XML and, once every bean of the project was read, unknown bean references.

@@ -502,4 +502,24 @@ class S {
         let index = tools.beans.cached(&d.path).unwrap();
         assert!(index.fresh() && index.iter().any(|(p, _)| p.ends_with("Authz.java")));
     }
+    #[test]
+    fn bean_name_set_is_cached_per_generation() {
+        let host = MockHost::install();
+        host.add_file("src/main/java/com/acme/Authz.java", "@Component class Authz {}");
+        let d = Document { path: "/project/src/main/java/com/acme/S.java".into(), language: "java".into(), version: 1, text: "@Component class S {}".into() };
+        let mut tools = SecurityTools::default();
+        tools.activate_live();
+        let first = tools.project_bean_names(&d, true).unwrap();
+        let second = tools.project_bean_names(&d, true).unwrap();
+        assert!(Rc::ptr_eq(&first, &second));
+    }
+    #[test]
+    fn doctype_xml_still_gets_hover_and_inlays() {
+        let _h = MockHost::install();
+        let mut tools = SecurityTools::default();
+        let d = doc(&format!("<!DOCTYPE beans>{}", xml("request-matcher=\"ant\"", "/api")));
+        let at = openidea_plugin::text::position(&d.text, d.text.find("/api").unwrap());
+        assert!(tools.hover(&d, at).is_some());
+        assert_eq!(tools.inlay_hints(&d, all()).len(), 1);
+    }
 }
