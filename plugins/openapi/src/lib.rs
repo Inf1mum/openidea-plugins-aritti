@@ -520,8 +520,11 @@ impl Plugin for OpenApi {
         Ok(())
     }
 
-    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+    fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
         self.codegen.observe(events);
+        if events.iter().any(|event| matches!(event, Event::EditorFocused(_) | Event::FileOpened(_) | Event::FileSaved(_))) {
+            let _ = host::set_context(SPEC_CONTEXT, ctx.editor().is_some_and(|editor| editor.document().is_ok_and(|doc| is_spec_text(&editor.path(), &doc.text))));
+        }
         if self.comparison.as_ref().is_some_and(|comparison| events.iter().any(|event| {
             let changed = |path: &str| !path.is_empty() && (path == comparison.path || path == comparison.base_path
                 || comparison.path.starts_with(&format!("{}/", path.trim_end_matches('/')))
@@ -1349,6 +1352,65 @@ const MAX_SCANNED_FILE_BYTES: usize = 1 << 20;
 
 pub const ENDPOINTS: &str = "endpoints";
 pub const COMPARE: &str = "compare";
+pub const OPERATIONS_PANEL: &str = "operations";
+/// `plugin.aritti.openapi.spec`: the active editor shows a spec, for the operations panel's `when`.
+const SPEC_CONTEXT: &str = "spec";
+
+fn is_spec_text(path: &str, text: &str) -> bool {
+    is_spec_file(path) && text.len() <= MAX_SCANNED_FILE_BYTES && spec_or_fragment(path, text).is_some()
+}
+
+/// The editor panel beside a spec. `{op:"outline",id,path}` answers the operations of the file's
+/// current text (broadcast to every panel frame, so `id` names the asking one);
+/// `{op:"open",path,line,column}` moves the caret to an operation.
+fn operations_panel(request: &str) -> Result<(), Error> {
+    let request: serde_json::Value = serde_json::from_str(request).map_err(|_| Error::Invalid("Malformed panel request.".into()))?;
+    let path = request["path"]
+        .as_str()
+        .filter(|path| is_spec_file(path) && !path.chars().any(char::is_control) && !path.split('/').any(|part| matches!(part, "." | "..")))
+        .ok_or_else(|| Error::Invalid("The panel needs a YAML or JSON file.".into()))?;
+    match request["op"].as_str() {
+        Some("open") => {
+            let number = |field: &str| request[field].as_u64().and_then(|n| u32::try_from(n).ok());
+            let line = number("line").ok_or_else(|| Error::Invalid("The panel sent no line.".into()))?;
+            project_for(path)?;
+            host::open_location(path, line, number("column").unwrap_or(0))
+        }
+        Some("outline") => {
+            // Every request is answered, even an unreadable file, so the page never waits in vain.
+            let mut reply = match project_for(path).and_then(|project| project.read_file(path)) {
+                Err(error) => serde_json::json!({ "message": format!("Cannot read this file: {error}") }),
+                Ok(text) if text.len() > MAX_SCANNED_FILE_BYTES => {
+                    serde_json::json!({ "message": "This file is over 1 MiB, too large to list its operations." })
+                }
+                Ok(text) => match spec_or_fragment(path, &text) {
+                    None => serde_json::json!({ "message": "Not an OpenAPI document." }),
+                    Some(spec) => {
+                        let operations: Vec<_> = routes(path, &text, &spec)
+                            .into_iter()
+                            .map(|route| {
+                                let at = route.location.map(|location| location.range.start).unwrap_or_default();
+                                serde_json::json!({
+                                    "method": route.method.to_ascii_uppercase(),
+                                    "path": route.path,
+                                    "tag": route.handler.class,
+                                    "operationId": route.handler.member,
+                                    "line": at.line,
+                                    "column": at.character,
+                                })
+                            })
+                            .collect();
+                        serde_json::json!({ "operations": operations })
+                    }
+                },
+            };
+            reply["id"] = request["id"].as_str().filter(|id| id.len() <= 64).into();
+            reply["path"] = path.into();
+            host::post_view_message(OPERATIONS_PANEL, &reply.to_string())
+        }
+        _ => Err(Error::Invalid("Unknown panel request.".into())),
+    }
+}
 
 const DEFAULT_BASE: &str = "http://localhost:8080";
 const RENDERER_KEY: &str = "previewRenderer";
@@ -1457,6 +1519,12 @@ impl Views for OpenApi {
             return match event {
                 ViewEvent::Button(key) => self.send_prepared(ctx, &key),
                 _ => Err(Error::Invalid("Response/request fields are read-only.".into())),
+            };
+        }
+        if view == OPERATIONS_PANEL {
+            return match event {
+                ViewEvent::Message(request) => operations_panel(&request),
+                _ => Ok(()),
             };
         }
 
@@ -1721,6 +1789,54 @@ mod tests {
         assert_eq!(host.opened_locations(), [("/project/api/openapi.yaml".to_owned(), 8, 4)]);
         assert_eq!(items[0].icon.as_deref(), Some("web"));
         assert_eq!(items[2].icon.as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn operations_panel_lists_the_spec_operations_and_opens_one() {
+        let host = MockHost::install();
+        let tagged = PETSTORE.replace("      operationId: listPets\n", "      operationId: listPets\n      tags:\n        - Pets\n");
+        host.add_file("/project/api/openapi.yaml", &tagged);
+        let mut plugin = OpenApi::default();
+        let ask = r#"{"op":"outline","id":"f1","path":"/project/api/openapi.yaml"}"#;
+        plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(ask.into()), &host.invocation()).unwrap();
+        let (view, reply) = host.view_messages().pop().unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!((view.as_str(), reply["id"].as_str(), reply["path"].as_str()), (OPERATIONS_PANEL, Some("f1"), Some("/project/api/openapi.yaml")));
+        let operations = reply["operations"].as_array().unwrap();
+        assert_eq!(operations.len(), 3);
+        assert_eq!(operations[0], serde_json::json!({"method":"GET","path":"/pets","tag":"Pets","operationId":"listPets","line":8,"column":4}));
+        assert_eq!(operations[2]["method"], "DELETE");
+        let open = r#"{"op":"open","path":"/project/api/openapi.yaml","line":8,"column":4}"#;
+        plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(open.into()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/api/openapi.yaml".to_owned(), 8, 4)]);
+    }
+
+    #[test]
+    fn operations_panel_explains_plain_files_and_refuses_bad_requests() {
+        let host = MockHost::install();
+        host.add_file("/project/k8s.yaml", "kind: Pod\n");
+        let mut plugin = OpenApi::default();
+        let ask = r#"{"op":"outline","id":"f1","path":"/project/k8s.yaml"}"#;
+        plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(ask.into()), &host.invocation()).unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&host.view_messages()[0].1).unwrap();
+        assert_eq!(reply["message"], "Not an OpenAPI document.");
+        assert!(reply.get("operations").is_none());
+        for bad in [r#"{"op":"open","path":"/project/../etc/a.yaml","line":1}"#, r#"{"op":"open","path":"/project/a.txt","line":1}"#, r#"{"op":"open","path":"/project/k8s.yaml"}"#, "nope"] {
+            assert!(plugin.handle(OPERATIONS_PANEL, ViewEvent::Message(bad.into()), &host.invocation()).is_err(), "{bad}");
+        }
+        assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn spec_context_follows_the_focused_editor() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read"]);
+        let mut plugin = OpenApi::default();
+        host.open_editor("/project/api/openapi.yaml", "yaml", PETSTORE, &[]);
+        plugin.handle_events(&[Event::EditorFocused(Some("/project/api/openapi.yaml".into()))], &host.invocation());
+        assert_eq!(host.context_keys().get(SPEC_CONTEXT), Some(&openidea_plugin::ContextValue::from(true)));
+        host.open_editor("/project/k8s.yaml", "yaml", "kind: Pod\n", &[]);
+        plugin.handle_events(&[Event::EditorFocused(Some("/project/k8s.yaml".into()))], &host.invocation());
+        assert_eq!(host.context_keys().get(SPEC_CONTEXT), Some(&openidea_plugin::ContextValue::from(false)));
     }
 
     #[test]
