@@ -604,7 +604,7 @@ pub(crate) fn service_class_advisories(index: &Index, path: &str, language: &str
     if index.partial || !index.psr4_source_verified { return Vec::new(); }
     let read=|_: &str|None;let ctx=Context::new(index,&read);
     source_service_classes(path,language,text).unwrap_or_default().into_iter().filter_map(|(class,range)| {
-        class_is_missing(&ctx,&class).then(|| Finding::warn(range,"service-class-missing",format!("Advisory: class \"{class}\" is absent from the cached project-source index; runtime autoloading is unverified.")))
+        class_is_missing(&ctx,&class).then(|| Finding::warn(range,"service-class-missing",format!("Class \"{class}\" wasn't found in this project's source. Check the name, or run Symfony: Reindex Project if you just added it.")))
     }).collect()
 }
 
@@ -840,7 +840,7 @@ pub(crate) fn source_php_resources(index: &Index, text: &str) -> Vec<Finding> {
     missing_assets(&ctx, text, &mut out);
     missing_translation_domains(&ctx, text, &mut out);
     for finding in &mut out {
-        finding.message.push_str(" [Cached project-source index; runtime configuration and receiver types are unverified.]");
+        finding.message.push_str(" (From the last project scan; run Symfony: Reindex Project to refresh.)");
     }
     out
 }

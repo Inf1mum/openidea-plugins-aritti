@@ -1532,7 +1532,7 @@ impl Views for OpenApi {
             if view == COMPARE {
                 return Ok(match &self.comparison {
                     None => View::message("Run OpenAPI: Compare With Another Spec…"),
-                    Some(comparison) if !comparison.current(ctx) => View::message("Comparison owner or source is no longer current. Focus its original document and compare again; cached rows withheld."),
+                    Some(comparison) if !comparison.current(ctx) => View::message("The compared document changed or is no longer focused. Focus it and compare again."),
                     Some(comparison) if comparison.items.is_empty() => View::message("No differences.").status(&comparison.status),
                     Some(comparison) => View::new(Body::List(comparison.items.clone())).status(&comparison.status),
                 });
@@ -3053,7 +3053,7 @@ mod tests {
         plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).unwrap();
         let Body::Form(fields) = plugin.render("try-response", None, &host.invocation()).unwrap().body else { panic!() };
         let openidea_plugin::views::FieldValue::Other { data, .. } = &fields[0].value else { panic!() };
-        assert!(data.contains("GET http://127.0.0.1:32109/pets") && data.contains("has not sent anything"), "{data}");
+        assert!(data.contains("GET http://127.0.0.1:32109/pets") && data.contains("Not sent yet"), "{data}");
         assert!(host.requests().is_empty());
         plugin.activate(&openidea_plugin::Context { api_version: "1.10".into(), ..Default::default() }).unwrap();
         assert!(plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).is_err());

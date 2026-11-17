@@ -16,7 +16,7 @@ pub(crate) fn run(ctx: &Invocation) -> Result<Option<String>, Error> {
         return Err(Error::Invalid("Select an OpenAPI document.".into()));
     }
     let proof = pointer_status::Proof::parse(&document.text)
-        .ok_or("Component ownership is unknown in this document.")?;
+        .ok_or("Couldn't read this document as an OpenAPI spec. Fix syntax errors and try again.")?;
     let at = offset(&document.text, caret).ok_or(Error::Stale)?;
     let occurrences = proof
         .component_occurrences(at)
@@ -59,7 +59,7 @@ pub(crate) fn project_usages(ctx: &Invocation) -> Result<Option<String>, Error> 
     let doc = editor.document()?; let path = editor.path();
     let root = comparison_owner(ctx, &path)?;
     let project = ctx.project().ok_or(Error::Stale)?;
-    let proof = pointer_status::Proof::parse(&doc.text).ok_or("Current source ownership is unknown.")?;
+    let proof = pointer_status::Proof::parse(&doc.text).ok_or("Couldn't read this document as an OpenAPI spec. Fix syntax errors and try again.")?;
     let caret = editor.selections()?.first().map(|range| range.start).ok_or(Error::Stale)?;
     let at = offset(&doc.text, caret).ok_or(Error::Stale)?;
     let reference = proof.navigation_ref_at(at).map(|reference| reference.target)
@@ -68,8 +68,8 @@ pub(crate) fn project_usages(ctx: &Invocation) -> Result<Option<String>, Error> 
     let target = physical_target(&path, file).ok_or("Remote and encoded references have no usages in project.")?;
     if comparison_owner(ctx, &target)? != root { return Err(Error::Stale); }
     let target_text = project.read_file(&target)?;
-    let target_proof = pointer_status::Proof::parse(&target_text).ok_or("Target source ownership is unknown.")?;
-    let base = target_proof.component_base(pointer).ok_or("Target component identity is unknown.")?;
+    let target_proof = pointer_status::Proof::parse(&target_text).ok_or("Couldn't read the file this $ref points to as an OpenAPI spec.")?;
+    let base = target_proof.component_base(pointer).ok_or("This $ref doesn't point to a component.")?;
     let declaration = target_proof.pointer_location(&base).ok_or(Error::Stale)?;
     let mut locations = vec![(target.clone(), declaration, std::sync::Arc::new(target_text.clone()), "Component declaration")];
     let mut files = std::collections::BTreeSet::new(); files.insert(path.clone()); files.insert(target.clone());
