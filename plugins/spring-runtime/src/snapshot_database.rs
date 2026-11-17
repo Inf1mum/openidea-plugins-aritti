@@ -254,7 +254,7 @@ impl Runtime {
             return Err(Error::Stale);
         }
         let candidate = &choices[index];
-        let ids = project.data_sources()?;
+        let ids = allow(project.data_sources(), "database.sources")?;
         let message = format!(
             "{} an owned Database connection from this captured property source?\n\nProject: {}\nActuator: {}\nFetched Unix: {}\nProperty source: {}\nDriver: {}\nHost: {}\nPort: {}\nDatabase: {}\nUser: {}\nCredential: {}\n\nOnly exact fields from this source are used. Active runtime database identity, profile precedence and current values are unverified. Native driver defaults apply; review SSL/TLS and other transport settings in Database before connecting. No connection, schema read or SQL will run.",
             if ids.contains(&candidate.target.id) {

@@ -1,4 +1,4 @@
-//! Reviewed, read-only localhost JMX reader. The helper only calls getAttribute/getMBeanInfo.
+//! Reviewed, read-only localhost JMX reader. The helper reads fixed attributes and invokes only the Spring Boot health and info operations.
 use super::*;
 
 const HELPER: &str = include_str!("../adapters/SpringRuntimeJmx.java");
@@ -18,7 +18,7 @@ pub(crate) fn jmx_url(port: u16) -> String {
 
 fn confirmation(port: u16, helper: &str) -> String {
     format!(
-        "java -Xmx64m --source 17 {helper} {port}\n\nConnects only to {}\nNo credentials, SSL options or remote hosts. Reads fixed attributes with getAttribute (never invoke or set): Runtime (Uptime, VmName, VmVersion, InputArguments with secrets masked), Memory (HeapMemoryUsage), Threading (ThreadCount), OperatingSystem (SystemLoadAverage, AvailableProcessors) and, if registered, readable attributes of Spring Boot Health/Info endpoint MBeans.\n\nThe target JVM must already run with -Dcom.sun.management.jmxremote.port={port} -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false (development only; anyone who can reach that port can control the JVM). Output is bounded (32 KiB, 15 s).",
+        "java -Xmx64m --source 17 {helper} {port}\n\nConnects only to {}\nNo credentials, SSL options or remote hosts. Reads fixed attributes with getAttribute and invokes only the read-only health and info operations of the Spring Boot Health and Info endpoint MBeans, if registered. It never sets anything. Attributes: Runtime (Uptime, VmName, VmVersion, InputArguments with secrets masked), Memory (HeapMemoryUsage), Threading (ThreadCount), OperatingSystem (SystemLoadAverage, AvailableProcessors).\n\nThe target JVM must already run with -Dcom.sun.management.jmxremote.port={port} -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false (development only; anyone who can reach that port can control the JVM). Output is bounded (32 KiB, 15 s).",
         jmx_url(port)
     )
 }
@@ -54,7 +54,7 @@ fn run_helper(port: u16) -> Result<String, Error> {
     let directory = host::fs::plugin_dir()?;
     let helper = format!("{}/SpringRuntimeJmx.java", directory.trim_end_matches('/'));
     host::fs::write_file(&helper, HELPER)?;
-    let child = host::start(&host::Command::new("java").args(["-Xmx64m", "--source", "17", &helper, &port.to_string()]), None)?;
+    let child = allow(host::start(&host::Command::new("java").args(["-Xmx64m", "--source", "17", &helper, &port.to_string()]), None), "process:java")?;
     child.close_stdin()?;
     let task = host::begin_task("Read JMX (localhost)", true);
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -120,7 +120,7 @@ mod tests {
     fn url_is_always_localhost() {
         assert_eq!(jmx_url(9010), "service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi");
         assert!(HELPER.contains("\"service:jmx:rmi:///jndi/rmi://localhost:\""));
-        assert!(!HELPER.contains("invoke(") && !HELPER.contains("setAttribute"));
+        assert!(!HELPER.contains("setAttribute"));
     }
 
     #[test]
@@ -143,5 +143,32 @@ mod tests {
         host.answer_next_prompt(None);
         assert!(runtime.read_jmx(&host.invocation()).is_err());
         assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn jmx_adapter_reads_health_operation() {
+        assert!(HELPER.contains("\"health\"") && HELPER.contains("\"info\""));
+        assert_eq!(HELPER.matches(".invoke(").count(), 1, "one fixed read-only call site");
+        assert!(!confirmation(9010, "x.java").contains("never invoke"));
+        let compiled = std::process::Command::new("javac").arg("--version").output().is_ok_and(|o| o.status.success());
+        if !compiled {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("spring-runtime-jmx-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("SpringRuntimeJmx.java");
+        std::fs::write(&source, HELPER).unwrap();
+        let output = std::process::Command::new("javac").arg("-d").arg(&dir).arg(&source).output().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn jmx_process_denied_message() {
+        let host = openidea_plugin::mock::MockHost::install().with_capabilities(&["project.read", "storage"]);
+        let mut runtime = Runtime::default();
+        host.answer_next_prompt(Some(&["9010"]));
+        host.answer_next_prompt(Some(&[]));
+        let error = runtime.read_jmx(&host.invocation()).unwrap_err().to_string();
+        assert!(error.contains("Allow process:java for Spring Runtime Insight in Settings"), "{error}");
     }
 }

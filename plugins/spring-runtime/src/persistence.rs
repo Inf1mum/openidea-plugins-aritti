@@ -7,7 +7,7 @@ pub(crate) const MAX_BYTES: usize = 8 << 20;
 const SCHEMA: u8 = 4;
 /// Schema 1 lacks `health_details` and schema 2 stores configprops values unmasked and no handler descriptors, and schemas before 4 store env values unmasked: all migrate by reading (defaults, then masking).
 const OLDEST_READABLE_SCHEMA: u8 = 1;
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct Scope {
     pub root: String,
     pub url: String,

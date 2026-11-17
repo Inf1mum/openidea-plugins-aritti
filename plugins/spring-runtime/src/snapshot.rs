@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spring_text::config::canonical;
+use std::collections::HashMap;
 
 /// The endpoints read, in order; the first one tells whether the application is up.
 pub const ENDPOINTS: [&str; 9] = ["beans", "env", "conditions", "health", "mappings", "configprops", "scheduledtasks", "loggers", "caches"];
@@ -85,6 +86,9 @@ pub struct Snapshot {
     /// Only `ROOT` and the loggers with a configured level.
     pub loggers: Vec<Logger>,
     pub caches: Vec<Cache>,
+    /// Endpoints whose data came from the previous refresh because this one could not reach them.
+    #[serde(default)]
+    pub kept: Vec<String>,
     /// The raw `spring.datasource.password` of the highest-precedence source; memory only, never stored.
     #[serde(skip)]
     pub datasource_password: Option<String>,
@@ -438,6 +442,8 @@ impl Snapshot {
 
     /// The value `key` has at runtime and the property source it comes from,
     /// matched with relaxed binding (`SPRING_DATASOURCE_URL` is `spring.datasource.url`).
+    /// Scans every property: marker paths use [`Lookup`] instead.
+    #[cfg(test)]
     pub fn effective(&self, key: &str) -> Option<(&str, &str)> {
         let relaxed = canonical(key);
         let env_form = relaxed.replace(['.', '[', ']'], "");
@@ -448,6 +454,40 @@ impl Snapshot {
                 .find(|(k, _)| if env { canonical(k).replace(['.', '[', ']'], "") == env_form } else { canonical(k) == relaxed })
                 .map(|(_, v)| (v.as_str(), s.name.as_str()))
         })
+    }
+
+    /// Takes over what the previous snapshot knew of the endpoints this one
+    /// could not reach (a timeout is not a removed endpoint).
+    pub fn keep_unreachable(&mut self, previous: &Snapshot) {
+        let unreachable: Vec<String> = self
+            .missing
+            .iter()
+            .filter(|m| m.contains("(transport failed"))
+            .filter_map(|m| m.split(' ').next().map(str::to_owned))
+            .filter(|endpoint| previous.has(endpoint))
+            .collect();
+        for endpoint in unreachable {
+            match endpoint.as_str() {
+                "beans" => self.beans = previous.beans.clone(),
+                "env" => {
+                    self.profiles = previous.profiles.clone();
+                    self.sources = previous.sources.clone();
+                }
+                "conditions" => self.conditions = previous.conditions.clone(),
+                "health" => {
+                    self.health = previous.health.clone();
+                    self.health_details = previous.health_details.clone();
+                }
+                "mappings" => self.mappings = previous.mappings.clone(),
+                "configprops" => self.configprops = previous.configprops.clone(),
+                "scheduledtasks" => self.scheduled = previous.scheduled.clone(),
+                "loggers" => self.loggers = previous.loggers.clone(),
+                "caches" => self.caches = previous.caches.clone(),
+                _ => continue,
+            }
+            self.missing.retain(|m| m.split(' ').next() != Some(endpoint.as_str()));
+            self.kept.push(endpoint);
+        }
     }
 
     /// Legacy conversion helper. Current persistence stores the full model or rejects it.
@@ -468,6 +508,42 @@ impl Snapshot {
     pub fn has(&self, endpoint: &str) -> bool {
         let kept = !self.trimmed || matches!(endpoint, "beans" | "env");
         kept && !self.missing.iter().any(|m| m.split(' ').next() == Some(endpoint))
+    }
+}
+
+/// [`Snapshot::effective`] answered from two maps built once per snapshot.
+/// Environment sources match with separators dropped, the others relaxed.
+#[derive(Default)]
+pub struct Lookup {
+    relaxed: HashMap<String, (usize, usize)>,
+    environment: HashMap<String, (usize, usize)>,
+}
+
+impl Lookup {
+    pub fn new(snapshot: &Snapshot) -> Self {
+        let mut lookup = Self::default();
+        for (source, s) in snapshot.sources.iter().enumerate() {
+            let environment = s.name.contains("systemEnvironment");
+            for (prop, (key, _)) in s.props.iter().enumerate() {
+                let relaxed = canonical(key);
+                let (map, key) = if environment {
+                    (&mut lookup.environment, relaxed.replace(['.', '[', ']'], ""))
+                } else {
+                    (&mut lookup.relaxed, relaxed)
+                };
+                map.entry(key).or_insert((source, prop));
+            }
+        }
+        lookup
+    }
+
+    pub fn get<'a>(&self, snapshot: &'a Snapshot, key: &str) -> Option<(&'a str, &'a str)> {
+        let relaxed = canonical(key);
+        let environment = relaxed.replace(['.', '[', ']'], "");
+        let (source, prop) = [self.relaxed.get(&relaxed), self.environment.get(&environment)].into_iter().flatten().min().copied()?;
+        let source = snapshot.sources.get(source)?;
+        let (_, value) = source.props.get(prop)?;
+        Some((value.as_str(), source.name.as_str()))
     }
 }
 
@@ -672,5 +748,21 @@ mod env_secret_tests {
         let mut s = Snapshot::default();
         s.read("env", &json!({"propertySources":[{"name":"a","properties":{"spring.datasource.password":{"value":"******"}}}]}));
         assert_eq!(s.datasource_password, None);
+    }
+
+    #[test]
+    fn effective_lookup_matches_scan() {
+        let s = Snapshot {
+            sources: vec![
+                Source { name: "systemEnvironment".into(), props: vec![("SPRING_DATASOURCE_URL".into(), "env-url".into()), ("PATH".into(), "p".into())] },
+                Source { name: "application.yml".into(), props: vec![("spring.datasource.url".into(), "file-url".into()), ("my-prop.some_key".into(), "v".into()), ("spring.datasource.url".into(), "dup".into())] },
+                Source { name: "defaults".into(), props: vec![("spring.datasource.username".into(), "u".into()), ("list[0].name".into(), "n".into())] },
+            ],
+            ..Snapshot::default()
+        };
+        let lookup = Lookup::new(&s);
+        for key in ["spring.datasource.url", "SPRING_DATASOURCE_URL", "spring.datasource.username", "myProp.someKey", "my-prop.some-key", "list[0].name", "path", "missing.key", ""] {
+            assert_eq!(lookup.get(&s, key), s.effective(key), "{key}");
+        }
     }
 }
