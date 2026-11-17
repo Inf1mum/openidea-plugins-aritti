@@ -26,6 +26,8 @@ use checks::{Context, FEATURES_MALFORMED, UNKNOWN_PROPERTY};
 const MAX_BYTES: usize = 256 * 1024;
 
 const LOGIN_SHELL: &str = "command -v bash >/dev/null && exec bash -l; exec sh -l";
+/// Stopping a container also unregisters the project's run targets.
+const RUN_TARGET_REMOVED: &str = "Any Dev Container run target for this project was removed.";
 
 #[derive(Default)]
 pub struct Main {
@@ -328,8 +330,8 @@ fn stop(project: &Project, root: &str) -> Result<Option<String>, Error> {
     }
 
     let stopped = match ids.len() {
-        1 => "Stopped 1 container.".to_owned(),
-        count => format!("Stopped {count} containers."),
+        1 => format!("Stopped 1 container. {RUN_TARGET_REMOVED}"),
+        count => format!("Stopped {count} containers. {RUN_TARGET_REMOVED}"),
     };
     host::notify(NotificationLevel::Info, "Dev Container", &stopped);
 
@@ -597,7 +599,7 @@ mod tests {
 
         Main::default().run_command("stop", &host.invocation(), None).unwrap();
 
-        assert_eq!(host.notifications()[0].body, "Stopped 2 containers.");
+        assert_eq!(host.notifications()[0].body, format!("Stopped 2 containers. {RUN_TARGET_REMOVED}"));
     }
 
     #[test]
@@ -1398,7 +1400,7 @@ mod tests {
         let Body::List(items) = view.body else { panic!("a list") };
         assert_eq!(items[0].key, "abc123");
         assert_eq!(items[0].detail.as_deref(), Some("node:20 - Up 2 minutes"));
-        assert_eq!(view.toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "configuration"]);
+        assert_eq!(view.toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "rebuild", "configuration"]);
 
         plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
         assert!(plugin.render("containers", None, &host.invocation()).unwrap().toolbar.iter().any(|b| b.id == "shell"));
@@ -1424,7 +1426,7 @@ mod tests {
 
         plugin.handle("containers", ViewEvent::Select("def456".into()), &host.invocation()).unwrap();
         let toolbar = plugin.render("containers", None, &host.invocation()).unwrap().toolbar;
-        assert_eq!(toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "start", "configuration"]);
+        assert_eq!(toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "start", "rebuild", "configuration"]);
 
         plugin.handle("containers", ViewEvent::Button("start".into()), &host.invocation()).unwrap();
         assert!(host.process_runs().iter().any(|run| run.args == ["start", "def456"]));
