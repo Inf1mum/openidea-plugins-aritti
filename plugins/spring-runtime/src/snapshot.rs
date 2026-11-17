@@ -28,9 +28,25 @@ pub fn masked_value(key: &str, raw: &str) -> String {
     if sensitive_key(key) { MASK.to_owned() } else { health_text(&mask_userinfo(raw), 200) }
 }
 
-fn sensitive_key(key: &str) -> bool {
-    let k = key.to_ascii_lowercase();
-    ["password", "passwd", "secret", "token", "key", "credential", "auth"].iter().any(|w| k.contains(w))
+/// Boot's Sanitizer rule: the last word of the last key segment names a secret.
+pub fn sensitive_key(key: &str) -> bool {
+    let segment = key.rsplit('.').next().unwrap_or(key);
+    let segment = segment.split('[').next().unwrap_or(segment);
+    let mut last_word = String::new();
+    let mut previous_lower = false;
+    for c in segment.chars() {
+        if matches!(c, '-' | '_') {
+            last_word.clear();
+            previous_lower = false;
+            continue;
+        }
+        if c.is_uppercase() && previous_lower {
+            last_word.clear();
+        }
+        previous_lower = c.is_lowercase();
+        last_word.extend(c.to_lowercase());
+    }
+    matches!(last_word.as_str(), "password" | "passwd" | "secret" | "token" | "credentials" | "credential" | "key")
 }
 
 /// `scheme://user:pw@host` becomes `scheme://******@host`.
@@ -69,6 +85,9 @@ pub struct Snapshot {
     /// Only `ROOT` and the loggers with a configured level.
     pub loggers: Vec<Logger>,
     pub caches: Vec<Cache>,
+    /// The raw `spring.datasource.password` of the highest-precedence source; memory only, never stored.
+    #[serde(skip)]
+    pub datasource_password: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -273,7 +292,14 @@ impl Snapshot {
             "env" => {
                 self.profiles = items(&json["activeProfiles"]).map(text).collect();
                 for s in items(&json["propertySources"]) {
-                    let props = entries(&s["properties"]).map(|(k, p)| (k.clone(), text(&p["value"]))).collect();
+                    let mut props = Vec::new();
+                    for (k, p) in entries(&s["properties"]) {
+                        let raw = text(&p["value"]);
+                        if k == "spring.datasource.password" && self.datasource_password.is_none() && !raw.is_empty() && !raw.chars().all(|c| c == '*') {
+                            self.datasource_password = Some(raw.clone());
+                        }
+                        props.push((k.clone(), masked_value(k, &raw)));
+                    }
                     self.sources.push(Source { name: text(&s["name"]), props });
                 }
             }
@@ -599,5 +625,52 @@ mod boot_shape_tests {
             "handler":"h","predicate":"p","details":{"handlerMethod":{"className":"com.acme.Users","name":"find","descriptor":"()V"},
             "requestMappingConditions":{"methods":["GET"],"patterns":["/u"]}}}]}},"parentId":null}}}));
         assert_eq!(s.mappings[0].method, Some(("com.acme.Users".to_owned(), "find".to_owned())));
+    }
+}
+
+#[cfg(test)]
+mod env_secret_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn env_snapshot() -> Snapshot {
+        let mut s = Snapshot::default();
+        s.read("env", &json!({"activeProfiles":[],"propertySources":[{"name":"application.properties","properties":{
+            "spring.datasource.password":{"value":"s3cret"},"spring.datasource.url":{"value":"jdbc:postgresql://h/db"}}}]}));
+        s
+    }
+
+    #[test]
+    fn sensitive_key_by_segment() {
+        assert!(sensitive_key("spring.datasource.password"));
+        assert!(sensitive_key("x.client-secret"));
+        assert!(sensitive_key("x.api-key"));
+        assert!(sensitive_key("apiToken"));
+        assert!(sensitive_key("DB_PASSWORD"));
+        assert!(!sensitive_key("keyStoreType"));
+        assert!(!sensitive_key("oauth2.authorization-uri"));
+        assert!(!sensitive_key("monkey"));
+    }
+
+    #[test]
+    fn env_password_masked_in_tree_and_tooltip() {
+        let s = env_snapshot();
+        assert!(!serde_json::to_string(&s.sources).unwrap().contains("s3cret"));
+        assert_eq!(s.effective("spring.datasource.password").unwrap().0, MASK);
+        assert_eq!(s.effective("spring.datasource.url").unwrap().0, "jdbc:postgresql://h/db");
+    }
+
+    #[test]
+    fn persisted_snapshot_has_no_raw_env_secret() {
+        let s = env_snapshot();
+        assert!(!serde_json::to_string(&s).unwrap().contains("s3cret"));
+    }
+
+    #[test]
+    fn datasource_password_available_in_memory() {
+        assert_eq!(env_snapshot().datasource_password.as_deref(), Some("s3cret"));
+        let mut s = Snapshot::default();
+        s.read("env", &json!({"propertySources":[{"name":"a","properties":{"spring.datasource.password":{"value":"******"}}}]}));
+        assert_eq!(s.datasource_password, None);
     }
 }

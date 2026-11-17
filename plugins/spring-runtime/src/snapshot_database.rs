@@ -186,8 +186,15 @@ fn candidates(scope: &Scope, snapshot: &Snapshot) -> Result<Vec<Candidate>, Erro
     }
     let mut output = Vec::new();
     let mut names = BTreeSet::new();
-    for source in &snapshot.sources {
-        if let Some(candidate) = target(scope, source)? {
+    let first_with_password = snapshot
+        .sources
+        .iter()
+        .position(|s| s.props.iter().any(|(k, _)| k == "spring.datasource.password"));
+    for (index, source) in snapshot.sources.iter().enumerate() {
+        if let Some(mut candidate) = target(scope, source)? {
+            if first_with_password == Some(index) && candidate.password.is_none() {
+                candidate.password = snapshot.datasource_password.clone();
+            }
             if !names.insert(source.name.clone()) {
                 return Err(Error::Invalid("Duplicate captured property-source names cannot identify one owned connection.".into()));
             }
@@ -347,6 +354,16 @@ mod tests {
             candidate.target.id, moved.target.id,
             "a changed target must not inherit an old owned credential"
         );
+    }
+    #[test]
+    fn candidate_password_comes_from_memory_when_source_value_is_masked() {
+        let (_host, runtime) = setup();
+        let scope = runtime.scope.unwrap();
+        let mut snapshot = runtime.snapshot.unwrap();
+        snapshot.sources[0].props[2].1 = MASK.into();
+        snapshot.datasource_password = Some("s3cret".into());
+        let choices = candidates(&scope, &snapshot).unwrap();
+        assert_eq!(choices[0].password.as_deref(), Some("s3cret"));
     }
     #[test]
     fn explicit_confirmation_creates_owned_source_and_cancel_preserves_database() {

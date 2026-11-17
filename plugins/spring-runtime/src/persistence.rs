@@ -4,8 +4,8 @@ use openidea_plugin::{Error, Project, host};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_BYTES: usize = 8 << 20;
-const SCHEMA: u8 = 3;
-/// Schema 1 lacks `health_details` and schema 2 stores configprops values unmasked and no handler descriptors: both migrate by reading (defaults, then masking).
+const SCHEMA: u8 = 4;
+/// Schema 1 lacks `health_details` and schema 2 stores configprops values unmasked and no handler descriptors, and schemas before 4 store env values unmasked: all migrate by reading (defaults, then masking).
 const OLDEST_READABLE_SCHEMA: u8 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Scope {
@@ -52,6 +52,11 @@ fn decode(value: &str, scope: &Scope) -> Result<Snapshot, Error> {
         return Err("The saved runtime snapshot belongs to a different scope or schema; it was not reused.".into());
     }
     let mut snapshot = stored.snapshot;
+    if stored.schema < 4 {
+        for source in &mut snapshot.sources {
+            crate::snapshot::mask_props(&mut source.props);
+        }
+    }
     if stored.schema < 3 {
         for bean in &mut snapshot.configprops {
             crate::snapshot::mask_props(&mut bean.props);
@@ -215,7 +220,7 @@ mod tests {
         let restored = read(&s).unwrap().unwrap();
         assert!(restored.health_details.is_empty());
         write(&s, &restored).unwrap();
-        assert!(host.storage()[&s.key()].starts_with(r#"{"schema":3"#));
+        assert!(host.storage()[&s.key()].starts_with(r#"{"schema":4"#));
     }
     #[test]
     fn schema_two_cache_masks_configprops_values_when_read() {
