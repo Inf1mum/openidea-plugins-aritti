@@ -3,6 +3,8 @@
 use super::*;
 use openidea_plugin::indexing::{Anchor, Document as IndexedDocument, Edges};
 
+const FILES_PER_TYPE: u32 = 128;
+
 fn key(namespace: &str, local: &str) -> String {
     format!("spring-ws:qname:{}:{namespace}:{local}", namespace.len())
 }
@@ -170,16 +172,20 @@ pub(crate) fn occurrences(nav:&mut WsTools,ctx: &Invocation) -> Result<Option<St
     let selected_span=selected.range;
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut files = std::collections::BTreeSet::from([path.clone()]);
+    let mut capped = false;
     for glob in ["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl", "**/*.xml"] {
         if Instant::now() >= deadline {
             break;
         }
-        files.extend(
-            project
-                .find_files(glob, 128)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|p| owned(p)),
+        let found = project.find_files(glob, FILES_PER_TYPE).unwrap_or_default();
+        capped |= found.len() >= FILES_PER_TYPE as usize;
+        files.extend(found.into_iter().filter(|p| owned(p)));
+    }
+    if capped {
+        host::notify(
+            openidea_plugin::NotificationLevel::Info,
+            "Spring WS",
+            &format!("Searched only the first {FILES_PER_TYPE} files of each type, so some occurrences may be missing."),
         );
     }
     let mut hits = Vec::new();
@@ -303,5 +309,19 @@ mod command_tests {
         assert_eq!(h.opened_locations().last().unwrap().0, "/project/a.xsd");
         assert!(!include_str!("../plugin.toml").contains("contributes.documentIndexers"));
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+    #[test]
+    fn occurrences_report_cap() {
+        let h = MockHost::install();
+        let source = "import org.springframework.ws.server.endpoint.annotation.Endpoint; import org.springframework.ws.server.endpoint.annotation.PayloadRoot; @Endpoint class E { @PayloadRoot(namespace=\"urn:a\",localPart=\"Request\") void handle(){} }";
+        h.add_file("/project/a.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:a'><xs:element name='Request'/></xs:schema>");
+        for n in 0..130 {
+            h.add_file(&format!("/project/c{n}.xml"), "<a/>");
+        }
+        let at = position(source, source.find("Request").unwrap());
+        h.open_editor("/project/E.java", "java", source, &[(at.line, at.character, at.line, at.character)]);
+        h.answer_next_prompt(Some(&["0"]));
+        WsTools::default().run_command("qname-occurrences", &h.invocation(), None).unwrap();
+        assert!(h.notifications().iter().any(|n| n.body.contains("128")), "{:?}", h.notifications());
     }
 }

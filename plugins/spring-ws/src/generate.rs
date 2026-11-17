@@ -162,10 +162,7 @@ pub(super) fn xml_valid(text: &str) -> bool {
     let mut reader = quick_xml::reader::NsReader::from_str(text);
     let mut depth = 0usize;
     let mut roots = 0usize;
-    for count in 0..4096 {
-        if count == 4095 {
-            return false;
-        }
+    loop {
         match reader.read_event() {
             Ok(XmlEvent::Start(element)) => {
                 if depth == 0 {
@@ -199,7 +196,6 @@ pub(super) fn xml_valid(text: &str) -> bool {
             _ => {}
         }
     }
-    false
 }
 fn decode(value: &str) -> Option<String> {
     quick_xml::escape::unescape(value).ok().map(|value| value.into_owned())
@@ -332,8 +328,7 @@ fn literal(arg: &Arg) -> Option<String> {
         .then_some(value.value)
 }
 
-fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, source: &Document) -> Result<Inventory, Error> {
-    let deadline = Instant::now() + COMMAND_BUDGET;
+fn source_paths(project: &openidea_plugin::Project) -> Result<BTreeSet<String>, Error> {
     let mut paths = BTreeSet::new();
     for glob in ["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl"] {
         let found = project.find_files(glob, (MAX_FILES + 1) as u32)?;
@@ -345,6 +340,12 @@ fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, sour
             return Err("Generation source inventory capped.".into());
         }
     }
+    Ok(paths)
+}
+
+fn inventory(project: &openidea_plugin::Project, root: &str, qname: &QName, source: &Document) -> Result<Inventory, Error> {
+    let deadline = Instant::now() + COMMAND_BUDGET;
+    let mut paths = source_paths(project)?;
     paths.insert(source.path.clone());
     let mut result = Inventory { files: vec![], packages: vec![], types: BTreeSet::new(), mappings: BTreeSet::new() };
     let mut bytes = 0;
@@ -490,6 +491,12 @@ impl FileActions for WsTools {
         if !path(&root) {
             return vec![];
         }
+        let Some(project) = project_of(&doc.path) else {
+            return vec![];
+        };
+        if source_paths(&project).is_err() {
+            return vec![];
+        }
         if self.generation.pending.len() >= 8 {
             self.generation.pending.clear();
         }
@@ -544,10 +551,6 @@ impl FileActions for WsTools {
         let target = vacant(&project, &pending.root, package, &class)?;
         let content = scaffold(&package.name, &class, &method, &pending.qname, if doc.text.contains("\r\n") { "\r\n" } else { "\n" });
         current(&pending, doc)?;
-        let after = inventory(&project, &pending.root, &pending.qname, doc)?;
-        if before.files != after.files || before.packages != after.packages {
-            return Err(Error::Stale);
-        }
         let preview = format!(
             "Source XSD: {}\nVersion: {}\nExact global QName: {{{}}}{}\nExisting endpoint package evidence: {}\nTarget: {target}\n\nExplicit ONE-WAY DOM scaffold: void means no response. This does not infer JAXB/WS types, XSD body validation, a WSDL operation/response, business logic, component scanning/adapter registration or effective classpath. It requires the standard Spring-WS annotation/DOM adapter contract. Invoking XSD is unchanged.\n\nExact Java content ({} bytes):\n{content}\nOne host-managed non-overwriting Create; review the contract before applying.",
             doc.path,
@@ -561,10 +564,6 @@ impl FileActions for WsTools {
             return Err(Error::Cancelled);
         }
         current(&pending, doc)?;
-        let fresh = inventory(&project, &pending.root, &pending.qname, doc)?;
-        if fresh.files != before.files || fresh.packages != before.packages {
-            return Err(Error::Stale);
-        }
         vacant(&project, &pending.root, package, &class)?;
         Ok(FileAction {
             title: format!("Create one-way endpoint {class}"),
@@ -789,5 +788,15 @@ fn conflicting_static_annotation_import_cannot_establish_generation_package() {
     answer(&host);
     assert!(plugin.resolve_file_action(&doc, action).is_err());
 }
-
+    #[test]
+    fn scaffold_not_offered_over_limit() {
+        let (host, doc) = setup();
+        let mut plugin = WsTools::default();
+        let at = openidea_plugin::text::position(&doc.text, doc.text.find("CreateRequest").unwrap() + 2);
+        assert_eq!(plugin.file_actions(&doc, Range::new(at, at)).len(), 1);
+        for n in 0..MAX_FILES {
+            host.add_file(&format!("src/C{n}.java"), "");
+        }
+        assert!(plugin.file_actions(&doc, Range::new(at, at)).is_empty());
+    }
 }
