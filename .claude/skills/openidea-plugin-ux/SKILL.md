@@ -101,7 +101,12 @@ To find leaks: `grep -rnE '"[^"]*\b(owned|admitted|bounded|reviewed|provenance|l
 
 ## Keymaps
 
-Give the 1–3 most frequent actions a default key (search routes, go to service, new task). Use `Alt+Shift+<letter>`. Before choosing one, grep every `plugins/*/plugin.toml` `[[contributes.keymaps]]` and the IDE's built-in keymap (`src/platform` in upstream openidea) for conflicts; a conflicting binding is dropped silently. A plain `Escape` binding is allowed only with a `when` (API 1.10).
+Give the 1–3 most frequent actions a default key (search routes, go to service, new task). A binding the IDE keymap already uses is dropped silently. When two plugins bind the same key, the host doesn't decide which wins, so every key must be unique across all `plugins/*/plugin.toml`.
+
+- Check the IDE side in upstream openidea, in all presets and both spellings: `grep -ohiE '"(shift\+alt|alt\+shift)\+[a-z]"' src/platform/keymaps/*.ts src/bindings.ts src/platform/ideaKeymap.ts`.
+- In v0.1.47 every `Alt+Shift+<letter>` is taken. IDE presets: A C D F G H I J L M O P R T V X Y Z. Plugins: B K N W (tasks), E Q (laravel), S U (symfony).
+- For a new key use `Ctrl+Alt+Shift+<letter>` with `mac = "Meta+Alt+Shift+<letter>"`, after the same grep. Free in the IDE presets: A D F H K M O P Q U W X Y Z.
+- A plain `Escape` binding is allowed only with a `when` (API 1.10).
 
 ## README and change-notes, in the same commit
 
