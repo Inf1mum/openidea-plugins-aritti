@@ -86,7 +86,7 @@ impl Plugin for Liquibase {
             "choose-sources" => self.choose_sources(ctx),
             "clear-sources" => self.clear_sources(ctx),
             "update-confirmed" => {
-                execution_review::run(ctx, vec!["update".to_owned()], "Liquibase: update", "Update applies every pending changeset to the database.")?;
+                execution_review::run(ctx, vec!["update".to_owned()], "Update {db}?", "Applies every pending changeset to the database. To see them first, cancel and run Liquibase: Show Pending Changesets…")?;
                 Ok(None)
             }
             "rollback-count" => {
@@ -101,8 +101,8 @@ impl Plugin for Liquibase {
                     host::notify(NotificationLevel::Warning, TITLE, "Roll back at least one changeset.");
                     return Ok(None);
                 }
-                let body = format!("Roll back the last {count} deployed changeset(s) from the database?");
-                execution_review::run(ctx, vec!["rollback-count".to_owned(), count.to_string()], "Liquibase: rollback-count", &body)?;
+                let body = format!("Rolls back the last {count} deployed changeset(s).");
+                execution_review::run(ctx, vec!["rollback-count".to_owned(), count.to_string()], &format!("Roll back {count} changeset(s) in {{db}}?"), &body)?;
                 Ok(None)
             }
             status::COMMAND => {
@@ -741,13 +741,13 @@ impl Views for Liquibase {
             self.targets.clear();
             self.targets_root = None;
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
-            let choose = || Button::new("choose-sources", "Sources…").icon("folder");
-            let clear = || Button::new("clear-sources", "Browse All Changelogs").icon("folder");
+            let choose = || Button::new("choose-sources", "Choose Sources…").icon("folder");
+            let clear = || Button::new("clear-sources", "Browse All Changelogs").icon("list");
             let Some(project) = ctx.project() else {
                 return Ok(View::message("Open a project to see its Liquibase changesets."));
             };
             let Ok(root) = selection::project_root(&project) else {
-                return Ok(View::message("Project identity is unavailable. Open the owning project and allow project.read to browse its Liquibase changesets."));
+                return Ok(View::message("The project folder could not be read. Reopen the project, then press Refresh."));
             };
             let (selected, source_status) = match self.selection_state(&project) {
                 selection::State::All => (None, None),
@@ -758,7 +758,7 @@ impl Views for Liquibase {
             let mut walk = Walk::new(&project, &root, self.max_files.unwrap_or(MAX_FILES));
             if let Some(selected) = &selected {
                 if walk.load(selected).is_none() {
-                    return Ok(View::message("The selected changelog changed or became unavailable. Reselect the browser source.")
+                    return Ok(View::message("The changelog you chose was changed, moved or deleted. Pick another with Choose Sources…, or press Browse All Changelogs.")
                         .button(choose())
                         .button(clear()));
                 }
@@ -768,10 +768,11 @@ impl Views for Liquibase {
             }
             if walk.found.is_empty() {
                 return Ok(View::message(if walk.partial {
-                    "No Liquibase changelogs are available in this partial source discovery."
+                    "No Liquibase changelog was found before the search time ran out. Press Refresh to search again, or pick one with Choose Sources…"
                 } else {
-                    "No Liquibase changelogs found in this project."
+                    "No Liquibase changelogs in this project yet. Press New Changelog… to create one."
                 })
+                .button(Button::new("new-changelog", "New Changelog…").icon("plus"))
                 .button(refresh)
                 .button(choose()));
             }
@@ -811,7 +812,7 @@ impl Views for Liquibase {
             if let Some(checked) = checked {
                 status = format!("{checked} · {status}");
             }
-            let shown = View::new(Body::Tree(items)).button(refresh).button(choose()).status(&status);
+            let shown = View::new(Body::Tree(items)).button(refresh).status(&status);
             Ok(self.native_browser_view(&project, shown))
         })().map(ui_kit::actions::available)
     }
@@ -834,6 +835,10 @@ impl Views for Liquibase {
             }
             ViewEvent::Button(button) if button == "clear-sources" => {
                 self.clear_sources(_ctx)?;
+            }
+            ViewEvent::Button(button) if button == "new-changelog" => {
+                self.generator_entry(_ctx, "new-changelog")?;
+                refresh_browser();
             }
             ViewEvent::Activate(key) => {
                 let current = _ctx.project().and_then(|project| selection::project_root(&project).ok());
@@ -879,7 +884,34 @@ mod tests {
         assert!(host.terminals().is_empty());
 
         host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["yes"]));
         liquibase.run_command("update-confirmed", &host.invocation(), None).unwrap();
+        assert!(host.terminals().is_empty());
+
+        host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["update"]));
+        liquibase.run_command("update-confirmed", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals()[0].args, ["update"]);
+    }
+
+    #[test]
+    fn empty_browser_offers_new_changelog() {
+        let host = MockHost::install().with_capabilities(&["project.read", "project.write"]);
+        let mut liquibase = Liquibase::default();
+        let view = liquibase.render("changesets", None, &host.invocation()).unwrap();
+        assert!(matches!(&view.body, Body::Message(text) if text.contains("New Changelog…")));
+        assert!(view.toolbar.iter().any(|button| button.id == "new-changelog"));
+        host.answer_next_prompt(Some(&["db/changelog.xml"]));
+        liquibase.handle("changesets", ViewEvent::Button("new-changelog".into()), &host.invocation()).unwrap();
+        assert!(host.invocation().project().unwrap().exists("db/changelog.xml").unwrap());
+    }
+
+    #[test]
+    fn update_with_a_readable_database_needs_only_the_confirm() {
+        let host = MockHost::install().with_capabilities(&["project.read", "process:liquibase"]);
+        host.add_file("liquibase.properties", "url=jdbc:mysql://db.example:3306/shop\n");
+        host.answer_next_prompt(Some(&[]));
+        Liquibase::default().run_command("update-confirmed", &host.invocation(), None).unwrap();
         assert_eq!(host.terminals()[0].args, ["update"]);
     }
 
@@ -904,6 +936,7 @@ mod tests {
 
         host.answer_next_prompt(Some(&["3"]));
         host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["rollback-count"]));
         liquibase.run_command("rollback-count", &host.invocation(), None).unwrap();
         assert_eq!(host.terminals()[0].args, ["rollback-count", "3"]);
     }
@@ -1031,7 +1064,7 @@ mod tests {
         let Body::Message(text) = liquibase.render("changesets", None, &host.invocation()).unwrap().body else {
             panic!("message expected")
         };
-        assert_eq!(text, "No Liquibase changelogs found in this project.");
+        assert_eq!(text, "No Liquibase changelogs in this project yet. Press New Changelog… to create one.");
 
         host.add_file("db/a.xml", "<databaseChangeLog>\n<include file=\"b.xml\" relativeToChangelogFile=\"true\"/>\n<include file=\"gone.xml\" relativeToChangelogFile=\"true\"/>\n</databaseChangeLog>");
         host.add_file("db/b.xml", "<databaseChangeLog>\n<changeSet id=\"1\" author=\"x\"/>\n<include file=\"a.xml\" relativeToChangelogFile=\"true\"/>\n</databaseChangeLog>");

@@ -61,7 +61,7 @@ The **Liquibase** tool window lists changesets in execution order.
 - Double-click a row, or press Enter, to open the file at the changeset.
 - **Filter…** searches rows and keeps their parents. **Clear** removes the filter. Filters belong to the current project.
 - **Pending…** runs **Liquibase: Show Pending Changesets…** (see [Run Liquibase](#run-liquibase)).
-- **More…** opens the review and CLI actions. Database writes still ask for confirmation.
+- **More…** opens Choose Sources…, Browse All Changelogs, Update Database…, Rollback Count… and the offline diff. Database writes still ask for confirmation.
 - **New…** opens the selected changelog so you can add a changeset with ⌥⏎.
 - Browsing never runs Liquibase. The status line says `partial` when a size or time limit is hit.
 
@@ -69,7 +69,7 @@ The **Liquibase** tool window lists changesets in execution order.
 
 By default the tool window shows every changelog. To focus on one root:
 
-1. Press **Sources…** in the toolbar, or run **Liquibase: Choose Sources…**.
+1. Press **More…** › **Choose Sources…** in the toolbar, or run **Liquibase: Choose Sources…**.
 2. Pick a changelog root, and optionally a configuration file.
 
 The status line names the configuration file, the key and line it found, and whether that path matches the root. Supported keys: `changeLogFile`, `liquibase.command.changelogFile`, `liquibase.command.changeLogFile` and `spring.liquibase.change-log`.
@@ -144,12 +144,14 @@ Generated changesets are empty skeletons. Fill them in and review them before ru
 With a `liquibase.properties` in the project root, the Run menu offers **Liquibase: status** (`status --verbose`), **Liquibase: validate** and **Liquibase: update-sql**. They run from the project root and support Stop and Rerun.
 
 - Set `searchPath` (the CLI's `--search-path`) to `src/main/resources`. Changesets then keep the file paths your application records.
-- **Liquibase: Update (Asks First)…** runs `update` in a terminal after a final confirmation.
+- **Liquibase: Update Database…** runs `update` in a terminal after a final confirmation.
 - **Liquibase: Rollback Count…** asks how many changesets to roll back, then confirms.
 - **Liquibase: Show Pending Changesets…** (or **Pending…** in the tool window) runs `status --verbose` after the same confirmation. It changes nothing in the database but connects with your configured credentials. Each changeset is then marked `Pending`, `Applied` or `State unknown`, the status line reads `N pending changesets on <target> · checked <time>`, and changelog files in the Project tree get a `N pending` or `up to date` note.
   - `Applied` and `up to date` only cover the changelogs reached from `changeLogFile` in `liquibase.properties`. Other changesets are `State unknown`.
   - The result stays until a changelog or `liquibase.properties` changes, or a run fails. It is never refreshed on its own: run the command again after deploying.
-- The confirmation leads with the effect, then the target database (from `liquibase.properties`), the exact command and the project. It may show the changelog as a hint. Usernames and passwords are never shown.
+- The confirmation is titled with the database and host, for example `Update app on db.example:5432?`. It reads them from the `url` in `liquibase.properties` (PostgreSQL, MySQL, MariaDB, SQL Server, Oracle, Db2, H2 and SQLite URLs) and also shows the changelog, the command and the project folder. URL parameters, usernames and passwords are never shown.
+- When the database can't be read (no `liquibase.properties`, a `${variable}` or credentials in the URL), Update and Rollback Count also ask you to type the command name (`update` or `rollback-count`) before running.
+- To see what Update will apply, run **Liquibase: Show Pending Changesets…** first.
 - Database-writing commands are never Run configurations: you review them each time.
 
 All of these need `process:liquibase`.
@@ -161,8 +163,8 @@ The **Offline Diff** tab compares two Liquibase JSON snapshot files in your proj
 1. Run **Liquibase: Run Offline Diff…** (or **Run Offline Diff…** in the tab).
 2. Pick the reference and target snapshots, and the object types: tables, columns, indexes, views, or all four.
 3. Review the exact command, then confirm.
-4. Press **Poll Status** to read progress. **Stop Process** stops it.
-5. Select an observation to see its detail, or **Choose Observations to Preview…** to view several.
+4. Press **Refresh Status** to read progress. **Stop Diff** stops it.
+5. Select a difference to see its detail, or **Choose Differences to Preview…** to view several. **Back to Report** returns to the list.
 
 **Liquibase: Review Offline Snapshot Diff** reopens the last report. Both snapshots must be the same database type: h2, postgresql, mysql or mariadb.
 
@@ -170,10 +172,10 @@ The report is what Liquibase printed. It is not SQL or a changelog. Zero rows do
 
 ### Generate a changelog from a snapshot diff
 
-1. In the **Offline Diff** tab, press **Generate Reviewed Offline Changelog…** and give an author.
-2. Review the exact `diff-changelog` command, then confirm. Use **Poll Status** until it finishes.
-3. **Choose Generated Changesets…** picks the changesets to keep.
-4. Optional: **Organize Migrations…** groups changesets, moves them between groups, or ignores and restores them.
+1. In the **Offline Diff** tab, press **More Actions…** › **Generate Changelog from Snapshots…** and give an author.
+2. Review the exact `diff-changelog` command, then confirm. Use **Refresh Status** until it finishes.
+3. **More Actions…** › **Show Generated Changelog**, then **Choose Generated Changesets…**, picks the changesets to keep.
+4. Optional: **More Actions…** › **Organize Migrations…** groups changesets, moves them between groups, or ignores and restores them.
 5. In a project XML, YAML, JSON or SQL editor, press ⌥⏎ and choose **Save reviewed offline changesets…**. With several groups, choose **Save grouped offline migrations…** to save one file per group.
 
 Each save creates new files in one undoable step and never overwrites. The generated XML is not redacted, so review it for sensitive defaults. Check order and dependencies before running it.
@@ -186,10 +188,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Liquibase**; bind ke
 |---|---|
 | **Liquibase: Choose Sources…** | Picks the changelog root (and config file) the tool window shows. |
 | **Liquibase: Browse All Changelogs** | Goes back to showing every changelog. |
-| **Liquibase: Update (Asks First)…** | Runs `liquibase update` in a terminal after confirmation. |
+| **Liquibase: Update Database…** | Runs `liquibase update` in a terminal after confirmation. |
 | **Liquibase: Show Pending Changesets…** | Confirms, runs `liquibase status --verbose`, then marks pending and applied changesets and notes changelog files. |
 | **Liquibase: New Changeset** | Adds an empty changeset to the open changelog after you confirm (the ⌥⏎ **Add Liquibase changeset…** steps; not a single undo step). |
-| **Liquibase: New Changelog…** | Creates the changelog file directly after you confirm, optionally included from the open parent (the ⌥⏎ **Create Liquibase changelog…** steps; not a single undo step). |
+| **Liquibase: New Changelog…** | Creates the changelog file directly after you confirm, optionally included from the open parent (the ⌥⏎ **Create Liquibase changelog…** steps; not a single undo step). Without an open changelog it asks for a path (default `src/main/resources/db/changelog/db.changelog-master.yaml`) and creates a standalone changelog there. |
 | **Liquibase: Rollback Count…** | Asks for a count, confirms, then runs `rollback-count`. |
 | **Liquibase: Review Offline Snapshot Diff** | Opens the last offline diff report. |
 | **Liquibase: Run Offline Diff…** | Compares two snapshot files after confirmation. |
@@ -223,14 +225,14 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 | Problem | What to do |
 |---|---|
 | "Running Liquibase needs the process:liquibase permission. Allow it in Settings › Plugins › Liquibase Changelogs." | Allow `process:liquibase` in Settings › Plugins › Liquibase Changelogs. |
-| "No Liquibase changelogs found in this project." | Check the file is a changelog (see the top of this page). Press **Sources…** to pick a root. |
-| The status line says `partial` | The project has more changelogs than the scan limits. Choose a root with **Sources…**. |
-| "The selected changelog changed or became unavailable." | Press **Sources…** to reselect, or **Browse All Changelogs**. |
+| "No Liquibase changelogs in this project yet." | Press **New Changelog…** to create one, or check the file is a changelog (see the top of this page) and pick a root with **Choose Sources…**. |
+| The status line says `partial` | The project has more changelogs than the scan limits. Choose a root with **More…** › **Choose Sources…**. |
+| "The changelog you chose was changed, moved or deleted." | Press **Choose Sources…** to pick another, or **Browse All Changelogs**. |
 | No completion in an XML changelog | The root declares a `schemaLocation`; the XML language server completes it instead. |
 | An include has no gutter link | Open the included file, or refresh the tool window. Only literal relative paths get links; an `includeAll` link lists only the changelogs already known. |
 | "Cannot find …" stays after creating the missing file | Edit or reopen the parent changelog. |
 | "This host cannot ask for confirmation." | Use the **Liquibase: update-sql** or **status** Run configuration instead. |
-| "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first." | Focus a changelog editor, then run **Liquibase: New Changeset** or **New Changelog…** again. |
+| "Open a Liquibase changelog (XML, YAML, JSON or formatted SQL) first." | Focus a changelog editor, then run **Liquibase: New Changeset** again. |
 | Offline diff: "belongs to another project" | Switch back to the project that started it. |
 | "Could not start liquibase." | Install the Liquibase CLI and put it on the `PATH` the IDE uses, then run **Show Pending Changesets…** again. |
 | "Liquibase status failed (exit …). Liquibase could not reach the database" | Start the database and check the `url` and credentials Liquibase uses. The plugin never shows the CLI output, which can contain them: run the **Liquibase: status** Run configuration to read it. |
@@ -313,7 +315,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 
 - Run configurations (API 1.4) appear for an owned open project with a root `liquibase.properties`. The CLI resolves the effective target and credentials.
 - **Show Pending Changesets…** uses the same review, then runs `status --verbose` as a captured process (not a terminal) for up to 60 seconds. It lists unrun changesets as `path::id::author`; output that doesn't match the count line exactly is rejected. Paths match a project changelog by unique path suffix (`classpath:` dropped). Contexts and labels follow your configuration, so changesets they filter out can show as `Applied`.
-- **Update (Asks First)…** and **Rollback Count…** keep their cancel, count and final-confirmation steps and exact terminal argv. The review shows the owning project and working directory, program, argv and the root `liquibase.properties` project/editor-text SHA256.
+- **Update Database…** and **Rollback Count…** keep their cancel, count and final-confirmation steps and exact terminal argv. The confirmation shows the database parsed from the root `liquibase.properties` (parameters dropped; URLs with user info or variables are not shown), the changelog, the command and the project folder. A changed `liquibase.properties` between the confirmation and the run cancels it.
 - A unique literal changelog and a recognized PostgreSQL/MySQL/MariaDB JDBC host/database are shown as hints only. Query/semicolon parameters and credential-bearing, ambiguous or dynamic values are withheld. Raw configuration, usernames and passwords are never shown.
 - The effective database, contexts and labels stay unresolved: environment, JVM/defaults/extension precedence and unsaved-versus-disk differences can override hints. Missing project scope or configuration drift across prompts refuses startup. Root configuration text is bounded to 128 KiB.
 
@@ -323,16 +325,16 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 - No online URL, username, password, datasource selection, JPA model or live snapshot command is offered.
 - The argument and report contract is the Liquibase v4.29.2 text diff. The installed CLI binary, version and edition are not verified.
 - Before start, the confirmation shows project, source paths, editor-text SHA256, program and argv. The reviewed text (including unsaved buffers) is copied into owner-only plugin-private staging as UTF-8 JSON with connection identity fields removed. Empty private defaults, UTF-8 output and a private search path are supplied. Project files are unchanged.
-- Command-specific URL/diff-type environment variables (and output/author for generation) are reserved to the reviewed values. A collision with an inherited key is rejected before spawning. Source, root and staged-byte membership are rechecked before start, during **Poll Status** and before accepting output.
+- Command-specific URL/diff-type environment variables (and output/author for generation) are reserved to the reviewed values. A collision with an inherited key is rejected before spawning. Source, root and staged-byte membership are rechecked before start, during **Refresh Status** and before accepting output.
 - The process inherits environment, JVM and extensions. Process permission is not a database, network or filesystem sandbox. Denial or cancellation never falls back to an unscoped terminal command.
-- One instance-owned child at a time, stdin closed. **Poll Status** drains up to eight bounded chunks per click. **Stop Process** kills only the owning project's child. A 120-second polling lease and idle reclamation can also end it. No automatic polling, durable job or live tailing.
+- One instance-owned child at a time, stdin closed. **Refresh Status** reads up to eight output chunks per click. **Stop Diff** kills only the owning project's child. A 120-second polling lease and idle reclamation can also end it. No automatic polling, durable job or live tailing.
 - Output limits: 64 KiB combined stdout/stderr, 512 observations, 1,024-byte labels, 4,096-byte details. Oversized output is rejected and the last good report kept. Raw stderr is withheld; known snapshot connection strings are redacted.
 - The text adapter accepts only requested Missing/Unexpected/Changed headers, known indentation and bounded shapes. Unknown, duplicate or missing categories keep the old report. Combined preview is up to 128 KiB. Picker IDs bind the owning report, root, content and generation; cancelled, forged, duplicate or stale keys keep the prior review. No object name is turned into inferred DDL. Rendering and selection never run or poll Liquibase.
 - Staged inputs are overwritten empty on completion, Stop and observed failure, only while their bytes still match. Changed or unreadable slots are kept with a cleanup warning. A crash or reclaim may leave owner-only copies until manual cleanup or uninstall. There is no SDK delete: at most 96 staging files (32 input sets). No snapshot or report content is saved to settings or user files.
 
 ### Generated changelogs
 
-- **Generate Reviewed Offline Changelog…** reuses the two snapshot choices and categories, asks for a literal author, and previews the `diff-changelog` argv, input SHA256 and a new private XML output path. A private output that already exists is refused. It requests offline source generation, never update/rollback or a project output path. The same child, staging, Poll/Stop, limits and foreign-project rules apply.
+- **Generate Changelog from Snapshots…** reuses the two snapshot choices and categories, asks for a literal author, and previews the `diff-changelog` argv, input SHA256 and a new private XML output path. A private output that already exists is refused. It requests offline source generation, never update/rollback or a project output path. The same child, staging, Refresh Status/Stop Diff, limits and foreign-project rules apply.
 - Accepted output: UTF-8 core Liquibase XML, at most 128 KiB / 512 unique literal changesets / 8,192 elements, known 4.29 change types, the requested author, and no opaque `logicalFilePath`, external-file/include/property dependencies, DTDs, custom execution or foreign elements. Missing, empty, invalid or oversized output keeps the previous candidate and never proves no differences.
 - The stock serializer writes an XML 1.1 declaration. The reader accepts its XML 1.0-compatible subset, keeps exact source bytes and rejects XML 1.1-only line/control semantics.
 - **Choose Generated Changesets…** keeps complete fragments in original order, with root namespace declarations, comments and untouched bytes. Dependencies across omitted changesets, SQL correctness, runtime parameters and full schema coverage are not inferred. The candidate lives in memory only; reload or reclamation discards it. A changed snapshot, selection or owner makes an old save action stale.
