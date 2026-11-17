@@ -213,7 +213,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Li
 
 | Problem | What to do |
 |---|---|
-| "Allow running liquibase for Liquibase Changelogs…" | Allow `process:liquibase` in Settings › Plugins › Liquibase Changelogs. |
+| "Running Liquibase needs the process:liquibase permission. Allow it in Settings › Plugins › Liquibase Changelogs." | Allow `process:liquibase` in Settings › Plugins › Liquibase Changelogs. |
 | "No Liquibase changelogs found in this project." | Check the file is a changelog (see the top of this page). Press **Sources…** to pick a root. |
 | The status line says `partial` | The project has more changelogs than the scan limits. Choose a root with **Sources…**. |
 | "The selected changelog changed or became unavailable." | Press **Sources…** to reselect, or **Browse All Changelogs**. |

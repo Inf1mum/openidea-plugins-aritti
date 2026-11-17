@@ -1097,7 +1097,7 @@ impl Plugin for WebTools {
             let sources=dto_schemas::Sources::collect(&project)?;
             let routes=sources.routes();
             let document=openapi_export::export_with_registry(&routes, |route| route.location.as_ref().and_then(|location|sources.text(&location.path)),Some(&sources));
-            if document.len()>1<<20{return Err(Error::Failed("Source OpenAPI export exceeds its 1MiB clipboard budget.".into()))}
+            if document.len()>1<<20{return Err(Error::Failed("Source OpenAPI export exceeds its 1 MiB clipboard budget.".into()))}
             host::copy_to_clipboard(&document)
                 .map_err(|e| ui_kit::denied::map(e, "Copy OpenAPI export", "clipboard", PLUGIN_NAME))?;
             return Ok(None);

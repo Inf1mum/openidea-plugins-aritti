@@ -246,7 +246,7 @@ The IDE's own `ignore` language receives honest semantic tokens: comments (heade
 
 ### Packaging
 
-`templates/` is [github/gitignore](https://github.com/github/gitignore) at `53cf2971` (CC0-1.0, see `templates/LICENSE`), embedded in the component by `build.rs`. The plugin registers syntax, providers, views and file actions through the plugin API. Required capabilities: `project.read`, `editor.read`, `editor.write`, `events`, `storage`. Optional: `clipboard`, `process:git`, `process:python3`, `vcs.read`. Missing optional grants disable the matching opt-in commands.
+`templates/` is [github/gitignore](https://github.com/github/gitignore) at `53cf2971` (CC0-1.0, see `templates/LICENSE`), embedded in the component by `build.rs`. The plugin registers syntax, providers, views and file actions through the plugin API. Required capabilities: `project.read`, `editor.read`, `editor.write`, `events`, `storage`. Optional: `process:git`, `process:python3`, `vcs.read`, `project.write`. Missing optional grants disable the matching opt-in commands.
 
 </details>
 

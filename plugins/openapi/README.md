@@ -194,11 +194,11 @@ See also the [repository guide](../../README.md#troubleshooting).
 | A problem stays after fixing another file | Problems refresh when the spec itself is opened or saved. Save it again. |
 | A new file isn't offered in `$ref` completion | The file list updates on the next open or save of a YAML/JSON file. |
 | The preview doesn't open | Only fixed names open it automatically. Use Open With › **API Preview**. |
-| "Allow project file writing or the clipboard for OpenAPI in Settings › Plugins." | Allow `project.write` (to write files) or `clipboard` (to copy). |
-| "Allow git for OpenAPI in Settings › Plugins to compare with the last revision." | Allow `process:git`. |
+| "Writing the file needs the project.write permission. Allow it in Settings › Plugins › OpenAPI." | Allow `project.write` (to write files) or `clipboard` (to copy). |
+| "Comparing with the last revision needs the process:git permission. Allow it in Settings › Plugins › OpenAPI." | Allow `process:git`. |
 | "… has no committed version in HEAD to compare with." | Commit the file first. |
 | "No other OpenAPI file in this project to compare with." | Add the other spec to the project. |
-| "Request denied by the host. No response is shown…" | Allow `net:127.0.0.1` (or `net:ask` for https), then prepare the request again. |
+| "Request denied by the host: it needs the net:127.0.0.1 permission (net:ask for other hosts)…" | Allow `net:127.0.0.1` (or `net:ask` for https), then prepare the request again. |
 | "Only literal 127.0.0.1 with an explicit port, or an https host when net:ask is granted, is supported." | Make `servers` a single literal URL such as `http://127.0.0.1:8080`. |
 | "A staged generation is pending…" | Apply it with ⌥⏎ › **Apply staged generated API directory…**, or run **OpenAPI: Forget Completed Generation Stage**. |
 | "No exportable Spring, JAX-RS or Micronaut mappings found…" | The draft found no controllers it can read. |

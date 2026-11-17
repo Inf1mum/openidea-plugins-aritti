@@ -279,8 +279,18 @@ Settings › Plugins › Kube Explorer.
 | Report unknown top-level or spec keys | `checkKindSchema` | on | Unknown keys in built-in kinds (core, apps, batch, networking, rbac) and kinds their API group lacks. |
 | Hint at missing required keys | `checkRequiredKeys` | on | Keys the API requires, such as `spec.containers`, `spec.template` or `roleRef`. |
 | Hint at invalid field values | `checkFieldValues` | on | Values that are not one the field accepts, such as `restartPolicy` or Service `type`, or not an integer or boolean where one is required. |
-
-The other settings turn individual checks on or off; all default to on: `checkDeprecatedApiVersions`, `checkDuplicateEnvNames`, `checkMissingName`, `checkMissingSelector`, `checkReadOnlyFields`, `checkDeprecatedKeys`, `checkChartKeys`, `checkChartSchema`, `checkHelmWhitespaceTrim`, `checkHelmExcessiveTrim`, `checkHelmValues` and `checkHelmIncludes`.
+| Report removed or deprecated apiVersions (extensions/v1beta1, batch/v1beta1, ...) | `checkDeprecatedApiVersions` | on | Flags `apiVersion` values the API no longer serves or has deprecated. |
+| Report an env variable defined twice in one container | `checkDuplicateEnvNames` | on | Flags an environment variable declared twice in one container. |
+| Report a built-in resource without metadata.name or generateName | `checkMissingName` | on | Flags a built-in resource with neither `metadata.name` nor `generateName`. |
+| Report a Deployment, StatefulSet, DaemonSet or ReplicaSet without spec.selector | `checkMissingSelector` | on | Flags workloads without `spec.selector`. |
+| Report Helm whitespace trim markers written without a space ({{-foo, foo-}}) | `checkHelmWhitespaceTrim` | on | Flags `{{-foo` and `foo-}}` trim markers written without a space. |
+| Report unknown Chart.yaml keys and invalid apiVersion, type, deprecated or version values | `checkChartSchema` | on | Flags unknown `Chart.yaml` keys and invalid `apiVersion`, `type`, `deprecated` or `version` values. |
+| Report a Helm trim marker on an output that joins it to a neighbouring YAML line | `checkHelmExcessiveTrim` | on | Flags a trim marker that joins an output to a neighbouring YAML line. |
+| Hint at fields the API server owns (status, metadata.uid, resourceVersion, ...) in a manifest | `checkReadOnlyFields` | on | Hints at fields the API server owns, such as `status`, `metadata.uid` and `resourceVersion`. |
+| Report deprecated or removed keys (spec.serviceAccount, spec.rollbackTo, the ingress.class annotation, ...) | `checkDeprecatedKeys` | on | Flags deprecated or removed keys, such as `spec.serviceAccount`. |
+| Hint at a .Values path in a chart template that values.yaml does not define | `checkHelmValues` | on | Hints at a `.Values` path that `values.yaml` does not define. |
+| Report an include or template of a name that no define in the chart's templates provides | `checkHelmIncludes` | on | Flags an `include` or `template` of a name that no `define` in the chart provides. |
+| Report a Chart.yaml without apiVersion, name or version | `checkChartKeys` | on | Flags a `Chart.yaml` without `apiVersion`, `name` or `version`. |
 
 ## Permissions
 
@@ -315,7 +325,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *The open file is not in a Helm chart…* | Open a file inside a folder with a `Chart.yaml` (or below one). |
 | Chart.yaml alias/URL quick fixes are missing | Run **Kube Explorer: Read Helm Repositories for Chart.yaml Quick Fixes** once. |
 | *Helm dependency search failed; run Update Helm Repositories…* | Run **Kube Explorer: Update Helm Repositories**, then read the catalog again. |
-| *Allow editor changes for Kube Explorer in Settings › Plugins to reload a manifest.* | Allow `editor.write`. |
+| *Reloading a manifest needs the editor.write permission. Allow it in Settings › Plugins › Kube Explorer.* | Allow `editor.write`. |
 | *Allow the optional clipboard capability to copy the shown lines.* | Allow `clipboard`. |
 | *Project access is unavailable…* | Allow `project.read`. Kubernetes also works in a window with no open project. |
 | *At most 16 private editor leases…* | Run **Kube Explorer: Retire Private YAML Editor** on copies you no longer need. |

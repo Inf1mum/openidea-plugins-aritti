@@ -245,7 +245,7 @@ The token is added to requests by the IDE; the plugin never reads it ([how token
 | "GitLab rejected the access token." (401) | The token is wrong, expired or missing `api` / `read_user`. Make a new one. Check **GitLab.com account slot** points at the token you set. |
 | "The repository has no remote on the configured GitLab server." | Add a remote on gitlab.com, or set **GitLab server** to match your remote. Plain-HTTP servers aren't supported. |
 | A self-hosted server isn't used | The value must be an HTTPS URL; an invalid value falls back to gitlab.com. Approve the host when asked (revocable in Settings › Plugins). |
-| "Allow git for GitLab in Settings › Plugins…" | Allow `process:git`. |
+| "Checking out a branch needs the process:git permission. Allow it in Settings › Plugins › GitLab." (or "Adding a worktree needs…") | Allow `process:git`. |
 | "This checkout profile is qualified for official glab 1.130.0…" | Install glab 1.130.0, sign in to glab itself, and allow `process:glab`. |
 | "The commit list is off" / "The pipeline view is off" | Turn on `commitsView` / `pipelineView` in Settings › Plugins › GitLab. |
 | "Select a merge request in the GitLab window." | Select one in the **GitLab** tab first. |

@@ -135,7 +135,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Boot**; bind 
 
 ## Settings
 
-Settings › Plugins › *Spring Boot*. All are on/off switches.
+Settings › Plugins › *Spring Boot Tools*. All are on/off switches.
 
 **Java Source Checks** page:
 

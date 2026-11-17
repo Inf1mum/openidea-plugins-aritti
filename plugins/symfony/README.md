@@ -195,7 +195,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys
 | **Symfony: Go to Template…** | Opens a Twig template. | none |
 | **Symfony: Find Source Occurrences** | Lists literal references to the route, service or template at the caret. | none |
 | **Symfony: Extend Twig Template…** | Inserts an `extends` tag in the open template. Also in the editor context menu. | none |
-| **Symfony: Create Twig Template…** | Creates the template directly after you confirm (not a single undo step). On a quoted reference it runs **Create missing Twig template…**; otherwise it asks for a name and creates an empty `templates/<name>`. | none |
+| **Symfony: Create Twig Template…** | Creates the template directly after you confirm (not a single undo step). On a quoted reference it runs **Create missing Twig template…**; otherwise, or without `editor.read`, it asks for a name and creates an empty `templates/<name>`. The name must end in `.twig` and cannot start with `/` or contain `..`, `\` or empty parts. | none |
 | **Symfony: Insert Form Rows from a Form Type…** | Inserts `form_start`, one `form_row` per field and `form_end` at the caret. | none |
 | **Symfony: Copy Route as curl** | Copies the selected route row as a `curl` command. | none |
 | **Symfony: Create HTTP Request File for Route** | Writes `http/<verb>-<path>.http` for the selected route row. | none |
@@ -247,7 +247,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sy
 | `project.write` | **Create HTTP Request File** and **Symfony: Create Twig Template…**. | The request is copied instead; the template command says which permission to allow. ⌥⏎ still creates templates. |
 | `clipboard` | **Copy as curl**. | Nothing is copied. |
 | `events` | Refreshing cross-file problems and the index when files are opened, saved or changed. | Cross-file problems don't refresh on open or save; use **Reindex**. Live checks on the open file still work. |
-| `editor.read`, `editor.write` | **Symfony: Extend Twig Template…**, inserting form rows and reading the caret for **Symfony: Create Twig Template…**. | Those commands fail. |
+| `editor.read`, `editor.write` | **Symfony: Extend Twig Template…**, inserting form rows and reading the caret for **Symfony: Create Twig Template…**. | **Extend Twig Template…** and the form rows fail; **Create Twig Template…** asks for a name instead. |
 | `storage` | Saving **Twig Namespace Paths**. | The tab shows an error and can't save. |
 
 ## Troubleshooting
@@ -259,9 +259,9 @@ See also the [repository guide](../../README.md#troubleshooting).
 | The tool window says "This project is not a Symfony application." | Add `symfony.lock`, or require `symfony/framework-bundle` in `composer.json`. Then click **Reindex**. |
 | "Symfony source settings changed. Reindex to refresh cached facts." | Click **Reindex**. |
 | Bundle routes or services aren't completed, or missing-route checks never fire | Run **Symfony: Warm Up Cache** so `var/cache/dev` exists. |
-| "Allow the process:php capability in Settings › Plugins." | Allow `process:php` for Symfony. Check that `php` is on the `PATH` the IDE sees. |
+| "Running PHP needs the process:php permission. Allow it in Settings › Plugins › Symfony, and make sure php is on your PATH." | Allow `process:php` for Symfony. Check that `php` is on the `PATH` the IDE sees. |
 | "bin/console cache:warmup failed: …" | Read the last lines shown. Fix the error in your app, then run it again. |
-| "No console commands found. Allow process:php in Settings › Plugins or define a command in the project." | Allow `process:php`, or add a command class. |
+| "No console commands found. Allow process:php in Settings › Plugins › Symfony or define a command in the project." | Allow `process:php`, or add a command class. |
 | Twig files get no completion | Install the `aritti.twig` plugin. |
 | Attribute completion doesn't appear | Press the completion shortcut inside the attribute. |
 | A check doesn't fire | The name may be dynamic, from `vendor/`, or not indexed yet. Check the group switch in Settings. |

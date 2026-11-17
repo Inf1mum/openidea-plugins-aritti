@@ -352,7 +352,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | Nothing completes and the tool window is empty | The project must have an `artisan` file or require `laravel/framework`. Run **Laravel: Reindex Project**. |
 | "This project is not a Laravel application." / "Open a Laravel project first." | Open the folder that holds `artisan` or the `composer.json` requiring `laravel/framework`. |
-| "Allow the process:php capability in Settings › Plugins." | Allow `process:php` in Settings › Plugins › *Laravel*. Check that `php` is on the `PATH` the IDE sees. |
+| "Running PHP needs the process:php permission. Allow it in Settings › Plugins › Laravel, and make sure php is on your PATH." (or "Running artisan needs the process:<program> permission…") | Allow `process:php` in Settings › Plugins › *Laravel*. Check that `php` is on the `PATH` the IDE sees. |
 | The Artisan tab shows no commands | Run **Laravel: Refresh Artisan Command Metadata**. Run it again after `composer.json` or `composer.lock` changes. |
 | "Refresh Artisan command metadata to configure …" | Same as above, then run the command again. |
 | "Laravel route index is incomplete; reindex before searching." | Run **Laravel: Reindex Project**. Very large projects may hit the 5,000-file scan cap. |

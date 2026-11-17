@@ -98,7 +98,7 @@ It never touches the database itself.
 
 For teams that want to start, stop or inspect jobs from the IDE through an exact Spring Batch distribution:
 
-1. In Settings › Plugins › Spring Structure, set **Optional Batch CLI profile** to `runner-5.2.6` or `operator-6.0.6`.
+1. In Settings › Plugins › Spring Structure Tools, set **Optional Batch CLI profile** to `runner-5.2.6` or `operator-6.0.6`.
 2. Fill **Batch classpath** (one project-relative directory or JAR per line), the context class and its source file.
 3. Allow `process:java`.
 4. Run **Spring Batch: Validate Configured CLI Profile**.
@@ -137,7 +137,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Integration**
 
 ## Settings
 
-Settings › Plugins › Spring Structure.
+Settings › Plugins › Spring Structure Tools.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
@@ -173,7 +173,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Automatic source updates unavailable; use Refresh after source changes" | Allow `events`, or click **Refresh** after you edit files. |
 | No warnings for unused channels or unknown beans | They appear only after the first full project scan. Open **Spring Structure** or click **Refresh**. |
 | A channel shows "defined in N contexts" | The name is declared in several unrelated Spring contexts. Navigation lists them all instead of guessing. |
-| "Allow the clipboard … to copy the module diagram." | Allow `clipboard` in Settings › Plugins › Spring Structure Tools. |
+| "Copying the module diagram needs the clipboard permission. Allow it in Settings › Plugins › Spring Structure Tools." | Allow `clipboard` in Settings › Plugins › Spring Structure Tools. |
 | "No literal Batch job name is proved in this project's source." | Define the job with a literal name (XML `<job id>` or a Spring `JobBuilder` with a string literal). |
 | "The JAR does not exist in this project." | Build the JAR first, then enter its project-relative path. |
 | "Configure an optional Spring Batch runtime profile, explicit classpath, context and source before operating jobs." | Fill the four CLI settings above. |

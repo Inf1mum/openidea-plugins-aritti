@@ -71,7 +71,7 @@ Open logs pick up a change when you edit or reopen them.
 ### Highlight text you're looking for
 
 - Select text on one line, right-click and choose **Ideolog: Highlight Selection**. It becomes an escaped highlighting rule.
-- **Ideolog: Remove Custom Highlightings** deletes all of them.
+- **Ideolog: Remove Custom Highlightings** deletes all of them after you confirm.
 
 ### Review a log as a table
 
@@ -119,7 +119,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ideolog**; bind keys
 | **Ideolog: Extend Log Selection** | Grows the selection: field, line, event, document. | none |
 | **Ideolog: Custom Formats and Highlighting** | Opens the patterns view. | none |
 | **Ideolog: Highlight Selection** | Adds the selected text as a highlighting rule. Also in the editor context menu. | none |
-| **Ideolog: Remove Custom Highlightings** | Deletes all highlighting rules. | none |
+| **Ideolog: Remove Custom Highlightings** | Asks for confirmation, then deletes all highlighting rules. | none |
 | **Ideolog: Capture Active Log Snapshot** | Captures the focused log into the **Log Snapshot** tab. | none |
 | **Ideolog: Open Captured Log Snapshot** | Reopens the last snapshot. | none |
 | **Ideolog: Mark Current Log Source** | Paints errors, warnings and gaps in the built-in **Log** editor. | none |

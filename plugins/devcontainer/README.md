@@ -177,7 +177,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | *No .devcontainer/devcontainer.json, .devcontainer.json or .devcontainer/&lt;name&gt;/devcontainer.json found in this project…* | Create a configuration (⌥⏎ in a JSON file), or set **Configuration file** in the settings. Files ignored by the project are not discovered; set them in the setting. |
-| The **Dev Containers** view says *Allow the docker permission in Settings > Plugins to list the containers.* | Allow `process:docker` in Settings › Plugins › *Dev Container CLI*, then click **Refresh**. |
+| The **Dev Containers** view says *Listing containers needs the process:docker permission. Allow it in Settings › Plugins › Dev Container CLI.* | Allow `process:docker` in Settings › Plugins › *Dev Container CLI*, then click **Refresh**. |
 | The view is empty | Only containers started from this folder show. Start one with **Dev Container: Start Container**. |
 | *This container is stopped. Refresh Services before opening a shell.* | Click **Refresh** in the view, then **Start** the container. |
 | *No running container for this project.* | Start the container first. |

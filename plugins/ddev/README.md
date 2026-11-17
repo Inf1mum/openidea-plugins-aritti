@@ -181,7 +181,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| *DDEV runtime is unavailable…* or *DDEV runtime details are unavailable…* | Allow `process:ddev` in Settings › Plugins › *DDEV Integration*. Check DDEV is installed and Docker is running. Then click **Refresh Status**. |
+| *DDEV runtime is unavailable…* or *Reading DDEV runtime details needs the process:ddev permission…* | Allow `process:ddev` in Settings › Plugins › *DDEV Integration*. Check DDEV is installed and Docker is running. Then click **Refresh Status**. |
 | *No .ddev/config.yaml in the project root. Run DDEV: Configure Project first.* | Open the folder that contains `.ddev/config.yaml`, or run **DDEV: Configure Project**. Only the project root is read. |
 | A command is missing from Search Everywhere | It doesn't fit the current state (for example the project is stopped). Click **Refresh Status** after changing DDEV outside the IDE. |
 | *Start the DDEV project before running container tools.* | Run **DDEV: Start** first. Composer, PHP and Node.js need a running project. |

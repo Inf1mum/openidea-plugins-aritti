@@ -120,7 +120,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Data**; bind 
 
 ## Settings
 
-Settings › Plugins › Spring Data. All are on by default.
+Settings › Plugins › Spring Data Tools. All are on by default.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
@@ -136,7 +136,7 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 | Permission | Used for | Without it |
 |---|---|---|
 | `events` | Keeping the plugin's view of your sources fresh when files change. | Completion and navigation still work. Warnings that something doesn't exist (unknown property, unknown field) stay off, because the plugin can't be sure its view is complete. |
-| `editor.read` | Reading the open file and caret for **Show Repository Inherited Members**. | The command stops with "Grant the editor.read capability to show inherited members." |
+| `editor.read` | Reading the open file and caret for **Show Repository Inherited Members**. | The command stops with "Showing inherited members needs the editor.read permission." |
 
 ## Troubleshooting
 
@@ -144,7 +144,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| "Grant the editor.read capability to show inherited members." | Allow `editor.read` in Settings › Plugins › Spring Data Tools. |
+| "Showing inherited members needs the editor.read permission. Allow it in Settings › Plugins › Spring Data Tools." | Allow `editor.read` in Settings › Plugins › Spring Data Tools. |
 | "Open a repository interface first." | Open the repository file in the editor, then run the command again. |
 | "Put the caret in a Spring Data repository interface." | Click inside the interface declaration, then run the command again. |
 | "… extends no repository interface known to this plugin." | The repository extends a custom parent interface. Only Spring Data's own interfaces are listed. |

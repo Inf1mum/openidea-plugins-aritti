@@ -151,10 +151,10 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh…" | Start the app, then click **Refresh**. |
 | "Could not reach requested Actuator URL …" | Check the app is running and **Actuator base URL** matches its port and base path. |
 | "Spring Runtime only reads applications running on this machine…" | Set **Actuator base URL** to `http://localhost:<port>/actuator`, without credentials, query or fragment. |
-| "net:localhost is not granted…" | Allow `net:localhost` (or `net:127.0.0.1`, matching your URL) in Settings › Plugins › Spring Runtime Insight. |
+| "Refreshing the runtime snapshot needs the net:localhost permission. Allow it in Settings › Plugins › Spring Runtime Insight." | Allow `net:localhost` (or `net:127.0.0.1`, matching your URL) in Settings › Plugins › Spring Runtime Insight. |
 | "needs authentication: check actuatorAuth and the actuator-token secret" | Set **Actuator authentication** and the **Actuator token** secret. |
 | "The actuator-token secret needs the secrets permission…" | Allow `secrets`, or set **Actuator authentication** to `none`. |
-| "Set the actuator-token secret in Settings › Plugins, or set actuatorAuth to none." | Store the token, or switch auth to `none`. |
+| "Set the actuator-token secret in Settings › Plugins › Spring Runtime Insight, or set actuatorAuth to none." | Store the token, or switch auth to `none`. |
 | An endpoint is listed as not available | Add it to `management.endpoints.web.exposure.include`. The other endpoints are still read. |
 | "No supported Actuator endpoint payload at …" | Check exposure and that the app runs Spring Boot 2.x or 3.x. |
 | "Refresh lost previously available endpoints: … Previous snapshot retained; Clear first if endpoint removal was intentional." | If you removed an endpoint on purpose, run **Spring Runtime: Clear**, then refresh. |

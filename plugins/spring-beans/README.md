@@ -182,7 +182,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring**; bind keys 
 
 ## Settings
 
-Settings › Plugins › Spring Beans. Every setting is an on/off switch.
+Settings › Plugins › Spring Beans Navigator. Every setting is an on/off switch.
 
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
@@ -205,7 +205,7 @@ Long titles are shortened here with "…"; the full text is in Settings and in `
 
 ## Permissions
 
-Optional permissions are off until you allow them in Settings › Plugins › Spring Beans.
+Optional permissions are off until you allow them in Settings › Plugins › Spring Beans Navigator.
 
 | Permission | Used for | Without it |
 |---|---|---|
@@ -222,12 +222,12 @@ See also the [repository guide](../../README.md#troubleshooting).
 | **Spring Beans** says "Source cache cold; Refresh to index this project." | Click **Refresh**. |
 | It says the scan is pending, stale or incomplete | Click **Refresh** again until it says the cache is ready. Large projects take several passes. |
 | It says "Source files unavailable/oversized/unsupported XML or source cache budget reached" | Some files are too large or are not valid Spring XML. Other beans still show. See the limits under Technical details. |
-| "Project identity is unavailable. Allow project.read…" | Check that the plugin is enabled and has its required permissions in Settings › Plugins › Spring Beans. |
+| "Project identity is unavailable." | Check that the plugin is enabled and has its required permissions in Settings › Plugins › Spring Beans Navigator. |
 | **Report** says "Run Check Spring Configuration or Dump Spring Configuration…" | Run one of those commands from the Tools menu. Reports belong to the project they ran on. |
 | A result says "partial source check" | The scan hadn't finished. Click **Refresh** in **Spring Beans**, then run the check again. |
-| "Allow editor changes for Spring Beans in Settings › Plugins to add code." | Allow `editor.write` in Settings › Plugins › Spring Beans. |
+| "Adding code needs the editor.write permission. Allow it in Settings › Plugins › Spring Beans Navigator." | Allow `editor.write`. |
 | **Change Active Spring Profiles** says "No profiles found…" | Add a `@Profile`, a `<beans profile>` or an `application-<profile>.yml`/`.properties` file. |
-| **Change Active Spring Profiles** fails to save | Allow `storage` in Settings › Plugins › Spring Beans. |
+| **Change Active Spring Profiles** fails to save | Allow `storage` in Settings › Plugins › Spring Beans Navigator. |
 | A **Generate …** command says "Open a Java class first." or "The open file has no class to add to." | Put the caret in a Java class inside the project. |
 | ⌥⏎ › **Use constructor injection** isn't offered | It isn't offered when the class has several constructors, `@Autowired` setters or a body the plugin can't parse. |
 | The gutter lists a bean that wouldn't be active | Beans from libraries and most `@ConditionalOn…` conditions aren't evaluated. Check the bean's conditions yourself. |

@@ -189,8 +189,8 @@ Creating and renaming files needs no permission.
 | Problem | What to do |
 |---|---|
 | "No Flyway migrations found in …" | Set **Migration locations** in Settings › Plugins › Flyway Migrations. `src/test/resources` is not searched. |
-| "Allow running flyway (or mvn) for Flyway Migrations…" | Allow `process:flyway` or `process:mvn` in Settings › Plugins › Flyway Migrations. |
-| "Next migration: … Allow the clipboard…" | Allow `clipboard`, or copy the name from the notification. |
+| "Running Flyway needs the process:flyway permission. Allow it in Settings › Plugins › Flyway Migrations." | Allow `process:flyway` or `process:mvn` in Settings › Plugins › Flyway Migrations. |
+| "Next migration: … Copying it needs the clipboard permission…" | Allow `clipboard`, or copy the name from the notification. |
 | "Flyway info did not return JSON" | Check **Extra arguments** and use Flyway 10 or newer. |
 | The **Flyway** tab says there is no Info result | Press **Refresh…**. The list only fills after an explicit Info run. |
 | The **Command Output** tab says there is no output | Run a Flyway command first. In managed mode, press **Refresh Status** to read new output. |

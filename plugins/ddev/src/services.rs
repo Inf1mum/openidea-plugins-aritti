@@ -219,7 +219,7 @@ impl Details for Main {
                     tabs.push(Tab::new("database", "Database", Pane::Text(summary)));
                 }
             }
-            Err(e) => tabs.push(Tab::new("overview","Overview",Pane::Text(format!("DDEV runtime is unavailable: {e}\n\n{} Also check Docker. Configuration can still be read and edited.", ui_kit::denied::message("DDEV runtime details", "process:ddev", "DDEV Integration"))))),
+            Err(e) => tabs.push(Tab::new("overview","Overview",Pane::Text(format!("DDEV runtime is unavailable: {e}\n\n{} Also check Docker. Configuration can still be read and edited.", ui_kit::denied::message("Reading DDEV runtime details", "process:ddev", "DDEV Integration"))))),
         }
         if key == PROJECT {
             let config = match project.read_file(crate::CONFIG) {

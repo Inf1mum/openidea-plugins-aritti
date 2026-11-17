@@ -159,7 +159,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | Windows or completions appear twice | Uninstall `aritti.spring-websocket`, `aritti.spring-messaging`, `aritti.spring-graphql`, `aritti.spring-webflow` and `aritti.spring-cloud`. |
 | The HTTP section says "No routes found in this project." | Routes need literal paths in a `@Controller`/`@RestController`, or functional routes. Paths built from constants, concatenation or `${…}` are not read. Check the root build file mentions Spring. |
-| "Copying the curl command needs the clipboard capability." | Allow `clipboard` in Settings › Plugins › Spring Endpoints Tools. |
+| "Copy as curl needs the clipboard permission. Allow it in Settings › Plugins › Spring Endpoints Tools." | Allow `clipboard` in Settings › Plugins › Spring Endpoints Tools. |
 | **Create HTTP Request File** copies the request instead of creating a file | Allow `project.write`. |
 | "Spring route index is incomplete; refresh after indexing." | Wait for indexing to finish, then click **Refresh** in the window. |
 | "GraphQL schema index is incomplete; refresh before generating a request." | Wait for indexing, then try again. |
