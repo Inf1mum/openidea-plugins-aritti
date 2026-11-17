@@ -85,6 +85,8 @@ const TRACKERS: [Tracker; 11] = [
 pub struct Fetched {
     pub issues: Vec<Task>,
     pub errors: Vec<String>,
+    /// Errors that are a denied permission.
+    pub denied: usize,
     pub trackers: usize,
     pub failed_trackers: Vec<String>,
 }
@@ -94,9 +96,7 @@ pub fn fetch_all(scope: &Scope) -> Fetched {
     let mut fetched = Fetched::default();
 
     for tracker in &TRACKERS {
-        // Approved external credential bridges run only inside explicit Search Issues.
-        if matches!(tracker.id,"fogbugz"|"redmine"|"mantis"|"generic") { continue; }
-        if !tracker.secrets.iter().all(|s| host::secret_is_set(s)) {
+        if !updates_automatically(tracker) {
             continue;
         }
 
@@ -105,6 +105,7 @@ pub fn fetch_all(scope: &Scope) -> Fetched {
         match (tracker.fetch)(tracker, scope) {
             Ok(issues) => fetched.issues.extend(issues),
             Err(e) => {
+                fetched.denied += usize::from(matches!(e, Error::Denied(_)));
                 fetched.errors.push(format!("{}: {e}", tracker.name));
                 fetched.failed_trackers.push(tracker.id.to_owned());
             }
@@ -124,6 +125,16 @@ pub fn same_issue(issue: &Task, task: &Task) -> bool {
     issue.tracker.as_deref() == Some("github")
         && issue.api == task.api
         && issue.id.split_once('/').is_some_and(|(_, legacy)| legacy == task.id)
+}
+
+/// Approved external credential bridges run only inside explicit Search Issues.
+fn updates_automatically(tracker: &Tracker) -> bool {
+    !matches!(tracker.id, "fogbugz" | "redmine" | "mantis" | "generic") && tracker.secrets.iter().all(|s| host::secret_is_set(s))
+}
+
+/// Whether some tracker has the credentials Update Issues needs.
+pub fn any_configured() -> bool {
+    TRACKERS.iter().any(updates_automatically)
 }
 
 pub fn is_repository_tracker(id: &str) -> bool {

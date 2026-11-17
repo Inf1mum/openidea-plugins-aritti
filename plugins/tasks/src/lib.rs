@@ -14,7 +14,7 @@ mod state;
 mod trackers;
 mod view_scope;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
@@ -327,7 +327,7 @@ impl Views for Tasks {
             }
 
             if tasks.pending_issues().next().is_none() {
-                let hint = "No issues (trackers are set up in Settings › Plugins › Tasks)";
+                let hint = no_issues_hint(&root);
                 items.push(TreeItem::new("no-issues", hint).parent("issues").icon("info"));
             }
 
@@ -461,7 +461,7 @@ impl Tasks {
                 }
 
                 if let Some((branch, base)) = task.and_then(|t| Some((t.branch.as_ref()?, t.base_branch.as_ref()?))).filter(|_| self.git) {
-                    let label = format!("Merge branch {branch} into {base}");
+                    let label = format!("Merge branch {branch} into {base}, then delete {branch}");
                     fields.push(checkbox("merge_branch", &label, self.choices.merge_branch));
                 }
 
@@ -834,7 +834,10 @@ impl Tasks {
         let mut warnings = Vec::new();
 
         if choices.update_state && trackers::can_update_state(&task) {
-            note(&mut warnings, trackers::close_issue(&task));
+            match trackers::close_issue(&task) {
+                Err(Error::Denied(_)) => warnings.push(format!("The issue state was not updated: allow network access to {} in Settings › Plugins › Tasks.", trackers::name(&task))),
+                result => note(&mut warnings, result),
+            }
         }
 
         if tasks.active == id {
@@ -846,7 +849,10 @@ impl Tasks {
         }
 
         update(&root, |tasks, _| tasks.close(id))?;
-        warn(&format!("Closed {}, but some steps failed", task.id), &warnings);
+        match warnings.is_empty() {
+            true => host::notify(NotificationLevel::Info, "Task closed", &format!("Closed {}", task.label())),
+            false => warn(&format!("Closed {}, but some steps failed", task.id), &warnings),
+        }
 
         Ok(())
     }
@@ -1091,6 +1097,22 @@ fn remove_repository(project: &Project, tasks: &TaskList) -> Result<(), Error> {
     refresh_issues(project, false)
 }
 
+thread_local! {
+    /// Why the last issue update of a project root loaded nothing, when every tracker failed.
+    static ISSUE_FAILURES: std::cell::RefCell<BTreeMap<String, &'static str>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The text of the Issues group's placeholder row.
+fn no_issues_hint(root: &str) -> &'static str {
+    if let Some(failure) = ISSUE_FAILURES.with_borrow(|failures| failures.get(root).copied()) {
+        return failure;
+    }
+    if !trackers::any_configured() {
+        return "No issue tracker set up: add a tracker token in Settings › Plugins › Tasks";
+    }
+    "No open issues"
+}
+
 /// `quiet`: problems go to the log instead of a notification.
 fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
     let root = project.root()?;
@@ -1098,13 +1120,14 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
     let remotes = project.vcs_remotes().unwrap_or_default();
     let repositories = load(&root)?.repositories;
     let fetched = trackers::fetch_all(&trackers::Scope { remotes: &remotes, query: None, page: 1, repositories: &repositories });
+    ISSUE_FAILURES.with_borrow_mut(|failures| failures.remove(&root));
 
     if fetched.trackers == 0 {
         if !quiet {
             host::notify(
                 NotificationLevel::Info,
                 "No issue tracker set up",
-                "Enter a GitHub, GitLab, Codeberg, YouTrack, Jira or Trello token in Settings › Plugins › Tasks.",
+                "Add a tracker token in Settings › Plugins › Tasks. Trackers that use a credential profile are searched with Search Issues.",
             );
         }
         return Ok(());
@@ -1119,6 +1142,11 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
 
     // Offline (every tracker failed): keep the earlier issues rather than emptying the list.
     if fetched.errors.len() == fetched.trackers {
+        let failure = match fetched.denied == fetched.trackers {
+            true => "Issues couldn't be loaded: network access is not allowed (Settings › Plugins › Tasks)",
+            false => "Issues couldn't be loaded: run Update Issues to see why",
+        };
+        ISSUE_FAILURES.with_borrow_mut(|failures| failures.insert(root.clone(), failure));
         return Ok(());
     }
 
@@ -1439,6 +1467,7 @@ mod tests {
         assert_eq!(tail, ["switch main", "switch main", "merge --no-edit Fix-login", "branch -d Fix-login"]);
         assert_eq!(host.status_items()[STATUS_ITEM].text, "Default task");
         assert!(load("/project").unwrap().choices.merge_branch);
+        assert!(host.notifications().iter().any(|n| n.body == "Closed Fix login page"));
     }
 
     #[test]
@@ -1510,6 +1539,22 @@ mod tests {
         let issue = items.iter().find(|i| i.key.ends_with(":issue:tool-12")).unwrap();
         assert_eq!(issue.detail.as_deref(), Some("GitHub"));
         assert!(!items.iter().any(|i| i.key.ends_with(":no-issues")));
+    }
+
+    #[test]
+    fn the_empty_issues_row_says_why_there_are_no_issues() {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "secrets"]);
+        let mut plugin = plugin(&host);
+        let hint = |plugin: &mut Tasks| {
+            let Body::Tree(items) = plugin.render(VIEW, None, &host.invocation()).unwrap().body else { panic!("not a tree") };
+            items.into_iter().find(|i| i.key.ends_with(":no-issues")).unwrap().label
+        };
+        assert!(hint(&mut plugin).starts_with("No issue tracker set up"));
+
+        host.set_secret("youtrack-token", "token");
+        host.set_setting("youtrackHost", "\"tenant.youtrack.cloud\"");
+        refresh_issues(&host.invocation().project().unwrap(), true).unwrap();
+        assert!(hint(&mut plugin).contains("network access is not allowed"));
     }
 
     #[test]

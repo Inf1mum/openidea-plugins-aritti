@@ -6,7 +6,7 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/tasks"
 license = "MIT"
 change-notes = """\
-Next release: Self-hosted YouTrack, Redmine, MantisBT, FogBugz, Lighthouse and custom REST trackers; Jira search accepts JQL with a jql: prefix, and issue descriptions show on hover and in task tabs; tracker credentials are sent only to the configured tracker server; an update where one tracker fails keeps that tracker's issues, GitHub issues from several repositories get distinct ids, and the commit template works in a repository with no commits; Open Task reveals the Tasks window when it needs its form, new commands and menu entries, clearer permission messages. \
+Next release: Unreleased: Closing a task says when it worked, the merge option says it also deletes the branch, a denied tracker update is reported, the empty Issues row tells whether no tracker is set up or loading failed, and the caret commands have shorter names. Self-hosted YouTrack, Redmine, MantisBT, FogBugz, Lighthouse and custom REST trackers; Jira search accepts JQL with a jql: prefix, and issue descriptions show on hover and in task tabs; tracker credentials are sent only to the configured tracker server; an update where one tracker fails keeps that tracker's issues, GitHub issues from several repositories get distinct ids, and the commit template works in a repository with no commits; Open Task reveals the Tasks window when it needs its form, new commands and menu entries, clearer permission messages. \
 0.3.0: more trackers and closed-issue search. \
 0.2.0: plugin icon and task tree."""
 categories = ["tools", "vcs"]
@@ -84,7 +84,7 @@ location = "left"
 [[contributes.statusBar]]
 id = "active-task"
 text = "Default task"
-tooltip = "Active task"
+tooltip = "Active task. Click to copy its commit message."
 command = "copy-commit-message"
 
 [[contributes.commands]]
@@ -192,30 +192,32 @@ languages = ["*"]
 
 [[contributes.commands]]
 id = "open-issue-at-caret"
-title = "Tasks: Open Cached Issue at Caret in Browser"
+title = "Tasks: Open Issue at Caret in Browser"
 category = "Tasks"
 
 [[contributes.commands]]
 id = "activate-issue-at-caret"
-title = "Tasks: Activate Cached Issue at Caret Locally (No VCS Changes)"
+title = "Tasks: Start Task for Issue at Caret (No Branch)"
 category = "Tasks"
 
 [[contributes.menus]]
 menu = "editor.context"
 command = "open-issue-at-caret"
+when = "editorFocus"
 
 [[contributes.menus]]
 menu = "editor.context"
 command = "activate-issue-at-caret"
+when = "editorFocus"
 
 [[contributes.commands]]
 id = "reset-project-state"
-title = "Tasks: Reset This Project’s Task State (Asks First)…"
+title = "Tasks: Reset Tasks for This Project…"
 category = "Tasks"
 
 [[contributes.commands]]
 id = "review-issue-branch-at-caret"
-title = "Tasks: Review Cached Issue Activation and Branch Options at Caret"
+title = "Tasks: Start Task with Branch for Issue at Caret…"
 category = "Tasks"
 
 [[contributes.secrets]]

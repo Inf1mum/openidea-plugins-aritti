@@ -101,7 +101,7 @@
     "selfHostedProfiles": {
       "type": "array",
       "title": "Approved self-hosted tracker credential profiles",
-      "description": "Nonsecret descriptors for explicit Redmine/Mantis/Generic searches through Python3. Credential JSON stays in an external0600 file.",
+      "description": "Nonsecret descriptors for explicit Redmine/Mantis/Generic searches through Python3. Credential JSON stays in an external file with mode 0600.",
       "maxItems": 16,
       "items": {
         "type": "object",
