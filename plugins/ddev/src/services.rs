@@ -37,8 +37,13 @@ impl Views for Main {
                     .icon("info").detail("Project access unavailable")]))
                     .status(&format!("Cannot read DDEV configuration: {error}"))),
             };
-            let result = self.description(&project).cloned();
-            let can_start = self.can_start(&project);
+            let cached = project
+                .root()
+                .is_ok_and(|root| self.snapshots.contains_key(&root));
+            let refreshing = cached && self.is_stale(&project);
+            let _task = (!cached).then(|| host::begin_task("Reading DDEV status", false));
+            let result = self.cached_description(&project).cloned();
+            let can_start = self.can_start_with(&project, false);
             let selected = self.selected.as_deref().unwrap_or(PROJECT);
             let desc = result.as_ref().ok();
             let state = desc.map_or(
@@ -98,6 +103,7 @@ impl Views for Main {
             let running = desc.is_some_and(|d| d.status == "running");
             let container = root || service.is_some_and(|s| s.logs);
             let status = match &result {
+                Ok(d) if refreshing => format!("{} — {} (refreshing)", d.name, d.status),
                 Ok(d) => format!("{} — {}", d.name, d.status),
                 Err(e) => format!("{state}: {e}. Configuration and Help remain available."),
             };
@@ -151,7 +157,18 @@ impl Views for Main {
                 let _ = host::storage::set(&format!("selection:{}", project.root()?), &key);
             }
             ViewEvent::Activate(key) => {
-                self.run_command("open-service", ctx, Some(&key))?;
+                let project = ctx.project().ok_or("Open a project to use DDEV.")?;
+                let Ok(desc) = self.cached_description(&project) else {
+                    return Ok(());
+                };
+                let url = if key == PROJECT {
+                    desc.url.as_ref()
+                } else {
+                    desc.service(&key).and_then(|s| s.url.as_ref())
+                };
+                if url.is_some() && runtime::allowed(desc, "open-service") {
+                    self.run_command("open-service", ctx, Some(&key))?;
+                }
             }
             ViewEvent::Button(id) => {
                 let key = if matches!(id.as_str(), "refresh" | "start" | "restart" | "stop" | "actions" | "open-config" | "config") {
@@ -181,7 +198,11 @@ impl Details for Main {
             return Ok(vec![Tab::new("overview", "Overview", Pane::Message(message.into()))]);
         }
         let project = ctx.project().ok_or("Open a project to use DDEV.")?;
-        let result = self.description(&project).cloned();
+        let cached = project
+            .root()
+            .is_ok_and(|root| self.snapshots.contains_key(&root));
+        let _task = (!cached).then(|| host::begin_task("Reading DDEV status", false));
+        let result = self.cached_description(&project).cloned();
         if key != PROJECT {
             let desc = result.as_ref().map_err(|e| Error::from(e.to_string()))?;
             if desc.service(key).is_none() {
