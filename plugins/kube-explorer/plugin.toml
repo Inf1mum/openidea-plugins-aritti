@@ -33,12 +33,12 @@ web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "import-pasted-kubeconfig"
-title = "Kube Explorer: Import Kubeconfig Privately…"
+title = "Kube Explorer: Import Pasted Kubeconfig…"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "review-imported-kubeconfigs"
-title = "Kube Explorer: Review Imported Kubeconfigs…"
+title = "Kube Explorer: Show Imported Kubeconfigs"
 category = "Kube Explorer"
 
 [[contributes.menus]]
@@ -534,37 +534,37 @@ when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind 
 [[contributes.commands]]
 id = "cache-cluster-namespaces"
 title = "Kube Explorer: Read Cluster Namespaces for Completion"
-category = "Kubernetes"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "watch-resources"
-title = "Kube Explorer: Watch Resources…"
-category = "Kubernetes"
+title = "Kube Explorer: Start Resource Watch…"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "open-resource-watch"
-title = "Kube Explorer: Open Resource Watch"
-category = "Kubernetes"
+title = "Kube Explorer: Show Resource Watch"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "review-private-yaml"
 title = "Kube Explorer: Review Private YAML Apply…"
-category = "Kubernetes"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "apply-reviewed-private-yaml"
 title = "Kube Explorer: Apply Reviewed Private YAML"
-category = "Kubernetes"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "retire-private-yaml"
 title = "Kube Explorer: Retire Private YAML Editor"
-category = "Kubernetes"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "cache-cluster-resources"
 title = "Kube Explorer: Read Cluster Resource Names for Completion…"
-category = "Kubernetes"
+category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "tree-switch"

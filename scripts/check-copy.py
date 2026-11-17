@@ -13,6 +13,10 @@ ALLOWED_EXTRA_PREFIXES: dict[str, set[str]] = {
     "spring-integration": {"Spring Batch", "Spring Integration", "Spring Modulith"},
 }
 
+ALLOWED_EXTRA_CATEGORIES: dict[str, set[str]] = {
+    "spring-integration": {"Spring Batch", "Spring Integration", "Spring Modulith"},
+}
+
 WORDS = r"at most|up to|exceeds|than|max|the|Java|Quarkus|provisioned|within|its|most|to|of|about|or|depth|Python"
 UNITS = {"KiB", "MiB", "GiB", "TiB", "KB", "MB", "GB", "TB"}
 GLUED_WORD = re.compile(rf"\b(?:{WORDS})\d")
@@ -44,6 +48,15 @@ for toml in sorted(ROOT.glob("plugins/*/plugin.toml")):
             problems.append(f"{name}: command {c.get('id')!r} has no category")
         prefix = title.split(": ", 1)[0] if ": " in title else "(none)"
         prefixes.setdefault(prefix, []).append(title)
+    categories = {c.get("category") for c in commands if c.get("category")}
+    if len(categories - ALLOWED_EXTRA_CATEGORIES.get(name, set())) > 1:
+        problems.append(f"{name}: multiple command categories {sorted(categories)}")
+    titles: dict[str, list[str]] = {}
+    for c in commands:
+        titles.setdefault(c.get("title", ""), []).append(c.get("id", ""))
+    for title, ids in titles.items():
+        if len(ids) > 1:
+            problems.append(f"{name}: commands {ids} share the title {title!r}")
     allowed = ALLOWED_EXTRA_PREFIXES.get(name, set())
     found = {p for p in prefixes if p not in allowed}
     if len(found) > 1:

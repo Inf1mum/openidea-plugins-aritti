@@ -64,7 +64,7 @@ If the list can't load, a status row says why (no project, Docker not allowed or
 
 - **Dev Container: Show Background Output** opens the **Dev Container CLI Operations** view in Services.
 - Use **Refresh Status** to fetch new output.
-- Use **Cancel CLI / Close Handle** to stop the run, or to release a finished one.
+- Use **Cancel Command** to stop the run, or to release a finished one.
 - Only one run at a time per plugin. The view keeps the latest 64 KiB of output.
 
 ### Create a configuration
@@ -182,7 +182,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | *This container is stopped. Refresh Services before opening a shell.* | Click **Refresh** in the view, then **Start** the container. |
 | *No running container for this project.* | Start the container first. |
 | *The dev container is not running. Start it with Dev Container: Start first.* | Run **Dev Container: Start Container**, then register the Run Target again. |
-| *An owned CLI handle is still active or draining output…* | Run **Dev Container: Show Background Output**, then **Refresh Status** or **Cancel CLI / Close Handle**. |
+| *A background command is still running…* | Run **Dev Container: Show Background Output**, then **Refresh Status** or **Cancel Command**. |
 | *Prepared target expired. Prepare it again…* | Click **Register once** within 120 seconds of preparing. |
 | Feature completion is empty | Allow `storage` and `net:containers.dev`, then run **Dev Container: Refresh Feature List**. |
 | *"…" is not a repository URL.* | Enter a URL without spaces, such as `https://github.com/org/repo.git`. |

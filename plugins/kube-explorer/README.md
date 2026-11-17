@@ -101,11 +101,11 @@ Both modes bind to `127.0.0.1` only.
 
 ### Watch resources
 
-1. Right-click the cluster root › **Watch** › **Watch Resources…**, or run **Kube Explorer: Watch Resources…**.
+1. Right-click the cluster root › **Watch** › **Watch Resources…**, or run **Kube Explorer: Start Resource Watch…**.
 2. Pick Pods, Services or Deployments in the selected namespace and review the command.
 3. Click **Launch Reviewed Watch** within 60 seconds in the **Kubernetes Resource Watch** pane.
 
-The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop Owned Watch** or **Review Restart…**. Reopen it with **Kube Explorer: Open Resource Watch**. The initial list is marked **UNKNOWN** completeness, because the stream has no reliable end marker.
+The pane lists resources as changes arrive. Use **Refresh Watch Status**, **Stop Owned Watch** or **Review Restart…**. Reopen it with **Kube Explorer: Show Resource Watch**. The initial list is marked **UNKNOWN** completeness, because the stream has no reliable end marker.
 
 ### Run commands on the open file
 
@@ -178,13 +178,13 @@ To silence checks for YAML files that aren't Kubernetes (Compose files, CI files
 
 ### Import a kubeconfig privately
 
-**Kube Explorer: Import Kubeconfig Privately…** (Tools menu) stores a pasted kubeconfig context inside the plugin.
+**Kube Explorer: Import Pasted Kubeconfig…** (Tools menu) stores a pasted kubeconfig context inside the plugin.
 
 1. Paste the YAML or JSON.
 2. Enter a label and the context to keep.
 3. Check the redacted review and confirm.
 
-**Kube Explorer: Review Imported Kubeconfigs…** shows what's stored, without tokens or keys. Imported profiles are not activated, merged into your files, or listed in Choose Kubeconfig. This needs no project, no `kubectl` and no network.
+**Kube Explorer: Show Imported Kubeconfigs** shows what's stored, without tokens or keys. Imported profiles are not activated, merged into your files, or listed in Choose Kubeconfig. This needs no project, no `kubectl` and no network.
 
 ### Telepresence
 
@@ -227,10 +227,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Kube Explorer** or *
 | **Kube Explorer: Choose Kubeconfig** | Picks which configured kubeconfig file to use. | None |
 | **Kube Explorer: Customize Namespaces** | Chooses which namespaces the tree lists. | None |
 | **Kube Explorer: Edit Recent Debug Images** | Edits the recent images offered by **Debug…**. | None |
-| **Kube Explorer: Watch Resources…** | Prepares a watch of Pods, Services or Deployments. | None |
-| **Kube Explorer: Open Resource Watch** | Opens the watch pane. | None |
-| **Kube Explorer: Import Kubeconfig Privately…** (*Tools*) | Stores a pasted kubeconfig context privately. | None |
-| **Kube Explorer: Review Imported Kubeconfigs…** (*Tools*) | Shows imported profiles without secrets. | None |
+| **Kube Explorer: Start Resource Watch…** | Prepares a watch of Pods, Services or Deployments. | None |
+| **Kube Explorer: Show Resource Watch** | Opens the watch pane. | None |
+| **Kube Explorer: Import Pasted Kubeconfig…** (*Tools*) | Stores a pasted kubeconfig context privately. | None |
+| **Kube Explorer: Show Imported Kubeconfigs** (*Tools*) | Shows imported profiles without secrets. | None |
 | **Kube Explorer: How to Install kubectl** | Shows install instructions. | None |
 | **Kube Explorer: Telepresence Connect** | Runs `telepresence connect` in a terminal. | None |
 | **Kube Explorer: Telepresence Quit** | Runs `telepresence quit` in a terminal. | None |
@@ -260,8 +260,8 @@ These act on the selected row in Services › Kube Explorer.
 | **Watch Resources…** | Root › **Watch** | Prepares a resource watch. | None |
 | **Open Resource Watch** | Root › **Watch** | Opens the watch pane. | None |
 | **Choose Kubeconfig…** | Root › **Kubeconfig** | Picks the kubeconfig file. | None |
-| **Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as **Kube Explorer: Import Kubeconfig Privately…**. | None |
-| **Review Imported Kubeconfigs…** | Root › **Kubeconfig** | Same as **Kube Explorer: Review Imported Kubeconfigs…**. | None |
+| **Import Kubeconfig Privately…** | Root › **Kubeconfig** | Same as **Kube Explorer: Import Pasted Kubeconfig…**. | None |
+| **Review Imported Kubeconfigs…** | Root › **Kubeconfig** | Same as **Kube Explorer: Show Imported Kubeconfigs**. | None |
 
 ## Settings
 
