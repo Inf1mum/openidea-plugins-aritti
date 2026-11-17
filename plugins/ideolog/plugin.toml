@@ -6,7 +6,7 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 homepage = "https://github.com/arnaud-ritti/openidea-plugins/tree/main/plugins/ideolog"
 license = "MIT"
 change-notes = """\
-Next release: Live tail and patterns table for log files, and live tail no longer stops on the JVM's \"Picked up JAVA_TOOL_OPTIONS\" message; whole logs are coloured and folded, and changed custom patterns apply to open logs right away; custom timestamp formats such as hh:mm:ss a, and numeric level suffixes no longer show false errors; Jump to Source searches only source files, and unrelated file changes keep \"Mark Current Log Source\" marks; Remove Custom Highlightings asks first, with clearer messages and command names. \
+Next release: Highlight Selection and the log navigation commands now appear only in log files; large logs say in the status bar how much is highlighted; Remove Custom Highlightings asks first. Live tail and patterns table for log files, and live tail no longer stops on the JVM's \"Picked up JAVA_TOOL_OPTIONS\" message; whole logs are coloured and folded, and changed custom patterns apply to open logs right away; custom timestamp formats such as hh:mm:ss a, and numeric level suffixes no longer show false errors; Jump to Source searches only source files, and unrelated file changes keep \"Mark Current Log Source\" marks; Remove Custom Highlightings asks first, with clearer messages and command names. \
 0.3.0: new hub window with live tail. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "tools"]
@@ -53,7 +53,7 @@ category = "Ideolog"
 id = "highlight-selection"
 title = "Ideolog: Highlight Selection"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.commands]]
 id = "remove-highlightings"
@@ -64,37 +64,37 @@ category = "Ideolog"
 id = "jump-to-source"
 title = "Ideolog: Jump to Source"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.commands]]
 id = "next-error"
 title = "Ideolog: Go to Next Error"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.commands]]
 id = "next-warning"
 title = "Ideolog: Go to Next Warning"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.commands]]
 id = "next-exception"
 title = "Ideolog: Go to Next Exception"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.commands]]
 id = "next-entry"
 title = "Ideolog: Go to Next Entry"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.commands]]
 id = "previous-entry"
 title = "Ideolog: Go to Previous Entry"
 category = "Ideolog"
-when = "editorFocus"
+when = "editorFocus && (editorLangId == log || editorLangId == ideolog)"
 
 [[contributes.keymaps]]
 command = "jump-to-source"
@@ -107,6 +107,7 @@ key = "Shift+F7"
 [[contributes.menus]]
 menu = "editor.context"
 command = "highlight-selection"
+when = "editorLangId == log || editorLangId == ideolog"
 
 [[contributes.commands]]
 id = "capture-log"

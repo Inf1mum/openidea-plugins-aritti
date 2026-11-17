@@ -75,11 +75,27 @@ impl Ideolog {
         };
 
         let config = self.config();
-        let (text, tooltip) = match config.detect(head(&document.text)) {
-            Some(format) => (format!("Log: {}", format.name), "The log format Ideolog detected. Click to manage custom formats."),
-            None => ("Log: plain text".to_owned(), "No known log format matches this file. Click to add a custom format."),
+        let (mut text, mut tooltip) = match config.detect(head(&document.text)) {
+            Some(format) => (format!("Log: {}", format.name), "The log format Ideolog detected. Click to manage custom formats.".to_owned()),
+            None => ("Log: plain text".to_owned(), "No known log format matches this file. Click to add a custom format.".to_owned()),
         };
-        host::set_status_item(FORMAT_STATUS, &StatusItem { text, tooltip: Some(tooltip.into()), command: Some("patterns".into()) });
+        text.push_str(&highlight_limit_note(&editor.language(), &document.text));
+        if document.text.len() > MAX_DOCUMENT_BYTES {
+            tooltip.push_str(" Folding, outline and stack-frame links are off for logs over 512 KiB.");
+        }
+        host::set_status_item(FORMAT_STATUS, &StatusItem { text, tooltip: Some(tooltip), command: Some("patterns".into()) });
+    }
+}
+
+/// Status-bar suffix saying how much of a big log gets colours, empty when all of it does.
+fn highlight_limit_note(language: &str, text: &str) -> String {
+    let highlighted = if language == "log" { semantic::bounded_head(text) } else { head(text) };
+    if highlighted.len() == text.len() {
+        return String::new();
+    }
+    match highlighted.lines().count() {
+        0 => " (too large to highlight)".to_owned(),
+        lines => format!(" (first {lines} lines highlighted)"),
     }
 }
 
@@ -133,7 +149,12 @@ impl Ideolog {
 
         if id == "remove-highlightings" {
             let count = patterns::highlighting_count();
-            if count > 0 && !host::confirm("Remove Custom Highlightings", &format!("Remove all {count} custom highlighting rules?"))? {
+            if count == 0 {
+                host::notify(NotificationLevel::Info, "Ideolog", "There are no custom highlighting patterns to remove.");
+                return Ok(None);
+            }
+            let body = format!("Delete all {count} custom highlighting pattern(s)? Custom log formats are kept.");
+            if !host::confirm("Remove Custom Highlightings", &body)? {
                 return Ok(None);
             }
             let before = patterns::stored();
@@ -163,13 +184,13 @@ impl Ideolog {
         let config = self.config();
         match id {
             "jump-to-source" => jump_to_source(&config, ctx, &editor),
-            "next-error" => go_to(&config, &editor, "No error below the caret.", |events, at| {
+            "next-error" => go_to(&config, &editor, "No more errors below the caret.", |events, at| {
                 events.iter().skip(at + 1).find(|(_, severity, _)| *severity == Some(Severity::Error))
             }),
-            "next-warning" => go_to(&config, &editor, "No warning below the caret.", |events, at| {
+            "next-warning" => go_to(&config, &editor, "No more warnings below the caret.", |events, at| {
                 events.iter().skip(at + 1).find(|(_, severity, _)| *severity == Some(Severity::Warning))
             }),
-            "next-exception" => go_to(&config, &editor, "No exception below the caret.", |events, at| {
+            "next-exception" => go_to(&config, &editor, "No more exceptions below the caret.", |events, at| {
                 events.iter().skip(at + 1).find(|(_, _, exception)| *exception)
             }),
             "next-entry" => go_to(&config, &editor, "Already at the last log entry.", |events, at| events.get(at + 1)),
@@ -582,6 +603,20 @@ java.lang.IllegalStateException: boom
     }
 
     #[test]
+    fn status_item_says_when_a_big_log_is_only_partly_highlighted() {
+        let host = MockHost::install();
+        let mut plugin = Ideolog::default();
+        host.open_editor("/p/big.log", "log", &"INFO line\n".repeat(60_000), &[]);
+        plugin.handle_events(&[HostEvent::EditorFocused(None)], &host.invocation());
+        let text = &host.status_items()["format"].text;
+        assert!(text.starts_with("Log: plain text (first ") && text.ends_with(" lines highlighted)"), "{text}");
+
+        host.open_editor("/p/small.log", "log", "INFO line\n", &[]);
+        plugin.handle_events(&[HostEvent::EditorFocused(None)], &host.invocation());
+        assert_eq!(host.status_items()["format"].text, "Log: plain text");
+    }
+
+    #[test]
     fn patterns_view_adds_a_format_and_removes_it() {
         let host = MockHost::install();
         let mut plugin = Ideolog::default();
@@ -908,6 +943,9 @@ java.lang.IllegalStateException: boom
         let stored = patterns::stored();
         assert!(stored.contains("pattern=\"a\\.b\\(1\\)\""), "{stored}");
         assert!(stored.contains("HIGHLIGHT_MATCH"));
+        host.answer_next_prompt(None);
+        Ideolog::default().run_command("remove-highlightings", &host.invocation(), None).unwrap();
+        assert_eq!(patterns::stored(), stored, "dismissing the confirmation keeps the patterns");
         host.answer_next_prompt(Some(&[]));
         Ideolog::default().run_command("remove-highlightings", &host.invocation(), None).unwrap();
         assert!(patterns::stored().trim().is_empty());

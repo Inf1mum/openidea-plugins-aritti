@@ -45,11 +45,12 @@ fn spring_text_root(path: &str) -> Option<String> {
 fn cell(text: &str, limit: usize) -> String {
     text.chars().take(limit).map(|c| if c.is_control() && !matches!(c, '\t') { ' ' } else { c }).collect()
 }
+fn too_large(bytes: u64) -> Error {
+    format!("This log is {} KiB; snapshots are limited to 256 KiB and 8192 lines. Use the log editor for larger files.", bytes.div_ceil(1024)).into()
+}
 fn build(doc: &Document, root: String, config: &Config, mut cancelled: impl FnMut() -> bool) -> Result<Snapshot, Error> {
     if doc.text.len() > MAX_BYTES || doc.text.lines().take(MAX_LINES + 1).count() > MAX_LINES {
-        return Err(
-            "Snapshot is limited to 256 KiB and 8192 lines; use the log editor for larger files. Offset streaming is unavailable.".into()
-        );
+        return Err(too_large(doc.text.len() as u64));
     }
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut checkpoint = || -> Result<(), Error> {
@@ -108,10 +109,11 @@ impl Ideolog {
         let path = editor.path();
         let (root, project) = owner(ctx, &path)?;
         let stat = project.stat(&path)?;
-        if stat.kind != openidea_plugin::FileKind::File || stat.size > MAX_BYTES as u64 {
-            return Err(
-                "The optional snapshot supports existing project log files of at most 256 KiB; keep larger logs in the editor.".into()
-            );
+        if stat.kind != openidea_plugin::FileKind::File {
+            return Err("Only log files saved in the project can be captured.".into());
+        }
+        if stat.size > MAX_BYTES as u64 {
+            return Err(too_large(stat.size));
         }
         let task = host::begin_task("Capture bounded log snapshot", true);
         if task.is_cancelled() {
@@ -356,7 +358,8 @@ mod tests {
         let Body::Table(table) = view.body else { panic!("table") };
         assert_eq!(table.rows.len(), PAGE as usize);
         let doc = Document { path: "/project/app.log".into(), language: "log".into(), version: 1, text: "x".repeat(MAX_BYTES + 1) };
-        assert!(build(&doc, "/project".into(), &Config::default(), || false).is_err());
+        let Err(Error::Failed(message)) = build(&doc, "/project".into(), &Config::default(), || false) else { panic!("oversized snapshot") };
+        assert!(message.starts_with("This log is 257 KiB; snapshots are limited to 256 KiB"), "{message}");
         let doc = Document { text: "x\n".repeat(MAX_LINES + 1), ..doc };
         assert!(build(&doc, "/project".into(), &Config::default(), || false).is_err());
     }
