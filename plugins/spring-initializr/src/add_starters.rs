@@ -6,7 +6,7 @@ use openidea_plugin::providers::Document;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::BuildHasher;
 use std::time::{Duration, Instant};
-const MAX_SOURCE: usize = 12 << 10;
+const MAX_SOURCE: usize = 256 << 10;
 #[derive(Clone, Debug)]
 struct Node {
     name: String,
@@ -30,6 +30,14 @@ struct Proof {
     newline: &'static str,
     gradle: Option<bool>,
     refs: Vec<String>,
+}
+fn hunk(text: &str, from: usize, to: usize) -> String {
+    let starts: Vec<usize> = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line = |offset: usize| starts.partition_point(|&start| start <= offset) - 1;
+    let first = line(from).saturating_sub(3);
+    let last = (line(to.saturating_sub(1).max(from)) + 3).min(starts.len() - 1);
+    let end = starts.get(last + 1).copied().unwrap_or(text.len());
+    format!("Lines {}–{}:\n{}", first + 1, last + 1, text[starts[first]..end].trim_end_matches(['\r', '\n']))
 }
 fn literal(value: &str) -> bool {
     !value.is_empty() && value.len() <= 128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
@@ -455,8 +463,11 @@ impl State {
 impl Launcher {
     pub(crate) fn prepare_starters(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         self.starter_edits.invalidate();
-        let editor = ctx.editor().ok_or("Open a supported managed Maven or literal Gradle build first.")?;
-        let snapshot = editor.document()?;
+        let editor = ctx.editor().ok_or("Open a supported managed Maven or literal Gradle build first. If one is open, allow editor.read for Spring Initializr in Settings › Plugins.")?;
+        let snapshot = editor.document().map_err(|error| match error {
+            Error::Denied(_) => Error::Invalid("Allow editor.read for Spring Initializr in Settings › Plugins.".into()),
+            other => other,
+        })?;
         let doc = Document { path: editor.path(), language: editor.language(), version: snapshot.version, text: snapshot.text };
         let first = proof(&doc);
         if first.is_none() && aggregator(&doc).is_none() {
@@ -692,12 +703,13 @@ impl Launcher {
             (c.path.clone(), at, text, resulting)
         });
         let mut preview = format!(
-            "File: {}\nSource version: {}\nBoot dependency management: {} — {}\nMetadata: {START}, version-bound session cache (15 min maximum)\n{}\n\nExact complete resulting file:\n{after}",
+            "File: {}\nSource version: {}\nBoot dependency management: {} — {}\nMetadata: {START}, version-bound session cache (15 min maximum)\n{}\n\nChanged section of the resulting file (inserted text with 3 lines of context):\n{}",
             doc.path, doc.version, p.management,cache.boot,
-            if p.boot.is_empty() { "Explicit <version> values come from the dependency's own start.spring.io metadata for the default Boot version; no repositories or BOMs added." } else { "No repositories, BOMs or explicit dependency versions added." }
+            if p.boot.is_empty() { "Explicit <version> values come from the dependency's own start.spring.io metadata for the default Boot version; no repositories or BOMs added." } else { "No repositories, BOMs or explicit dependency versions added." },
+            hunk(&after, p.at, p.at + insertion.len())
         );
-        if let Some((path, _, _, resulting)) = &catalog_edit {
-            preview.push_str(&format!("\n\nVersion catalog {path}, exact complete resulting file:\n{resulting}"));
+        if let Some((path, at, text, resulting)) = &catalog_edit {
+            preview.push_str(&format!("\n\nVersion catalog {path}, changed section of the resulting file:\n{}", hunk(resulting, *at, at + text.len())));
         }
         if !ui_kit::prompts::confirm_exact("Apply previewed build starters?", &preview)? {
             return Err(Error::Cancelled);
@@ -1002,6 +1014,32 @@ mod tests {
             assert!(l.run_command("add-starters", &host.invocation(), None).is_err());
             assert_eq!(host.fetches(), 0);
         }
+    }
+    #[test]
+    fn add_starters_on_40kib_pom() {
+        let text = POM.replace("<!-- 😀 keep -->", &format!("<!--\n{}-->", "padding line of a long build file\n".repeat(1300)));
+        assert!(text.len() > 40 << 10);
+        let (host, mut l, d) = ready(&text);
+        let prepared = action(&mut l, &d);
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let resolved = l.resolve_file_action(&d, prepared).unwrap();
+        assert!(resolved.edits[0].1[0].text.contains("spring-boot-starter-web"));
+    }
+    #[test]
+    fn hunk_shows_only_the_changed_lines_with_three_lines_of_context() {
+        let text: String = (1..=20).map(|n| format!("line{n}\n")).collect();
+        let at = text.find("line10").unwrap();
+        let shown = hunk(&text, at, at + "line10\n".len());
+        assert_eq!(shown, "Lines 7–13:\nline7\nline8\nline9\nline10\nline11\nline12\nline13");
+    }
+    #[test]
+    fn add_starters_editor_denied_message() {
+        let host = MockHost::install().with_capabilities(&["storage", "project.read", "net:start.spring.io"]);
+        host.add_file("pom.xml", POM);
+        host.open_editor("/project/pom.xml", "xml", POM, &[]);
+        let error = Launcher::default().run_command("add-starters", &host.invocation(), None).unwrap_err();
+        assert!(error.to_string().contains("editor.read"), "{error}");
     }
     #[test]
     fn matching_artifact_in_another_group_is_not_a_coordinate_collision() {

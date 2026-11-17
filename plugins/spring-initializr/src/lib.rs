@@ -483,6 +483,7 @@ impl Launcher {
         }
         let problem = self.problem();
         let generate = |button: Button| button.enabled(problem.is_none());
+        let local_generation = problem.is_none() && self.server == START;
         let status = match &problem {
             Some(p) => p.clone(),
             None => format!("Generate Project downloads {}.zip in the browser.", self.get("artifactId")),
@@ -537,11 +538,11 @@ impl Launcher {
             View::new(Body::Form(fields)).status(&status)
         };
         view = view
-            .button(generate(Button::new("generate-archive", "Generate and Open…").icon("folder-open")))
+            .button(Button::new("generate-archive", "Generate and Open…").icon("folder-open").enabled(local_generation))
             .button(generate(Button::new("generate", "Generate Project").icon("export")))
             .button(generate(Button::new("cli", "Generate with Spring Boot CLI").icon("terminal")))
             .button(generate(Button::new("explore", "Explore in Browser").icon("external-link")))
-            .button(Button::new("prepare-import", "Prepare source-only import…").icon("import").enabled(_ctx.project().is_some()&&problem.is_none()))
+            .button(Button::new("prepare-import", "Prepare source-only import…").icon("import").enabled(_ctx.project().is_some()&&local_generation))
             .button(Button::new("open-reviewed-import", "Open reviewed source folder…").icon("folder-open").enabled(_ctx.project().is_some()&&self.import_issued()));
         if self.sections.active() == PROJECT_SECTION {
             view = view
@@ -1321,6 +1322,19 @@ mod more_actions_tests {
         let ids: Vec<_> = snapshot.items().into_iter().map(|i| i.key).collect();
         for disabled in ["cli", "explore", "prepare-import", "open-reviewed-import"] { assert!(!ids.iter().any(|id| id == disabled)); }
         assert!(ids.iter().any(|id| id == "reset"));
+    }
+
+    #[test]
+    fn generate_disabled_for_custom_server() {
+        let host = MockHost::install();
+        let mut launcher = Launcher::default();
+        let enabled = |launcher: &mut Launcher| -> Vec<bool> {
+            let view = launcher.render(VIEW, None, &host.invocation()).unwrap();
+            ["generate-archive", "prepare-import"].iter().map(|id| view.toolbar.iter().chain(&launcher.more_actions_snapshot(VIEW, &host.invocation()).unwrap().expanded.toolbar).find(|b| b.id == *id).unwrap().enabled).collect()
+        };
+        assert_eq!(enabled(&mut launcher), [true, true]);
+        launcher.server = "https://example.test".into();
+        assert_eq!(enabled(&mut launcher), [false, false]);
     }
 
     #[test]

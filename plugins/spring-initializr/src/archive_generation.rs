@@ -6,10 +6,14 @@ const ADAPTER: &str = include_str!("archive_adapter.py");
 fn adapter(ctx: &Invocation, request: &Value) -> Result<Value,Error> {
     let output=host::run_command(&Command::new("python3").args(["-I","-c",ADAPTER]),ctx.project().as_ref(),Some(&request.to_string()))?;
     if output.status!=Some(0) {
-        return Err(Error::Failed(format!("Archive adapter refused or failed. No project was opened. Any staging directory is retained for review. {}",ui_kit::prompts::readable_source(&output.stderr.chars().take(2048).collect::<String>()))));
+        let staging=output.stderr.lines().find_map(|line|serde_json::from_str::<Value>(line).ok()?["staging"].as_str().map(str::to_owned));
+        let kept=staging.map_or(String::new(),|path|format!(" Staging folder kept for review: {path}."));
+        return Err(Error::Failed(format!("Archive adapter refused or failed. No project was opened.{kept} {}",ui_kit::prompts::readable_source(&output.stderr.chars().take(2048).collect::<String>()))));
     }
     if output.stdout.len()>256<<10 {return Err(Error::Invalid("Archive adapter result exceeds 256 KiB.".into()));}
-    crate::strict_json::parse(&output.stdout,256<<10).map_err(|_|Error::Invalid("Malformed archive adapter result.".into()))
+    let value=crate::strict_json::parse(&output.stdout,256<<10).map_err(|_|Error::Invalid("Malformed archive adapter result.".into()))?;
+    if value["error"]=="not-local" {return Err(Error::Invalid("This folder isn't on the machine running the project; Generate and Open works only for local projects.".into()));}
+    Ok(value)
 }
 fn preview(proof:&Value,archive:bool)->Result<String,Error> {
     let files=proof["files"].as_array().filter(|files|!files.is_empty()&&files.len()<=512).ok_or(Error::Stale)?;
@@ -51,6 +55,7 @@ impl Launcher {
         if response.status!=200 || response.body.is_empty() || response.body.len()>8<<20 {return Err(Error::Invalid("Project ZIP failed or exceeds 8 MiB; no destination files were created.".into()));}
         let archive=format!("{}/generation-archive.zip",host::fs::plugin_dir()?.trim_end_matches('/'));
         host::fs::write_bytes(&archive,&response.body)?;
+        let outcome=(||->Result<Option<String>,Error> {
         let mut request=json!({"operation":"inspect","archive":archive,"parent":parent,"artifact":artifact});
         let proof=adapter(ctx,&request)?;
         if task.is_cancelled(){return Err(Error::Cancelled)}
@@ -66,6 +71,9 @@ impl Launcher {
         if result["committed"]!=true || result["target"].as_str()!=Some(target) || result["sha256"]!=proof["sha256"] {return Err(Error::Stale)}
         host::open_project(target,true)?;
         Ok(Some(format!("Generated {} archive files at {target}; requested normal project trust/open. No wrapper or build executed.",result["files"])))
+        })();
+        let _=adapter(ctx,&json!({"operation":"remove-archive","archive":archive}));
+        outcome
     }
 }
 
@@ -98,7 +106,7 @@ mod tests {
                 assert_eq!(&args[..2],["-I","-c"]);assert_eq!(args[2],ADAPTER);
                 let request:Value=serde_json::from_str(stdin.unwrap()).unwrap();
                 let proof=json!({"parent":"/outside","identity":[1,2],"target":"/outside/demo","python":"3.12.0","platform":"darwin","sha256":"reviewed-sha","directories":[],"files":[{"path":"pom.xml","bytes":10,"mode":420,"sha256":"source-sha"}]});
-                let result=if request["operation"]=="inspect" {proof} else {
+                let result=if request["operation"]=="remove-archive" {json!({"removed":true})} else if request["operation"]=="inspect" {proof} else {
                     assert_eq!(request["proof"],proof);
                     if mode==2 {return Ok(openidea_plugin::ProcessOutput{status:Some(1),stdout:String::new(),stderr:"Destination exists; no merge or overwrite".into()})}
                     json!({"target":"/outside/demo","sha256":"reviewed-sha","files":1,"committed":true})
@@ -108,10 +116,74 @@ mod tests {
             host.answer_next_prompt(Some(&["/outside"]));host.answer_next_prompt(Some(&[]));host.answer_next_prompt(if mode==1 {None} else {Some(&[])});
             let result=launcher.generate_archive(&host.invocation());
             assert_eq!(result.is_ok(),mode!=2);
-            assert_eq!(host.process_runs().len(),if mode==1 {1} else {2});
+            assert_eq!(host.process_runs().len(),if mode==1 {2} else {3});
             assert_eq!(host.opened_projects().len(),usize::from(matches!(mode,0|3)));
             if matches!(mode,0|3) {assert_eq!(host.opened_projects(),vec![("/outside/demo".into(),true)]);}
         }
+    }
+    fn scripted_generation(fail_extract:Option<&'static str>,not_local:bool)->(openidea_plugin::mock::MockHost,Result<Option<String>,Error>,std::rc::Rc<std::cell::RefCell<Vec<Value>>>) {
+        use openidea_plugin::mock::MockHost;
+        let host=MockHost::install().with_capabilities(&["storage","project.read","net:start.spring.io","process:python3"]);
+        let mut launcher=Launcher::default();launcher.bind(&host.invocation()).unwrap();let _=launcher.changed();
+        launcher.metadata=Some(json!({"bootVersion":{"default":"3.5.16","values":[{"id":"3.5.16"}]},"dependencies":{"values":[]}}));
+        host.on_fetch(|_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"archive".to_vec()}));
+        let requests=std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));let seen=requests.clone();
+        host.on_process("python3",move |_,stdin| {
+            let request:Value=serde_json::from_str(stdin.unwrap()).unwrap();seen.borrow_mut().push(request.clone());
+            let proof=json!({"parent":"/outside","identity":[1,2],"target":"/outside/demo","python":"3.12.0","platform":"darwin","sha256":"reviewed-sha","directories":[],"files":[{"path":"pom.xml","bytes":10,"mode":420,"sha256":"source-sha"}]});
+            let out=|value:Value|Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:value.to_string(),stderr:String::new()});
+            match request["operation"].as_str().unwrap() {
+                "remove-archive"=>out(json!({"removed":true})),
+                _ if not_local=>out(json!({"error":"not-local"})),
+                "inspect"=>out(proof),
+                _=>match fail_extract {
+                    Some(stderr)=>Ok(openidea_plugin::ProcessOutput{status:Some(1),stdout:String::new(),stderr:stderr.into()}),
+                    None=>out(json!({"target":"/outside/demo","sha256":"reviewed-sha","files":1,"committed":true})),
+                },
+            }
+        });
+        host.answer_next_prompt(Some(&["/outside"]));host.answer_next_prompt(Some(&[]));host.answer_next_prompt(Some(&[]));
+        let result=launcher.generate_archive(&host.invocation());
+        (host,result,requests)
+    }
+    fn removes_archive_last(requests:&std::cell::RefCell<Vec<Value>>)->bool {
+        let requests=requests.borrow();let last=requests.last().unwrap();
+        last["operation"]=="remove-archive"&&last["archive"].as_str().is_some_and(|path|path.ends_with("/generation-archive.zip"))
+    }
+    #[test]
+    fn archive_removed_after_success() {
+        let (host,result,requests)=scripted_generation(None,false);
+        assert!(result.is_ok());assert!(removes_archive_last(&requests));
+        assert_eq!(host.opened_projects().len(),1);
+    }
+    #[test]
+    fn archive_removed_after_refusal() {
+        let (_host,result,requests)=scripted_generation(Some("Destination exists"),false);
+        assert!(result.is_err());assert!(removes_archive_last(&requests));
+    }
+    #[test]
+    fn failed_extract_reports_staging_path() {
+        let (_host,result,_)=scripted_generation(Some("{\"committed\": false, \"staging\": \"/outside/.initializr-ab12\"}\nOSError: disk full"),false);
+        let message=result.unwrap_err().to_string();
+        assert!(message.contains("Staging folder kept for review: /outside/.initializr-ab12."),"{message}");
+    }
+    #[test]
+    fn generate_refuses_parent_missing_on_runner() {
+        let (host,result,requests)=scripted_generation(None,true);
+        let message=result.unwrap_err().to_string();
+        assert!(message.contains("isn't on the machine running the project; Generate and Open works only for local projects"),"{message}");
+        assert!(host.opened_projects().is_empty());assert!(removes_archive_last(&requests));
+        let scratch=Scratch::new();
+        let output=run(&json!({"operation":"inspect","archive":scratch.0.join("none.zip"),"parent":scratch.0.join("missing"),"artifact":"demo"}));
+        assert!(output.status.success());assert_eq!(serde_json::from_slice::<Value>(&output.stdout).unwrap(),json!({"error":"not-local"}));
+    }
+    #[test]
+    fn real_adapter_removes_only_the_generation_archive() {
+        let scratch=Scratch::new();let archive=scratch.0.join("generation-archive.zip");let other=scratch.0.join("keep.zip");
+        std::fs::write(&archive,b"zip").unwrap();std::fs::write(&other,b"zip").unwrap();
+        assert!(run(&json!({"operation":"remove-archive","archive":archive})).status.success());assert!(!archive.exists());
+        assert!(run(&json!({"operation":"remove-archive","archive":archive})).status.success());
+        assert!(!run(&json!({"operation":"remove-archive","archive":other})).status.success());assert!(other.exists());
     }
     #[test]
     fn actual_generated_tree_review_detects_changed_bytes_and_links() {
