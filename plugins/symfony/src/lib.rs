@@ -1408,7 +1408,7 @@ impl Main {
         if !i.settings_current() {return format!("{root}: source settings changed; Reindex to refresh cached facts.");}
         let partial = match (i.partial, i.template_directories.is_empty()) {
             (true, _) => " (index incomplete)",
-            (false, false) => " (templates in gitignored folders are not listed)",
+            (false, false) => " (templates in gitignored folders may not be listed)",
             _ => "",
         };
         let translations: usize = i.translations.values().map(Names::len).sum();

@@ -683,14 +683,54 @@ fn covers_exactly_its_name(text: &str, anchor: &Anchor) -> bool {
     covered == name || name.ends_with(&format!("\\{covered}"))
 }
 
+/// The routes this indexer declares in a file: what [`DocumentIndexer::index`] can publish as `route#` definitions.
+fn route_declarations(path: &str, text: &str) -> Vec<(String, Position)> {
+    let mut routes = Vec::new();
+    if path.contains("/vendor/") || path.contains("/var/cache/") || path.contains("/node_modules/") || text.len() > MAX_INDEXED_BYTES {
+        return routes;
+    }
+    match language(path) {
+        Some("php") => index::php_routes(path, text, &mut routes),
+        Some("yaml") if path.contains("/config/routes") => index::yaml_routes(path, text, &mut routes),
+        Some("xml") => index::xml_routes(path, text, &mut routes),
+        _ => {}
+    }
+    routes
+}
+
 impl DocumentIndexer for Main {
     fn index(&mut self, doc: &Document) -> Edges {
         let all = self.navigation_associations(doc);
         let exact = |anchor: &Anchor| published_kind(&anchor.key) && covers_exactly_its_name(&doc.text, anchor);
         let definitions = all.definitions.into_iter().filter(exact).collect();
-        let references: Vec<Anchor> = all.references.into_iter().filter(exact).collect();
+        let mut closed = std::collections::BTreeMap::new();
+        let references: Vec<Anchor> = all
+            .references
+            .into_iter()
+            .filter(exact)
+            .filter(|anchor| {
+                let name = anchor.key.strip_prefix("route#").unwrap_or_default();
+                *closed.entry(name.to_owned()).or_insert_with(|| self.route_rename_closed(&doc.path, name))
+            })
+            .collect();
         let markers = references.clone();
         Edges { definitions, references, markers, ..Edges::default() }
+    }
+}
+
+impl Main {
+    /// Whether a host Rename of route `name` would reach its declaration: the cached index declares it in
+    /// a file this indexer publishes an exact-name `route#` definition for. Without an index, nothing is.
+    fn route_rename_closed(&self, path: &str, name: &str) -> bool {
+        let Some(entry) = self.index_for(path).and_then(|index| index.routes.get(name)) else {
+            return false;
+        };
+        let Some(text) = openidea_plugin::host::project_of(&entry.path).and_then(|project| project.read_file(&entry.path).ok()) else {
+            return false;
+        };
+        route_declarations(&entry.path, &text).into_iter().any(|(declared, at)| {
+            declared == name && covers_exactly_its_name(&text, &Anchor { key: format!("route#{declared}"), range: width_range(at, &declared) })
+        })
     }
 }
 impl Main {
@@ -709,21 +749,15 @@ impl Main {
         let mut services = Found::default();
         let mut routes: Vec<(String, Position)> = Vec::new();
         let mut out = Collected::default();
+        routes.extend(route_declarations(path, text));
         match language {
-            "php" => {
-                index::php_routes(path, text, &mut routes);
-                php(path, text, &mut out);
-            }
+            "php" => php(path, text, &mut out),
             "yaml" => {
                 index::yaml_services(path, text, &mut services);
-                if path.contains("/config/routes") {
-                    index::yaml_routes(path, text, &mut routes);
-                }
                 config(path, language, text, &services, &mut out);
             }
             "xml" => {
                 index::xml_services(path, text, &mut services);
-                index::xml_routes(path, text, &mut routes);
                 config(path, language, text, &services, &mut out);
             }
             "twig" => twig(path, text, &mut out),
@@ -795,9 +829,39 @@ mod tests {
         assert!(keys(&usage.references).contains(&"route#blog"));
     }
 
+    const USAGES: &str = "<?php\nclass U { function f() { return [$this->generateUrl('blog_index'), $this->generateUrl('vendor_route'), $this->generateUrl('blog')]; } }\n";
+
+    #[test]
+    fn route_references_need_an_indexed_exact_declaration() {
+        use openidea_plugin::indexing::DocumentIndexer;
+        let _host = openidea_plugin::mock::MockHost::install();
+        let without_index = Main::default().index(&Document { path: "/p/src/U.php".into(), text: USAGES.into(), symbols: Vec::new() });
+        assert!(without_index.references.is_empty() && without_index.markers.is_empty());
+
+        let usage = published("/p/src/U.php", USAGES);
+        assert_eq!(keys(&usage.references), ["route#blog"], "class-prefix and vendor routes are not Rename-closed");
+        assert_eq!(keys(&usage.markers), ["route#blog"]);
+    }
+
+    /// An indexer over the fixtures' project: the cached index declares `blog` in the controller,
+    /// `blog_index` behind a class prefix and `vendor_route` in vendor code.
     fn published(path: &str, text: &str) -> Edges {
         use openidea_plugin::indexing::DocumentIndexer;
-        Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
+        let host = openidea_plugin::mock::MockHost::install();
+        host.set_project_root(Some("/p"));
+        let mut index = crate::index::Index::default();
+        let declarations = [
+            fixtures()[0],
+            ("/p/src/Controller/PrefixController.php", "<?php\n#[Route('/blog', name: 'blog_')]\nclass PrefixController {\n  #[Route('/', name: 'index')]\n  function i() {}\n}\n"),
+            ("/p/vendor/acme/Controller.php", "<?php\nclass Controller {\n  #[Route('/v', name: 'vendor_route')]\n  function v() {}\n}\n"),
+        ];
+        for (file, source) in declarations {
+            host.add_file(file, source);
+            index::php_routes(file, source, &mut index.routes);
+        }
+        let mut main = Main::default();
+        main.indexes.insert("/p".into(), index);
+        main.index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
     }
 
     fn fixtures() -> Vec<(&'static str, &'static str)> {
@@ -1103,6 +1167,7 @@ mod tests {
     }
     #[test]
     fn registered_indexer_never_exports_unproven_navigation_keys_to_rename() {
+        let _host = openidea_plugin::mock::MockHost::install();
         for (path, text) in [
             ("/p/config/services.yaml", "services:\n  shared:\n    class: App\\Shared\n    arguments: ['@shared']\n"),
             (
