@@ -633,11 +633,13 @@ impl BootTools {
             .collect();
         let mut listed = Vec::new();
         let mut complete = complete;
+        let mut checked = 0;
         for path in files.iter().chain(&metadata) {
             if Instant::now() >= deadline {
                 complete = false;
                 break;
             }
+            checked += 1;
             let Ok(text) = project.read_file(path) else {
                 continue;
             };
@@ -670,7 +672,7 @@ impl BootTools {
         if live::current_roots().as_ref() != Some(&roots) {
             return Err(Error::Stale);
         }
-        Ok((files.len() + metadata.len(), listed, complete))
+        Ok((checked, listed, complete))
     }
 
     fn show_diagnostics(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {

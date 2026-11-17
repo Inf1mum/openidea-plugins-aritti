@@ -213,14 +213,10 @@ pub fn completion(cx: &Context) -> Vec<CompletionItem> {
             };
             let key_in_yaml = !cx.path.ends_with(".properties");
             let after_prefix = &path[prefix.len()..];
-            if key_in_yaml && cx.text[typed_at..cx.at] != *after_prefix {
+            if key_in_yaml && !cx.text[typed_at..cx.at].ends_with(after_prefix) {
                 return Vec::new();
             }
-            let seg_start = if key_in_yaml {
-                typed_at
-            } else {
-                cx.at - after_prefix.len()
-            };
+            let seg_start = cx.at - after_prefix.len();
             let replace = range(cx.text, seg_start, cx.at);
             let suffix = if key_in_yaml { ": " } else { "=" };
             with_parents(cx.packages.iter().map(String::as_str))
@@ -529,5 +525,36 @@ mod tests {
         assert_eq!(replace.start, openidea_plugin::Position::new(2, 4));
         let nested = cx("logging:\n  level:\n    com:\n      ac");
         assert!(nested.is_empty());
+    }
+    #[test]
+    fn flat_dotted_yaml_logging_level_completion_replaces_only_the_package() {
+        let packages = ["com.acme".to_owned()];
+        let run = |text: &str| {
+            let lookup = Lookup(vec![]);
+            let facts = Summary::default();
+            let resources = || Vec::new();
+            completion(&Context {
+                path: "application.yml",
+                text,
+                at: text.len(),
+                lookup: &lookup,
+                packages: &packages,
+                profiles: &[],
+                facts: &facts,
+                resources: &resources,
+            })
+        };
+        for (text, line, character) in [
+            ("logging.level.ac", 0, 14),
+            ("logging:\n  level.ac", 1, 8),
+        ] {
+            let items = run(text);
+            let item = items.iter().find(|i| i.label == "com.acme").unwrap();
+            assert_eq!(
+                item.replace.unwrap().start,
+                openidea_plugin::Position::new(line, character),
+                "{text}"
+            );
+        }
     }
 }

@@ -562,7 +562,18 @@ fn discovered_profiles(project: &openidea_plugin::Project) -> Vec<String> {
         })
         .take(crate::fileset::MAX_FILES)
         .collect();
-    let discovered = crate::fileset::discover_in(project, &seeds);
+    let discovered = crate::fileset::discover(
+        &seeds,
+        &|glob| {
+            project
+                .find_files(glob, 20)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|path| owned(path))
+                .collect()
+        },
+        &|path| owned(path).then(|| project.read_file(path).ok()).flatten(),
+    );
     let names: std::collections::BTreeSet<String> = names
         .into_iter()
         .chain(discovered.profiles)
@@ -808,5 +819,19 @@ mod tests {
         assert_eq!(discovered_profiles(&project), ["inner", "outer"]);
         host.add_project("/project/nested");
         assert_eq!(discovered_profiles(&project), ["outer"]);
+    }
+
+    #[test]
+    fn nested_import_profiles_do_not_leak() {
+        let host = MockHost::install();
+        host.add_file(
+            "src/main/resources/application.properties",
+            "spring.config.import=classpath:extra.yml\n",
+        );
+        host.add_file("nested/src/main/resources/extra.yml", "spring.profiles.include: leaked\n");
+        let project = host.invocation().project().unwrap();
+        assert_eq!(discovered_profiles(&project), ["leaked"]);
+        host.add_project("/project/nested");
+        assert!(discovered_profiles(&project).is_empty());
     }
 }

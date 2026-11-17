@@ -233,6 +233,14 @@ impl Summary {
     /// name is unique in the project and no Spring or library type shares it.
     pub fn enum_values(&self, ty: &str) -> Option<&Vec<String>> {
         let last = ty.rsplit('.').next().unwrap_or(ty);
+        if ty != last
+            && let Some((_, values)) = self
+                .project
+                .get(last)
+                .and_then(|enums| enums.iter().find(|(qualified, _)| qualified == ty))
+        {
+            return Some(values).filter(|v| !v.is_empty());
+        }
         if let Some(values) = self.known.get(last).or_else(|| self.known.get(ty)) {
             return Some(values).filter(|v| !v.is_empty());
         }
@@ -287,5 +295,8 @@ mod tests {
         assert_eq!(summary("Mode").accepts("Mode", "only"), Some(true));
         let twice = Summary::merge([&facts("Mode"), &read("B.java", "package other;\nenum Mode { X }\n").unwrap()].into_iter(), true);
         assert_eq!(twice.accepts("Mode", "only"), None);
+        assert_eq!(twice.accepts("com.acme.Mode", "only"), Some(true));
+        assert_eq!(twice.accepts("other.Mode", "x"), Some(true));
+        assert_eq!(twice.accepts("other.Mode", "only"), Some(false));
     }
 }
