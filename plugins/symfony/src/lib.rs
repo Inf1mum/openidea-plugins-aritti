@@ -1451,23 +1451,20 @@ impl Plugin for Main {
             "show-profiler" => {
                 self.profiler_snapshot.refresh(ctx);
                 ui_kit::web::reveal_view(PROFILER_VIEW, include_str!("ui_config.json"))?;
-                host::notify(NotificationLevel::Info, SOURCE, "The latest requests are in the Profiler tab.");
                 Ok(None)
             }
             "cache-warmup" => self.console(ctx, "cache:warmup"),
             "cache-clear" => self.console(ctx, "cache:clear"),
             "run-console-command" => self.run_console_command(ctx),
             "route-copy-curl" => {
-                if self.selected.is_none() { return Err(Error::Invalid("Select a route in the Symfony window first.".into())); }
-                if let Some(route) = self.selected_route(ctx) {
-                    routes::copy_as_curl(&concrete_method(route), DEFAULT_BASE_URL)?;
+                if let Some(route) = self.selected_route_or_pick(ctx)? {
+                    routes::copy_as_curl(&concrete_method(&route), DEFAULT_BASE_URL)?;
                 }
                 Ok(None)
             }
             "route-create-http" => {
-                if self.selected.is_none() { return Err(Error::Invalid("Select a route in the Symfony window first.".into())); }
-                if let Some(route) = self.selected_route(ctx) {
-                    routes::create_http_file(&concrete_method(route), DEFAULT_BASE_URL, None, "Symfony")?;
+                if let Some(route) = self.selected_route_or_pick(ctx)? {
+                    routes::create_http_file(&concrete_method(&route), DEFAULT_BASE_URL, None, "Symfony")?;
                 }
                 Ok(None)
             }
@@ -2296,6 +2293,27 @@ impl Main {
         (route == expected && self.current_route_member(ctx, route)).then_some(route)
     }
 
+    /// The route selected in the tool window, or one the user picks when the command runs from the palette.
+    fn selected_route_or_pick(&self, ctx: &Invocation) -> Result<Option<Route>, Error> {
+        if let Some(route) = self.selected_route(ctx) {
+            return Ok(Some(route.clone()));
+        }
+        let index = self.view_index(ctx).ok_or("No Symfony project is indexed.")?;
+        let routes = self.routes(index);
+        if routes.is_empty() {
+            return Err("No routes are indexed.".into());
+        }
+        let items: Vec<PickItem> = routes
+            .iter()
+            .enumerate()
+            .map(|(i, route)| PickItem::new(&i.to_string(), &format!("{} {}", route.method, route.path)).description(route.name.as_deref().unwrap_or(&route.handler.class)))
+            .collect();
+        let Some(choice) = host::pick("Choose a route", &items)? else {
+            return Ok(None);
+        };
+        routes.into_iter().nth(choice.parse().map_err(|_| Error::Stale)?).map(Some).ok_or(Error::Stale)
+    }
+
     fn view_index(&self, ctx: &Invocation) -> Option<&Index> {
         let root = ctx.project()?.root().ok()?;
         self.indexes.get(&root).filter(|index|index.settings_current())
@@ -2612,19 +2630,21 @@ mod tests {
         }
     }
     #[test]
-    fn route_copy_curl_without_selection_explains(){
-        let host=MockHost::install();let mut plugin=activated(&host);
-        let error=plugin.run_command("route-copy-curl",&host.invocation(),None).unwrap_err();
-        assert!(matches!(error,Error::Invalid(ref message) if message=="Select a route in the Symfony window first."),"{error:?}");
+    fn route_copy_curl_without_selection_asks_and_copies_nothing_when_dismissed(){
+        let host=MockHost::install().with_capabilities(&["project.read","clipboard"]);let mut plugin=activated(&host);
+        plugin.render(VIEW,None,&host.invocation()).unwrap();
+        host.answer_next_prompt(None);
+        plugin.run_command("route-copy-curl",&host.invocation(),None).unwrap();
+        assert!(host.clipboard().is_none());
     }
     #[test]
     fn route_actions_reject_last_other_root_and_no_index_cached_rows(){
         let host=MockHost::install();let mut plugin=activated(&host);let ctx=host.invocation();
         let Body::List(rows)=plugin.render(VIEW,None,&ctx).unwrap().body else {panic!("routes expected")};let key=rows[0].key.clone();
         plugin.handle(VIEW,ViewEvent::Select(key.clone()),&ctx).unwrap();assert!(plugin.selected_route(&ctx).is_some());
-        host.set_project_root(Some("/other"));let other=host.invocation();plugin.run_command("route-copy-curl",&other,None).unwrap();assert!(host.clipboard().is_none());
+        host.set_project_root(Some("/other"));let other=host.invocation();assert!(plugin.run_command("route-copy-curl",&other,None).is_err());assert!(host.clipboard().is_none());
         assert!(matches!(plugin.handle(VIEW,ViewEvent::Activate(key),&other),Err(Error::Stale)));assert!(host.opened_locations().is_empty());
-        host.set_project_root(Some("/project"));plugin.indexes.clear();plugin.run_command("route-copy-curl",&host.invocation(),None).unwrap();assert!(host.clipboard().is_none());
+        host.set_project_root(Some("/project"));plugin.indexes.clear();assert!(plugin.run_command("route-copy-curl",&host.invocation(),None).is_err());assert!(host.clipboard().is_none());
     }
     #[test]
     fn cached_route_disappearance_refuses_old_selected_fact_without_io(){
@@ -3825,6 +3845,19 @@ mod tests {
         let View { body: Body::List(rows), .. } = plugin.render(VIEW, None, &ctx).unwrap() else { panic!("not a list") };
 
         plugin.handle(VIEW, ViewEvent::Select(rows[0].key.clone()), &ctx).unwrap();
+        host.answer_next_prompt(Some(&["http://localhost:8000"]));
+        plugin.run_command("route-copy-curl", &ctx, None).unwrap();
+        assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:8000/blog'"));
+    }
+
+    #[test]
+    fn route_commands_from_the_palette_ask_which_route() {
+        let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();
+        plugin.render(VIEW, None, &ctx).unwrap();
+
+        host.answer_next_prompt(Some(&["0"]));
         host.answer_next_prompt(Some(&["http://localhost:8000"]));
         plugin.run_command("route-copy-curl", &ctx, None).unwrap();
         assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:8000/blog'"));
