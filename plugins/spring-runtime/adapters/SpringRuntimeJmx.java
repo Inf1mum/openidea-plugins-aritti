@@ -50,9 +50,11 @@ public class SpringRuntimeJmx {
     /** One output entry per leaf (`bean#op().path.to.leaf`), so the plugin can mask by the leaf key. */
     static void flatten(StringBuilder out, String key, Object v, int depth) {
         if (out.length() > 20000 || v == null) return;
-        if (v instanceof Map<?, ?> m && depth < 6) {
+        if ((v instanceof Map<?, ?> || v instanceof Iterable<?>) && depth >= 6) {
+            out.append(out.length() > 1 ? "," : "").append(esc(key)).append(':').append(esc("(nested too deep, not shown)"));
+        } else if (v instanceof Map<?, ?> m) {
             for (Map.Entry<?, ?> e : m.entrySet()) flatten(out, key + "." + e.getKey(), e.getValue(), depth + 1);
-        } else if (v instanceof Iterable<?> items && depth < 6) {
+        } else if (v instanceof Iterable<?> items) {
             int i = 0;
             for (Object item : items) {
                 if (i >= 64) break;

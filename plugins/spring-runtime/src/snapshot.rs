@@ -51,13 +51,13 @@ pub fn sensitive_key(key: &str) -> bool {
 }
 
 /// `scheme://user:pw@host` becomes `scheme://******@host`.
-fn mask_userinfo(v: &str) -> String {
+pub(crate) fn mask_userinfo(v: &str) -> String {
     let mut masked = String::new();
     let mut rest = v;
     while let Some(i) = rest.find("://") {
         masked.push_str(&rest[..i + 3]);
         rest = &rest[i + 3..];
-        let authority = rest.split(['/', '?', '#', ' ', ',', '}']).next().unwrap_or("");
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
         if let Some(at) = authority.rfind('@') {
             masked.push_str(MASK);
             rest = &rest[at..];

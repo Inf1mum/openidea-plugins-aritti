@@ -23,6 +23,10 @@ fn confirmation(port: u16, helper: &str) -> String {
     )
 }
 
+fn looks_like_map_dump(text: &str) -> bool {
+    text.starts_with(['{', '[']) && text.contains('=')
+}
+
 pub(crate) fn render_result(output: &str) -> Result<String, Error> {
     if output.len() > MAX_OUTPUT {
         return Err("JMX helper output exceeds 32 KiB.".into());
@@ -31,7 +35,7 @@ pub(crate) fn render_result(output: &str) -> Result<String, Error> {
     let map = json.as_object().ok_or("Invalid JMX helper output.")?;
     let mut lines = Vec::new();
     for (name, value) in map.iter().take(MAX_LINES) {
-        let attribute = name.rsplit('#').next().unwrap_or(name);
+        let attribute = name.split_once('#').map_or(name.as_str(), |(_, attribute)| attribute);
         match value {
             Value::Array(items) => {
                 lines.push(format!("{name}:"));
@@ -44,6 +48,7 @@ pub(crate) fn render_result(output: &str) -> Result<String, Error> {
                     lines.push(format!("  {shown}"));
                 }
             }
+            Value::String(text) if looks_like_map_dump(text) => lines.push(format!("{name}: (nested value not shown)")),
             _ if attribute.ends_with("()") => lines.push(format!("{name}: (unstructured result not shown)")),
             other => lines.push(format!("{name}: {}", masked_value(attribute, other.as_str().unwrap_or_default()))),
         }
@@ -173,6 +178,16 @@ mod tests {
             assert!(!text.contains(leaked), "{leaked}: {text}");
         }
         assert!(text.contains("app.db.url: jdbc:x://******@h/db"), "{text}");
+    }
+
+    #[test]
+    fn nested_dumps_and_hash_in_keys_never_leak() {
+        let out = r##"{"o.s.b:type=Endpoint,name=Info#info().a.b.c.d.e.f":"{g={password=hunter2}}","o.s.b:type=Endpoint,name=Info#info().x#y.password":"hunter3","o.s.b:type=Endpoint,name=Info#info().l":"[{token=hunter4}]"}"##;
+        let text = render_result(out).unwrap();
+        for leaked in ["hunter2", "hunter3", "hunter4"] {
+            assert!(!text.contains(leaked), "{leaked}: {text}");
+        }
+        assert_eq!(crate::snapshot::mask_userinfo("http://u:p@w@h/x?a=b@c"), "http://******@h/x?a=b@c");
     }
 
     #[test]
