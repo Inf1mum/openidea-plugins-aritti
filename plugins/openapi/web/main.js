@@ -14,7 +14,7 @@ window.fetch = (input, init) => {
 };
 const ui = SwaggerUIBundle({
   dom_id: "#swagger",
-  supportedSubmitMethods: [], // the frame has no network: no "Try it out"
+  supportedSubmitMethods: [], // the frame has no network: the Try… button asks the plugin instead
   validatorUrl: null,
   deepLinking: false,
 });
@@ -95,3 +95,5 @@ document.getElementById("switch").addEventListener("click", () => {
   setMode(mode === "swagger" ? "redoc" : "swagger");
   window.openidea.postMessage(`renderer\t${mode}`);
 });
+// The plugin's own Try it out flow prepares the request and asks before sending it.
+document.getElementById("try").addEventListener("click", () => window.openidea.postMessage("try"));

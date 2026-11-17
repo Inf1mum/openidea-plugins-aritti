@@ -1533,6 +1533,12 @@ impl Views for OpenApi {
             let ViewEvent::Message(request) = event else {
                 return Ok(());
             };
+            if request == "try" {
+                return match self.try_local(ctx) {
+                    Err(Error::Cancelled) => Ok(()),
+                    result => result.map(|_| ()),
+                };
+            }
             if let Some(renderer) = request.strip_prefix("renderer\t") {
                 if matches!(renderer, "swagger" | "redoc") {
                     let _ = host::storage::set(RENDERER_KEY, renderer);
@@ -2931,6 +2937,28 @@ mod tests {
         assert!(js.contains("getElementById(\"reload\")"));
         assert!(js.contains("known = \"\""));
         assert!(js.contains("document.get().then((doc) => render(doc.text))"));
+    }
+
+    #[test]
+    fn preview_try_button_prepares_the_existing_try_flow_without_sending() {
+        let html = include_str!("../web/index.html");
+        let js = include_str!("../web/main.js");
+        assert!(html.contains("id=\"try\"") && html.contains("Try…"));
+        assert!(js.contains("getElementById(\"try\")") && js.contains("postMessage(\"try\")"));
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "events", "net:127.0.0.1"]);
+        let spec = "openapi: 3.1.0\ninfo: {title: T, version: '1'}\nservers:\n  - url: http://127.0.0.1:32109\npaths:\n  /pets:\n    get:\n      responses: {200: {description: OK}}\n";
+        host.open_editor("/project/openapi.yaml", "yaml", spec, &[]);
+        let mut plugin = OpenApi::default();
+        plugin.activate(&openidea_plugin::Context { api_version: "1.10".into(), capabilities: vec!["net:127.0.0.1".into()], ..Default::default() }).unwrap();
+        plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).unwrap(); // Dismissed picker.
+        host.answer_next_prompt(Some(&["0"]));
+        plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).unwrap();
+        let Body::Form(fields) = plugin.render("try-response", None, &host.invocation()).unwrap().body else { panic!() };
+        let openidea_plugin::views::FieldValue::Other { data, .. } = &fields[0].value else { panic!() };
+        assert!(data.contains("GET http://127.0.0.1:32109/pets") && data.contains("has not sent anything"), "{data}");
+        assert!(host.requests().is_empty());
+        plugin.activate(&openidea_plugin::Context { api_version: "1.10".into(), ..Default::default() }).unwrap();
+        assert!(plugin.handle("preview", ViewEvent::Message("try".into()), &host.invocation()).is_err());
     }
 
     #[test]

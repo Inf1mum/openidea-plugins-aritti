@@ -5,7 +5,7 @@ description = "Editing support for OpenAPI 3 and Swagger 2 files in YAML and JSO
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = """\
-Next release: An Operations panel beside spec editors lists operations by tag with a filter and jumps to one on click; Copy as cURL and Create HTTP Request File suggest the spec server as the base URL, and the preview remembers Redoc or Swagger UI; Try it out accepts a single https server with the optional net:ask permission and refuses private, single-label and localhost servers; Draft Spec from Source Mappings and Breaking-Change Report commands, operation and response quick fixes in JSON, and self-contained export no longer duplicates components; gutter markers skip files that are not OpenAPI specs, files in hidden folders are ignored, and setting titles are shorter. \
+Next release: An Operations panel beside spec editors lists operations by tag with a filter and jumps to one on click; Copy as cURL and Create HTTP Request File suggest the spec server as the base URL, and the preview remembers Redoc or Swagger UI; Try it out works with YAML specs, starts from the preview Try button, accepts a single https server with the optional net:ask permission and refuses private, single-label and localhost servers; Draft Spec from Source Mappings and Breaking-Change Report commands, operation and response quick fixes in JSON, and self-contained export no longer duplicates components; gutter markers skip files that are not OpenAPI specs, files in hidden folders are ignored, and setting titles are shorter. \
 0.3.0: generation with preview and apply, richer checks. \
 0.2.0: plugin icon and audit improvements."""
 categories = ["languages", "tools"]

@@ -96,7 +96,7 @@ Swagger UI 5.34.1 opens beside the text for `openapi.*`, `swagger.*`, `*.openapi
 - The preview follows your edits as you type. **Reload** fetches referenced files again.
 - Files the spec references directly are loaded too.
 - The **Redoc** button switches to Redoc 2.5.4 and back. The preview remembers your choice (with the `storage` permission).
-- There is no Try it out in the preview: the frame has no network.
+- **Try…** starts **OpenAPI: Try Local GET/HEAD Request…** for the spec shown. The preview itself has no network: the request is prepared in the **Request / Response** tab and sent only when you click **Send once**.
 
 ### Write HTTP requests
 
@@ -105,7 +105,7 @@ Swagger UI 5.34.1 opens beside the text for `openapi.*`, `swagger.*`, `*.openapi
 
 ### Try a local request
 
-**OpenAPI: Try Local GET/HEAD Request…** prepares a GET or HEAD request from a JSON OpenAPI 3.0/3.1 spec. It shows in the **Request / Response** tab. Nothing is sent until you click **Send once**.
+**OpenAPI: Try Local GET/HEAD Request…** prepares a GET or HEAD request from an OpenAPI 3.0/3.1 spec in JSON or YAML. Run it from the Command Palette or the preview's **Try…** button. It shows in the **Request / Response** tab. Nothing is sent until you click **Send once**.
 
 It needs one literal `127.0.0.1` server with a port, and `net:127.0.0.1`. With `net:ask`, a single literal `https://host` server works too; the IDE asks before the first request to each host.
 
@@ -220,7 +220,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - No indexed Rename or Find Usages, and no structure view.
 - The preview loads only files the spec references directly. Its dark theme is a colour inversion of the light one.
 - The endpoints list has no request panel and no gutter icon on the handler. The grey detail text follows the path instead of sitting in a column.
-- Try requests: no authentication, header/cookie parameters, request bodies, Swagger 2 or YAML.
+- Try requests: no authentication, header/cookie parameters, request bodies or Swagger 2. YAML with anchors, aliases, tags or merge keys is refused.
 - Code generation doesn't accept OpenAPI 3.1/3.2 and never installs tools.
 
 ## Technical details
@@ -299,7 +299,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 ### Try requests
 
 - Preparation never sends. **Send once** checks the fresh project/editor, exact source text/version and a single-use 120-second ticket. Editing the spec or switching source invalidates the preview.
-- JSON OpenAPI 3.0/3.1 up to 128 KiB. GET/HEAD and declared scalar path/query values. Refuses additional network grants. Referenced/variable servers are unsupported.
+- OpenAPI 3.0/3.1 up to 128 KiB, in a `.json` or `.yaml`/`.yml` editor. YAML is converted to the same JSON value, so every check below applies unchanged; one document only, and duplicate keys (including `200` and `'200'`), anchors, aliases, tags and merge keys are refused. GET/HEAD and declared scalar path/query values. Refuses additional network grants. Referenced/variable servers are unsupported.
 - API 1.4 may follow up to ten redirects within granted hosts; other hosts and HTTPS-to-HTTP downgrades are denied. Five-second timeout. At most 256 KiB accepted and 64 KiB shown as plain text, headers omitted.
 - After a failed Send, only a constant status (permission denial, unsupported request/response or generic failure) is kept for that source/version. Drift or a new preparation clears it. Nothing is sent automatically.
 
