@@ -36,6 +36,8 @@ pub struct Ideolog {
     viewer: viewer::Viewer,
     jvm: jvm::Adapter,
     tail: live_tail::LiveTail,
+    /// Path and project root of the log last marked with Mark Current Log Source.
+    marked: Option<(String, String)>,
     /// The `customPatterns` setting it was built from, and the config.
     config: Option<(String, Rc<Config>)>,
 }
@@ -84,6 +86,31 @@ fn refresh_changed_patterns(before: &str) {
     }
 }
 
+impl Ideolog {
+    /// Marks, the JVM snapshot and the live tail each belong to one log; events
+    /// about other files or editors leave them alone.
+    fn events_name_a_tracked_log(&self, events: &[HostEvent]) -> bool {
+        let tracked: Vec<(String, String)> = [self.marked.clone(), self.jvm.source(), self.tail.source()]
+            .into_iter()
+            .flatten()
+            .collect();
+        events.iter().any(|event| match event {
+            HostEvent::FileOpened(path) | HostEvent::FileSaved(path) => tracked.iter().any(|(log, _)| log == path),
+            HostEvent::EditorFocused(path) => path.as_ref().is_some_and(|path| tracked.iter().any(|(log, _)| log == path)),
+            HostEvent::DocumentChanged(change) => tracked.iter().any(|(log, _)| *log == change.path),
+            HostEvent::FilesChanged(changes) => changes
+                .created
+                .iter()
+                .chain(&changes.modified)
+                .chain(&changes.removed)
+                .any(|path| tracked.iter().any(|(log, _)| log == path)),
+            HostEvent::VcsChanged(root) => tracked.iter().any(|(_, tracked_root)| tracked_root == root),
+            HostEvent::Scheduled => false,
+            _ => !tracked.is_empty(),
+        })
+    }
+}
+
 impl Plugin for Ideolog {
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
         // Compile bounded stored regex configuration outside editor requests.
@@ -95,7 +122,14 @@ impl Plugin for Ideolog {
         let _ = host::clear_decorations(semantic::DECORATION_SET);
     }
     fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
-        if !events.is_empty() { self.tail_lifecycle(ctx); self.invalidate_jvm_tokens(); let _ = host::clear_decorations(semantic::DECORATION_SET); }
+        if events.iter().any(|e| matches!(e, HostEvent::Other { kind, .. } if kind == "settings-changed")) {
+            self.config();
+        }
+        if self.events_name_a_tracked_log(events) {
+            self.tail_lifecycle(ctx);
+            self.invalidate_jvm_tokens();
+            let _ = host::clear_decorations(semantic::DECORATION_SET);
+        }
         if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
             self.show_format(ctx);
         }

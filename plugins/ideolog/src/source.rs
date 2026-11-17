@@ -168,12 +168,14 @@ pub fn find_logging_line(
     let owner_root=project.root()?;
     let anchor = words(message).filter(|w| w.len() >= 4).max_by_key(|w| w.len());
     let task = host::begin_task("Finding the source of the log event", true);
-    let files: Vec<String> = project
-        .find_files("**/*", 200_000)?
-        .into_iter()
-        .filter(|path| path.rsplit_once('.').is_some_and(|(_, ext)| SOURCE_EXTENSIONS.contains(&ext)))
-        .take(MAX_SOURCE_FILES)
-        .collect();
+    let mut files: Vec<String> = Vec::new();
+    for extension in SOURCE_EXTENSIONS {
+        if files.len() >= MAX_SOURCE_FILES {
+            break;
+        }
+        let limit = (MAX_SOURCE_FILES - files.len()) as u32;
+        files.extend(project.find_files(&format!("**/*.{extension}"), limit)?);
+    }
 
     let mut best: Option<((usize, u32), String, u32)> = None;
     let mut ambiguous=false;

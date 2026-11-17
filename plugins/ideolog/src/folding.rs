@@ -90,7 +90,6 @@ impl LanguageFeatures for Ideolog {
     fn folding(&mut self, doc: &Document) -> Vec<FoldRange> {
         if doc.language != "log"
             || doc.text.len() > MAX_DOCUMENT_BYTES
-            || doc.text.lines().take(8193).count() > 8192
         {
             return Vec::new();
         }
