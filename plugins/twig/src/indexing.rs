@@ -291,4 +291,11 @@ mod tests {
             assert!(source_edges(&doc(text)).definitions.is_empty(), "{text}");
         }
     }
+    #[test]
+    fn published_kinds_are_rename_closed() {
+        let _host = openidea_plugin::mock::MockHost::install();
+        let text = "{% extends 'base.html.twig' %}{% include 'a.twig' %}{% for item in items %}{{ item }}{% endfor %}";
+        let edges = DocumentIndexer::index(&mut Twig::default(), &doc(text));
+        assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.markers.is_empty());
+    }
 }

@@ -122,19 +122,18 @@ fn agreed(facts: Vec<LexerFacts>) -> Option<[String; 6]> {
     Some([block.0, block.1, variable.0, variable.1, comment.0, comment.1])
 }
 
-thread_local! {static CACHE: RefCell<Option<(Instant, Option<[String; 6]>)>> = const { RefCell::new(None) };}
+thread_local! {static CACHE: RefCell<Option<[String; 6]>> = const { RefCell::new(None) };}
 
-/// Delimiters from the open project's literal `Lexer` construction. Only one open project is considered, because
-/// syntax requests carry no file path; several projects, no literal config or conflicting ones give `None`.
+/// Delimiters from the last project scan; never scans. Providers read this, `refresh_project_lexer` fills it.
 pub fn project_lexer() -> Option<[String; 6]> {
-    if let Some((at, value)) = CACHE.with(|c| c.borrow().clone()) {
-        if at.elapsed() < Duration::from_secs(5) {
-            return value;
-        }
-    }
+    CACHE.with(|c| c.borrow().clone())
+}
+
+/// Rescans the open project's literal `Lexer` construction. Only one open project is considered, because
+/// syntax requests carry no file path; several projects, no literal config or conflicting ones give `None`.
+pub fn refresh_project_lexer() {
     let value = scan_project();
-    CACHE.with(|c| *c.borrow_mut() = Some((Instant::now(), value.clone())));
-    value
+    CACHE.with(|c| *c.borrow_mut() = value);
 }
 
 fn scan_project() -> Option<[String; 6]> {
@@ -352,17 +351,31 @@ mod tests {
     #[test]
     fn project_lexer_drives_syntax_unless_settings_or_several_projects_say_otherwise() {
         let host = project(&[("src/Kernel.php", LEXER)]);
+        refresh_project_lexer();
         let source = "[% block a %]\nx\n[% endblock %][# c #]{% block b %}\n{% endblock %}";
         let mut plugin = Twig::default();
         assert_eq!(plugin.outline("twig", source)[0].name, "a");
         assert_eq!(plugin.folding("twig", source).len(), 1);
         host.add_file("src/Other.php", &LEXER.replace("[%", "<%"));
-        CACHE.with(|c| *c.borrow_mut() = None);
+        refresh_project_lexer();
         assert_eq!(plugin.outline("twig", source)[0].name, "b");
         host.add_file("src/Other.php", "<?php");
         host.set_setting("tagOpen", "\"{%\"");
-        CACHE.with(|c| *c.borrow_mut() = None);
+        refresh_project_lexer();
         assert_eq!(plugin.outline("twig", source)[0].name, "b");
+    }
+
+    #[test]
+    fn scope_uses_cached_lexer() {
+        let host = project(&[("src/Kernel.php", LEXER)]);
+        refresh_project_lexer();
+        let source = "[% block a %]\nx\n[% endblock %]";
+        let mut plugin = Twig::default();
+        assert_eq!(plugin.outline("twig", source)[0].name, "a");
+        host.add_file("src/Kernel.php", &LEXER.replace("[%", "<%"));
+        assert_eq!(plugin.outline("twig", source)[0].name, "a");
+        plugin.handle_events(&[openidea_plugin::Event::FileSaved("/p/src/Kernel.php".into())], &host.invocation());
+        assert!(plugin.outline("twig", source).is_empty());
     }
 
     #[test]
