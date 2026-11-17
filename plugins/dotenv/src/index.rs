@@ -136,14 +136,14 @@ pub fn folder_of(path: &str) -> &str {
 /// The value as completion and hover show it: keys that look like secrets are masked.
 pub fn shown_value<'a>(key: &str, value: &'a str) -> &'a str {
     let key = key.to_ascii_uppercase();
-    match ["PASS", "SECRET", "TOKEN", "KEY", "CREDENTIAL"].iter().any(|word| key.contains(word)) {
+    match !value.is_empty() && ["PASS", "SECRET", "TOKEN", "KEY", "CREDENTIAL"].iter().any(|word| key.contains(word)) {
         true => "••••",
         false => value,
     }
 }
 
 pub fn is_secret_like(key: &str, value: &str) -> bool {
-    shown_value(key, value) != value
+    !value.is_empty() && shown_value(key, value) != value
 }
 
 pub fn is_compose_file(path: &str) -> bool {
@@ -453,7 +453,8 @@ impl Index {
         index
     }
 
-    /// Every file that declares or reads keys, declarations first, until `deadline`.
+    /// Every file that declares or reads keys, until `deadline`. A walk cut by the
+/// deadline stays `walked == false`, so the next event batch walks again.
     // ponytail: a huge project is cut at the deadline (usages first); persist the index if that bites.
     pub fn full(project: &Project, root: &str, deadline: Instant) -> Self {
         if Instant::now() >= deadline {
@@ -486,12 +487,14 @@ impl Index {
         let mut index = Self { walked: true, complete: discovery_complete, ..Self::default() };
         for (_, path) in paths {
             if Instant::now() >= deadline {
+                index.walked = false;
                 index.complete = false;
                 break;
             }
             match project.read_file(&path) {
                 Ok(text) => {
                     if Instant::now() >= deadline {
+                        index.walked = false;
                         index.complete = false;
                         break;
                     }
@@ -577,6 +580,16 @@ mod tests {
         let index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(5));
         assert!(index.complete && index.walked);
         assert!(index.declarations.iter().any(|d| d.key == "A"));
+    }
+
+    #[test]
+    fn expired_deadline_leaves_the_walk_unfinished() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "A=1\n");
+        let project = host.invocation().project().unwrap();
+        assert!(!Index::full(&project, "/p", Instant::now() - Duration::from_secs(1)).walked);
+        assert!(Index::full(&project, "/p", Instant::now() + Duration::from_secs(5)).walked);
     }
 
     #[test]

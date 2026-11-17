@@ -290,7 +290,17 @@ fn watch_files() {
     globs.extend(index::CODE.iter().map(|ext| format!("**/*.{ext}")));
     globs.extend(contributed_sources().into_iter().map(|(name, _)| format!("**/{name}")));
     let globs: Vec<&str> = globs.iter().map(String::as_str).collect();
-    let _ = host::subscribe_paths("files-changed", &globs);
+    if host::subscribe_paths("files-changed", &globs).is_err() && !WATCH_WARNED.replace(true) {
+        host::notify(
+            openidea_plugin::NotificationLevel::Warning,
+            ".env files",
+            "External file changes can't be tracked. Allow events for .env files in Settings › Plugins.",
+        );
+    }
+}
+
+thread_local! {
+    static WATCH_WARNED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 impl SyntaxProvider for DotEnv {
@@ -551,6 +561,38 @@ mod tests {
         for expected in ["**/.env", "**/.env.*", "**/*.env", "**/Dockerfile", "**/compose.yaml", "**/*.py"] {
             assert!(globs.iter().any(|g| g == expected), "{expected}");
         }
+    }
+
+    #[test]
+    fn unfinished_walk_is_continued_by_the_next_event_batch() {
+        let host = project();
+        let mut plugin = DotEnv::default();
+        let (root, p) = project_of("/p/.env").unwrap();
+        plugin.projects.insert(root.clone(), Index::full(&p, &root, Instant::now() - Duration::from_secs(1)));
+        assert!(!plugin.projects["/p"].walked);
+        host.add_file("late.py", "os.getenv('LATE_KEY')\n");
+        plugin.apply_events(&[Event::FileSaved("/p/app.py".into())]);
+        assert!(plugin.projects["/p"].walked);
+        assert!(plugin.projects["/p"].usages.iter().any(|u| u.key == "LATE_KEY"));
+    }
+
+    #[test]
+    fn denied_events_notify_once_that_changes_cannot_be_tracked() {
+        let host = project();
+        let host = host.with_capabilities(&["project.read"]);
+        watch_files();
+        watch_files();
+        assert_eq!(host.notifications().len(), 1);
+    }
+
+    #[test]
+    fn empty_secret_like_values_are_not_masked() {
+        let host = project();
+        host.add_file(".env", "DB_PASSWORD=\n");
+        let php = doc("/p/index.php", "php", "<?php getenv('DB');");
+        let items = DotEnv::default().completion(&php, Position::new(0, 16), None);
+        assert!(items.iter().all(|i| i.detail.as_deref() != Some("= ••••")));
+        assert!(!index::is_secret_like("DB_PASSWORD", ""));
     }
 
     #[test]
