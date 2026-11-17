@@ -1209,6 +1209,7 @@ mod tests {
             let (status, stdout) = match command.as_str() {
                 "rev-parse --abbrev-ref HEAD" => (0, "main\n"),
                 c if c.starts_with("rev-parse --verify") => (1, ""),
+                c if c.starts_with("config --local --get") => (1, ""),
                 _ => (0, ""),
             };
             Ok(ProcessOutput { status: Some(status), stdout: stdout.into(), stderr: String::new() })
@@ -1520,28 +1521,29 @@ mod tests {
         press(&mut plugin, &host, ViewEvent::Button("ok".into()));
 
         assert_eq!(load("/project").unwrap().active, "tool-12");
-        assert!(git.borrow().iter().any(|c| c.starts_with("log -1 --format=tool-12 100%% crash --output=")));
+        assert!(git.borrow().iter().any(|c| c.starts_with("config --local commit.template ")));
+        let template = git.borrow().iter().find(|c| c.starts_with("config --local commit.template ")).cloned().unwrap();
+        let written = host::fs::read_file(template.trim_start_matches("config --local commit.template ")).unwrap();
+        assert_eq!(written, "tool-12 100% crash\n");
         assert!(!git.borrow().iter().any(|c| c.starts_with("switch -c")));
     }
 
     #[test]
     fn commit_template_set_in_empty_repo() {
-        let host = MockHost::install().with_capabilities(&["project.read", "project.write", "storage", "process:git"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "process:git"]);
         host.set_setting("fillCommitTemplate", "true");
         let calls = Rc::new(RefCell::new(Vec::new()));
         let seen = calls.clone();
         host.on_process("git", move |args, _| {
             let command = args.join(" ");
             seen.borrow_mut().push(command.clone());
-            Ok(match command.as_str() {
-                "rev-parse --abbrev-ref HEAD" => ProcessOutput { status: Some(0), stdout: "main\n".into(), stderr: String::new() },
-                c if c.starts_with("rev-parse --path-format") => {
-                    ProcessOutput { status: Some(0), stdout: "/project/.git/openidea-task-message\n".into(), stderr: String::new() }
-                }
-                c if c.starts_with("log ") => ProcessOutput { status: Some(128), stdout: String::new(), stderr: "no commits".into() },
-                c if c.starts_with("config --local --get") => ProcessOutput { status: Some(1), stdout: String::new(), stderr: String::new() },
-                _ => ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() },
-            })
+            let (status, stdout) = match command.as_str() {
+                "rev-parse --abbrev-ref HEAD" => (0, "main\n"),
+                c if c.starts_with("log ") => (128, ""),
+                c if c.starts_with("config --local --get") => (1, ""),
+                _ => (0, ""),
+            };
+            Ok(ProcessOutput { status: Some(status), stdout: stdout.into(), stderr: String::new() })
         });
         let mut plugin = plugin(&host);
         update("/project", |tasks, _| {
@@ -1555,10 +1557,11 @@ mod tests {
         press(&mut plugin, &host, ViewEvent::Button("ok".into()));
 
         assert!(host.notifications().is_empty(), "{:?}", host.notifications());
-        assert!(!calls.borrow().iter().any(|c| c.starts_with("log ")));
-        assert!(calls.borrow().iter().any(|c| c == "config --local commit.template /project/.git/openidea-task-message"));
-        let written = host::project_of("/project").unwrap().read_file(".git/openidea-task-message").unwrap();
-        assert!(written.starts_with("tool-12 Crash"), "{written}");
+        let configure = calls.borrow().iter().find(|c| c.starts_with("config --local commit.template ")).cloned().unwrap();
+        let path = configure.trim_start_matches("config --local commit.template ");
+        assert!(!path.contains(".git"), "{path}");
+        assert!(path.starts_with(&host::fs::plugin_dir().unwrap()), "{path}");
+        assert!(host::fs::read_file(path).unwrap().starts_with("tool-12 Crash"));
     }
 
     fn github_hit(host: &MockHost) {
