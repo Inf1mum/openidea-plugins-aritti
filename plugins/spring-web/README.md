@@ -146,7 +146,6 @@ Optional permissions are off until you allow them in Settings › Plugins › Sp
 |---|---|---|
 | `project.write` | Writing `.http` request files and `.graphql` subscription drafts. | The request or document is copied to the clipboard instead (if `clipboard` is allowed). |
 | `clipboard` | **Copy as cURL**, **Copy Spring Endpoints as OpenAPI**, and the fallback above. | Copy as cURL shows "Copying the curl command needs the clipboard capability." The OpenAPI export fails. |
-| `process:tee` | Listed by the plugin. The current code writes request files with `project.write`. | No visible change. |
 | `editor.read` | The **from … Source/Handler/Client** commands and the request code lenses, which read the active editor. | Those commands can't find the source. |
 | `events` | Keeping the indexes fresh when files change, open or save. | Checks that report something *missing* (unresolved views, unmapped fields, Stream bindings) stay quiet. |
 | `storage` | Remembering the last section of the Spring Endpoints window. | The window opens on its default section. |

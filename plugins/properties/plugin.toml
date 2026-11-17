@@ -97,3 +97,4 @@ category = "Properties"
 [[contributes.commands]]
 id = "inspect-java-contracts"
 title = "Properties: Inspect Compiler-Proved Java Bundle Usages…"
+category = "Properties"

@@ -34,7 +34,7 @@ activation = [
 
 [capabilities]
 required = ["project.read"]
-optional = ["project.write", "clipboard", "process:tee", "editor.read", "events", "storage", "process:node"]
+optional = ["project.write", "clipboard", "editor.read", "events", "storage", "process:node"]
 
 [[contributes.markerIcons]]
 id = "route"

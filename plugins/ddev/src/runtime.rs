@@ -258,7 +258,7 @@ impl Main {
         let configured = project.exists(CONFIG)?;
         let mut items = vec![
             PickItem::new("refresh", "Refresh status"),
-            PickItem::new("help", "Help and diagnostics"),
+            PickItem::new("setup", "Guided Setup"),
         ];
         if configured {
             items.push(PickItem::new("open-config", "Open configuration"));

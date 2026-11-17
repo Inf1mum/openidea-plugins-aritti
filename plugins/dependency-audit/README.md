@@ -139,7 +139,7 @@ For a global ignore, list the advisory in **Ignored advisories**.
 
 The build runs your project's plugins and may contact your repositories. Nothing is installed, upgraded or edited. No wrapper or installer runs.
 
-With **Resolve Maven/Gradle dependencies after each scan** on (the default), every scan also starts this resolver, without asking, when `process:mvn` or `process:gradle` is allowed.
+With **Resolve Maven/Gradle dependencies after each scan** turned on (it is off by default), every scan also starts this resolver, without asking, when `process:mvn` or `process:gradle` is allowed.
 
 ### Resolve effective sbt versions
 
@@ -199,7 +199,7 @@ Settings › Plugins › Dependency Audit.
 |---|---|---|---|
 | Check on open and save | `autoCheck` | on | Asks OSV when a supported file opens or is saved. Off: nothing is sent until you run a scan. |
 | Ignored advisories | `ignoredAdvisories` | empty | Advisories to hide everywhere. One id per line (`GHSA-…`, `CVE-…`); `#` starts a comment. |
-| Resolve Maven/Gradle dependencies after each scan | `autoResolveBuilds` | on | Runs the project's build tool after each scan, without confirmation. Needs `process:mvn` or `process:gradle`. |
+| Resolve Maven/Gradle dependencies after each scan | `autoResolveBuilds` | off | Runs the project's build tool after each scan, without confirmation. Needs `process:mvn` or `process:gradle`. |
 
 Ignored advisory ids are case-insensitive and match the advisory's id or any alias. A `CVE-…` works for a `GHSA-…` advisory once its details are fetched. Listed ids are hidden from the underlines and the tool window.
 

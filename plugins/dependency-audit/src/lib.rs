@@ -823,7 +823,7 @@ mod tests;
 
 impl DependencyAudit {
     fn auto_resolve(&mut self, ctx: &Invocation) {
-        if host::setting_bool("autoResolveBuilds") == Some(false) {
+        if host::setting_bool("autoResolveBuilds") != Some(true) {
             return;
         }
         let _ = self.build_resolution.start(ctx, false);

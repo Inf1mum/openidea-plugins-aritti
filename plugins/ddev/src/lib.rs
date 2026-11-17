@@ -367,7 +367,7 @@ impl Plugin for Main {
                 }
             }
             "actions" => self.actions(ctx)?,
-            "help" | "setup" => {
+            "setup" => {
                 host::reveal_view(support::SETUP)?;
             }
             "diagnose" => {

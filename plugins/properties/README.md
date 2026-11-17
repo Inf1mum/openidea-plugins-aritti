@@ -127,12 +127,6 @@ Settings › Plugins › Properties.
 | Report alphabetically unsorted files | `inspections.alphaUnsorted` | off | Turns on the sort-order check. |
 | Optional compiler dependency JAR profile (absolute path) | `compilerClasspathProfile` | empty | JAR list for compiler-proved usages. See [setup](adapters/README.md). |
 
-Three compatibility settings remain and change little today:
-
-- **Legacy other-locale write preference (navigation only)** (`bundle.writeOtherLocales`, on): other-locale cells always open the file now.
-- **Legacy missing-key-in-code preference** (`reportMissingKeysInCode`, on): missing-key warnings in code are withheld.
-- **Cache potential unused-key candidates on open/save** (`unusedProperties.live`, off): keeps a text-search cache of up to 2000 files under 256 KiB each. No warnings are shown.
-
 ## Permissions
 
 Optional permissions are off until you allow them in Settings › Plugins › Properties.
@@ -182,7 +176,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 - Documents over 128 KiB or 4096 properties are skipped. Results are capped at 512.
 - Key equality keeps Java UTF-16 units: distinct lone-surrogate escapes stay distinct, and valid escaped surrogate pairs match their literal spelling.
 - Missing translations come from a bounded warm read of the same file's sibling locales, matched to current keys. Warm reads are limited to 128 sibling files, 128 KiB / 4096 keys each and a 250 ms deadline. Discovery uses a raw 201st-file sentinel before filtering similarly named bundles. Cold, foreign, erroring, truncated, oversized or otherwise uninterpretable discovery is quiet. Newly typed keys without a warmed fact stay quiet. Another locale's unsaved edits may be stale until its next warm event. Ignored locale files aren't guaranteed to be discovered.
-- Missing-key warnings in Java, Kotlin and templates are withheld: text matches and a conventional bundle name don't establish a resolved owner. `reportMissingKeysInCode` is a retained legacy preference.
+- Missing-key warnings in Java, Kotlin and templates are withheld: text matches and a conventional bundle name don't establish a resolved owner.
 
 ### Java and Kotlin navigation
 

@@ -708,8 +708,7 @@ impl Liquibase {
                         None => true,
                     }
                 };
-                let check = host::setting_bool("checkProperties").unwrap_or(true);
-                let defined: Option<&dyn Fn(&str) -> bool> = check.then_some(&defined);
+                let defined: Option<&dyn Fn(&str) -> bool> = Some(&defined);
                 let problems = checks::problems(&doc.path, &doc.text, &log, &resolve, defined);
                 for include in log.includes.iter().filter(|i| !i.dir) {
                     let Target::Found(path) = resolve(include) else {
@@ -1279,6 +1278,13 @@ mod tests {
     const SET: &str = "databaseChangeLog:\n  - changeSet:\n      id: 1\n      author: bob\n      changes:\n";
 
     #[test]
+    fn json_changelog_offers_change_keys() {
+        let manifest = include_str!("../plugin.toml");
+        let completion = manifest.split("[[contributes.providers]]").find(|block| block.contains("kinds = [\"completion\"]")).unwrap();
+        assert!(completion.lines().find(|l| l.starts_with("languages")).unwrap().contains("\"json\""));
+    }
+
+    #[test]
     fn completes_yaml_changelogs() {
         let _host = MockHost::install();
         let y = "/project/db/master.yaml";
@@ -1516,14 +1522,6 @@ mod tests {
         host.add_file("liquibase.properties", "url=x\n");
         assert_eq!(property_codes(&host, PLACEHOLDER_XML), ["unresolved-property"]);
         assert!(property_codes(&host, &PLACEHOLDER_XML.replace("${prefix}", "")).is_empty());
-    }
-
-    #[test]
-    fn setting_turns_the_property_check_off() {
-        let host = host();
-        host.add_file("liquibase.properties", "url=x\n");
-        host.set_setting("checkProperties", "false");
-        assert!(property_codes(&host, PLACEHOLDER_XML).is_empty());
     }
 
     const CHILD: &str = "/project/db/changes/child.xml";

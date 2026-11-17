@@ -26,7 +26,7 @@ Not sure what's missing? Run **DDEV: Guided Setup** for a checklist and an envir
 Open **Services › DDEV**. The project node shows its status. Its children are the services DDEV reports, plus Mailpit/Mailhog links.
 
 - Toolbar: **Refresh Status**, **Start DDEV**, **Restart DDEV**, **Stop DDEV**, **Open Shell**, **Open Logs**, **Open in Browser** and **More Actions…**. Buttons that don't fit the current state are disabled.
-- Right-click a node for the same actions, plus a **DDEV** submenu with Share, Power Off, Delete, database, tools and help.
+- Right-click a node for the same actions, plus a **DDEV** submenu with Share, Power Off, Delete, database and tools.
 - **Open Shell** opens a shell in the selected container. The project node uses `web`.
 - **Open in Browser** prefers HTTPS. Double-click a node to open its URL.
 - Tabs for the selected node:
@@ -134,7 +134,6 @@ Find them in Search Everywhere › Actions (⇧⇧) under **DDEV**; bind keys in
 | **DDEV: Configure Database Data Source** (*Services › DDEV*) | Creates or updates the DDEV database connection. | None |
 | **DDEV: Copy Database Password** (*Services › DDEV*) | Copies the database password. | None |
 | **DDEV: Project Actions** (*Tools*, status bar) | Opens the project action menu. | None |
-| **DDEV: Help and Diagnostics** (*Services › DDEV*) | Opens the **DDEV Setup** panel (same as **DDEV: Guided Setup**). | None |
 | **DDEV: Guided Setup** (*Tools*) | Opens the **DDEV Setup** panel. | None |
 | **DDEV: Check Environment** | Checks the DDEV and Docker versions and shows advice. | None |
 | **DDEV: Show Services** | Reveals Services › DDEV. | None |

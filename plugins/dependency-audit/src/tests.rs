@@ -452,6 +452,15 @@ fn scan_lists_vulnerable_dependencies_in_the_view() {
 }
 
 #[test]
+fn scan_does_not_resolve_builds_by_default() {
+    let host = MockHost::install().with_capabilities(&["project.read", "storage", "events", "net:api.osv.dev", "process:mvn", "editor.read"]);
+
+    scanned(&host);
+
+    assert!(host.process_runs().is_empty(), "{:?}", host.process_runs());
+}
+
+#[test]
 fn the_view_survives_a_new_instance() {
     let host = MockHost::install().with_capabilities(CAPS);
     let mut first = scanned(&host);

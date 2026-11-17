@@ -195,7 +195,6 @@ Settings › Plugins › Liquibase Changelogs.
 | Setting | Key | Default | What it changes |
 |---|---|---|---|
 | Author offered when completing a changeSet author | `author` | empty | The name suggested for `author`. Empty: `git config user.name`. |
-| Undeclared-property warnings (pending complete source scope) | `checkProperties` | `true` | Reserved. Live checks stay quiet about undeclared properties, because includes, configuration and runtime parameters may supply them. |
 
 ## Permissions
 
@@ -263,8 +262,7 @@ More: [repository troubleshooting](../../README.md#troubleshooting).
 - Unresolved-include, unresolved-SQL-file and unresolved-property diagnostics are no longer automatic. Their project-wide algorithms now run only as regression fixtures. Historical behaviour, kept for reference:
   - Includes resolved against the changelog's directory (with `relativeToChangelogFile`), else `src/main/resources` or `src/test/resources` (and, from a test changelog, `src/main/resources` too) when the changelog sits under one, then the project root. `classpath:` was stripped first.
   - An include was not flagged when its path contained `${property}`, left the project root, was empty (half-typed), when an `includeAll` directory existed but was empty, when it set `errorIfMissing: false` (`errorIfMissingOrEmpty: false`), or when the file existed but couldn't be read for a reason other than being missing.
-  - `unresolved-property` was quiet when no config file could be read, when a scan cap was hit (1,000 listed files, 200 changelogs, 256 KB per file, 20 config files), when any changelog used `includeAll`, an unresolvable include or `property file=`, when the configuration used `defaultsFile` or `spring.config.import`/`location`/`activate`, for escaped (`$${x}`, `\${x}`), numeric or dynamic names, and inside comments. `database.*` names are built in. Parameters passed with `-D` or the environment are invisible: turn the check off with `checkProperties` if you rely on them.
-- `checkProperties` does not authorize new scanning.
+  - `unresolved-property` was quiet when no config file could be read, when a scan cap was hit (1,000 listed files, 200 changelogs, 256 KB per file, 20 config files), when any changelog used `includeAll`, an unresolvable include or `property file=`, when the configuration used `defaultsFile` or `spring.config.import`/`location`/`activate`, for escaped (`$${x}`, `\${x}`), numeric or dynamic names, and inside comments. `database.*` names are built in. Parameters passed with `-D` or the environment are invisible.
 - Hover shows changeset id/author, literal include options and, when unambiguous, where a property is declared through cached relative includes. It never shows property values.
 - Include targets are positive cached facts only for literal relative file paths. Classpath, absolute and dynamic paths, `includeAll`, runtime precedence and missing targets stay unestablished. Cold or expired targets have no gutter link.
 - The cache belongs to exact verified project roots and full paths. It is warmed only from supplied documents, optional open/save events or already-read browser sources. Positive facts expire after 120 seconds. Files-changed events invalidate facts; current text replaces or removes a document's facts.

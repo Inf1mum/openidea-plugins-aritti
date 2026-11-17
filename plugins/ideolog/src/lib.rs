@@ -101,6 +101,10 @@ impl Ideolog {
         }
 
         if id == "remove-highlightings" {
+            let count = patterns::highlighting_count();
+            if count > 0 && !host::confirm("Remove Custom Highlightings", &format!("Remove all {count} custom highlighting rules?"))? {
+                return Ok(None);
+            }
             let before = patterns::stored();
             let removed = patterns::remove_highlightings()?;
             self.config();
@@ -854,8 +858,27 @@ java.lang.IllegalStateException: boom
         let stored = patterns::stored();
         assert!(stored.contains("pattern=\"a\\.b\\(1\\)\""), "{stored}");
         assert!(stored.contains("HIGHLIGHT_MATCH"));
+        host.answer_next_prompt(Some(&[]));
         Ideolog::default().run_command("remove-highlightings", &host.invocation(), None).unwrap();
         assert!(patterns::stored().trim().is_empty());
+    }
+
+    #[test]
+    fn remove_highlightings_asks_first() {
+        let host = MockHost::install();
+        patterns::save(&[patterns::highlight_element("seed", "HIGHLIGHT_LINE", -39836)]).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        Ideolog::default().run_command("remove-highlightings", &host.invocation(), None).unwrap();
+        assert_eq!(patterns::highlighting_count(), 0);
+    }
+
+    #[test]
+    fn cancel_keeps_rules() {
+        let host = MockHost::install();
+        patterns::save(&[patterns::highlight_element("seed", "HIGHLIGHT_LINE", -39836)]).unwrap();
+        host.answer_next_prompt(None);
+        Ideolog::default().run_command("remove-highlightings", &host.invocation(), None).unwrap();
+        assert_eq!(patterns::highlighting_count(), 1);
     }
 
     #[test]
@@ -986,6 +1009,7 @@ mod external_patterns_refresh_tests {
         host.open_editor("/project/a.log","ideolog","selected_literal",&[(0,0,0,0)]);
         assert!(plugin.run_command("highlight-selection",&host.invocation(),None).is_err());assert!(host.view_messages().is_empty());
         patterns::save(&[patterns::highlight_element("seed","HIGHLIGHT_LINE",-39836)]).unwrap();
+        host.answer_next_prompt(Some(&[]));
         plugin.run_command("remove-highlightings",&host.invocation(),None).unwrap();
         assert_eq!(host.refreshed_views(),[patterns::VIEW.to_owned()]);assert!(host.view_messages().iter().all(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value.as_object().unwrap().len() <= 2)));assert!(host.refreshed_views().iter().all(|view|view==patterns::VIEW));
     }
@@ -996,6 +1020,7 @@ mod external_patterns_refresh_tests {
         plugin.handle(patterns::VIEW,ViewEvent::Button("add-highlight".into()),&host.invocation()).unwrap();
         let sample=plugin.pattern_editor.control_key("pattern-sample");
         plugin.handle(patterns::VIEW,ViewEvent::Field(sample,"manual-global-settings-sample".into()),&host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
         plugin.run_command("remove-highlightings",&host.invocation(),None).unwrap();
         host.set_project_root(Some("/other"));
         assert!(format!("{:?}",plugin.render(patterns::VIEW,None,&host.invocation()).unwrap().body).contains("manual-global-settings-sample"));

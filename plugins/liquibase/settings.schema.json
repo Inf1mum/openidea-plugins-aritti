@@ -4,12 +4,6 @@
       "type": "string",
       "title": "Author offered when completing a changeSet author (empty: git config user.name)",
       "default": ""
-    },
-    "checkProperties": {
-      "type": "boolean",
-      "title": "Undeclared-property warnings (pending complete source scope)",
-      "default": true,
-      "description": "Live diagnostics currently stay quiet about undeclared properties because includes, configuration and runtime parameters may supply them."
     }
   }
 }

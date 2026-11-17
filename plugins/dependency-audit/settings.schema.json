@@ -14,7 +14,7 @@
     "autoResolveBuilds": {
       "type": "boolean",
       "title": "Resolve Maven/Gradle dependencies after each scan (runs the project's build tool, no confirmation)",
-      "default": true
+      "default": false
     }
   }
 }

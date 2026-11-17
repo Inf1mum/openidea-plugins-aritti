@@ -644,6 +644,18 @@ fn events_refresh_status_and_watch_setting_is_respected() {
 }
 
 #[test]
+fn guided_setup_opens_the_setup_form_and_help_command_is_gone() {
+    let host = mock().with_capabilities(&["project.read"]);
+    let mut plugin = Main::default();
+    plugin.run_command("setup", &host.invocation(), None).unwrap();
+    assert_eq!(host.revealed_views(), [support::SETUP.to_owned()]);
+    let manifest = include_str!("../plugin.toml");
+    assert!(!manifest.contains("id = \"help\""));
+    assert!(!manifest.contains("command = \"help\""));
+    assert!(!manifest.lines().find(|l| l.starts_with("description")).unwrap().contains("API 1.4"));
+}
+
+#[test]
 fn configuration_and_help_work_without_process_permission() {
     let host = mock().with_capabilities(&["project.read"]);
     let mut plugin = Main::default();

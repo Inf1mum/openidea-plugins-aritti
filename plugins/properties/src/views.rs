@@ -1218,16 +1218,6 @@ mod tests {
         assert!(host.opened_locations().is_empty());
         assert_eq!(host.invocation().project().unwrap().read_file("/project/messages_fr.properties").unwrap(), "hello=Bonjour\n");
     }
-
-    #[test]
-    fn the_setting_keeps_other_locales_read_only() {
-        let host = locale_host();
-        host.set_setting("bundle.writeOtherLocales", "false");
-        let mut plugin = Properties::default();
-        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
-        assert!(plugin.handle(BUNDLE, ViewEvent::Cell { row: 1, column: 2, value: "x".into() }, &host.invocation()).is_err());
-        assert!(host.opened_locations().is_empty());
-    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

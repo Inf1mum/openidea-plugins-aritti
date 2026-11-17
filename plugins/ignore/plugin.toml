@@ -15,7 +15,7 @@ activation = ["on-view:templates", "on-event:file-opened", "on-event:file-saved"
 [capabilities]
 required = ["project.read", "editor.read", "editor.write", "events", "storage"]
 # project.write: Ignore: New Ignore File… creates the chosen file.
-optional = ["clipboard", "process:git", "process:python3", "vcs.read", "project.write"]
+optional = ["process:git", "process:python3", "vcs.read", "project.write"]
 
 # Ignore files the IDE doesn't know yet; .gitignore, .dockerignore, .npmignore…
 # are the built-in `ignore` language.

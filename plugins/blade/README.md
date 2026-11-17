@@ -69,11 +69,7 @@ Settings › Plugins › *Blade*.
 
 ## Permissions
 
-Optional permissions are off until you allow them in Settings › Plugins › *Blade*.
-
-| Permission | Used for | Without it |
-|---|---|---|
-| `events` | Running the inspections when a Blade file is opened or saved (as declared in the manifest). | The inspections still run on the current editor text. |
+Blade needs only `project.read`. It has no optional permissions.
 
 ## Troubleshooting
 

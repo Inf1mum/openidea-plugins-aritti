@@ -1,7 +1,7 @@
 id = "aritti.blade"
 name = "Blade"
 version = "0.3.0" # x-release-please-version
-description = "Laravel Blade support for .blade.php files: highlighting of Blade directives, echo statements, PHP and the HTML around them, sections and pushes in the structure view, folding of directive pairs and multi-line comments, static directive hover, and inspections for unpaired directives and unbalanced parentheses in directive arguments."
+description = "Laravel Blade support for .blade.php files: highlighting of Blade directives, echo statements, PHP and the HTML around them, sections and pushes in the structure view, folding of directive pairs and multi-line comments, static directive hover, and inspections for unpaired directives and unbalanced parentheses in directive arguments. Completion comes from the Laravel plugin."
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
 change-notes = "Unreleased: bidirectional matching-directive navigation using unsaved source. Unreleased: bounded current-text closing-directive navigation and explicit Laravel/Blade reference ownership, with no unsafe Rename graph. documented that directive completion and its snippets are provided by aritti.laravel, not by this plugin. 0.1.0: 0.1.0: first release, with .blade.php file detection, highlighting, structure view and folding."
@@ -15,8 +15,6 @@ activation = ["on-language:blade"]
 
 [capabilities]
 required = ["project.read"]
-# events: the inspections run when a Blade file is opened or saved.
-optional = ["events"]
 
 [contributes.settings]
 schema = "settings.schema.json"

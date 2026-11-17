@@ -133,7 +133,6 @@ Optional permissions are off until you allow them in Settings › Plugins › .i
 | `process:git` | Running `git ls-files` for the Git observation commands. | Those commands are refused. |
 | `vcs.read` | Finding the repository root and HEAD for the Git observation commands. | Those commands are refused. |
 | `process:python3` | Running the helper for **Ignore: Find Unused Entries from Complete Directory Snapshot…**. | That command is refused. |
-| `clipboard` | No current feature uses it. | Nothing changes. |
 | `project.write` | **Ignore: New Ignore File…** writing the new file. | That command says which permission to allow. New and ⌥⏎ still create files. |
 
 ## Troubleshooting

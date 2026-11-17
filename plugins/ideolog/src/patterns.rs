@@ -149,6 +149,10 @@ pub fn highlight_text(text: &str) -> Result<(), Error> {
     }
 }
 
+pub fn highlighting_count() -> usize {
+    entries().iter().filter(|e| e.starts_with("<LogHighlightingPattern")).count()
+}
+
 pub fn remove_highlightings() -> Result<usize, Error> {
     let all = entries();
     let kept: Vec<String> = all.iter().filter(|e| !e.starts_with("<LogHighlightingPattern")).cloned().collect();

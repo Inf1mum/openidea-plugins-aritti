@@ -57,7 +57,7 @@
     },
     "accountSlot": {
       "type": "string",
-      "title": "GitLab.com account slot",
+      "title": "GitLab account slot",
       "enum": [
         "primary",
         "secondary"
