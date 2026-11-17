@@ -578,7 +578,7 @@ impl Plugin for OpenApi {
             let route =
                 arg.and_then(|key| self.route_list().route(key).cloned()).ok_or_else(|| Error::Invalid("select an endpoint row".into()))?;
             if id == "copy-route-curl" {
-                routes::copy_as_curl(&route, &route_base(&route))?;
+                routes::copy_as_curl(&route, &route_base(&route), "OpenAPI")?;
             } else {
                 let directory = route.location.as_ref().and_then(|location| location.path.rsplit_once('/')).map(|(directory, _)| directory);
                 routes::create_http_file(&route, &route_base(&route), directory, "OpenAPI")?;

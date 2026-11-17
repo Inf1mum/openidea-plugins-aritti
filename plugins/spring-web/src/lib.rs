@@ -1162,16 +1162,7 @@ impl Plugin for WebTools {
             request_examples::create(&route,ctx)?;
             return Ok(None);
         }
-        match routes::copy_as_curl(&route, DEFAULT_BASE_URL) {
-            Err(Error::Denied(_)) => {
-                host::notify(
-                    NotificationLevel::Warning,
-                    "Spring Endpoints",
-                    &ui_kit::denied::message("Copy as cURL", "clipboard", PLUGIN_NAME),
-                )
-            }
-            result => result?,
-        }
+        routes::copy_as_curl(&route, DEFAULT_BASE_URL, PLUGIN_NAME)?;
         Ok(None)
     }
 }
