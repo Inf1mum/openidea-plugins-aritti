@@ -216,7 +216,7 @@ pub(crate) fn resolve(doc: &Document, action: CodeAction) -> Result<CodeAction, 
     let summary = format!(
         "Changes {occurrences} places (the declaration and its $ref usages) in {} files.\nFiles outside this project and ignored files aren't updated.\nUndo in each edited file.\n\n{}",
         edits.len(),
-        edits.keys().cloned().collect::<Vec<_>>().join("\n")
+        listed_files(edits.keys())
     );
     if !host::confirm(&format!("Rename component {old} to {new}?"), &summary)? {
         return Err(Error::Cancelled);
@@ -235,8 +235,28 @@ pub(crate) fn resolve(doc: &Document, action: CodeAction) -> Result<CodeAction, 
     Ok(result)
 }
 
+/// The host cuts confirm bodies at 16 KiB, so long lists end with a count.
+fn listed_files<'a>(paths: impl ExactSizeIterator<Item = &'a String>) -> String {
+    const SHOWN: usize = 20;
+    let total = paths.len();
+    let mut lines: Vec<String> = paths.take(SHOWN).cloned().collect();
+    if total > SHOWN {
+        lines.push(format!("…and {} more", total - SHOWN));
+    }
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn long_file_lists_end_with_a_count() {
+        let paths: Vec<String> = (0..25).map(|i| format!("/p/spec{i}.yaml")).collect();
+        let listed = super::listed_files(paths.iter());
+        assert_eq!(listed.lines().count(), 21);
+        assert!(listed.ends_with("…and 5 more"));
+        assert_eq!(super::listed_files(paths[..3].iter()).lines().count(), 3);
+    }
     use super::*;
     use openidea_plugin::mock::MockHost;
     fn setup() -> (MockHost, Document, CodeAction) {
