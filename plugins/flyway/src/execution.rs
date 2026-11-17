@@ -1,4 +1,4 @@
-//! Finite, instance-owned commands. Never execute from render or replay a log tab.
+//! Finite, instance-owned commands. Never execute from render or replay a log tab; render only polls an owned child.
 use crate::*;
 use openidea_plugin::host::{Child, Chunk, Command};
 use openidea_plugin::views::{Field, FieldValue};
@@ -11,29 +11,28 @@ pub(crate) struct Redactor {
     literals: Vec<String>,
     suppress: bool,
 }
-fn sensitive(key: &str) -> bool {
+/// Credential keys. `user` counts in Flyway config, under a datasource/Flyway key, or as an
+/// undotted leaf whose parent is unknown (YAML); `app.user` is not a credential.
+fn sensitive(key: &str, flyway: bool) -> bool {
+    let key = key.trim().to_ascii_lowercase();
+    ["password", "passwd", "passphrase", "secret", "token", "credential", "authorization", "privatekey", "accesskey", "url"]
+        .iter()
+        .any(|word| key.contains(word))
+        || key.contains("user") && (flyway || key.contains("flyway") || key.contains("datasource") || !key.contains('.'))
+}
+/// Secret at any length. Other values under 4 characters (`user=sa`, `token-validity=10`)
+/// would hide ordinary words and numbers, so they stay visible.
+fn always_secret(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
-    [
-        "password",
-        "passwd",
-        "passphrase",
-        "secret",
-        "token",
-        "credential",
-        "authorization",
-        "username",
-        "user",
-        "url",
-        "privatekey",
-        "accesskey",
-    ]
-    .iter()
-    .any(|word| key.contains(word))
+    ["password", "passwd", "passphrase", "secret", "credential"].iter().any(|word| key.contains(word))
+}
+fn word(ch: Option<char>) -> bool {
+    ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
 }
 impl Redactor {
-    fn add(&mut self, value: &str) {
+    fn add(&mut self, value: &str, any_length: bool) {
         let value = value.trim().trim_matches(['\'', '"']);
-        if value.is_empty() {
+        if value.is_empty() || !any_length && value.chars().count() < 4 {
             return;
         }
         if value.len() > 4096 || self.literals.len() >= 128 {
@@ -45,21 +44,22 @@ impl Redactor {
             self.literals.sort_by_key(|value| std::cmp::Reverse(value.len()));
         }
     }
-    fn source(&mut self, text: &str) {
+    fn source(&mut self, text: &str, flyway: bool) {
         for line in text.lines() {
             // Java properties keep an inline # as value text; YAML/TOML may
             // treat it as a comment. Retain both bounded candidates instead of
             // leaking the suffix of a known properties credential.
             if let Some((key,value))=line.split_once('=').or_else(||line.split_once(':')) {
-                if sensitive(key) {
+                if sensitive(key, flyway) {
                     let value=value.trim();
-                    self.add(value);
+                    self.add(value, always_secret(key));
                     if value.contains('\\') || value.contains("${") || value.contains("#{") || value.starts_with(['[','{']) {self.suppress=true;}
                 }
             }
             let line = config::strip_comment(line).trim();
             if let Some((key, value)) = line.split_once('=').or_else(|| line.split_once(':')) {
-                if sensitive(key) {
+                if sensitive(key, flyway) {
+                    let any_length = always_secret(key);
                     let value = value.trim();
                     if value.starts_with(['|', '>'])
                         || value.starts_with("\"\"\"")
@@ -69,17 +69,25 @@ impl Redactor {
                     {
                         self.suppress = true;
                     }
-                    self.add(value);
-                    self.add(&openidea_plugin::text::unescape_json(value.trim().trim_matches('"')));
+                    self.add(value, any_length);
+                    self.add(&openidea_plugin::text::unescape_json(value.trim().trim_matches('"')), any_length);
                 }
             }
         }
     }
+    /// Replaces whole-token occurrences: a literal edge that is a word character must not
+    /// continue a longer word, so `sa` leaves `sales` alone.
     pub fn literals(&self, text: &str) -> String {
         let mut out = String::new();
         let mut at = 0;
         while at < text.len() {
-            if let Some(literal) = self.literals.iter().find(|literal| text[at..].starts_with(literal.as_str())) {
+            let before = text[..at].chars().next_back();
+            let found = self.literals.iter().find(|literal| {
+                text[at..].starts_with(literal.as_str())
+                    && !(word(literal.chars().next()) && word(before))
+                    && !(word(literal.chars().next_back()) && word(text[at + literal.len()..].chars().next()))
+            });
+            if let Some(literal) = found {
                 out.push_str("[redacted]");
                 at += literal.len();
             } else {
@@ -221,8 +229,8 @@ fn prepare(project: &Project, goal: &str, json: bool) -> Result<Prepared, Error>
     let mut shown = Vec::new();
     for arg in &args {
         if let Some((key, value)) = arg.split_once('=') {
-            if sensitive(key) {
-                redactor.add(value);
+            if sensitive(key, true) {
+                redactor.add(value, always_secret(key));
             }
             shown.push(format!("{key}=<value hidden>"));
         } else if arg.starts_with('-') {
@@ -263,7 +271,7 @@ fn prepare(project: &Project, goal: &str, json: bool) -> Result<Prepared, Error>
         }
         match project.read_file(&path) {
             Ok(text) if text.len() <= 64 * 1024 => {
-                redactor.source(&text);
+                redactor.source(&text, !is_config_file(&path));
                 files.push((path.clone(), Observed::Source(text.clone())));
                 lines.push(format!("{path}: source observed (values hidden)"));
             }
@@ -450,6 +458,9 @@ impl Execution {
         ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         if managed { refresh_migrations(); }
         Ok(())
+    }
+    pub(crate) fn running(&self, root: &str) -> bool {
+        self.session.as_ref().is_some_and(|session| session.root == root && session.child.is_some())
     }
     pub(crate) fn migration_status(&self, root: &str) -> Option<String> {
         self.session.as_ref().filter(|session|session.root==root).map(|session|format!("{}: {}",session.goal,session.status))
@@ -672,6 +683,20 @@ mod tests {
         assert!(host.process_runs().is_empty());
     }
     #[test]
+    fn info_result_accepted_on_render() {
+        let host = managed();
+        let mut plugin = Flyway::default();
+        host.answer_next_prompt(Some(&["yes"]));
+        plugin.execution.start(&host.invocation(), "info", true, true).unwrap();
+        plugin.render("migrations", None, &host.invocation()).unwrap();
+        assert!(plugin.info_cache.is_none(), "still running");
+        plugin.execution.session.as_ref().unwrap().child.as_ref().unwrap().kill().unwrap();
+        plugin.render("migrations", None, &host.invocation()).unwrap();
+        assert!(plugin.execution.session.as_ref().unwrap().child.is_none());
+        assert!(plugin.info_cache.is_some(), "render polled the owned child and accepted its result");
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
     fn foreign_missing_denied_render_neither_exposes_nor_kills_another_owned_job() {
         for case in 0..3 {
             let host=managed();let mut plugin=Flyway::default();start(&mut plugin.execution,&host,false);
@@ -701,7 +726,7 @@ mod tests {
         let host=managed();let mut plugin=Flyway::default();plugin.accept_finished(&host.invocation().project().unwrap(),finished_info(&host)).unwrap();
         host.set_setting("arguments","\"-password=UNDISPLAYED_SECRET\"");
         let view=plugin.render("migrations",None,&host.invocation()).unwrap();
-        assert!(matches!(view.body,Body::Message(ref text) if text.contains("No explicit")));
+        assert!(matches!(view.body,Body::Message(ref text) if text.contains("No local Flyway migrations")));
         assert!(!format!("{view:?}").contains("UNDISPLAYED_SECRET"));
         assert!(plugin.info_cache.is_some(),"a render only withholds; it does not erase another frame's snapshot");
         assert_eq!(invalidations(&host),1);assert!(host.process_runs().is_empty());
@@ -759,7 +784,7 @@ mod tests {
         let mut plugin = Flyway::default();
         for _ in 0..2 {
             let view = plugin.render("migrations", None, &host.invocation()).unwrap();
-            assert!(matches!(view.body,Body::Message(message) if message.contains("No explicit")));
+            assert!(matches!(view.body,Body::Message(message) if message.contains("No local Flyway migrations")));
         }
         assert!(host.process_runs().is_empty());
         assert!(host.terminals().is_empty());
@@ -853,6 +878,22 @@ mod tests {
         assert!(proof.affected("/project/flyway.user.toml"));
     }
     #[test]
+    fn short_user_value_not_redacted_in_words() {
+        let host = managed();
+        host.add_file("flyway.conf", "flyway.user=sa\nflyway.password=s3cretpw\n");
+        host.add_file("src/main/resources/application.properties", "spring.flyway.token-validity=10\napp.user=bob-the-builder\nspring.datasource.username=dbadmin\n");
+        let redactor = prepare(&host.invocation().project().unwrap(), "validate", false).unwrap().redactor;
+        assert_eq!(redactor.label("V10 sales report"), "V10 sales report");
+        assert_eq!(redactor.label("bob-the-builder"), "bob-the-builder", "user outside datasource/flyway is not a credential");
+        assert_eq!(redactor.label("x s3cretpw y"), "x [redacted] y");
+        assert_eq!(redactor.label("s3cretpwx dbadmins"), "s3cretpwx dbadmins", "only whole tokens are redacted");
+        assert_eq!(redactor.label("by dbadmin."), "by [redacted].");
+        let mut toml = Redactor::default();
+        toml.source("[environments.dev]\nuser = \"deployer\"\npassword = \"pw\"\n", true);
+        assert_eq!(toml.label("deployer pw"), "[redacted] [redacted]", "Flyway config users and short passwords stay secret");
+    }
+
+    #[test]
     fn known_properties_secret_hash_suffix_is_not_mistaken_for_a_comment() {
         let host=managed();
         host.add_file("flyway.conf","flyway.password=prefix#privateSuffix\n");
@@ -871,8 +912,8 @@ mod tests {
     #[test]
     fn streaming_redaction_buffers_split_literals_and_suppresses_urls_controls_and_auth_lines() {
         let mut redactor = Redactor::default();
-        redactor.add("topsecret");
-        redactor.add("a");
+        redactor.add("topsecret", true);
+        redactor.add("a", true);
         let mut output = Output::default();
         output.push("topsec", &redactor, false);
         assert!(output.text.is_empty());
@@ -970,7 +1011,7 @@ mod tests {
         assert!(prepared.redactor.suppress);
         for value in ["${DB_PASSWORD}", "|", "\"\"\"multiline"] {
             let mut redactor = Redactor::default();
-            redactor.source(&format!("password={value}"));
+            redactor.source(&format!("password={value}"), true);
             assert!(redactor.suppress);
         }
     }

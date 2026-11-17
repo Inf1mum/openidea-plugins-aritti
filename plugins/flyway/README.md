@@ -95,7 +95,10 @@ the effective configuration, environment and database target.
 ## Migrations view
 
 The browser is native (tree, toolbar, status line) and cached; opening or
-rendering it never starts a CLI command or connects to a database. **Filter…**
+rendering it never starts a CLI command or connects to a database. Until Info
+has run, it lists the local migrations (version, description, kind and name or
+duplicate problems), grouped by kind with problems first-class; the status line
+says when table navigation indexed only part of the migrations. **Filter…**
 searches the captured row labels/state, **Clear** restores rows, filters
 belong to the current project, and **More…** exposes the review/CLI workflows
 through a native picker. Rows are grouped by status; double-click or Enter
@@ -107,14 +110,15 @@ identified; stale or foreign selections cannot open or seed another source.
 **Refresh Info…** reviews source provenance and starts a managed explicit
 JSON Info command (`-outputType=json`, or Maven `-Dflyway.outputType=json`),
 opening the Command Output tab. **Refresh Status** polls bounded
-stdout/stderr and completion (may need another press to drain after exit);
+stdout/stderr and completion, and rendering the view polls the owned child too,
+so a finished Info appears without another press;
 **Cancel Owned Command** kills only the stored child handle — no exit or
 cancel state claims a database rollback. A successful completed JSON result
 updates the owning project's rows, labelled cached with capture age and
 provenance; failures and cancellation do not fabricate a successful state.
 Observed config/SQL/source-parent changes retire cached rows; only current
 project ownership and settings metadata are checked on automatic render (no
-discovery, file read, CLI or HTTP). Accepted Info requires one
+CLI or HTTP). Accepted Info requires one
 migrations-bearing JSON object with unique object keys; noisy Maven banners
 are scanned within bounds, conflicting roots or duplicate keys do not become a
 false result, and error objects are rejected.
@@ -209,13 +213,15 @@ confirmation, only for the explicitly reported **13.12.1 Enterprise** profile
 directory, concrete distinct in-project paths, absent outputs). It is a review
 aid, not approval to execute; version and edition are self-reported inputs,
 not an executable probe, and an imported report is not proven to belong to a
-future artifact's IDs. **Managed adapter readiness…** captures up to 64 owned
+future artifact's IDs. **Prepare comparison…** captures up to 64 owned
 schema-model files (1 MiB total), an optional target snapshot and fresh output
-paths and reviews candidate stage argv without executing; Start/Continue stay
-unavailable until an authoritative installed offline CLI profile is accepted.
-The managed core (one child, closed stdin, separated snapshot/diff/diffText
-stages, explicit Check/Continue, bounded output, refused publication on
-nonzero exit/stderr/oversized/stale output) exists behind that gate.
+paths, detects the installed CLI with `flyway --version` (optional
+`process:flyway`) and reviews the stage argv with the detected edition,
+version, project configuration and locations. **Start comparison** appears
+only when a CLI was detected; the stages (one child, closed stdin, separated
+snapshot/diff/diffText, explicit Check/Continue, bounded output, refused
+publication on nonzero exit/stderr/oversized/stale output) read the schema
+model and snapshot files only.
 
 ## Optional compiled Hibernate model adapter
 
@@ -228,8 +234,9 @@ precedes the trusted-code approval: metadata can instantiate project
 converters/custom types with arbitrary side effects; no application bootstrap
 or JDBC operation is requested. The result stays a dated, instance-owned
 preview until **Save Hibernate schema SQL as migration…** returns one exact
-non-overwriting undoable Create; inputs are rechecked before saving (needs the
-optional `process:java` permission). Live DB diff and automatic effective application models need separate support. See
+non-overwriting undoable Create; jar, compiled-class and source fingerprints
+are rechecked before saving without relaunching java. Generation runs as a
+background task and needs the optional `process:java` permission. Live DB diff and automatic effective application models need separate support. See
 [setup, contract and explicit runtime fixture](adapters/README.md).
 
 ## Not supported

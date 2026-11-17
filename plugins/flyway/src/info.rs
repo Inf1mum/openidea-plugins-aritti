@@ -20,6 +20,8 @@ fn state(raw: &str) -> (&'static str, &'static str) {
         "success" | "baseline" => ("Applied", "success"),
         "pending" => ("Pending", "ci-pending"),
         "ignored" => ("Ignored", "ci-skipped"),
+        "baseline ignored" => ("Baseline ignored", "ci-skipped"),
+        "available" => ("Available", "history"),
         "deleted" => ("Deleted", "trash"),
         "undone" => ("Undone", "history"),
         "outdated" | "superseded" => ("Superseded", "history"),
@@ -109,6 +111,12 @@ mod tests {
             assert_eq!(state(raw), (label, icon), "{raw}");
             assert!(HOST_ICONS.contains(&icon), "{icon} is not a host icon");
         }
+    }
+
+    #[test]
+    fn info_state_available_and_baseline_ignored() {
+        assert_eq!(state("Available"), ("Available", "history"));
+        assert_eq!(state("Baseline Ignored"), ("Baseline ignored", "ci-skipped"));
     }
 
     #[test]

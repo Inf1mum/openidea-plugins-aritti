@@ -512,6 +512,41 @@ impl Plan {
         }
         Ok(command)
     }
+    /// Cheap change detector for resolve: jar and compiled-class stats plus source hashes,
+    /// so saving a snapshot never relaunches java.
+    fn fingerprint(&self, project: &Project) -> Result<String, Error> {
+        self.current(project)?;
+        let mut facts = Vec::new();
+        let stat = |path: &str| project.stat(path).map(|stat| format!("{path}:{}:{:?}", stat.size, stat.modified));
+        for jar in &self.jars {
+            facts.push(stat(jar)?);
+        }
+        // ponytail: find_files skips gitignored class roots, so the declared entity/converter class
+        // files and the root directories are stat'ed by name; an undeclared nested class rebuilt in an
+        // ignored root goes unnoticed until the 15-minute snapshot expiry. Re-inspect in a task if that matters.
+        for root in &self.roots {
+            facts.push(stat(root)?);
+            let mut files = project.find_files(&format!("{root}/**"), 4097)?;
+            if files.len() > 4096 {
+                return Err("Compiled class roots exceed 4096 files.".into());
+            }
+            files.sort();
+            for file in files {
+                facts.push(stat(&file)?);
+            }
+        }
+        for class in self.entities.iter().chain(&self.converters) {
+            let file = format!("{}/{}.class", class.root, class.name.replace('.', "/"));
+            facts.push(match project.stat(&file) {
+                Err(Error::NotFound(_)) => format!("{file}:absent"),
+                other => other.map(|stat| format!("{file}:{}:{:?}", stat.size, stat.modified))?,
+            });
+        }
+        for source in &self.sources {
+            facts.push(format!("{source}:{}", hash(&project.read_file(source)?)));
+        }
+        Ok(hash(&facts.join("\n")))
+    }
     fn inspect(&self, project: &Project, directory: &str, helper: &str) -> Result<String, Error> {
         self.current(project)?;
         let output = host::run_command(
@@ -624,6 +659,7 @@ pub(crate) struct Candidate {
     database_version: String,
     plan: Plan,
     proof: String,
+    fingerprint: String,
     pub sql: String,
     key: String,
     at: Instant,
@@ -650,8 +686,7 @@ impl Candidate {
         if self.key(&project.root()?).as_deref() != Some(key) {
             return Err(Error::Stale);
         }
-        let (directory, helper) = helper()?;
-        if self.plan.inspect(project, &directory, &helper)? != self.proof {
+        if self.plan.fingerprint(project)? != self.fingerprint || self.plan.validate(project, &self.proof).is_err() {
             return Err("Metadata inputs changed. Generate and review a new DDL snapshot.".into());
         }
         Ok(())
@@ -687,7 +722,18 @@ impl Flyway {
         else {
             return Ok(None);
         };
-        let plan = read_plan(&project, &path)?;
+        // Two java launches (compile plus Hibernate bootstrap) outlast the 5 s command limit.
+        let _task = host::begin_task("Generating Hibernate schema SQL", false);
+        match self.capture_hibernate_schema(&project, &path) {
+            Err(Error::Denied(_)) => {
+                host::notify(NotificationLevel::Warning, TITLE, "Allow running java for Flyway Migrations in Settings › Plugins.");
+                Ok(None)
+            }
+            result => result,
+        }
+    }
+    fn capture_hibernate_schema(&mut self, project: &Project, path: &str) -> Result<Option<String>, Error> {
+        let plan = read_plan(project, path)?;
         let (directory, helper) = helper()?;
         let proof = plan.inspect(&project, &directory, &helper)?;
         let review = format!(
@@ -742,6 +788,7 @@ impl Flyway {
             .to_owned();
         plan.current(&project)?;
         plan.validate(&project, &proof)?;
+        let fingerprint = plan.fingerprint(&project)?;
         let key = hash(&format!(
             "{}\0{}\0{}\0{}",
             plan.root, plan.source, proof, sql
@@ -752,6 +799,7 @@ impl Flyway {
             database_version,
             plan,
             proof,
+            fingerprint,
             sql,
             key,
             at: Instant::now(),
@@ -898,11 +946,47 @@ mod tests {
                 .exists("src/main/resources/db/migration/V2__initial_schema.sql")
                 .unwrap()
         );
-        assert_eq!(
-            host.process_runs().len(),
-            4,
-            "save only repeats pure inspection, not metadata execution"
-        );
+        assert_eq!(host.process_runs().len(), 2, "save compares fingerprints instead of running java");
+    }
+    #[test]
+    fn hibernate_command_runs_in_a_task() {
+        let (host, mut plugin, _, proof) = setup();
+        reply(&host, &proof);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        host.answer_next_prompt(Some(&[]));
+        plugin.run_command("hibernate-schema", &host.invocation(), None).unwrap();
+        assert!(!host.tasks().is_empty());
+        assert_eq!(host.process_runs().len(), 2);
+    }
+    #[test]
+    fn resolve_runs_no_java() {
+        let (host, mut plugin, doc, proof) = setup();
+        reply(&host, &proof);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        host.answer_next_prompt(Some(&[]));
+        plugin.generate_hibernate_schema(&host.invocation()).unwrap();
+        let runs = host.process_runs().len();
+        let save = |plugin: &mut Flyway| {
+            let action = plugin.file_actions(&doc, openidea_plugin::Range::default()).into_iter().find(|action| action.title.contains("Hibernate")).unwrap();
+            for answer in ["2", "initial schema", "src/main/resources/db/migration"] {
+                host.answer_next_prompt(Some(&[answer]));
+            }
+            host.answer_next_prompt(Some(&[]));
+            plugin.resolve_file_action(&doc, action)
+        };
+        assert!(save(&mut plugin).is_ok());
+        assert_eq!(host.process_runs().len(), runs);
+        host.add_file("classes/example/Customer.class", "recompiled artifact with other bytes");
+        assert!(save(&mut plugin).is_err(), "a changed compiled class fingerprint invalidates the snapshot");
+        assert_eq!(host.process_runs().len(), runs);
+    }
+    #[test]
+    fn java_denied_message() {
+        let (host, mut plugin, _, _) = setup();
+        let host = host.with_capabilities(&["project.read", "storage"]);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        assert_eq!(plugin.run_command("hibernate-schema", &host.invocation(), None).unwrap(), None);
+        assert_eq!(host.notifications().last().unwrap().body, "Allow running java for Flyway Migrations in Settings › Plugins.");
     }
     #[test]
     fn cancelling_trust_review_never_loads_project_metadata_and_stale_inputs_cannot_save() {
@@ -926,9 +1010,7 @@ mod tests {
         let candidate = plugin.hibernate_schema.clone().unwrap();
         let key = candidate.key("/project").unwrap();
         assert!(candidate.key("/other").is_none());
-        let mut changed = json(&proof).unwrap();
-        changed["facts"][17] = Value::String(format!("classes:classes:{}", "c".repeat(64)));
-        reply(&host, &changed.to_string());
+        host.add_file("classes/example/Customer.class", "recompiled artifact with other bytes");
         assert!(
             candidate
                 .fresh(&host.invocation().project().unwrap(), &key)
