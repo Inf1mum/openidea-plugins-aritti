@@ -4,7 +4,7 @@ Inspections and editing tools for Java `.properties` files and resource bundles.
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - Optional: Java 17 or later on the `PATH` for compiler-proved usages and Rename. See [compiler profile setup](adapters/README.md).
 - No accounts, network access or storage.
 
@@ -85,7 +85,7 @@ All of these are on ⌥⏎ in a `.properties` file. Each shows the exact change 
 
 ### Format, copy and fold
 
-- **Properties: Reformat File** applies your code style: delimiter, spacing, alignment and blank lines.
+- **Properties: Reformat File** applies your code style: delimiter, spacing, alignment and blank lines. Right-click in a `.properties` file to find it in the editor context menu.
 - **Properties: Copy Property Key** and **Properties: Copy Property Value** copy the decoded key or value at the caret.
 - Multiline values, comment blocks and groups of keys with the same prefix can be folded.
 
@@ -105,7 +105,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Properties**; bind k
 |---|---|---|
 | **Properties: Copy Property Key** | Copies the decoded key at the caret. Also in the editor context menu. | none |
 | **Properties: Copy Property Value** | Copies the decoded value at the caret. Also in the editor context menu. | none |
-| **Properties: Reformat File** | Applies the code style settings to the file. | none |
+| **Properties: Reformat File** | Applies the code style settings to the file. Also in the editor context menu of `.properties` files. | none |
 | **Properties: Find Unused Properties** | Counts keys a text search can't find in your sources. | none |
 | **Properties: Find Explicit Bundle Key Usages** | Lists Java/Kotlin JDK bundle calls that read the key at the caret. | none |
 | **Properties: Discard Staged Locale Grid…** | Throws away the staged **Edit All Locales…** draft. | none |

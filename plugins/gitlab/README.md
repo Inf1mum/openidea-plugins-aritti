@@ -4,7 +4,7 @@ GitLab merge requests in OpenIDEA. List them, follow their timeline, review the 
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer.
+- OpenIDEA with plugin API 1.10 or newer.
 - A gitlab.com account, or a self-hosted GitLab served over HTTPS.
 - A personal access token with the `api` and `read_user` scopes.
 - A project with a git remote on that server (`https://`, `ssh://` or `git@gitlab.com:`). When several remotes point there, `origin` wins.
@@ -46,13 +46,13 @@ The **GitLab** tab lists the project's merge requests as `!iid title`, with auth
   - **Comment**, **Reply** or **Add to Review**.
   - **Submit Review (n)** publishes pending comments. Text in the comment field is posted as a summary.
   - **Resolve Thread** / **Unresolve Thread**, **Approve** / **Revoke Approval**.
-  - **Merge**, when you can merge and GitLab reports `mergeable`. Options: **Delete source branch** and **Squash commits**.
+  - **Merge**, when you can merge and GitLab reports `mergeable`. Options: **Delete source branch** and **Squash commits**. If the request is ready but you lack the rights, the status line says *You cannot merge this merge request*.
   - **Rebase**, when GitLab reports `need_rebase`.
-  - **Add Me as Reviewer**, **Re-request Review…**, **Mark as Draft** / **Mark as Ready**, **Close**, **Reopen**.
+  - **Edit Labels, People, Milestone…** (same as **GitLab: Edit Merge Request**), **Close**, **Reopen**.
   - **Check Out Branch**, when the merge request isn't merged and isn't the current branch.
-  - **Labels**, **Assignees**, **Reviewers**, **Milestone** and **Title** open the choices directly. **GitLab: Edit Merge Request** opens them all.
-  - **Open Existing Worktree**, **Open on GitLab**, **Copy Link**, **Refresh**.
-- Your own comments (not system notes) get **Edit**, **Delete** (click twice) and an award emoji from eight: `thumbsup`, `thumbsdown`, `heart`, `tada`, `laughing`, `confused`, `rocket`, `eyes`.
+  - **Open on GitLab**, **More…**, **Refresh**.
+- **More…** holds the less frequent actions that apply: **React**, **Add Me as Reviewer**, **Re-request Review…**, **Mark as Draft** / **Mark as Ready**, **Open MR Snapshot**, **Open Diff Snapshot**, **Open Existing Worktree** and **Copy Link**.
+- Your own comments (not system notes) get **Edit**, **Delete** (click twice) and an award emoji (**More…** › **React**) from eight: `thumbsup`, `thumbsdown`, `heart`, `tada`, `laughing`, `confused`, `rocket`, `eyes`.
 
 **Changes** shows the full diff, one block per file with `+added −removed`. Existing threads and pending comments sit under their lines.
 
@@ -124,7 +124,7 @@ These ask a few questions in a row instead of opening a window.
 
 - **GitLab: Create Merge Request** asks for the source branch (local branches, current first), the target branch (project branches, default first), the title (the last commit subject), a one-line description and draft or not. Dismissing any of the first four prompts creates nothing. If GitLab refuses, a notification offers to open the new-MR page on GitLab. Set assignee, reviewers, labels and milestone afterwards with **GitLab: Edit Merge Request**.
 - **GitLab: Create Snippet** uses the focused file or its selection, or the files selected in the Project view. It asks for the title, the visibility (public needs a confirm) and more project files, one path per prompt until an empty answer. Dismissing any prompt creates nothing. The URL is copied and shown.
-- **GitLab: Share Project** asks for the name and visibility. It creates the project in your namespace, adds it as `origin` (or `gitlab` if `origin` exists) and runs `git push -u` in a terminal. A repository without a commit is initialised and committed after a confirm that lists the files. Files that look secret (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`) are refused.
+- **GitLab: Share Project** asks for the name and visibility. When the project has no git repository or no GitLab remote, the tool window offers it as **Share Project on GitLab…**. It creates the project in your namespace, adds it as `origin` (or `gitlab` if `origin` exists) and runs `git push -u` in a terminal. A repository without a commit is initialised and committed after a confirm that lists the files. Files that look secret (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`) are refused.
 
 ### Clone a project
 
@@ -137,7 +137,7 @@ The **Projects** tab lists the projects you're a member of, most recently active
 
 ### Read-only snapshots and job logs
 
-**Open MR Snapshot** and **Open Diff Snapshot** (in Overview; Changes has the diff one) open read-only editor tabs. The MR snapshot holds the title, description and branch details. The diff snapshot holds the unified text diffs. You can't save or comment in these tabs.
+**Open MR Snapshot** and **Open Diff Snapshot** (Overview › **More…**; Changes has the diff one) open read-only editor tabs. The MR snapshot holds the title, description and branch details. The diff snapshot holds the unified text diffs. You can't save or comment in these tabs.
 
 - **Reload Cached Snapshot** shows the cached copy again, without contacting GitLab.
 - **Refresh Snapshot** re-reads GitLab. It keeps the old snapshot on failure. Retry after a transient failure, or open a new snapshot after a new push.
@@ -184,17 +184,17 @@ Find them in Search Everywhere › Actions (⇧⇧) under **GitLab**; bind keys 
 |---|---|---|
 | **GitLab: Open on GitLab** | Opens the file at the current commit, with the selected lines (`#L3-L5`). In the Project view, the first selected file or folder. | Editor, editor tab and Project view context |
 | **GitLab: Copy Link** | Copies the same link. | Editor and Project view context |
-| **GitLab: Edit Merge Request** | Picks labels, assignees, reviewers, milestone and title from the project's lists. | Details button |
+| **GitLab: Edit Merge Request** | Picks labels, assignees, reviewers, milestone and title from the project's lists. | Details button **Edit Labels, People, Milestone…** |
 | **GitLab: Create Snippet** | Creates a snippet from the selection, the file or the selected files. | Editor, editor tab and Project view context |
 | **GitLab: Create Merge Request** | Asks for branches, title, description and draft, then creates the merge request. | Tools |
-| **GitLab: Share Project** | Creates a GitLab project and pushes this repository to it. Needs a commit, a checked-out branch and no GitLab remote yet. | — |
+| **GitLab: Share Project** | Creates a GitLab project and pushes this repository to it. Needs a commit, a checked-out branch and no GitLab remote yet. | Tool window button, when there is no GitLab remote |
 | **GitLab: Show Current Branch's Merge Request** | Selects the current branch's merge request (the status bar item runs it). | — |
 | **GitLab: Open Merge Request in Worktree** | Adds a detached worktree for the merge request in a sibling folder. | — |
-| **GitLab: Open Existing Merge Request Worktree** | Opens a local worktree that matches the merge request's head, in a new window. Creates nothing. | Details button |
+| **GitLab: Open Existing Merge Request Worktree** | Opens a local worktree that matches the merge request's head, in a new window. Creates nothing. | Details › **More…** |
 | **GitLab: Open Cloned or Worktree Folder** | Opens the folder from the last clone or new worktree in a new window. The **Open Clone** / **Open Worktree** notification buttons run it. | — |
 | **GitLab: Update Merge Request Branch** | Asks GitLab to rebase the merge request onto its target; reports conflicts. | — |
 | **GitLab: Create Access Token** | Opens GitLab's token page with name and scopes filled in. | Tool window button |
-| **GitLab: Re-request Review…** | Picks an assigned reviewer, confirms, and asks GitLab for a new review. Cancelling sends nothing. | Details button |
+| **GitLab: Re-request Review…** | Picks an assigned reviewer, confirms, and asks GitLab for a new review. Cancelling sends nothing. | Details › **More…** |
 | **GitLab: Check Out Merge Request Source (glab)…** | Checks out the merge request's source branch with `glab` in a terminal. | — |
 
 **GitLab: Check Out Merge Request Source (glab)…** in detail: it picks a merge request, saves editor buffers and commits or stashes local changes. It reviews the target project, source project ID and branch, and full head. Then it opens a terminal running `glab mr checkout <iid> --repo https://gitlab.com/<target> --branch review/mr-<iid>-<head-prefix>` (official glab 1.130.0 profile; no `--force`). It may update branch tracking and configuration, and prompt about conflicts. This is a source-branch checkout, not an exact-head snapshot. Stop cancels the process, but fetched refs and configuration may remain.
@@ -243,7 +243,7 @@ The token is added to requests by the IDE; the plugin never reads it ([how token
 |---|---|
 | "Enter a GitLab personal access token…" | Run **GitLab: Create Access Token**, then paste the token in Settings › Plugins › GitLab. |
 | "GitLab rejected the access token." (401) | The token is wrong, expired or missing `api` / `read_user`. Make a new one. Check **GitLab.com account slot** points at the token you set. |
-| "The repository has no remote on the configured GitLab server." | Add a remote on gitlab.com, or set **GitLab server** to match your remote. Plain-HTTP servers aren't supported. |
+| "The repository has no remote on the configured GitLab server…" | Click **Share Project on GitLab…** to publish it, add a remote on your GitLab server, or set **GitLab server** to match your remote. Plain-HTTP servers aren't supported. |
 | A self-hosted server isn't used | The value must be an HTTPS URL; an invalid value falls back to gitlab.com. Approve the host when asked (revocable in Settings › Plugins). |
 | "Checking out a branch needs the process:git permission. Allow it in Settings › Plugins › GitLab." (or "Adding a worktree needs…") | Allow `process:git`. |
 | "This checkout profile is qualified for official glab 1.130.0…" | Install glab 1.130.0, sign in to glab itself, and allow `process:glab`. |

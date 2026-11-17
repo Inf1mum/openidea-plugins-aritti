@@ -4,7 +4,7 @@ Run your project's [Dev Container](https://containers.dev) with the [devcontaine
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - The devcontainer CLI (`npm i -g @devcontainers/cli`) and Docker, on the `PATH` the IDE sees.
 - `git` for **Dev Container: Clone Repository and Start…**.
 - The IDE keeps running on the host. OpenIDEA's remote development connects over SSH or WSL, not into a container.
@@ -24,8 +24,8 @@ Run your project's [Dev Container](https://containers.dev) with the [devcontaine
 - **Dev Container: Start Container** runs `devcontainer up` in a terminal.
 - **Dev Container: Rebuild Container** runs `devcontainer up --remove-existing-container`.
 - Before either one runs, a confirmation shows the project root, configuration file, program and exact arguments. Cancel and nothing starts.
-- **Dev Container: Open Shell in Container** runs `devcontainer exec … bash -l` (or `sh -l`).
-- **Dev Container: Stop Container** runs `docker stop` on the containers started from this project folder.
+- **Dev Container: Open Shell in Container** runs `devcontainer exec … bash -l` (or `sh -l`). Running it again focuses the open shell.
+- **Dev Container: Stop Container** runs `docker stop` on the containers started from this project folder. The message says how many stopped and that any Dev Container run target for the project was removed.
 - **Dev Container: Show Configuration** runs `devcontainer read-configuration` and shows a summary: image or Compose file, remote user, forwarded ports, feature count and `postCreateCommand`.
 - **Dev Container: Clone Repository and Start…** asks for a repository URL and a new folder next to the project and runs `git clone` in a terminal. When the clone finishes, click **Start Container** in the notification (or run **Dev Container: Start Cloned Container…**) to run `devcontainer up` there.
 
@@ -50,13 +50,14 @@ When there are several, commands ask which one to use. Cancel and nothing starts
 
 The **Dev Containers** view in the Services tool window lists this project's containers, running and stopped.
 
-- Select a running container to **Open Shell** (`docker exec -it`) or **Stop** it.
-- Select a stopped container to **Start** it (`docker start`).
+- Select a running container to **Open Shell** (`docker exec -it`) or **Stop** it. Opening a shell again focuses the open one. Stop names the container and says its run target was removed.
+- Select a stopped container to **Start** it (`docker start`). The notification offers **Open Shell**.
+- **Start Container…** (when the list is empty) and **Rebuild Container…** run the same commands as from Tools.
 - Double-click opens a shell, or starts a stopped container.
 - The selected container shows its details and a live log tab.
 - Click **Refresh** to update the list, or **Choose Configuration** to switch configuration.
 
-If the list can't load, a status row says why (no project, Docker not allowed or unavailable, or no containers yet).
+If the list can't load, a status row says why (no project, Docker not allowed or unavailable, or no containers yet). With no container yet, click **Start Container…**.
 
 ### Watch a CLI run with cancel
 
@@ -114,10 +115,10 @@ The Tools menu can register a Run Target, so a run configuration can run inside 
 1. Start the container.
 2. Run **Dev Container: Register Container as Run Target…** and pick the container.
 3. Review and approve. This only prepares the target.
-4. In the **Dev Container Run Target Review** view, click **Register once** within 120 seconds.
+4. In the **Dev Container Run Target Review** view, click **Register** within 120 seconds.
 5. In your run configuration, select the target explicitly.
 
-**Dev Container: Run Language Servers in Container…** does the same for language servers that should run in the container. You need the server installed in the container and must select the target manually.
+**Dev Container: Run Language Servers in Container…** (Search Everywhere only) does the same for language servers that should run in the container. You need the server installed in the container and must select the target manually.
 
 Remove targets with **Dev Container: Remove Container Run Target** or **Dev Container: Remove Language Server Container Target**. Each Run or Test launch checks the registered container with `docker container inspect` and is refused when it was rebuilt or stopped, or Docker is not reachable.
 
@@ -130,8 +131,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dev Container**; bin
 | **Dev Container: Choose Configuration…** (*Tools*) | Picks and remembers the configuration for this project. | None |
 | **Dev Container: Start Container** (*Tools*) | Runs `devcontainer up` in a terminal, after a review. | None |
 | **Dev Container: Rebuild Container** | Runs `devcontainer up --remove-existing-container`, after a review. | None |
-| **Dev Container: Open Shell in Container** (*Tools*) | Opens a login shell in the container. | None |
-| **Dev Container: Stop Container** | Stops this project's containers with `docker stop`. | None |
+| **Dev Container: Open Shell in Container** (*Tools*) | Opens a login shell in the container, or focuses the open one. | None |
+| **Dev Container: Stop Container** | Stops this project's containers with `docker stop` and removes their run target. | None |
 | **Dev Container: Show Configuration** | Summarises the resolved configuration in a notification. | None |
 | **Dev Container: Clone Repository and Start…** | Clones a repository next to the project in a terminal, then offers to start its container. | None |
 | **Dev Container: Start Cloned Container…** | Starts the container of a cloned folder, after a review. | None |
@@ -141,8 +142,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dev Container**; bin
 | **Dev Container: Show Background Output** | Opens the **Dev Container Operations** view. | None |
 | **Dev Container: Register Container as Run Target…** (*Tools*) | Prepares a Run Target in the running container. | None |
 | **Dev Container: Remove Container Run Target** (*Tools*) | Removes that Run Target. | None |
-| **Dev Container: Run Language Servers in Container…** (*Tools*) | Prepares a tooling target for language servers in the container. | None |
-| **Dev Container: Remove Language Server Container Target** (*Tools*) | Removes that tooling target. | None |
+| **Dev Container: Run Language Servers in Container…** | Prepares a tooling target for language servers in the container. | None |
+| **Dev Container: Remove Language Server Container Target** | Removes that tooling target. | None |
 | **Create Dev Container configuration…** | ⌥⏎ in a JSON file: creates a new configuration. | ⌥⏎ |
 
 ## Settings
@@ -178,12 +179,12 @@ See also the [repository guide](../../README.md#troubleshooting).
 |---|---|
 | *No .devcontainer/devcontainer.json, .devcontainer.json or .devcontainer/&lt;name&gt;/devcontainer.json found in this project…* | Create a configuration (⌥⏎ in a JSON file), or set **Configuration file** in the settings. Files ignored by the project are not discovered; set them in the setting. |
 | The **Dev Containers** view says *Listing containers needs the process:docker permission. Allow it in Settings › Plugins › Dev Container CLI.* | Allow `process:docker` in Settings › Plugins › *Dev Container CLI*, then click **Refresh**. |
-| The view is empty | Only containers started from this folder show. Start one with **Dev Container: Start Container**. |
+| The view is empty | Only containers started from this folder show. Click **Start Container…** in the view, or run **Dev Container: Start Container**. |
 | *This container is stopped. Refresh Services before opening a shell.* | Click **Refresh** in the view, then **Start** the container. |
 | *No running container for this project.* | Start the container first. |
-| *The dev container is not running. Start it with Dev Container: Start first.* | Run **Dev Container: Start Container**, then register the Run Target again. |
+| *The registered container is not running, or Docker is not reachable.* | Run **Dev Container: Start Container**, then register the Run Target again. |
 | *A background command is still running…* | Run **Dev Container: Show Background Output**, then **Refresh Status** or **Cancel Command**. |
-| *Prepared target expired. Prepare it again…* | Click **Register once** within 120 seconds of preparing. |
+| *This registration expired. Prepare it again; nothing was changed.* | Click **Register** within 120 seconds of preparing. |
 | Feature completion is empty | Allow `storage` and `net:containers.dev`, then run **Dev Container: Refresh Feature List**. |
 | *"…" is not a repository URL.* | Enter a URL without spaces, such as `https://github.com/org/repo.git`. |
 | `git clone` fails in the terminal | Check the URL and your git credentials, then run **Dev Container: Clone Repository and Start…** again. |
@@ -227,7 +228,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 **Feature option cache.** Refresh Feature List also keeps a bounded subset of the index's declared Boolean and string-enum options in a separate optional cache (the name index must match). The processor admits index text up to 3 MiB, scans at most 512 collections / 4,096 features, binds at most 128 creation references and stores at most 512 KiB. At most 64 option definitions per feature are examined and 8 supported options offered. Enum lists have 1–16 unique strings up to 128 bytes each; values are bounded to 4,096 bytes. A metadata-cache write failure reports a warning after names refresh.
 
-**Run Targets.** Preparation inspects a bounded, approved local Unix Docker endpoint and the exact running container and bind identity. Modal approval only prepares a snapshot; a separate fresh **Register once** rechecks project, configuration and container facts before native registration. The plugin never selects a target or launches a command automatically. Plans expire after 120 seconds. Changed configuration and controlled container lifecycle actions withdraw matching registrations. The registered container ID is kept in plugin storage and each launch reinspects that exact container; extra mounts below the project folder (such as a `node_modules` volume) are allowed. Mapped mode preserves stdin and declares the verified project bind for configured target language servers. Registration doesn't make destructive Rebuild freely rerunnable.
+**Run Targets.** Preparation inspects a bounded, approved local Unix Docker endpoint and the exact running container and bind identity. Modal approval only prepares a snapshot; a separate fresh **Register** rechecks project, configuration and container facts before native registration. The plugin never selects a target or launches a command automatically. Plans expire after 120 seconds. Changed configuration and controlled container lifecycle actions withdraw matching registrations. The registered container ID is kept in plugin storage and each launch reinspects that exact container; extra mounts below the project folder (such as a `node_modules` volume) are allowed. Mapped mode preserves stdin and declares the verified project bind for configured target language servers. Registration doesn't make destructive Rebuild freely rerunnable.
 
 </details>
 

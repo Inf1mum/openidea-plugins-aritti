@@ -12,7 +12,7 @@ Other files, such as a `pom.xml`, `application.yml` or a plain SQL script, get n
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer.
+- OpenIDEA with plugin API 1.10 or newer.
 - To run Liquibase: the `liquibase` CLI on the `PATH` the IDE sees, and a `liquibase.properties` in the project root with `changeLogFile`, `url` and credentials.
 - The offline snapshot diff targets Liquibase 4.29.2.
 - Optional: `git`, to suggest your name as changeset author.
@@ -68,7 +68,7 @@ The **Liquibase** tool window lists changesets in execution order.
 
 By default the tool window shows every changelog. To focus on one root:
 
-1. Press **Sources…** in the toolbar, or run **Liquibase: Choose Browser Root and Configuration…**.
+1. Press **Sources…** in the toolbar, or run **Liquibase: Choose Sources…**.
 2. Pick a changelog root, and optionally a configuration file.
 
 The status line names the configuration file, the key and line it found, and whether that path matches the root. Supported keys: `changeLogFile`, `liquibase.command.changelogFile`, `liquibase.command.changeLogFile` and `spring.liquibase.change-log`.
@@ -145,7 +145,7 @@ With a `liquibase.properties` in the project root, the Run menu offers **Liquiba
 - Set `searchPath` (the CLI's `--search-path`) to `src/main/resources`. Changesets then keep the file paths your application records.
 - **Liquibase: Update (Asks First)…** runs `update` in a terminal after a final confirmation.
 - **Liquibase: Rollback Count…** asks how many changesets to roll back, then confirms.
-- The confirmation shows the project, working directory, program and exact arguments. It may show the changelog and database host as hints. Usernames and passwords are never shown.
+- The confirmation leads with the effect, then the target database (from `liquibase.properties`), the exact command and the project. It may show the changelog as a hint. Usernames and passwords are never shown.
 - Database-writing commands are never Run configurations: you review them each time.
 
 All of these need `process:liquibase`.
@@ -180,7 +180,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Liquibase**; bind ke
 
 | Command | What it does |
 |---|---|
-| **Liquibase: Choose Browser Root and Configuration…** | Picks the changelog root (and config file) the tool window shows. |
+| **Liquibase: Choose Sources…** | Picks the changelog root (and config file) the tool window shows. |
 | **Liquibase: Browse All Changelogs** | Goes back to showing every changelog. |
 | **Liquibase: Update (Asks First)…** | Runs `liquibase update` in a terminal after confirmation. |
 | **Liquibase: New Changeset** | Adds an empty changeset to the open changelog after you confirm (the ⌥⏎ **Add Liquibase changeset…** steps; not a single undo step). |

@@ -4,7 +4,7 @@ Laravel Blade templates for OpenIDEA, which has no Blade grammar of its own. It 
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or newer (`engines.openidea = "^1.10"`).
 - Recommended: the [Laravel](../laravel/README.md) plugin (`aritti.laravel`). It provides directive, route, view, config and translation completion in Blade files. Install both.
 
 ## Quick start
@@ -42,6 +42,8 @@ Two live inspections check the editor text as you type. Turn each off in Setting
 | Unbalanced parentheses | `unpaired-parenthesis-in-string` | A directive whose `(` has no matching `)` once strings are skipped. |
 
 Never reported: verbatim blocks, comments, `@@escaped` directives, inline `@section('a', 'b')` and `@php(...)`, and custom directives.
+
+On an opener without its closer, ⌥⏎ offers **Insert @endif** (or the matching closer). It goes on its own line, indented like the opener, before the closer of the enclosing block. When there is no enclosing block, the fix reads **Insert … at end of file**.
 
 ### Directive help on hover
 

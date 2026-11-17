@@ -4,8 +4,8 @@ Support for ignore files: `.gitignore`, `.dockerignore`, `.npmignore`, `.hgignor
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
-- Optional: `git` on the `PATH` for **Ignore: Start Git Ignored-File Observations (Asks First)…**.
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
+- Optional: `git` on the `PATH` for **Ignore: Scan Git for Ignored Files…**.
 - Optional: `python3` on the `PATH` for **Ignore: Find Unused Entries from Complete Directory Snapshot…**.
 - No accounts or network access.
 
@@ -87,11 +87,11 @@ The four workflow flags (warning, status, caret insertion, unignore) take **Inhe
 
 These commands run `git ls-files` once, after showing exactly what will run.
 
-- **Ignore: Start Git Ignored-File Observations (Asks First)…** collects a sample of ignored paths.
-- **Ignore: Review Cached Partial Git Observations** shows the sample and how many paths each root `.gitignore` rule matched.
-- **Ignore: Publish Cached Partial Git Sample Hints** puts an **I** badge on up to 16 sampled files.
-- **Ignore: Clear Partial Git Sample Hints** removes the badges.
-- **Ignore: Clear This Project’s Cached Git Observations** forgets the sample.
+- **Ignore: Scan Git for Ignored Files…** collects a sample of ignored paths.
+- **Ignore: Show Last Git Scan of Ignored Files** shows the sample and how many paths each root `.gitignore` rule matched.
+- **Ignore: Mark Ignored Files from Last Git Scan** puts an **I** badge on up to 16 sampled files.
+- **Ignore: Clear Ignored-File Marks** removes the badges.
+- **Ignore: Clear Last Git Scan of Ignored Files** forgets the sample.
 
 Results are always partial. They are a sample, never a full list of ignored files.
 
@@ -105,11 +105,11 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Ignore**; bind keys 
 | **Ignore: Unignore Selected Paths in the Open Ignore File** | Adds `!` entries for the selected paths. Also in the Project view and editor context menus. | none |
 | **Ignore: New Ignore File…** | Creates an ignore file directly after you confirm (not a single undo step): the editor's **Create exact-name ignore file…**, or an empty file of the picked type at the project root. Also in the Project view menu and Tools. | none |
 | **Ignore: Dialect Checks and Preferences** | Opens the per-file-type preferences form. Also in Tools. | none |
-| **Ignore: Start Git Ignored-File Observations (Asks First)…** | Shows the Git command, then collects a sample of ignored paths. | none |
-| **Ignore: Review Cached Partial Git Observations** | Shows the cached sample and rule match counts. | none |
-| **Ignore: Clear This Project’s Cached Git Observations** | Forgets this project's cached sample. | none |
-| **Ignore: Publish Cached Partial Git Sample Hints** | Badges up to 16 sampled files with **I**. | none |
-| **Ignore: Clear Partial Git Sample Hints** | Removes those badges. | none |
+| **Ignore: Scan Git for Ignored Files…** | Shows the Git command, then collects a sample of ignored paths. | none |
+| **Ignore: Show Last Git Scan of Ignored Files** | Shows the cached sample and rule match counts. | none |
+| **Ignore: Clear Last Git Scan of Ignored Files** | Forgets this project's cached sample. | none |
+| **Ignore: Mark Ignored Files from Last Git Scan** | Badges up to 16 sampled files with **I**. | none |
+| **Ignore: Clear Ignored-File Marks** | Removes those badges. | none |
 | **Ignore: Find Unused Entries from Complete Directory Snapshot…** | Scans the `.gitignore` folder and marks entries that match nothing. | none |
 
 ## Settings
@@ -153,8 +153,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Enable checks for this ignore file before collecting unused-entry hints." | Turn **Checks** on for `.gitignore` in the preferences form. |
 | "Complete unused-entry checks require delivered filesystem events; reload Ignore after granting events." | Reload the plugin in Settings › Plugins. |
 | "Complete inventory refused an error, bound or concurrent change; no absence conclusions." | The folder is too large, changed during the scan, or has unsupported names. See the limits below. |
-| "No cached observations for this project. Start an explicit scan first." | Run **Ignore: Start Git Ignored-File Observations (Asks First)…** first. |
-| "Eight project inventories are retained. Clear an unneeded project's cache first." | Run **Ignore: Clear This Project’s Cached Git Observations** in another project. |
+| "No cached observations for this project. Start an explicit scan first." | Run **Ignore: Scan Git for Ignored Files…** first. |
+| "Eight project inventories are retained. Clear an unneeded project's cache first." | Run **Ignore: Clear Last Git Scan of Ignored Files** in another project. |
 | "Git inventory supports a concrete Unix project/repository root of at most 512 bytes." | The project must be the repository root on macOS or Linux. Worktrees, submodules and Windows roots aren't supported. |
 | "Stored Ignore preferences are malformed…; preserved without changes." | The stored form data is damaged. The plugin won't overwrite it, and create/append actions are refused until it's fixed. |
 

@@ -6,10 +6,10 @@ Opening or saving a supported file can refresh results from OSV. Typing never se
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer.
+- OpenIDEA with plugin API 1.10 or newer.
 - Network access to `api.osv.dev` (the optional `net:api.osv.dev` permission).
 - Optional tools, only for the advanced features:
-  - **Maven 3.9.16** or **Gradle 9.9.1** to resolve effective build dependencies.
+  - **Maven 3.9.16** or **Gradle 9.9.1** to resolve effective build dependencies, when the IDE hasn't resolved them already.
   - **sbt 2.0.12** with Java 17+ to resolve sbt dependencies.
   - **OSV-Scanner 2.7.1** plus the Go or Rust toolchain for vulnerable-call analysis.
 
@@ -54,6 +54,8 @@ Vulnerable versions are underlined in the supported files. Each underline shows 
 - Changes to **Ignored advisories** apply right away.
 - For a `package.json` or `composer.json` with ranges, reopen or save the file (or rescan) to refresh the underlines.
 
+After a scan, the project tree marks each file with findings, for example `2 vulnerabilities (1 high or critical)`. Each vulnerable declaration line ends with a hint such as `CVE-2021-23337 · fixed in 4.17.21`; hover it for every advisory. A transitive finding is shown on the line of the direct dependency that pulls it in.
+
 ### Upgrade a vulnerable dependency
 
 Press ⌥⏎ on an underlined dependency and choose **Upgrade … to …**. It picks the nearest fixed version above the current one. A `^` or `~` in front stays.
@@ -84,13 +86,15 @@ The same ⌥⏎ menu offers **Open OSV advisory** and **Ignore … for package v
 
 **Open** on a Dependency row goes to its first declaration. On an Advisory row it opens the advisory on osv.dev. **Open advisory on OSV.dev** does the same for a selected row.
 
-If a scan fails, the last good report stays, with the failure shown.
+If a scan fails, the last good report stays, with the failure shown. A project with no supported dependency files says so and lists the file names it looks for.
+
+Scan times show as an age and a UTC date, for example `3d ago (2026-11-14 09:30 UTC)`.
 
 ### Upgrade from the report
 
-1. Open one of the dependency's listed declarations in the editor.
-2. Select the dependency in the tool window and choose **Preview upgrade in open declaration**.
-3. Check the file, range and old and new version, then confirm.
+1. Select the dependency in the tool window and choose **Preview upgrade in open declaration**.
+2. If its declaration isn't the active editor, the plugin opens it. Choose the action again.
+3. A diff shows the file before and after the upgrade. Check the file, range and old and new version, then confirm.
 
 The edit is one undoable step. Then review and test the change, update lockfiles with your package manager, and rescan. Until you rescan, the report still shows the old scan.
 
@@ -130,7 +134,9 @@ For a global ignore, list the advisory in **Ignored advisories**.
 
 ### Resolve effective Maven or Gradle versions
 
-**Dependency Audit: Resolve Effective Build Dependencies…** asks Maven or Gradle for the versions your build actually uses: parent POMs, BOMs, properties and transitive dependencies. It opens the **Resolution** tab.
+After each scan, the plugin reads the Maven and Gradle versions the IDE already resolved (from the last Maven reload or the Dependency Analyzer) and checks them against OSV. This needs the optional `build.read` permission and runs no build tool. The **Resolution** tab says which source was used.
+
+**Dependency Audit: Resolve Effective Build Dependencies…** does the same on demand and opens the **Resolution** tab. When the IDE has no resolved versions, it asks Maven or Gradle for the versions your build actually uses: parent POMs, BOMs, properties and transitive dependencies.
 
 1. Install and approve **Maven 3.9.16** or **Gradle 9.9.1** yourself. Allow `process:mvn` or `process:gradle`, and `project.write`.
 2. Run the command and review the plan.
@@ -139,7 +145,7 @@ For a global ignore, list the advisory in **Ignored advisories**.
 
 The build runs your project's plugins and may contact your repositories. Nothing is installed, upgraded or edited. No wrapper or installer runs.
 
-With **Resolve Maven/Gradle dependencies after each scan** turned on (the default), every scan also starts this resolver when `process:mvn` or `process:gradle` is allowed. It asks once per project before the first run; turn the setting off to never run the build tool after a scan.
+With **Run Maven/Gradle when the IDE hasn't resolved dependencies** turned on (off by default), a scan also starts the build tool when the IDE has no resolved versions and `process:mvn` or `process:gradle` is allowed. It asks once per project before the first run. Reloading the Maven project in the IDE is faster and runs nothing.
 
 ### Resolve effective sbt versions
 
@@ -177,10 +183,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dependency Audit**; 
 | Command | What it does | Menu |
 |---|---|---|
 | **Dependency Audit: Scan Project** | Checks every supported file against OSV and fills the report. | Tools |
-| **Dependency Audit: Preview upgrade in open declaration** | Previews and applies an upgrade for the selected report row. | Tool window row |
-| **Dependency Audit: Go to Declaration** | Opens the file and line where the selected dependency is declared. | Tool window row |
-| **Dependency Audit: Open advisory on OSV.dev** | Opens the selected advisory on osv.dev. | Tool window row |
-| **Dependency Audit: Ignore this exact finding with reason** | Hides one finding in this project, with a reason. | Tool window row |
+| **Dependency Audit: Preview Upgrade…** | Previews and applies an upgrade for the selected report row. | Tool window row |
+| **Dependency Audit: Go to Declaration…** | Opens the file and line where the selected dependency is declared. | Tool window row |
+| **Dependency Audit: Open Advisory on OSV.dev…** | Opens the selected advisory on osv.dev. | Tool window row |
+| **Dependency Audit: Ignore Finding with Reason…** | Hides one finding in this project, with a reason. | Tool window row |
 | **Dependency Audit: Review scoped ignores** | Lists ignores and restores them. | Tools |
 | **Dependency Audit: Export scoped ignores to project file** | Writes ignores to `.openidea/dependency-audit-ignores.json`. | Tools |
 | **Dependency Audit: Import scoped ignores from project file** | Reads ignores from that file after confirmation. | Tools |
@@ -188,6 +194,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Dependency Audit**; 
 | **Dependency Audit: Resolve Effective Build Dependencies…** | Resolves effective Maven or Gradle versions. | — |
 | **Dependency Audit: Analyze Vulnerable Calls (OSV-Scanner)…** | Runs OSV-Scanner call analysis for Go or Rust. | — |
 | **Dependency Audit: Resolve Effective sbt Dependencies…** | Resolves effective sbt versions. | — |
+
+Run from Search Everywhere, the four tool window row commands first ask you to pick a dependency from the last scan.
 
 Editor actions (⌥⏎): **Upgrade … to …**, **Open OSV advisory**, **Ignore … for package version**.
 
@@ -199,7 +207,7 @@ Settings › Plugins › Dependency Audit.
 |---|---|---|---|
 | Check on open and save | `autoCheck` | on | Asks OSV when a supported file opens or is saved. Off: nothing is sent until you run a scan. |
 | Ignored advisories | `ignoredAdvisories` | empty | Advisories to hide everywhere. One id per line (`GHSA-…`, `CVE-…`); `#` starts a comment. |
-| Resolve Maven/Gradle dependencies after each scan | `autoResolveBuilds` | on | Runs the project's build tool after each scan. Asks once per project before the first run. Needs `process:mvn` or `process:gradle`. |
+| Run Maven/Gradle when the IDE hasn't resolved dependencies | `autoResolveBuilds` | off | After a scan, runs the project's build tool when the IDE has no resolved Maven/Gradle versions. Asks once per project before the first run. Needs `process:mvn` or `process:gradle`. |
 
 Ignored advisory ids are case-insensitive and match the advisory's id or any alias. A `CVE-…` works for a `GHSA-…` advisory once its details are fetched. Listed ids are hidden from the underlines and the tool window.
 
@@ -213,6 +221,7 @@ Optional permissions are off until you allow them in Settings › Plugins › De
 | `events` | Checking a manifest when it opens or is saved | Run **Dependency Audit: Scan Project** instead. |
 | `editor.read`, `editor.write` | **Preview upgrade in open declaration** | That action can't run. The ⌥⏎ quick fix still works. |
 | `vcs.read` | The **Review cached dependency scan** commit check | The check can't run; turn it off in Commit Options. |
+| `build.read` | Reading the Maven/Gradle versions the IDE already resolved | The build tool must run to get effective versions. |
 | `process:mvn`, `process:gradle` | Resolving effective Maven / Gradle versions | No build resolution. |
 | `process:sbt` | Resolving effective sbt versions | No sbt resolution. |
 | `project.write` | Writing resolver output under `.openidea/` | No build resolution. |
@@ -240,13 +249,13 @@ The resolver and call-analysis features run your build tools, which may contact 
 | "No pom.xml or build.gradle(.kts) in the project root." | Build resolution needs those files in the project root. |
 | "The active resolver belongs to another project" | Switch back to that project to poll or cancel. |
 | The commit dialog shows a dependency check you don't want | Turn off **Review cached dependency scan** in Commit Options. |
-| Your build runs after every scan | Turn off **Resolve Maven/Gradle dependencies after each scan**. |
+| Your build runs after every scan | Turn off **Run Maven/Gradle when the IDE hasn't resolved dependencies**, or reload the Maven project so the IDE has resolved versions. |
 
 More: [repository troubleshooting](../../README.md#troubleshooting).
 
 ## Limitations
 
-- Maven and Gradle dependencies without a version (managed by a BOM, a parent POM or a plugin such as Spring Boot's), and versions taken from variables, unless you run the build resolver.
+- Maven and Gradle dependencies without a version (managed by a BOM, a parent POM or a plugin such as Spring Boot's), and versions taken from variables, unless the IDE has resolved them or you run the build resolver.
 - Version ranges with no lockfile.
 - Catalog entries declared over several lines, `version` ranges (`strictly`, `require`), and `version.ref` keys missing from `[versions]`.
 - `requirements.txt` lines that aren't an exact `==` pin.
@@ -320,6 +329,7 @@ Edges resolve through the nearest physical `node_modules` entries. This is lockf
 
 ### Maven and Gradle resolution
 
+- The IDE's resolved graph (OpenIDEA API 1.10, `build.read`) is read like the exports below: resolved and version-managed nodes only, every Maven scope, Gradle `runtimeClasspath` only, internal modules and omitted duplicates or conflicts skipped. Its rows point at the root POM or the module's build file. When the read is denied or fails, the build tool runs only if the setting or the explicit command allows it.
 - Maven uses the Dependency Plugin 3.8.1 JSON tree export. Gradle uses an owned init-script export of a resolvable configuration, `runtimeClasspath` by default.
 - When started from the command, the review comes before even the version probe. The **Resolution** tab polls in the background (Poll and Cancel).
 - Managed processes write fresh observations under `.openidea/dependency-audit-resolve-*`. Generated artifacts stay there for inspection.

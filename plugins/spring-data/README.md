@@ -4,7 +4,7 @@ Checks, completes and generates Spring Data repositories in Java and Kotlin proj
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Java or Kotlin project whose entities and repositories are in the project sources.
 - No external tools, accounts or network access.
 - Optional: the JPA Assist plugin, which supplies the JPQL language used inside `@Query` strings.
@@ -62,7 +62,7 @@ In a repository that imports `org.springframework.data.mongodb`, a `@Query` key 
 
 - A gutter arrow on a repository opens its domain class, and `<Repository>Impl` when there is one.
 - Go to Definition on a property part of a method name opens the entity field.
-- Run **Show Repository Inherited Members** (also in the editor context menu) to list the methods a repository inherits from Spring Data, such as `findAll` or `save`.
+- Run **Spring Data: Show Repository Inherited Members** (also in the editor context menu) to list the methods a repository inherits from Spring Data, such as `findAll` or `save`.
 
 ### Read queries at a glance
 
@@ -116,7 +116,7 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Spring Data**; bind 
 
 | Command | What it does | Shortcut |
 |---|---|---|
-| **Show Repository Inherited Members** | Shows, in a notification grouped by interface, the members the repository at the caret inherits from Spring Data interfaces (they live in library jars, so nothing opens). Also in the editor context menu of Java and Kotlin files. | – |
+| **Spring Data: Show Repository Inherited Members** | Shows, in a notification grouped by interface, the members the repository at the caret inherits from Spring Data interfaces (they live in library jars, so nothing opens). Also in the editor context menu of Java and Kotlin files. | – |
 
 ## Settings
 

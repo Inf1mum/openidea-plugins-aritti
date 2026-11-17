@@ -4,7 +4,7 @@ Symfony support in PHP, Twig, YAML and XML files, built from your project's own 
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Symfony project: it has `symfony.lock`, or `composer.json` requires `symfony/framework-bundle` or `symfony/symfony`.
 - The `aritti.twig` plugin for Twig files. The IDE has no Twig language of its own.
 - Optional: `php` on the `PATH` for cache commands, console commands, **Symfony: Make…** and profile inspection.
@@ -139,7 +139,9 @@ The **Symfony** tool window on the right has these tabs:
 - **Twig Namespace Paths**: navigation hints for extra Twig directories.
 - **Processes**: start the Symfony CLI server, server log and Messenger or scheduler workers in terminal tabs.
 
-The toolbar has **Reindex** and **Warm Up Cache**.
+Tabs are grouped into three sections: **Browse** (About, Routes, Templates, Services, Config, Env, Translations, Twig Namespace Paths), **Data** (Entities) and **Run** (Profiler, Processes). Switch section with the **View group** picker; each section remembers its last tab.
+
+The toolbar has **Reindex** and **Warm Up Cache**. A tab that fails to load shows **Retry**. A tab that needs a permission names it.
 
 ### Look at recent requests in the profiler
 
@@ -177,7 +179,7 @@ Nine read-only MCP tools return CSV from the cached index. None runs PHP.
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys in Settings › Keymap.
+Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys in Settings › Keymap. Except **Symfony: Make…**, commands show only in projects with `symfony.lock` or `bin/console`.
 
 | Command | What it does | Shortcut |
 |---|---|---|
@@ -191,11 +193,11 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Symfony**; bind keys
 | **Symfony: Go to Console Command…** | Jumps to a console command class. | none |
 | **Symfony: Go to Template…** | Opens a Twig template. | none |
 | **Symfony: Find Source Occurrences** | Lists literal references to the route, service or template at the caret. | none |
-| **Symfony: Extend Twig Template…** | Inserts an `extends` tag in the open template. Also in the editor context menu. | none |
+| **Symfony: Extend Twig Template…** | Inserts an `extends` tag in the open template. Also in the editor context menu of Twig files. | none |
 | **Symfony: Create Twig Template…** | Creates the template directly after you confirm (not a single undo step). On a quoted reference it runs **Create missing Twig template…**; otherwise, or without `editor.read`, it asks for a name and creates an empty `templates/<name>`. The name must end in `.twig` and cannot start with `/` or contain `..`, `\` or empty parts. | none |
 | **Symfony: Insert Form Rows from a Form Type…** | Inserts `form_start`, one `form_row` per field and `form_end` at the caret. | none |
-| **Symfony: Copy Route as curl** | Copies the selected route row as a `curl` command. | none |
-| **Symfony: Create HTTP Request File for Route** | Writes `http/<verb>-<path>.http` for the selected route row. | none |
+| **Symfony: Copy Route as cURL** | Copies the selected route row as a `curl` command. With no row selected, asks which route. | none |
+| **Symfony: Create HTTP Request File for Route** | Writes `http/<verb>-<path>.http` for the selected route row. With no row selected, asks which route. | none |
 | **Symfony: Show Profiler** | Reads the profiler index and opens the **Profiler** tab. | none |
 | **Symfony: Configure Twig Namespace Paths** | Opens the **Twig Namespace Paths** table. | none |
 
@@ -262,7 +264,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Twig files get no completion | Install the `aritti.twig` plugin. |
 | Attribute completion doesn't appear | Press the completion shortcut inside the attribute. |
 | A check doesn't fire | The name may be dynamic, from `vendor/`, or not indexed yet. Check the group switch in Settings. |
-| **Copy Route as curl** or **Create HTTP Request File for Route** does nothing | Select a row in the **Routes** tab first. |
+| **Copy Route as cURL** or **Create HTTP Request File for Route** says "No routes are indexed." | Click **Reindex**, or check that the project defines routes. |
+| Symfony commands are missing from Search Everywhere | They show only when the project has `symfony.lock` or `bin/console`. Open the folder that holds them. |
 | "Place the caret inside a plain literal route, service or template reference. …" | Put the caret inside a quoted name, not a variable or concatenation. |
 | "The open file is not a Twig template." | Focus a `.twig` file. |
 | "This template already extends another." | The template already has an `extends` tag. |

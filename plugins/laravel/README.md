@@ -4,7 +4,7 @@ Laravel support for OpenIDEA in PHP and Blade files. It completes and links rout
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or newer (`engines.openidea = "^1.10"`).
 - A Laravel project: it has an `artisan` file or requires `laravel/framework`.
 - Recommended: the [Blade](../blade/README.md) plugin (`aritti.blade`) for Blade highlighting, folding and the structure view. The IDE has no Blade grammar. Without it, Blade files open as PHP and everything below still works in them.
 - PHP on the `PATH` the IDE sees, for anything that runs Artisan: commands, generators, the Artisan, Runtime and Database tabs, **Send Request**, route and metadata refreshes. Artisan only runs in trusted projects.
@@ -112,7 +112,7 @@ All of these show a preview first and never overwrite a file. Undo reverts them.
 
 ### The Laravel tool window
 
-Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Each tab keeps its own search and selection. Double-click a row to open its definition. Resource tabs have a Reindex button; the Routes tab's refresh captures registered routes instead.
+Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Tabs are grouped into four sections: **Browse**, **Data**, **Run** and **Build**. Switch section with the **View group** picker; each section remembers its last tab. Each tab keeps its own search and selection. Double-click a row to open its definition. Resource tabs have a Reindex button; the Routes tab's refresh captures registered routes instead.
 
 | Tab | What you do there |
 |---|---|
@@ -130,13 +130,17 @@ Open it with **Laravel: Show Laravel Tool Window** or from the bottom bar. Each 
 | Runtime | Capture Application, Events, Schedule, Failed Jobs, Queue Status, Workers and Logs on demand. |
 | Processes | Start the development server, queue worker and schedule worker in a terminal tab. Stop or restart them from the tab. |
 
+Sections: **Browse** has About, Routes, Views, Components, Middleware, Config, Env and Translations. **Data** has Models and Database. **Run** has Request, Artisan, Runtime and Processes. **Build** has Generators.
+
+A tab that fails to load shows **Retry**. A tab that needs a permission names it.
+
 ### Run Artisan
 
 - **Laravel: Run Artisan Command…** opens the Artisan tab. Pick a command, fill in its form, and check the exact command line before you run it.
 - Use **Run in Terminal** for interactive commands and long-running workers. **Laravel: Run Artisan in Terminal…** opens the older terminal picker.
 - **Cancel** stops the running command. A successful run reindexes the project.
 - The command list comes from your app. Run **Laravel: Refresh Artisan Command Metadata** once, and again after installing packages. You review the exact command before anything runs.
-- One-click commands clear caches, migrate, seed and link storage. See [Commands](#commands).
+- One-click commands clear caches, migrate, seed and link storage. See [Commands](#commands). **Fresh Migration** and **Seed Database** ask first, naming the project and, when `.env` sets them, the database connection and environment.
 
 ### Generate classes
 
@@ -181,7 +185,7 @@ Seven tools are declared to OpenIDEA's built-in MCP server, prefixed `aritti_lar
 
 ## Commands
 
-Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys in Settings › Keymap. No command has a default shortcut.
+Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys in Settings › Keymap. No command has a default shortcut. Commands show only in projects with an `artisan` file, except **Show Laravel Tool Window**, **New Laravel Project…**, **Recover Project Installation…**, **Open Route Declaration** and **Route Request Actions…**.
 
 **Project and search**
 
@@ -213,8 +217,8 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 | **Laravel: Clear Route Cache** | Runs `route:clear`. |
 | **Laravel: Clear Compiled Views** | Runs `view:clear`. |
 | **Laravel: Run Migrations** | Runs `migrate`. |
-| **Laravel: Fresh Migration (drops all tables)** | Runs `migrate:fresh`. Asks you to run it a second time within 30 seconds. |
-| **Laravel: Seed Database** | Runs `db:seed`. |
+| **Laravel: Fresh Migration (drops all tables)** | Runs `migrate:fresh` after you confirm. It names the project, and the database connection and environment from `.env`. |
+| **Laravel: Seed Database** | Runs `db:seed` after you confirm. It names the project, and the database connection and environment from `.env`. |
 | **Laravel: Link Storage** | Runs `storage:link`. |
 
 **Docker**
@@ -249,11 +253,13 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Laravel**; bind keys
 
 | Command | What it does |
 |---|---|
-| **Laravel: Copy as curl** | Copies the selected route as a curl command. |
+| **Laravel: Copy as cURL** | Copies the selected route as a curl command. |
 | **Laravel: Create HTTP Request File** | Writes `http/<verb>-<path>.http` for the selected route. |
 | **Laravel: Send Request** | Opens the Request tab for the selected route. Sending runs the project's PHP. |
-| **Laravel: Open Route Declaration** | Opens the route behind a marker in the editor. |
-| **Laravel: Route Request Actions…** | From a route in the editor: go to the declaration, copy the URL or curl, or create an HTTP request. |
+| **Laravel: Open Route Declaration** | Opens the route behind a marker in the editor. From the palette, opens **Search Routes…**. |
+| **Laravel: Route Request Actions…** | From a route in the editor: go to the declaration, copy the URL or curl, or create an HTTP request. From the palette, opens **Search Routes…**. |
+
+Run from Search Everywhere, **Copy as cURL**, **Create HTTP Request File** and **Send Request** first ask which route.
 
 **Database and runtime**
 
@@ -313,17 +319,17 @@ Settings › Plugins › *Laravel*.
 
 | Setting | Key | Default |
 |---|---|---|
-| Show route and controller hints | `routeHints` | on |
-| Offer scope-to-attribute intentions | `scopeAttributeIntentions` | on |
+| Show route and controller hints in the editor | `routeHints` | on |
+| Offer to convert query scopes to the #[Scope] attribute (Laravel 12.6+) | `scopeAttributeIntentions` | on |
 | Laravel interface language (`auto`, `en`, `ja`, `ko`, `zh-CN`) | `uiLanguage` | `auto` |
 
 **Docker Artisan**
 
 | Setting | Key | Default |
 |---|---|---|
-| Docker Artisan: explicit local unix:///socket endpoint | `artisanDockerSocket` | `unix:///var/run/docker.sock` |
-| Docker Artisan: manual full 64-hex container ID (Choose Docker Target can select per project) | `artisanDockerContainer` | empty |
-| Docker Artisan: manual absolute container project directory (verified bind mapping) | `artisanDockerWorkdir` | empty |
+| Docker: socket address used to run Artisan in a container (unix:// path) | `artisanDockerSocket` | `unix:///var/run/docker.sock` |
+| Docker: container ID that runs Artisan (leave empty and use Choose Docker Target to pick one per project) | `artisanDockerContainer` | empty |
+| Docker: project folder inside the container (absolute path, mounted from this project) | `artisanDockerWorkdir` | empty |
 
 ## Permissions
 
@@ -351,6 +357,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | Problem | What to do |
 |---|---|
 | Nothing completes and the tool window is empty | The project must have an `artisan` file or require `laravel/framework`. Run **Laravel: Reindex Project**. |
+| Laravel commands are missing from Search Everywhere | Most commands show only when the project has an `artisan` file at its root. Open the folder that holds it. |
 | "This project is not a Laravel application." / "Open a Laravel project first." | Open the folder that holds `artisan` or the `composer.json` requiring `laravel/framework`. |
 | "Running PHP needs the process:php permission. Allow it in Settings › Plugins › Laravel, and make sure php is on your PATH." (or "Running artisan needs the process:<program> permission…") | Allow `process:php` in Settings › Plugins › *Laravel*. Check that `php` is on the `PATH` the IDE sees. |
 | The Artisan tab shows no commands | Run **Laravel: Refresh Artisan Command Metadata**. Run it again after `composer.json` or `composer.lock` changes. |
@@ -362,7 +369,8 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "Project writes denied; HTTP request copied to clipboard." | Allow `project.write` to write `.http` files. |
 | "No registered Laravel database sources. Add a Database Connection from Models first." | Run **Laravel: Add Application Database Connection…** first. |
 | "Select a captured Errors row first." | Capture Logs in the Runtime tab and pick an entry before **Open Error Stack Frame…**. |
-| A route or model command does nothing from Search Everywhere | **Copy as curl**, **Create HTTP Request File**, **Send Request**, **Open Route Declaration**, **Route Request Actions…**, **Open Model Source** and **Run Command From Class…** act on a row, gutter marker or code lens. Use them from there. |
+| A model or console command does nothing from Search Everywhere | **Open Model Source** and **Run Command From Class…** act on a row, gutter marker or code lens. Use them from there. Route commands ask which route instead. |
+| "No routes found. Open a Laravel project and let indexing finish, then try again." | A route command ran from the palette before the index had routes. Wait for indexing or run **Laravel: Reindex Project**. |
 | Docker Artisan refuses the container | The container must be running and have exactly one bind mount of this project root. Volume-only, remote and Mutagen-style mounts are refused. |
 | Component checks are silent | They are off when `composer.json` lists a package that ships un-namespaced components (`*/blade-*`, `laravel/jetstream`, `filament/*`, `livewire/flux`). |
 

@@ -6,7 +6,7 @@ Supported trackers: GitHub, GitLab (gitlab.com), Codeberg, YouTrack (Cloud or se
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - Optional: Git, for a branch per task, shelving and merge on close.
 - Optional: an account and token for each tracker you want to use.
 - Only for FogBugz, Redmine, MantisBT and generic trackers: Python 3 and a private credential profile file. Generic trackers with a `java-regex` parser also need Java 17+.
@@ -39,7 +39,9 @@ The **Tasks** window shows open tasks, closed tasks and tracker issues as trees 
 - **Task Actions…**: show the description, edit, switch, close, open in browser or post work time for the selected task.
 - **Update Issues**: refresh issues now.
 
-Open and Close forms remember your last choices. Task descriptions open in read-only tabs.
+Open and Close forms remember your last choices. Task descriptions open in read-only tabs. A successful close shows a **Task closed** notification.
+
+When the Issues group is empty, its row says why: no tracker is set up, network access isn't allowed, the update failed, or there are no open issues.
 
 ### Branch per task (Git)
 
@@ -47,7 +49,7 @@ With `process:git` allowed:
 
 - Each new task gets a branch, named with **Branch name format**. It's checked out when you switch to the task.
 - Your changes are shelved as stashes when you switch away (**Shelve changes when switching tasks**).
-- Closing a task can merge its branch into the base branch and delete it.
+- Closing a task can merge its branch into the base branch, then delete the branch. The close form names both: **Merge branch … into …, then delete …**.
 - The commit message can also go to Git's `commit.template` (setting **Write the active task's commit message to git's commit.template…**).
 
 If Git fails, you get a warning and the task switch still happens.
@@ -69,7 +71,7 @@ The message uses **Commit message format** (default `{id} {summary}`).
 ### Work with tracker issues
 
 - Issues update every 20 minutes (open issues only). Turn this off with **Update issues every 20 minutes**.
-- Closing a task can resolve the issue on GitHub, GitLab, Codeberg, YouTrack, Jira, Lighthouse, FogBugz, Redmine, MantisBT and generic trackers that define a close action.
+- Closing a task can resolve the issue on GitHub, GitLab, Codeberg, YouTrack, Jira, Lighthouse, FogBugz, Redmine, MantisBT and generic trackers that define a close action. If the tracker's network permission is denied, the task still closes and a warning says which permission to allow.
 - Work time can be posted to YouTrack and Jira (**Task Actions…**).
 - Read more repositories with **Tasks: Add Repository** (GitHub, GitLab or Codeberg). **Tasks: Remove Added Repository** removes one.
 - **Tasks: Open Active Task in Browser** (⌥⇧B) opens the active issue.
@@ -88,10 +90,10 @@ The message uses **Commit message format** (default `{id} {summary}`).
 
 After a search, hover an issue ID in any file to see its summary, tracker and link. Right-click it for:
 
-- **Tasks: Open Cached Issue at Caret in Browser**.
-- **Tasks: Activate Cached Issue at Caret Locally (No VCS Changes)**: makes it the active task without touching Git.
+- **Tasks: Open Issue at Caret in Browser**.
+- **Tasks: Start Task for Issue at Caret (No Branch)**: makes it the active task without touching Git.
 
-**Tasks: Review Cached Issue Activation and Branch Options at Caret** opens the branch options form for that issue instead (needs `process:git`).
+**Tasks: Start Task with Branch for Issue at Caret…** opens the branch options form for that issue instead (needs `process:git`).
 
 ### Set up each tracker
 
@@ -131,10 +133,10 @@ Find them in Search Everywhere › Actions (⇧⇧) under **Tasks**; bind keys i
 | **Tasks: Remove Saved Context** | Deletes a saved context. | |
 | **Tasks: Add Repository** | Adds another GitHub, GitLab or Codeberg repository. | |
 | **Tasks: Remove Added Repository** | Removes an added repository. | |
-| **Tasks: Open Cached Issue at Caret in Browser** | Opens the issue whose ID is under the caret. Also in the editor context menu. | |
-| **Tasks: Activate Cached Issue at Caret Locally (No VCS Changes)** | Activates that issue as a task without Git. Also in the editor context menu. | |
-| **Tasks: Review Cached Issue Activation and Branch Options at Caret** | Opens the branch options for that issue. | |
-| **Tasks: Reset This Project’s Task State (Asks First)…** | Deletes this project's stored tasks after a preview. For corrupt or unwanted data. | |
+| **Tasks: Open Issue at Caret in Browser** | Opens the issue whose ID is under the caret. Also in the editor context menu. | |
+| **Tasks: Start Task for Issue at Caret (No Branch)** | Activates that issue as a task without Git. Also in the editor context menu. | |
+| **Tasks: Start Task with Branch for Issue at Caret…** | Opens the branch options for that issue. | |
+| **Tasks: Reset Tasks for This Project…** | Deletes this project's stored tasks after a preview. For corrupt or unwanted data. | |
 
 ## Settings
 
@@ -193,8 +195,11 @@ See also the [repository guide](../../README.md#troubleshooting).
 
 | Problem | What to do |
 |---|---|
-| "No issues (trackers are set up in Settings › Plugins › Tasks)" | Set a tracker's token and host, and allow its `net:` permission. |
-| "Enter a GitHub, GitLab, Codeberg, YouTrack, Jira or Trello token in Settings › Plugins › Tasks." | Set the token secret and allow `secrets`. |
+| "No issue tracker set up: add a tracker token in Settings › Plugins › Tasks" | Set a tracker's token and host, and allow its `net:` permission. |
+| "Issues couldn't be loaded: network access is not allowed (Settings › Plugins › Tasks)" | Allow the tracker's `net:` permission, then run **Update Issues**. |
+| "Issues couldn't be loaded: run Update Issues to see why" | Run **Update Issues** and fix what the message says. |
+| "Add a tracker token in Settings › Plugins › Tasks. Trackers that use a credential profile are searched with Search Issues." | Set the token secret and allow `secrets`. FogBugz, Redmine, MantisBT and custom REST trackers don't update automatically; use **Tasks: Search Issues**. |
+| "The issue state was not updated: allow network access to … in Settings › Plugins › Tasks." | The task closed locally. Allow the tracker's `net:` permission and update the issue in the tracker. |
 | "No github.com remote. Set the repository in Settings › Plugins › Tasks." | Fill **GitHub repository** (or the Codeberg equivalent). |
 | "Set the … host in Settings › Plugins › Tasks." | Fill the tracker's host setting. |
 | "No supported tracker/server is configured and authorized…" | Check token, host and repository, and the tracker's `net:` permission. |
@@ -208,7 +213,7 @@ See also the [repository guide](../../README.md#troubleshooting).
 | "FogBugz bridge timed out; check remote issue state before retrying a close." | Look at the issue in FogBugz before you try again. |
 | "Include changes from this task project only before applying its commit message." | Include only files from this project in the commit. |
 | "This window has no open files owned by the current project to save." | Open some project files first. |
-| "Task state: … Existing storage was not changed." | Stored data is unreadable. Run **Tasks: Reset This Project’s Task State (Asks First)…** if you want to start fresh. |
+| "Task state: … Existing storage was not changed." | Stored data is unreadable. Run **Tasks: Reset Tasks for This Project…** if you want to start fresh. |
 
 ## Limitations
 

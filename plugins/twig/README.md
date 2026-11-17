@@ -4,7 +4,7 @@ Twig template support for OpenIDEA, which has no Twig grammar of its own. It add
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or newer (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or newer (`engines.openidea = "^1.10"`).
 - Optional, for formatting: PHP on the `PATH` and the official **Twig-CS-Fixer 4.1.1** PHAR.
 - In Symfony projects, install the [Symfony](../symfony/README.md) plugin (`aritti.symfony`) for route, template and translation completion.
 
@@ -77,13 +77,15 @@ Live checks report problems as you type:
 
 A stray `}}` is not reported: it is common in inline JavaScript and CSS. Strings, comments and `verbatim` blocks are skipped by the bracket check.
 
+On an unclosed tag, ⌥⏎ offers **Insert {% endif %}** (or the matching end tag, with your configured delimiters). It goes on its own line, indented like the opening tag, before the end of the enclosing block. When there is no enclosing block, the fix reads **Insert … at end of file**.
+
 ### Toggle comments
 
 **Twig: Toggle Comment** wraps the selection or the current line in a Twig comment, or removes the comment around it. It uses your configured comment delimiters.
 
 ### Review occurrences and rename
 
-- Highlights and occurrence-count lenses show where a macro, block, import alias or loop variable is used.
+- Highlights and lenses such as *3 occurrences in this file* show where a macro, block, import alias or loop variable is used.
 - Click a lens, or run **Twig: Show Occurrences**, to list them.
 - ⌥⏎ › **Preview Rename Static Twig Symbol…** renames a loop variable, import alias, macro or block. You see every change before it is applied. Undo reverts it.
 - ⌥⏎ › **Preview Rename Macro Parameter…** renames one macro parameter.
@@ -96,8 +98,8 @@ If your application changes Twig's lexer syntax, set the six delimiter settings 
 ### Format with Twig-CS-Fixer (optional)
 
 1. Download the official **Twig-CS-Fixer 4.1.1** PHAR (release tag `4.1.1`).
-2. Set **Absolute path to official Twig-CS-Fixer 4.1.1 PHAR (exact release hash required)** to its absolute path.
-3. Turn on **Enable reviewed official Twig-CS-Fixer 4.1.1 spacing formatter**.
+2. Set **Twig-CS-Fixer PHAR path** to its absolute path. Other versions or modified files are refused.
+3. Turn on **Format Twig files with Twig-CS-Fixer**.
 4. Allow `process:php` and `editor.read`.
 5. Run **Reformat Code**.
 
@@ -122,15 +124,15 @@ Settings › Plugins › *Twig*.
 |---|---|---|---|
 | Report unclosed tags, unexpected end tags and unterminated delimiters | `diagnostics` | on | Turns the main checks on or off. |
 | Also report brackets that do not pair inside {{ }} and {% %} (off by default) | `expressionErrors` | off | Adds the `unbalanced-bracket` check. |
-| Hover documentation | `hover` | on | Turns hover on or off. |
-| Complete project filters, functions and tests | `projectExtensions` | on | Reads `new TwigFilter('x'`, `new TwigFunction('x'` and `new TwigTest('x'` from project PHP. |
-| Occurrence highlights and rename | `staticTemplateReferences` | on | Turns occurrence highlights, lenses and reviewed renames on or off. |
+| Hover documentation | `hover` | on | Hover for core Twig tags and filters, and for macros defined in the current template. |
+| Complete project filters, functions and tests | `projectExtensions` | on | Completes and opens the filters, functions and tests the project registers in `src/`, `app/` and `lib/` (`new TwigFilter('x'`…), outside Symfony projects. |
+| Occurrence highlights and rename | `staticTemplateReferences` | on | Go to Definition, highlighting, occurrence counts and Rename for names written literally in templates. Rename shows the changes and asks before editing. |
 | Twig loader namespaces | `templateNamespaces` | empty | Maps `@namespace` to a project-relative directory (up to 32 entries). |
-| Tag opening / closing delimiter | `tagOpen` / `tagClose` | `{%` / `%}` | Custom tag delimiters. |
-| Variable opening / closing delimiter | `variableOpen` / `variableClose` | `{{` / `}}` | Custom print delimiters. |
-| Comment opening / closing delimiter | `commentOpen` / `commentClose` | `{#` / `#}` | Custom comment delimiters. |
-| Enable reviewed official Twig-CS-Fixer 4.1.1 spacing formatter | `formatterEnabled` | off | Turns the formatter on. |
-| Absolute path to official Twig-CS-Fixer 4.1.1 PHAR (exact release hash required) | `formatterPhar` | empty | Where the formatter PHAR is. |
+| Tag opening / closing delimiter | `tagOpen` / `tagClose` | `{%` / `%}` | Start and end a tag, as in `{% if %}`. Change only if your Twig environment uses custom delimiters. |
+| Variable opening / closing delimiter | `variableOpen` / `variableClose` | `{{` / `}}` | Start and end a printed expression, as in `{{ name }}`. Change only for custom delimiters. |
+| Comment opening / closing delimiter | `commentOpen` / `commentClose` | `{#` / `#}` | Start and end a comment, as in `{# note #}`. Change only for custom delimiters. |
+| Format Twig files with Twig-CS-Fixer | `formatterEnabled` | off | Fixes spacing around delimiters, operators and punctuation. Needs PHP and the PHAR path below. |
+| Twig-CS-Fixer PHAR path | `formatterPhar` | empty | Absolute path to the official Twig-CS-Fixer 4.1.1 PHAR. Other versions or modified files are refused. |
 
 Delimiters must be 1–16 characters with no spaces, quotes or backslashes. Opening delimiters must differ, and none may start another.
 

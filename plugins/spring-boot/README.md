@@ -4,7 +4,7 @@ Completion and checks for Spring Boot configuration files (`application*` and `b
 
 ## Requirements
 
-- OpenIDEA with plugin API 1.9 or later (`engines.openidea = "^1.9"`).
+- OpenIDEA with plugin API 1.10 or later (`engines.openidea = "^1.10"`).
 - A Java or Kotlin project with Spring Boot configuration files.
 - Maven (`mvn`) or Gradle (`gradle`) on the `PATH` the IDE sees, only to run the app from the IDE.
 - A local Maven repository (`~/.m2/repository`) or Gradle cache, only to read metadata from a dependency JAR.
