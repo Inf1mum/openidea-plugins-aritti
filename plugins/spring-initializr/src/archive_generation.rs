@@ -3,8 +3,15 @@ use super::*;
 use openidea_plugin::{HttpRequest, host::Command};
 use serde_json::{Value, json};
 const ADAPTER: &str = include_str!("archive_adapter.py");
+fn denied(error:Error)->Error {
+    match error {
+        Error::Denied(cap) if cap.starts_with("net") => Error::Invalid(format!("Allow {cap} for Spring Initializr in Settings › Plugins.")),
+        Error::Denied(_) => Error::Invalid("Allow process:python3 for Spring Initializr in Settings › Plugins.".into()),
+        other => other,
+    }
+}
 fn adapter(ctx: &Invocation, request: &Value) -> Result<Value,Error> {
-    let output=host::run_command(&Command::new("python3").args(["-I","-c",ADAPTER]),ctx.project().as_ref(),Some(&request.to_string()))?;
+    let output=host::run_command(&Command::new("python3").args(["-I","-c",ADAPTER]),ctx.project().as_ref(),Some(&request.to_string())).map_err(denied)?;
     if output.status!=Some(0) {
         let staging=output.stderr.lines().find_map(|line|serde_json::from_str::<Value>(line).ok()?["staging"].as_str().map(str::to_owned));
         let kept=staging.map_or(String::new(),|path|format!(" Staging folder kept for review: {path}."));
@@ -12,7 +19,7 @@ fn adapter(ctx: &Invocation, request: &Value) -> Result<Value,Error> {
     }
     if output.stdout.len()>256<<10 {return Err(Error::Invalid("Archive adapter result exceeds 256 KiB.".into()));}
     let value=crate::strict_json::parse(&output.stdout,256<<10).map_err(|_|Error::Invalid("Malformed archive adapter result.".into()))?;
-    if value["error"]=="not-local" {return Err(Error::Invalid("This folder isn't on the machine running the project; Generate and Open works only for local projects.".into()));}
+    if value["error"]=="not-local" {return Err(Error::Invalid("This folder doesn't exist on the machine running the project.".into()));}
     Ok(value)
 }
 fn preview(proof:&Value,archive:bool)->Result<String,Error> {
@@ -50,7 +57,7 @@ impl Launcher {
         if self.owner!=owner || self.server!=START || self.query()!=query || self.metadata!=metadata {return Err(Error::Stale)}
         let task=host::begin_task("Generating reviewed Spring project",true);
         if task.is_cancelled(){return Err(Error::Cancelled)}
-        let response=host::fetch(&HttpRequest::get(&format!("{START}/starter.zip?{query}")))?;
+        let response=host::fetch(&HttpRequest::get(&format!("{START}/starter.zip?{query}"))).map_err(denied)?;
         if task.is_cancelled(){return Err(Error::Cancelled)}
         if response.status!=200 || response.body.is_empty() || response.body.len()>8<<20 {return Err(Error::Invalid("Project ZIP failed or exceeds 8 MiB; no destination files were created.".into()));}
         let archive=format!("{}/generation-archive.zip",host::fs::plugin_dir()?.trim_end_matches('/'));
@@ -168,10 +175,21 @@ mod tests {
         assert!(message.contains("Staging folder kept for review: /outside/.initializr-ab12."),"{message}");
     }
     #[test]
+    fn generate_names_the_missing_python_grant() {
+        use openidea_plugin::mock::MockHost;
+        let host=MockHost::install().with_capabilities(&["storage","project.read","net:start.spring.io"]);
+        let mut launcher=Launcher::default();launcher.bind(&host.invocation()).unwrap();let _=launcher.changed();
+        launcher.metadata=Some(json!({"bootVersion":{"default":"3.5.16","values":[{"id":"3.5.16"}]},"dependencies":{"values":[]}}));
+        host.on_fetch(|_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"archive".to_vec()}));
+        host.answer_next_prompt(Some(&["/outside"]));host.answer_next_prompt(Some(&[]));
+        let message=launcher.generate_archive(&host.invocation()).unwrap_err().to_string();
+        assert!(message.contains("Allow process:python3 for Spring Initializr in Settings › Plugins."),"{message}");
+    }
+    #[test]
     fn generate_refuses_parent_missing_on_runner() {
         let (host,result,requests)=scripted_generation(None,true);
         let message=result.unwrap_err().to_string();
-        assert!(message.contains("isn't on the machine running the project; Generate and Open works only for local projects"),"{message}");
+        assert!(message.contains("doesn't exist on the machine running the project"),"{message}");
         assert!(host.opened_projects().is_empty());assert!(removes_archive_last(&requests));
         let scratch=Scratch::new();
         let output=run(&json!({"operation":"inspect","archive":scratch.0.join("none.zip"),"parent":scratch.0.join("missing"),"artifact":"demo"}));
