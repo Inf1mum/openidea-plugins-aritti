@@ -484,19 +484,11 @@ impl Launcher {
         let problem = self.problem();
         let generate = |button: Button| button.enabled(problem.is_none());
         let local_generation = problem.is_none() && self.server == START;
-        let status = match &problem {
-            Some(p) => p.clone(),
-            None => format!("Generate Project downloads {}.zip in the browser.", self.get("artifactId")),
+        let status = match (&problem, &self.catalog_status) {
+            (Some(p), _) => p.clone(),
+            (None, Some(note)) if !note.starts_with("Server metadata refreshed") => note.clone(),
+            _ => format!("Generate Project downloads {}.zip in the browser.", self.get("artifactId")),
         };
-        let status = format!(
-            "{status} {}",
-            self.catalog_status.clone().unwrap_or_else(|| if self.metadata.is_some() {
-                "Using saved server metadata; Refresh updates compatibility facts.".into()
-            } else {
-                "Compatibility is unverified until server metadata is loaded.".into()
-            })
-        );
-        let status=if self.metadata.is_some() {format!("{status} Only advertised choices and supported ranges are checked; unspecified/unknown requirements remain unverified.")}else{status};
         let mut view = if self.sections.active() == DEPENDENCIES_SECTION {
             let (view, tree_status) = self.dependencies_tree();
             let status = if problem.is_some() { status } else { tree_status };
@@ -542,7 +534,7 @@ impl Launcher {
             .button(generate(Button::new("generate", "Generate Project").icon("export")))
             .button(generate(Button::new("cli", "Generate with Spring Boot CLI").icon("terminal")))
             .button(generate(Button::new("explore", "Explore in Browser").icon("external-link")))
-            .button(Button::new("prepare-import", "Prepare Maven Source-only Import").icon("import").enabled(_ctx.project().is_some()&&local_generation))
+            .button(Button::new("prepare-import", "Prepare Maven Project Import…").icon("import").enabled(_ctx.project().is_some()&&local_generation))
             .button(Button::new("open-reviewed-import", "Open Source Folder").icon("folder-open").enabled(_ctx.project().is_some()&&self.import_issued()));
         if self.sections.active() == PROJECT_SECTION {
             view = view
@@ -740,7 +732,9 @@ mod tests {
             (options, chosen.as_str()),
             (vec!["Maven".into(), "Gradle - Groovy".into(), "Gradle - Kotlin".into()], "Gradle - Groovy")
         );
-        assert!(view.status.as_deref().unwrap().starts_with("Generate Project downloads demo.zip in the browser."));
+        assert!(view.status.as_deref().unwrap().starts_with("Catalogue refresh failed:"));
+        fresh.catalog_status = None;
+        assert_eq!(fresh.render(VIEW, None, &host.invocation()).unwrap().status.as_deref(), Some("Generate Project downloads demo.zip in the browser."));
 
         click(&mut fresh, &host, "generate");
         click(&mut fresh, &host, "explore");
