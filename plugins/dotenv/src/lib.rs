@@ -97,9 +97,13 @@ impl DotEnv {
         let deadline = Instant::now() + SCAN_BUDGET;
         for project in host::projects().unwrap_or_default() {
             let Ok(root) = project.root() else { continue };
-            if !self.projects.get(&root).is_some_and(|index| index.walked) {
-                let index = Index::full(&project, &root, deadline);
-                self.projects.insert(root, index);
+            match self.projects.get_mut(&root) {
+                Some(index) if index.walked => {}
+                Some(index) if index.walk_in_progress() => index.resume(&project, &root, deadline),
+                _ => {
+                    let index = Index::full(&project, &root, deadline);
+                    self.projects.insert(root, index);
+                }
             }
         }
     }
@@ -215,6 +219,7 @@ impl DotEnv {
                 true => Err(Error::NotFound(path.clone())),
                 false => project.read_file(&path),
             };
+            index.touched(&path);
             let owners = index.composes_building(&path);
             match read {
                 Ok(text) => {

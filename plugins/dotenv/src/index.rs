@@ -84,6 +84,9 @@ pub struct Usage {
 pub struct Index {
     /// The project was walked once; events only update single files after that.
     pub walked: bool,
+    /// The listing a cut walk continues from; `None` once walked or not yet listed.
+    walk: Option<Walk>,
+    held_complete: bool,
     /// The walk saw everything: no cut-off, unreadable file or unresolved reference.
     pub complete: bool,
     pub declarations: Vec<Declaration>,
@@ -453,10 +456,16 @@ impl Index {
         index
     }
 
-    /// Every file that declares or reads keys, until `deadline`. A walk cut by the
-/// deadline stays `walked == false`, so the next event batch walks again.
-    // ponytail: a huge project is cut at the deadline (usages first); persist the index if that bites.
+    /// Every file that declares or reads keys, until `deadline`. A walk cut by
+    /// the deadline keeps its place; [`Index::resume`] continues it.
     pub fn full(project: &Project, root: &str, deadline: Instant) -> Self {
+        let mut index = Self::begin(project, root, deadline);
+        index.resume(project, root, deadline);
+        index
+    }
+
+    /// Lists the project once. Reading the listed files is [`Index::resume`]'s job.
+    pub fn begin(project: &Project, root: &str, deadline: Instant) -> Self {
         if Instant::now() >= deadline {
             return Self::default();
         }
@@ -484,38 +493,72 @@ impl Index {
             .collect();
         paths.sort();
         paths.dedup();
-        let mut index = Self { walked: true, complete: discovery_complete, ..Self::default() };
-        for (_, path) in paths {
-            if Instant::now() >= deadline {
-                index.walked = false;
-                index.complete = false;
-                break;
+        Self {
+            complete: discovery_complete,
+            walk: Some(Walk { paths: paths.into_iter().map(|(_, path)| path).collect(), next: 0, discovered, touched: HashSet::new() }),
+            ..Self::default()
+        }
+    }
+
+    /// Reads the listed files from the cursor until `deadline`. Finishing the list sets `walked`.
+    pub fn resume(&mut self, project: &Project, root: &str, deadline: Instant) {
+        self.resume_limited(project, root, deadline, usize::MAX);
+    }
+
+    fn resume_limited(&mut self, project: &Project, root: &str, deadline: Instant, max_reads: usize) {
+        let Some(mut walk) = self.walk.take() else { return };
+        self.complete = self.complete || self.held_complete;
+        let mut reads = 0;
+        while walk.next < walk.paths.len() {
+            let path = walk.paths[walk.next].clone();
+            if walk.touched.contains(&path) {
+                walk.next += 1;
+                continue;
             }
+            if reads >= max_reads || Instant::now() >= deadline {
+                self.held_complete = self.complete;
+                self.complete = false;
+                self.walk = Some(walk);
+                return;
+            }
+            reads += 1;
+            walk.next += 1;
             match project.read_file(&path) {
                 Ok(text) => {
-                    if Instant::now() >= deadline {
-                        index.walked = false;
-                        index.complete = false;
-                        break;
-                    }
-                    index.add(&path, &text);
+                    self.add(&path, &text);
                     if text.len() <= MAX_SOURCE_BYTES {
-                        index.compose_env_files_before(project, root, &path, &text, deadline);
+                        self.compose_env_files_before(project, root, &path, &text, deadline);
                     }
                 }
-                Err(Error::NotFound(_)) if !discovered.contains(&path) => {}
-                Err(_) => index.complete = false,
+                Err(Error::NotFound(_)) if !walk.discovered.contains(&path) => {}
+                Err(_) => self.complete = false,
             }
-            if index.declarations.len() >= MAX_FACTS || index.usages.len() >= MAX_FACTS {
-                index.complete = false;
+            if self.declarations.len() >= MAX_FACTS || self.usages.len() >= MAX_FACTS {
+                self.complete = false;
                 break;
             }
         }
-        if Instant::now() >= deadline {
-            index.complete = false;
-        }
-        index
+        self.walked = true;
     }
+
+    /// Marks `path` as already brought up to date, so a walk in progress doesn't add it twice.
+    pub fn touched(&mut self, path: &str) {
+        if let Some(walk) = &mut self.walk {
+            walk.touched.insert(path.to_owned());
+        }
+    }
+
+    pub fn walk_in_progress(&self) -> bool {
+        self.walk.is_some()
+    }
+}
+
+/// The listing of a walk and how far reading it got.
+struct Walk {
+    paths: Vec<String>,
+    next: usize,
+    discovered: BTreeSet<String>,
+    touched: HashSet<String>,
 }
 
 #[cfg(test)]
@@ -590,6 +633,33 @@ mod tests {
         let project = host.invocation().project().unwrap();
         assert!(!Index::full(&project, "/p", Instant::now() - Duration::from_secs(1)).walked);
         assert!(Index::full(&project, "/p", Instant::now() + Duration::from_secs(5)).walked);
+    }
+
+    #[test]
+    fn a_cut_walk_resumes_from_its_cursor_without_rereading() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        for n in 0..10 {
+            host.add_file(&format!("f{n}.py"), &format!("os.getenv('K{n}')\n"));
+        }
+        let project = host.invocation().project().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut index = Index::begin(&project, "/p", deadline);
+        let total = index.walk.as_ref().unwrap().paths.len();
+        let part = 4;
+        let mut batches = 0;
+        let mut cursor = 0;
+        while !index.walked {
+            index.resume_limited(&project, "/p", deadline, part);
+            batches += 1;
+            let reached = index.walk.as_ref().map_or(total, |w| w.next);
+            assert_eq!(reached, (cursor + part).min(total), "each batch reads exactly its share");
+            cursor = reached;
+            assert!(!index.complete || index.walked, "a partial index never claims completeness");
+        }
+        assert_eq!(batches, total.div_ceil(part));
+        assert_eq!(index.usages.len(), 10, "no file read twice");
+        assert!(index.complete && !index.walk_in_progress());
     }
 
     #[test]
