@@ -342,7 +342,7 @@ impl Integration {
         if index.scanning() {
             crate::refresh(&id(VIEW));
         }
-        let (nodes, edges) = diagram_of(index);
+        let (nodes, edges) = diagram_of(&index.view(crate::shared::refs_of));
         let status = format!(
             "{} nodes · {} links{} · cached lexical Integration source graph",
             nodes.len(),
@@ -397,12 +397,12 @@ impl Integration {
             return Err(Error::Stale);
         }
         spring_text::scope::scope_path(&root).ok_or(Error::Stale)?;
-        let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let (nodes, _) = diagram_of(index);
+        let index = self.indexes.get(&project, COMMAND_BUDGET).view(crate::shared::refs_of);
+        let (nodes, _) = diagram_of(&index);
         if nodes.iter().filter(|n| n.id == key).count() != 1 {
             return Err(Error::Stale);
         }
-        let expected: Vec<_> = all(index)
+        let expected: Vec<_> = all(&index)
             .filter(|(p, r)| *p == path && crate::key(kind, p, r.range) == key)
             .map(|(_, r)| r.clone())
             .collect();

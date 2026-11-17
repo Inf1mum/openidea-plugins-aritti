@@ -4,6 +4,8 @@
 //! channels and consumers. Text-based: channels match by name as written.
 
 mod channel_table;
+mod shared;
+use shared::{Refs, Shared, refs_of};
 mod file_actions;
 mod structure;
 mod navigation;
@@ -28,7 +30,7 @@ use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineM
 use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
-use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
+use spring_text::index::{COMMAND_BUDGET, PROVIDER_BUDGET};
 use spring_text::java::{Annotation, Str};
 use spring_text::{beans, contains, range, xml};
 use std::collections::{BTreeMap, BTreeSet};
@@ -368,7 +370,7 @@ fn file_name(path: &str) -> &str {
 }
 
 pub struct Integration {
-    indexes: Indexes<Vec<Ref>>,
+    indexes: Shared,
     creation: file_actions::Creation,
     graph: graph::External,
     source_creation: channel_generation::Creation,
@@ -377,22 +379,22 @@ pub struct Integration {
 
 impl Default for Integration {
     fn default() -> Self {
-        Self { indexes: Indexes::new(&beans::GLOBS, index_file).excluding_nested_projects(), creation: Default::default(), graph: Default::default(), source_creation: Default::default(), channel_rows: Default::default() }
+        Self { indexes: Shared::default(), creation: Default::default(), graph: Default::default(), source_creation: Default::default(), channel_rows: Default::default() }
     }
 }
 
 /// Every reference of the project with its file.
-fn all(index: &Index<Vec<Ref>>) -> impl Iterator<Item = (&str, &Ref)> {
+fn all<'a: 'b, 'b>(index: &'b Refs<'a>) -> impl Iterator<Item = (&'a str, &'a Ref)> + 'b {
     index.iter().flat_map(|(path, refs)| refs.iter().map(move |r| (path, r)))
 }
 
 /// The references named like `r` in `roles`, `r` itself excluded.
-fn others<'a>(index: &'a Index<Vec<Ref>>, doc: &Document, r: &Ref, roles: &[Role]) -> Vec<(&'a str, &'a Ref)> {
+fn others<'a>(index: &Refs<'a>, doc: &Document, r: &Ref, roles: &[Role]) -> Vec<(&'a str, &'a Ref)> {
     all(index).filter(|(p, x)| roles.contains(&x.role) && x.name == r.name && !(*p == doc.path && x.range == r.range)).collect()
 }
 
 /// Where `r` is declared: beans for a bean reference, else channel declarations, else consumers.
-fn definitions<'a>(index: &'a Index<Vec<Ref>>, doc: &Document, r: &Ref) -> Vec<(&'a str, &'a Ref)> {
+fn definitions<'a>(index: &Refs<'a>, doc: &Document, r: &Ref) -> Vec<(&'a str, &'a Ref)> {
     match r.role {
         Role::BeanRef => others(index, doc, r, &[Role::Bean]),
         _ => Some(others(index, doc, r, &[Role::Declares]))
@@ -424,25 +426,26 @@ impl Integration {
         }
         if spring_text::index::owning_root(&doc.path).is_none() {return Vec::new();}
         let Some(index)=self.indexes.for_cached_document(&doc.path,&doc.text) else{return Vec::new();};
+        let index=index.view(refs_of);
         if !index.fresh() {return Vec::new();}
-        problems(index,doc)
+        problems(&index,doc)
     }
 
-    fn index(&mut self, doc: &Document) -> Option<&Index<Vec<Ref>>> {
+    fn index(&mut self, doc: &Document) -> Option<Refs<'_>> {
         if !relevant(doc) {
             return None;
         }
         spring_text::index::owning_root(&doc.path)?;
         let index=self.indexes.for_document(&doc.path,&doc.text,PROVIDER_BUDGET)?;
-        Some(&*index)
+        Some(index.view(refs_of))
     }
 }
 
-fn here<'a>(index: &'a Index<Vec<Ref>>, doc: &Document) -> &'a [Ref] {
-    index.files().get(&doc.path).map_or(&[], |refs| refs.as_slice())
+fn here<'a>(index: &Refs<'a>, doc: &Document) -> &'a [Ref] {
+    index.get(&doc.path).map_or(&[], |refs| refs.as_slice())
 }
 
-fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
+fn problems(index: &Refs<'_>, doc: &Document) -> Vec<Diagnostic> {
     let mut syntax: Vec<Diagnostic> = here(index, doc)
         .iter()
         .filter(|r| matches!(r.role, Role::SpelError | Role::XPathError))
@@ -455,7 +458,7 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
         return syntax;
     }
     let known = |name: &str, roles: &[Role]| all(index).any(|(_, x)| x.name == name && (x.role == Role::BeanCandidate || roles.contains(&x.role)));
-    let contexts = contexts::cached(index, &doc.path);
+    let contexts = contexts::cached(index);
     let provenance = here(index, doc).iter().filter(|r| matches!(r.role, Role::Consumes | Role::Produces | Role::BeanRef)).filter(|r| !r.name.is_empty() && !beans::is_expression(&r.name)).filter_map(|r| {
         let (found, contexts_spanned) = contexts.scope(&doc.path, definitions(index, doc, r));
         if contexts_spanned < 2 {
@@ -501,6 +504,7 @@ impl Providers for Integration {
         let Some(index) = self.index(doc) else {
             return Vec::new();
         };
+        let index = &index;
         let Some(r) =
             here(index, doc).iter().find(|r| contains(r.range, at) && matches!(r.role, Role::Consumes | Role::Produces | Role::BeanRef))
         else {
@@ -529,10 +533,11 @@ impl Providers for Integration {
         let Some(index) = self.index(doc) else {
             return Vec::new();
         };
+        let index = &index;
         let Some(r) = here(index, doc).iter().find(|r| contains(r.range, at) && matches!(r.role,Role::Declares|Role::Consumes|Role::Produces|Role::BeanRef) && !r.name.is_empty()) else {
             return Vec::new();
         };
-        let (found, _) = contexts::cached(index, &doc.path).scope(&doc.path, definitions(index, doc, r));
+        let (found, _) = contexts::cached(index).scope(&doc.path, definitions(index, doc, r));
         found.into_iter().map(location).collect()
     }
 
@@ -540,8 +545,9 @@ impl Providers for Integration {
         let Some(index) = self.index(doc) else {
             return Vec::new();
         };
+        let index = &index;
         let mut markers = Vec::new();
-        let contexts = contexts::cached(index, &doc.path);
+        let contexts = contexts::cached(index);
         for r in here(index, doc).iter().filter(|r| !r.name.is_empty()) {
             let (found, title) = match r.role {
                 Role::Consumes => (others(index, doc, r, &[Role::Produces]), format!("Sent to '{}' by", r.name)),
@@ -578,7 +584,7 @@ fn route(refs: &[&Ref]) -> String {
 }
 
 /// Channels as nodes and endpoints as small nodes: input channel -> endpoint -> output channel.
-fn diagram_of(index: &Index<Vec<Ref>>) -> (Vec<Node>, Vec<Edge>) {
+fn diagram_of(index: &Refs<'_>) -> (Vec<Node>, Vec<Edge>) {
     let channel_roles = [Role::Declares, Role::Consumes, Role::Produces];
     let mut channels: BTreeMap<&str, (&str, &Ref)> = BTreeMap::new();
     for (path, r) in all(index).filter(|(_, r)| channel_roles.contains(&r.role) && !r.name.is_empty() && !beans::is_expression(&r.name)) {
@@ -627,7 +633,7 @@ impl Views for Integration {
         }
 
         if matches!(&event,ViewEvent::Button(b) if b == "refresh") {
-            if let Some(project)=ctx.project() && let index=self.indexes.get(&project,std::time::Duration::ZERO) && index.complete() && !index.scanning() {self.indexes.reset();}
+            if let Some(project)=ctx.project() {self.indexes.restart_project(&project);}
             refresh(view);return Ok(());
         }
         if self.handle_table(&event,ctx)? {return Ok(());}
@@ -835,7 +841,7 @@ interface OrderGateway {
         let paths: BTreeSet<&str> = found.iter().map(|l| l.path.as_str()).collect();
         assert!(paths.iter().any(|x| x.ends_with("da.xml")) && paths.iter().any(|x| x.ends_with("db.xml")), "{paths:?}");
         assert!(paths.iter().any(|x| x.ends_with("other.xml")), "unowned files stay visible: {paths:?}");
-        let diagnostics = p.index(&doc(&path, &shared)).map(|i| problems(i, &doc(&path, &shared))).unwrap_or_default();
+        let diagnostics = p.index(&doc(&path, &shared)).map(|i| problems(&i, &doc(&path, &shared))).unwrap_or_default();
         assert!(diagnostics.iter().any(|d| d.code.as_deref() == Some("multi-context-definition") && d.message.contains("3 contexts")), "{diagnostics:?}");
     }
 
@@ -953,7 +959,7 @@ interface OrderGateway {
     #[test]
     fn integration_diagram_has_expected_nodes_and_edges() {
         let host = setup();
-        let (nodes, edges) = diagram_of(Integration::default().indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET));
+        let (nodes, edges) = diagram_of(&Integration::default().indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET).view(refs_of));
         let ids: BTreeSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
         assert_eq!(ids.len(), nodes.len(), "node ids are unique");
         assert!(edges.iter().all(|e| ids.contains(e.from.as_str()) && ids.contains(e.to.as_str())));
@@ -980,7 +986,7 @@ interface OrderGateway {
         let host = MockHost::install();
         let xml = "<beans xmlns=\"http://www.springframework.org/schema/beans\" xmlns:int=\"http://www.springframework.org/schema/integration\">\n<int:service-activator input-channel=\"a\" output-channel=\"b\"/>\n<int:service-activator input-channel=\"c\" output-channel=\"d\"/>\n</beans>";
         host.add_file("src/main/resources/two.xml", xml);
-        let (nodes, _) = diagram_of(Integration::default().indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET));
+        let (nodes, _) = diagram_of(&Integration::default().indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET).view(refs_of));
         let mut labels: Vec<&str> = nodes.iter().filter(|n| n.label.starts_with('<')).map(|n| n.label.as_str()).collect();
         labels.sort();
         assert_eq!(labels, ["<int:service-activator> (a -> b)", "<int:service-activator> (c -> d)"]);

@@ -18,11 +18,7 @@ struct Context {
     states: Vec<(String, String)>,
     occupied: BTreeSet<String>,
 }
-fn literal(value: &str) -> bool {
-    let mut bytes = value.bytes();
-    value.len() <= 128 && bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-        && bytes.all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-}
+use spring_text::provenance::literal;
 fn descendant(elements: &[xml::Element], mut at: usize, owner: usize) -> bool {
     while let Some(parent) = elements[at].parent {
         if parent == owner { return true; }
@@ -99,7 +95,7 @@ fn context(doc: &Document, selection: Range) -> Option<Context> {
     if references.len()+1>64 { return None; }
     Some(Context {job:job_id,old,kind,declaration,references,states,occupied})
 }
-fn normalized(path:&str)->bool {
+pub(crate) fn normalized(path:&str)->bool {
     path.starts_with('/') && path.len()<=512 && path!="/" && !path.contains(['\\','*','?','[',']','{','}'])
         && !path.chars().any(char::is_control) && path.split('/').skip(1).all(|p|!matches!(p,""|"."|".."))
 }

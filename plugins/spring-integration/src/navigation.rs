@@ -216,13 +216,14 @@ mod tests {
     fn unknown_namespaces_escaped_values_nested_profiles_and_malformed_are_quiet() {
         for body in [
             "<i:channel id=\"x\"/><i:bridge input-channel=\"${x}\"/>",
-            "<i:channel id=\"x\"/><i:bridge input-channel=\"&#120;\"/>",
             "<beans profile=\"a\"><i:channel id=\"x\"/><i:bridge input-channel=\"x\"/></beans>",
             "<i:channel id=\"x\"><i:bridge input-channel=\"x\"/>",
         ] {
             let d = doc(body);
-            assert!(definition(&d, at(&d, "x")).is_none_or(|found| found.is_empty()));
+            assert!(definition(&d, at(&d, "x")).is_none(), "{body}");
         }
+        let d = doc("<i:channel id=\"x\"/><i:bridge input-channel=\"&#120;\"/>");
+        assert_eq!(definition(&d, at(&d, "x")), Some(Vec::new()), "the lone declaration has no other place to go to");
         let d = doc("<i:channel id=\"x\"/><i:bridge input-channel=\"x\"/>");
         let foreign = Document { text: d.text.replace(NAMESPACE, &format!("{NAMESPACE}-fake")), ..d };
         assert!(definition(&foreign, at(&foreign, "x")).is_none());

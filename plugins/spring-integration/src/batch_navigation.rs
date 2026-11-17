@@ -16,13 +16,7 @@ struct Model {
     candidates: Vec<Candidate>,
     eligible: bool,
 }
-fn literal(s: &str) -> bool {
-    let mut b = s.bytes();
-    s.len() <= 128
-        && b.next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
-        && b.all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
-}
+use spring_text::provenance::literal;
 fn model(doc: &Document, at: Position) -> Option<Model> {
     if doc.language != "xml"
         || !doc.path.ends_with(".xml")

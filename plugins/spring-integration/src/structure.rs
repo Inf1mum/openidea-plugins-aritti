@@ -134,10 +134,10 @@ impl Providers for Structure {
             items.extend(self.integration.completion(doc, at, trigger));
         }
         if self.wants_batch(doc) {
-            items.extend(self.batch.completion(doc, at, trigger));
+            items.extend(self.batch.completion(doc, at, &mut self.integration.indexes));
         }
         if self.wants_modulith(doc) {
-            items.extend(self.modulith.completion(doc, at, trigger));
+            items.extend(self.modulith.completion(doc, at, &mut self.integration.indexes));
         }
         items
     }
@@ -152,9 +152,9 @@ impl Providers for Structure {
             found.extend(self.integration.definition(doc, at));
         }
         if self.wants_batch(doc) {
-            found.extend(self.batch.definition(doc, at));
+            found.extend(self.batch.definition(doc, at, &mut self.integration.indexes));
         }
-        if self.wants_modulith(doc) {found.extend(self.modulith.definition(doc,at));}
+        if self.wants_modulith(doc) {found.extend(self.modulith.definition(doc,at,&mut self.integration.indexes));}
         found
     }
 
@@ -162,7 +162,7 @@ impl Providers for Structure {
         if !self.wants_modulith(doc) {
             return Vec::new();
         }
-        let actions = self.modulith.code_actions(doc, selection);
+        let actions = self.modulith.code_actions(doc, selection, &mut self.integration.indexes);
         actions.into_iter().map(|action| module_data(modulith::WINDOW_SECTION, action)).collect()
     }
 
@@ -202,7 +202,7 @@ impl Views for Structure {
                 let Some(root)=ctx.project().and_then(|p|p.root().ok()).filter(|r|!r.is_empty()) else {
                     self.diagrams.clear();return Ok(self.sections.buttons(View::message("Open an owned project to view this source diagram."),&[]));
                 };
-                let data=if active=="batch"{self.batch.diagram_snapshot(ctx)}else{self.modulith.diagram_snapshot(ctx)};
+                let data=if active=="batch"{self.batch.diagram_snapshot(ctx,&mut self.integration.indexes)}else{self.modulith.diagram_snapshot(ctx,&mut self.integration.indexes)};
                 let inner=match data {
                     Ok(data)=>self.diagrams.entry(active.into()).or_default().render(&root,data,if active=="batch"{"Batch source candidate"}else{"Module source candidate"},if active=="batch"{"No source-owned batch nodes found."}else{"No source-owned application modules found."}),
                     Err(_)=>{self.diagrams.remove(active);View::message("Diagram source data is unavailable; refresh in its project.")},
@@ -210,7 +210,7 @@ impl Views for Structure {
                 return Ok(self.source_status(self.sections.buttons(inner,&[])));
             }
             let inner = match active {
-                "modules" => self.modulith.render(&module_view(modulith::WINDOW_SECTION, active), viewport, ctx)?,
+                "modules" => self.modulith.render(&module_view(modulith::WINDOW_SECTION, active), ctx, &mut self.integration.indexes)?,
                 "channel-table" => self.integration.render_table(ctx)?,
                 _ => self.integration.render(&module_view(crate::WINDOW_SECTION, "diagram"), viewport, ctx)?,
             };
@@ -244,16 +244,16 @@ impl Views for Structure {
             match effect {
                 graph::Effect::Handled=>{crate::refresh(OWNER_WINDOW);return Ok(());},
                 graph::Effect::Open(key)=>{
-                    if active=="batch" {self.batch.handle(&module_view(batch::WINDOW_SECTION,"diagram"),ViewEvent::Message(key.clone()),ctx)?;}
-                    else {self.modulith.handle(&module_view(modulith::WINDOW_SECTION,"diagram"),ViewEvent::Message(key.clone()),ctx)?;}
+                    if active=="batch" {self.batch.handle(&module_view(batch::WINDOW_SECTION,"diagram"),ViewEvent::Message(key.clone()),ctx,&mut self.integration.indexes)?;}
+                    else {self.modulith.handle(&module_view(modulith::WINDOW_SECTION,"diagram"),ViewEvent::Message(key.clone()),ctx,&mut self.integration.indexes)?;}
                     self.diagrams.get_mut(active).ok_or(Error::Stale)?.selected(key);crate::refresh(OWNER_WINDOW);return Ok(());
                 },
                 graph::Effect::Pass=>{},
             }
         }
         match active {
-            "batch" => self.batch.handle(&module_view(batch::WINDOW_SECTION, "diagram"), event, ctx),
-            "modules" | "diagram" => self.modulith.handle(&module_view(modulith::WINDOW_SECTION, active), event, ctx),
+            "batch" => self.batch.handle(&module_view(batch::WINDOW_SECTION, "diagram"), event, ctx, &mut self.integration.indexes),
+            "modules" | "diagram" => self.modulith.handle(&module_view(modulith::WINDOW_SECTION, active), event, ctx, &mut self.integration.indexes),
             _ => self.integration.handle(&module_view(crate::WINDOW_SECTION, "diagram"), event, ctx),
         }
     }
@@ -272,18 +272,17 @@ impl Structure {
         if applies.integration {
             self.integration.warm_project(project, budget);
         }
-        if applies.batch {
-            self.batch.warm_project(project, budget);
+        if applies.batch && !applies.integration {
+            self.integration.warm_project(project, budget);
         }
         if applies.modulith {
-            self.modulith.warm_project(project, budget);
+            self.modulith.warm_project(project, budget, &mut self.integration.indexes);
         }
     }
 
     fn reset_live(&mut self) {
         self.applies.clear();
         self.integration.reset_live();
-        self.batch.reset_live();
         self.modulith.reset_live();
     }
 }
@@ -302,10 +301,10 @@ impl DiagnosticsProvider for Structure {
             found.extend(self.integration.live_diagnostics(doc));
         }
         if applies.batch {
-            found.extend(self.batch.live_diagnostics(doc));
+            found.extend(self.batch.live_diagnostics(doc, &mut self.integration.indexes));
         }
         if applies.modulith && matches!(doc.language.as_str(),"java"|"kotlin") {
-            found.extend(self.modulith.live_diagnostics(doc));
+            found.extend(self.modulith.live_diagnostics(doc, &mut self.integration.indexes));
         }
         found.truncate(5000);
         found
@@ -372,8 +371,6 @@ impl Plugin for Structure {
         } else if invalidate {
             let deadline = Instant::now() + EVENT_BUDGET;
             self.integration.on_events(events, deadline);
-            self.batch.on_events(events, deadline);
-            self.modulith.on_events(events, deadline);
         }
         let mut roots = std::collections::BTreeSet::new();
         for path in paths.into_iter().take(64) {
@@ -391,12 +388,12 @@ impl Plugin for Structure {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         if id.starts_with("batch.runtime-") {return self.batch_runtime.run_command(id,ctx);}
-        if id=="batch.launch-command" {let project=ctx.project().ok_or(Error::Stale)?;let jobs=self.batch.job_names(&project);return crate::batch_launch::run(ctx,&jobs);}
+        if id=="batch.launch-command" {let project=ctx.project().ok_or(Error::Stale)?;let jobs=self.batch.job_names(&project,&mut self.integration.indexes);return crate::batch_launch::run(ctx,&jobs);}
         if id=="integration.import-tree-occurrences" {return crate::import_tree::occurrences(ctx);}
         if id=="batch.current-file-step-usages" {return crate::batch_step_rename::usages(ctx);}
         let module = id.split_once('.').map(|(module, _)| module);
         match module {
-            Some(modulith::WINDOW_SECTION) => self.modulith.run_command(id, ctx, arg),
+            Some(modulith::WINDOW_SECTION) => self.modulith.run_command(id, ctx, &mut self.integration.indexes),
             Some(batch::WINDOW_SECTION) => self.batch.run_command(id, ctx, arg),
             Some(crate::WINDOW_SECTION) => self.integration.run_command(id, ctx, arg),
             _ => Err(Error::NotFound(format!("command {id}"))),
@@ -516,6 +513,22 @@ mod tests {
         assert!(codes(owner.diagnostics(&document)).iter().any(|c| c == "unconsumed-channel"));
     }
     #[test]
+    fn modules_share_one_index_with_a_combined_record_per_file() {
+        use batch::Source as _;
+        let host = setup("<project><module>app</module></project>");
+        let mut structure = Structure::default();
+        let project = host.invocation().project().unwrap();
+        structure.warm_live(&project);
+        let batch_id = structure.integration.indexes.project(&project, Duration::ZERO).id();
+        let modulith_id = modulith::Source::project(&mut structure.integration.indexes, &project, Duration::ZERO).id();
+        assert_eq!(batch_id, modulith_id);
+        let index = structure.integration.indexes.get(&project, Duration::ZERO);
+        let xml = index.files().get(XML_PATH).unwrap();
+        assert!(!xml.refs.is_empty() && xml.unit.is_none());
+        let shipper = index.files().get(SHIPPER_PATH).unwrap();
+        assert!(shipper.unit.is_some());
+    }
+    #[test]
     fn gradle_subproject_dependency_detected() {
         let host = setup("<project/>");
         host.add_file("settings.gradle", "include 'app'");
@@ -568,7 +581,7 @@ mod tests {
         let mut structure = Structure::default();
         let at = position(XML, XML.find("input-channel=\"orders\"").unwrap() + 20);
         assert!(!structure.definition(&doc(XML_PATH, "xml", XML), at).is_empty());
-        assert!(structure.batch.definition(&doc(XML_PATH, "xml", XML), at).is_empty());
+        assert!(structure.batch.definition(&doc(XML_PATH, "xml", XML), at, &mut structure.integration.indexes).is_empty());
     }
 
     #[test]
@@ -1222,7 +1235,7 @@ impl openidea_plugin::file_actions::FileActions for Structure {
         actions.extend(self.batch_step_rename.actions(doc, selection));
         actions.extend(self.channel_renames.actions(doc, selection));
         actions.extend(self.import_renames.actions(doc, selection));
-        actions.extend(self.modulith.expose_actions(doc,selection));
+        actions.extend(self.modulith.expose_actions(doc,selection,&mut self.integration.indexes));
         actions
     }
     fn resolve_file_action(

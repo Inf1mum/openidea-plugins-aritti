@@ -65,6 +65,7 @@ pub struct Index<T> {
     rejected: fn(&str, &str) -> bool,
     /// Discovery leaves files of nested open projects to their own index.
     exclude_nested: bool,
+    id: u64,
     /// What [`Index::update`] last applied per path, so the same text again changes nothing.
     applied: BTreeMap<String, u64>,
     generation: u64,
@@ -72,6 +73,18 @@ pub struct Index<T> {
 
 fn every(_: &str, _: Option<&str>) -> bool {
     true
+}
+
+thread_local! {
+    static INDEX_IDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// A number no earlier index of this plugin instance had, even after [`Indexes::reset`].
+fn next_id() -> u64 {
+    INDEX_IDS.with(|ids| {
+        ids.set(ids.get() + 1);
+        ids.get()
+    })
 }
 
 fn never(_: &str, _: &str) -> bool {
@@ -102,6 +115,7 @@ impl<T: Clone> Index<T> {
             required: every,
             rejected: never,
             exclude_nested: false,
+            id: next_id(),
             applied: BTreeMap::new(),
             generation: 0,
         }
@@ -293,6 +307,24 @@ impl<T: Clone> Index<T> {
         self.generation += 1;
     }
 
+    /// Unique among all indexes made so far: with [`Self::generation`] it names
+    /// one state of one index, which a reset or a new index never repeats.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// The files that have something for `project` (`None`: not this file), as a read-only view.
+    pub fn view<'a, U>(&'a self, project: impl Fn(&'a T) -> Option<&'a U>) -> View<'a, U> {
+        View {
+            entries: self.files.iter().filter_map(|(path, value)| Some((path.as_str(), project(value)?))).collect(),
+            complete: self.complete(),
+            fresh: self.fresh(),
+            scanning: self.scanning(),
+            id: self.id,
+            generation: self.generation,
+        }
+    }
+
     /// Changes whenever what the index holds may have changed.
     pub fn generation(&self) -> u64 {
         self.generation
@@ -362,6 +394,9 @@ impl<T: Clone> Index<T> {
             return;
         }
         let nested = nested_roots(project);
+        if nested.is_empty() {
+            return;
+        }
         let foreign: Vec<String> =
             self.files.keys().chain(self.next.keys()).filter(|path| nested.iter().any(|root| path.starts_with(root))).cloned().collect();
         for path in foreign {
@@ -394,12 +429,72 @@ impl<T: Clone> Index<T> {
     }
 }
 
+/// What one part of a combined index says per file, with the index's state.
+pub struct View<'a, U> {
+    entries: Vec<(&'a str, &'a U)>,
+    complete: bool,
+    fresh: bool,
+    scanning: bool,
+    id: u64,
+    generation: u64,
+}
+
+impl<'a, U> View<'a, U> {
+    /// The files in path order.
+    pub fn iter(&self) -> impl Iterator<Item = (&'a str, &'a U)> + '_ {
+        self.entries.iter().copied()
+    }
+
+    pub fn get(&self, path: &str) -> Option<&'a U> {
+        self.entry(path).map(|(_, value)| value)
+    }
+
+    /// The file's path as the view holds it, with what it says.
+    pub fn entry(&self, path: &str) -> Option<(&'a str, &'a U)> {
+        let at = self.entries.binary_search_by(|(p, _)| (*p).cmp(path)).ok()?;
+        Some(self.entries[at])
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn complete(&self) -> bool {
+        self.complete
+    }
+
+    pub fn fresh(&self) -> bool {
+        self.fresh
+    }
+
+    pub fn scanning(&self) -> bool {
+        self.scanning
+    }
+
+    /// [`Index::id`] of the index viewed.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
 /// Prefixes (`root/`) of the open projects nested inside `project`: their
 /// files belong to them, as [`project_of`] answers.
 fn nested_roots(project: &Project) -> Vec<String> {
+    let projects = host::projects().unwrap_or_default();
+    if projects.len() < 2 {
+        return Vec::new();
+    }
     let Ok(root) = project.root() else { return Vec::new() };
     let prefix = format!("{}/", root.trim_end_matches('/'));
-    let roots = host::projects().unwrap_or_default().into_iter().filter_map(|other| other.root().ok());
+    let roots = projects.into_iter().filter_map(|other| other.root().ok());
     roots.map(|other| format!("{}/", other.trim_end_matches('/'))).filter(|other| other.starts_with(&prefix) && *other != prefix).collect()
 }
 

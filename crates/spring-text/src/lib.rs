@@ -32,9 +32,25 @@ pub fn is_kotlin(path: &str) -> bool {
     path.ends_with(".kt") || path.ends_with(".kts")
 }
 
-/// The declarations of a Java or Kotlin source, by its extension.
+thread_local! {
+    static LAST_PARSE: std::cell::RefCell<Option<(bool, String, java::JavaFile)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The declarations of a Java or Kotlin source, by its extension. The last
+/// source parsed is remembered, so several readers of one file parse it once.
 pub fn parse_source(path: &str, text: &str) -> java::JavaFile {
-    if is_kotlin(path) { kotlin::parse(text) } else { java::parse(text) }
+    let kotlin = is_kotlin(path);
+    let remembered = LAST_PARSE.with_borrow(|last| {
+        last.as_ref().filter(|(was_kotlin, source, _)| *was_kotlin == kotlin && source == text).map(|(_, _, file)| file.clone())
+    });
+    if let Some(file) = remembered {
+        return file;
+    }
+    let file = if kotlin { kotlin::parse(text) } else { java::parse(text) };
+    if text.len() <= 512 * 1024 {
+        LAST_PARSE.with_borrow_mut(|last| *last = Some((kotlin, text.to_owned(), file.clone())));
+    }
+    file
 }
 
 /// The calls of a Java or Kotlin source, by its extension.
@@ -76,6 +92,13 @@ pub fn fs_missing(err: &Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parsing_the_same_source_again_gives_the_same_file() {
+        let source = "package a; class A {}";
+        assert_eq!(parse_source("A.java", source), parse_source("A.java", source));
+        assert_eq!(parse_source("A.kt", source), kotlin::parse(source), "the language is part of what is remembered");
+    }
 
     #[test]
     fn decapitalizes_like_spring() {

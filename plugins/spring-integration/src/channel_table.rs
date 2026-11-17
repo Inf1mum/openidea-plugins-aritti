@@ -25,7 +25,7 @@ struct Tally<'a> {
     first: Option<(&'a str, &'a Ref)>,
 }
 
-pub(crate) fn rows(index: &Index<Vec<Ref>>) -> Vec<ChannelRow> {
+pub(crate) fn rows(index: &Refs<'_>) -> Vec<ChannelRow> {
     let mut tallies: BTreeMap<&str, Tally> = BTreeMap::new();
     let channels = all(index).filter(|(_, r)| matches!(r.role, Role::Declares | Role::Produces | Role::Consumes));
     for (path, r) in channels.filter(|(_, r)| !r.name.is_empty() && !beans::is_expression(&r.name)) {
@@ -92,7 +92,7 @@ impl Integration {
         if index.scanning() {
             crate::refresh(&id(VIEW));
         }
-        let rows = rows(index);
+        let rows = rows(&index.view(shared::refs_of));
         if rows.is_empty() {
             let text = spring_text::index::empty_message("No message channels found", note.as_deref());
             return Ok(View::message(&text).button(refresh));
@@ -134,10 +134,10 @@ mod tests {
 
     #[test]
     fn channels_table_rows() {
-        let mut index = Index::new(&beans::GLOBS, index_file);
+        let mut index = spring_text::index::Index::new(&beans::GLOBS, crate::shared::record);
         index.update("/p/src/main/resources/a.xml", "<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:channel id='orders'/><i:bridge input-channel='orders' output-channel='audit'/><i:filter input-channel='orders' output-channel='audit'/></beans>");
         index.update("/p/src/main/resources/b.xml", "<beans xmlns='http://www.springframework.org/schema/beans' xmlns:i='http://www.springframework.org/schema/integration'><i:bridge input-channel='audit' output-channel='${dynamic}'/></beans>");
-        let found = rows(&index);
+        let found = rows(&index.view(shared::refs_of));
         let table: Vec<_> = found.iter().map(|r| (r.name.as_str(), r.declarations, r.producers, r.consumers, r.file.as_str())).collect();
         assert_eq!(table, [("audit", 0, 2, 1, "a.xml"), ("orders", 1, 0, 2, "a.xml")]);
         assert_eq!(found[1].at.path, "/p/src/main/resources/a.xml");

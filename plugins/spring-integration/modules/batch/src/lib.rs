@@ -3,12 +3,12 @@
 //! names in `spring.batch.job.name`, and Spring Batch 5 migration hints in
 //! Java configuration. Text-based: names match as written.
 
-use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
+use openidea_plugin::views::{Body, Button, View, ViewEvent};
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
-use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
+use spring_text::index::{COMMAND_BUDGET, View as IndexView};
 use spring_text::{beans, config, contains, java, range, xml};
 use std::collections::BTreeSet;
 
@@ -306,7 +306,7 @@ fn parameter_context(path:&str,text:&str,from:usize,to:usize)->bool {
     job_parameters(path,&candidate).iter().any(|name|name.name=="openideaParameterContext" && name.range==expected)
 }
 
-fn index_file(path: &str, text: &str) -> Option<Vec<Name>> {
+pub fn index_file(path: &str, text: &str) -> Option<Vec<Name>> {
     let mut names = if path.ends_with(".xml") { parse_xml(text).0 } else { parse_source(path, text) };
     if text.contains("jobParameters") || text.contains("JobParametersBuilder") {
         names.extend(job_parameters(path, text));
@@ -389,7 +389,22 @@ fn file_kind(doc: &Document) -> Option<&'static str> {
     }
 }
 
-fn all(index: &Index<Vec<Name>>) -> impl Iterator<Item = (&str, &Name)> {
+/// The batch facts of every file of the project, as one part of the owner's shared index.
+pub type Names<'a> = IndexView<'a, Vec<Name>>;
+
+/// Where the owner keeps the shared index: each file is read and parsed once for all modules.
+pub trait Source {
+    /// The index of the project holding `doc`, with `doc` applied, read on for a provider budget.
+    fn for_document(&mut self, doc: &Document) -> Option<Names<'_>>;
+    /// Like [`Self::for_document`], without reading any more of the project.
+    fn cached(&mut self, doc: &Document) -> Option<Names<'_>>;
+    /// The index of `project`, read on for at most `budget`.
+    fn project(&mut self, project: &Project, budget: std::time::Duration) -> Names<'_>;
+    /// Starts the index over, unless a scan of it is in progress (that would throw away what it has read).
+    fn restart(&mut self, project: &Project);
+}
+
+fn all<'a: 'b, 'b>(index: &'b Names<'a>) -> impl Iterator<Item = (&'a str, &'a Name)> + 'b {
     index.iter().flat_map(|(path, names)| names.iter().map(move |n| (path, n)))
 }
 
@@ -405,36 +420,24 @@ fn completions<'a>(names: impl Iterator<Item = &'a str>, detail: &str, replace: 
         .collect()
 }
 
-pub struct Batch {
-    indexes: Indexes<Vec<Name>>,
-}
-
-impl Default for Batch {
-    fn default() -> Self {
-        Self { indexes: Indexes::new(&beans::GLOBS, index_file).excluding_nested_projects() }
-    }
-}
+#[derive(Default)]
+pub struct Batch;
 
 impl Batch {
-    pub fn warm_project(&mut self, project: &Project, budget: std::time::Duration) {
-        self.indexes.get(project,budget);
-    }
-    pub fn reset_live(&mut self) { self.indexes.reset(); }
-    pub fn on_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
-        self.indexes.on_events(events, deadline);
-    }
     /// Literal, source-proved job names (XML `<job id>` and owned `new JobBuilder("name", ..)`), sorted; empty until the project is scanned and owned.
-    pub fn job_names(&mut self, project: &Project) -> Vec<String> {
+    pub fn job_names(&mut self, project: &Project, source: &mut impl Source) -> Vec<String> {
         if spring_text::index::scoped_root(project).is_none() {return Vec::new();}
-        let index=self.indexes.get(project,COMMAND_BUDGET);
+        let index=source.project(project,COMMAND_BUDGET);
+        let index=&index;
         all(index).filter(|(_,n)|n.kind==Kind::Job && !n.name.is_empty()).map(|(_,n)|n.name.clone()).collect::<BTreeSet<_>>().into_iter().collect()
     }
 
     /// Owner calls this for live results. It never discovers or reads project files.
-    pub fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+    pub fn live_diagnostics(&mut self, doc: &Document, source: &mut impl Source) -> Vec<Diagnostic> {
         let Some(kind) = file_kind(doc) else { return Vec::new() };
         if spring_text::index::owning_root(&doc.path).is_none() {return Vec::new();}
-        let Some(index) = self.indexes.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
+        let Some(index) = source.cached(doc) else { return Vec::new() };
+        let index = &index;
         match kind {
             "xml" => {
                 let mut found = xml_problems(&doc.text, index);
@@ -454,11 +457,6 @@ impl Batch {
         }
     }
 
-    fn index(&mut self, doc: &Document) -> Option<&Index<Vec<Name>>> {
-        spring_text::index::owning_root(&doc.path)?;
-        let index=self.indexes.for_document(&doc.path,&doc.text,PROVIDER_BUDGET)?;
-        Some(&*index)
-    }
 }
 
 /// The XML link under the caret, with the names of its file.
@@ -469,7 +467,7 @@ fn xml_link(doc: &Document, at: Position) -> Option<(Link, Vec<Name>)> {
 }
 
 /// The names of the other files of the project.
-fn elsewhere<'a>(index: &'a Index<Vec<Name>>, doc: &Document) -> Vec<(&'a str, &'a Name)> {
+fn elsewhere<'a>(index: &Names<'a>, doc: &Document) -> Vec<(&'a str, &'a Name)> {
     all(index).filter(|(p, _)| *p != doc.path).collect()
 }
 
@@ -498,7 +496,7 @@ fn targets(link: &Link, names: &[Name], project: &[(&str, &Name)], path: &str) -
     elsewhere(&kinds)
 }
 
-fn xml_problems(text: &str, index: &Index<Vec<Name>>) -> Vec<Diagnostic> {
+fn xml_problems(text: &str, index: &Names<'_>) -> Vec<Diagnostic> {
     let (names, links) = parse_xml(text);
     let mut out = Vec::new();
     for l in links.iter().filter(|l| !l.value.is_empty() && !beans::is_expression(&l.value)) {
@@ -559,7 +557,7 @@ fn chunk_problems(text: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
-fn config_problems(doc: &Document, index: &Index<Vec<Name>>) -> Vec<Diagnostic> {
+fn config_problems(doc: &Document, index: &Names<'_>) -> Vec<Diagnostic> {
     if !index.fresh() || all(index).any(|(_,name)|name.kind==Kind::UnresolvedJob) {
         return Vec::new();
     }
@@ -574,14 +572,17 @@ fn config_problems(doc: &Document, index: &Index<Vec<Name>>) -> Vec<Diagnostic> 
         .collect()
 }
 
-impl Providers for Batch {
-    fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+impl Providers for Batch {}
+
+impl Batch {
+    pub fn completion(&mut self, doc: &Document, at: Position, source: &mut impl Source) -> Vec<CompletionItem> {
         if let Some(caret) = offset(&doc.text, at)
             && let Some((from, to)) = parameter_key_at(&doc.text, caret)
             && matches!(file_kind(doc), Some("xml" | "java" | "kotlin"))
         {
             if !parameter_context(&doc.path,&doc.text,from,to) {return Vec::new();}
-            let Some(index) = self.index(doc) else { return Vec::new() };
+            let Some(index) = source.for_document(doc) else { return Vec::new() };
+                let index = &index;
             let typing = range(&doc.text, from, to);
             let keys = all(index).filter(|(p, n)| n.kind == Kind::JobParam && !(*p == doc.path && n.range == typing));
             return completions(keys.map(|(_, n)| n.name.as_str()), "job parameter", Some(typing));
@@ -589,7 +590,8 @@ impl Providers for Batch {
         match file_kind(doc) {
             Some("xml") => {
                 let Some((link, names)) = xml_link(doc, at) else { return Vec::new() };
-                let Some(index) = self.index(doc) else { return Vec::new() };
+                let Some(index) = source.for_document(doc) else { return Vec::new() };
+                let index = &index;
                 let (kinds, detail) = match link.kind {
                     LinkKind::Target => (&[Kind::State][..], "step, flow, split or decision"),
                     LinkKind::Parent => (&[Kind::State, Kind::Job][..], "step, flow or job"),
@@ -617,18 +619,20 @@ impl Providers for Batch {
                     return Vec::new();
                 }
                 let replace = item.map(|(_, from, to)| range(&doc.text, from, to));
-                let Some(index) = self.index(doc) else { return Vec::new() };
+                let Some(index) = source.for_document(doc) else { return Vec::new() };
+                let index = &index;
                 completions(all(index).filter(|(_, n)| n.kind == Kind::Job).map(|(_, n)| n.name.as_str()), "batch job", replace)
             }
             _ => Vec::new(),
         }
     }
 
-    fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+    pub fn definition(&mut self, doc: &Document, at: Position, source: &mut impl Source) -> Vec<Location> {
         match file_kind(doc) {
             Some("xml") => {
                 let Some((link, names)) = xml_link(doc, at) else { return Vec::new() };
-                let Some(index) = self.index(doc) else { return Vec::new() };
+                let Some(index) = source.for_document(doc) else { return Vec::new() };
+                let index = &index;
                 targets(&link, &names, &elsewhere(index, doc), &doc.path)
             }
             Some("config") => {
@@ -637,7 +641,8 @@ impl Providers for Batch {
                 else {
                     return Vec::new();
                 };
-                let Some(index) = self.index(doc) else { return Vec::new() };
+                let Some(index) = source.for_document(doc) else { return Vec::new() };
+                let index = &index;
                 locations(all(index).filter(|(_, n)| n.kind == Kind::Job && n.name == name))
             }
             _ => Vec::new(),
@@ -653,7 +658,7 @@ fn location_key(path: &str, range: Range) -> String {
 }
 
 /// Jobs and their steps, flows, splits and decisions as nodes; the job points at its first state, states at the states they lead to.
-fn diagram_of(index: &Index<Vec<Name>>) -> (Vec<Node>, Vec<Edge>) {
+fn diagram_of(index: &Names<'_>) -> (Vec<Node>, Vec<Edge>) {
     let shown = |n: &&Name| matches!(n.kind, Kind::Job | Kind::State);
     let mut nodes = Vec::new();
     let mut edges = BTreeSet::new();
@@ -684,14 +689,14 @@ fn diagram_of(index: &Index<Vec<Name>>) -> (Vec<Node>, Vec<Edge>) {
     (nodes, edges.collect())
 }
 
-#[cfg(feature = "embedded")]
 impl Batch {
     /// Typed source-model facts for the registered owner's packaged presentation.
-    pub fn diagram_snapshot(&mut self, ctx: &Invocation) -> Result<(Vec<Node>,Vec<Edge>,Vec<(String,Location)>,String),Error> {
+    pub fn diagram_snapshot(&mut self, ctx: &Invocation, source: &mut impl Source) -> Result<(Vec<Node>,Vec<Edge>,Vec<(String,Location)>,String),Error> {
         let project=ctx.project().ok_or(Error::Stale)?;
         if project.root()?.is_empty(){return Err(Error::Stale);}
         spring_text::index::scoped_root(&project).ok_or(Error::Stale)?;
-        let index=self.indexes.get(&project,COMMAND_BUDGET);
+        let index=source.project(&project,COMMAND_BUDGET);
+        let index=&index;
         if index.scanning(){refresh(&id(VIEW));}
         let (nodes,edges)=diagram_of(index);
         let sources=index.iter().flat_map(|(path,names)|names.iter().filter(|n|matches!(n.kind,Kind::Job|Kind::State)).map(move|name|(location_key(path,name.range),Location{path:path.into(),range:name.range}))).collect();
@@ -700,13 +705,14 @@ impl Batch {
     }
 }
 
-impl Views for Batch {
-    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+impl Batch {
+    pub fn render(&mut self, _view: &str, ctx: &Invocation, source: &mut impl Source) -> Result<View, Error> {
         (|| -> Result<View, Error> {
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
             let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its batch jobs.").button(refresh)) };
             if spring_text::index::scoped_root(&project).is_none() {return Ok(View::message("Current project source ownership is unavailable.").button(refresh));}
-            let index = self.indexes.get(&project, COMMAND_BUDGET);
+            let index = source.project(&project, COMMAND_BUDGET);
+            let index = &index;
             let complete = index.complete();
             if index.scanning() {
                 self::refresh(&id(VIEW));
@@ -717,16 +723,11 @@ impl Views for Batch {
         })().map(ui_kit::actions::available)
     }
 
-    fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+    pub fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation, source: &mut impl Source) -> Result<(), Error> {
         let key = match event {
             ViewEvent::Button(b) if b == "refresh" => {
-                // Resetting a scan in progress would throw away what it has read.
-                if let Some(project) = ctx.project()
-                    && let index = self.indexes.get(&project, std::time::Duration::ZERO)
-                    && index.complete()
-                    && !index.scanning()
-                {
-                    self.indexes.reset();
+                if let Some(project) = ctx.project() {
+                    source.restart(&project);
                 }
                 refresh(view);
                 return Ok(());
@@ -738,7 +739,8 @@ impl Views for Batch {
         let root = project.root()?;
         if root.is_empty() { return Err(Error::Stale); }
         spring_text::scope::scope_path(&root).ok_or(Error::Stale)?;
-        let index = self.indexes.get(&project, COMMAND_BUDGET);
+        let index = source.project(&project, COMMAND_BUDGET);
+        let index = &index;
         let (nodes, _) = diagram_of(index);
         if nodes.iter().filter(|node| node.id == key).count() != 1 { return Err(Error::Stale); }
         let mut parts = key.splitn(4, ':');
@@ -780,13 +782,68 @@ pub(crate) fn refresh(view: &str) {
     host::refresh_view(window(view));
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::text::position;
+    use openidea_plugin::views::{Viewport, ViewEvent};
+    use spring_text::index::{Indexes, PROVIDER_BUDGET};
+
+    /// The module over an index of its own facts, as the owner's shared index is for it.
+    struct Batch {
+        inner: super::Batch,
+        indexes: Indexes<Vec<Name>>,
+    }
+
+    impl Default for Batch {
+        fn default() -> Self {
+            Self { inner: super::Batch, indexes: Indexes::new(&beans::GLOBS, index_file).excluding_nested_projects() }
+        }
+    }
+
+    struct Own<'a>(&'a mut Indexes<Vec<Name>>);
+
+    impl Source for Own<'_> {
+        fn for_document(&mut self, doc: &Document) -> Option<Names<'_>> {
+            spring_text::index::owning_root(&doc.path)?;
+            Some(self.0.for_document(&doc.path, &doc.text, PROVIDER_BUDGET)?.view(|names| Some(names)))
+        }
+
+        fn cached(&mut self, doc: &Document) -> Option<Names<'_>> {
+            spring_text::index::owning_root(&doc.path)?;
+            Some(self.0.for_cached_document(&doc.path, &doc.text)?.view(|names| Some(names)))
+        }
+
+        fn project(&mut self, project: &Project, budget: std::time::Duration) -> Names<'_> {
+            self.0.get(project, budget).view(|names| Some(names))
+        }
+
+        fn restart(&mut self, project: &Project) {
+            let index = self.0.get(project, std::time::Duration::ZERO);
+            if index.complete() && !index.scanning() {
+                self.0.reset();
+            }
+        }
+    }
+
+    impl Batch {
+        fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+            self.inner.completion(doc, at, &mut Own(&mut self.indexes))
+        }
+
+        fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+            self.inner.definition(doc, at, &mut Own(&mut self.indexes))
+        }
+
+        fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+            self.inner.render(view, ctx, &mut Own(&mut self.indexes))
+        }
+
+        fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+            self.inner.handle(view, event, ctx, &mut Own(&mut self.indexes))
+        }
+    }
 
     const JOB_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <beans:beans xmlns="http://www.springframework.org/schema/batch"
@@ -960,7 +1017,6 @@ public class BatchConfig {
         assert!(beans.contains(&"dbWriter".to_owned()) && beans.contains(&"csvReader".to_owned()) && beans.contains(&"app".to_owned()));
     }
 
-
     fn chunk_codes(text: &str) -> Vec<(u32, u32)> {
         chunk_problems(text).iter().map(|d| (d.range.start.line, d.range.start.character)).collect()
     }
@@ -1068,13 +1124,10 @@ public class BatchConfig {
         assert!(b.completion(&j, after(PARAMS_JAVA, "inputFile'"), None).is_empty(), "closed key");
     }
 
-
-
-
     #[test]
     fn batch_diagram_has_expected_nodes_and_edges() {
         let host = setup();
-        let (nodes, edges) = diagram_of(Batch::default().indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET));
+        let (nodes, edges) = diagram_of(&Batch::default().indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET).view(|names| Some(names)));
         let label_of = |id: &str| nodes.iter().find(|n| n.id == id).map(|n| n.label.as_str()).unwrap_or("?");
         let mut labels: Vec<(&str, Option<&str>)> = nodes.iter().map(|n| (n.label.as_str(), n.detail.as_deref())).collect();
         labels.sort();
@@ -1130,8 +1183,7 @@ public class BatchConfig {
         assert!(page.contains("No batch jobs found."));
     }
 
-    #[cfg(feature = "embedded")]
-    #[test]
+        #[test]
     fn refresh_goes_to_the_owner_window_when_embedded() {
         let host = MockHost::install();
         refresh("diagram");
