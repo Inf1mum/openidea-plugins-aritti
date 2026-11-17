@@ -173,5 +173,13 @@
   "Show code that breaks on the next Laravel major version": "显示在下一个 Laravel 主版本中会失效的代码",
   "Check Eloquent models and queries": "检查 Eloquent 模型和查询",
   "Offer scope-to-attribute intentions": "提供将作用域转换为特性的操作",
-  "Show route and controller hints": "显示路由和控制器提示"
+  "Show route and controller hints": "显示路由和控制器提示",
+  "Docker: container ID that runs Artisan (leave empty and use Choose Docker Target to pick one per project)": "Docker：运行Artisan的容器ID（留空并通过“选择Docker目标”按项目选择）",
+  "Docker: project folder inside the container (absolute path, mounted from this project)": "Docker：容器内的项目文件夹（从此项目挂载的绝对路径）",
+  "Docker: socket address used to run Artisan in a container (unix:// path)": "Docker：在容器中运行Artisan所用的套接字地址（unix:// 路径）",
+  "Inline hints next to route names and controller actions, from the project index.": "根据项目索引，在路由名称和控制器动作旁显示内联提示。",
+  "Laravel: Copy as cURL": "Laravel: 复制为cURL",
+  "Offer to convert query scopes to the #[Scope] attribute (Laravel 12.6+)": "提供将查询作用域转换为 #[Scope] 特性的操作（Laravel 12.6+）",
+  "Show route and controller hints in the editor": "在编辑器中显示路由和控制器提示",
+  "Shown only when composer.lock pins Laravel 12.6 or newer.": "仅当 composer.lock 锁定Laravel 12.6或更新版本时显示。"
 }

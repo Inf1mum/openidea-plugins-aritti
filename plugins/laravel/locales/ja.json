@@ -173,5 +173,13 @@
   "Show code that breaks on the next Laravel major version": "次の Laravel メジャーバージョンで動作しなくなるコードを表示します",
   "Check Eloquent models and queries": "Eloquent モデルとクエリをチェック",
   "Offer scope-to-attribute intentions": "スコープを属性に変換する操作を表示",
-  "Show route and controller hints": "ルートとコントローラーのヒントを表示"
+  "Show route and controller hints": "ルートとコントローラーのヒントを表示",
+  "Docker: container ID that runs Artisan (leave empty and use Choose Docker Target to pick one per project)": "Docker: Artisanを実行するコンテナID（空のままにして「Dockerターゲットを選択」でプロジェクトごとに選択）",
+  "Docker: project folder inside the container (absolute path, mounted from this project)": "Docker: コンテナ内のプロジェクトフォルダー（このプロジェクトからマウントされた絶対パス）",
+  "Docker: socket address used to run Artisan in a container (unix:// path)": "Docker: コンテナでArtisanを実行するためのソケットアドレス（unix:// パス）",
+  "Inline hints next to route names and controller actions, from the project index.": "プロジェクトのインデックスから、ルート名とコントローラーアクションの横にインラインヒントを表示します。",
+  "Laravel: Copy as cURL": "Laravel: cURLとしてコピー",
+  "Offer to convert query scopes to the #[Scope] attribute (Laravel 12.6+)": "クエリスコープを #[Scope] 属性に変換する操作を表示（Laravel 12.6以降）",
+  "Show route and controller hints in the editor": "エディターにルートとコントローラーのヒントを表示",
+  "Shown only when composer.lock pins Laravel 12.6 or newer.": "composer.lock でLaravel 12.6以降が固定されている場合のみ表示されます。"
 }
