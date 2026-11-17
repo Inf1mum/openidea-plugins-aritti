@@ -792,6 +792,18 @@ fn fork_checkout_confirms_existing_branch() {
 }
 
 #[test]
+fn fork_checkout_treats_an_unexpected_rev_parse_status_as_an_error() {
+    let host = fork_host(true);
+    host.on_process("git", |_, _| Ok(ProcessOutput { status: None, stdout: String::new(), stderr: "killed".into() }));
+    let mut plugin = selected(&host);
+
+    let result = plugin.handle(DETAILS, ViewEvent::Button("checkout".into()), &host.invocation());
+
+    assert!(git_runs(&host).iter().all(|r| !r.starts_with("fetch") && !r.starts_with("checkout")), "{:?}", git_runs(&host));
+    assert!(result.is_err() || plugin.status.as_deref().is_some_and(|s| s.contains("rev-parse failed")), "{result:?} {:?}", plugin.status);
+}
+
+#[test]
 fn check_out_without_git_says_so() {
     let without_git: Vec<&str> = CAPS.iter().copied().filter(|c| *c != "process:git").collect();
     let host = setup().with_capabilities(&without_git);

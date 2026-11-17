@@ -132,6 +132,17 @@ fn git(project: &Project, args: &[&str]) -> Result<ProcessOutput, Error> {
     project.run_process("git", &args, None)
 }
 
+/// `rev-parse --verify --quiet` exits 1 for a missing ref; any other status (a signal, 128) is an error, not "absent".
+fn branch_exists(project: &Project, local: &str) -> Result<bool, Error> {
+    let output = git(project, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{local}")])?;
+
+    match output.status {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        status => Err(Error::Failed(format!("Git rev-parse failed (status {status:?}): {}", output.stderr.trim()))),
+    }
+}
+
 pub fn git_ok(project: &Project, args: &[&str]) -> Result<String, Error> {
     let output = git(project, args)?;
     if output.status != Some(0) {
@@ -158,7 +169,7 @@ pub fn checkout(project: &Project, remote: &str, mr: &MergeRequest) -> Result<St
 
     if mr.source_project_id != mr.target_project_id {
         // ponytail: forks come from the target's refs/merge-requests/<iid>/head, never a fork remote.
-        let exists = git(project, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{local}")])?.status == Some(0);
+        let exists = branch_exists(project, &local)?;
         if exists
             && !host::confirm(
                 "Overwrite local branch",
@@ -175,7 +186,7 @@ pub fn checkout(project: &Project, remote: &str, mr: &MergeRequest) -> Result<St
     let tracking = format!("{remote}/{local}");
     git_ok(project, &["fetch", "--", remote, &format!("+refs/heads/{local}:refs/remotes/{tracking}")])?;
 
-    let exists = git(project, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{local}")])?.status == Some(0);
+    let exists = branch_exists(project, &local)?;
     if !exists {
         git_ok(project, &["checkout", "-b", &local, "--track", &tracking])?;
         return Ok(format!("Checked out {local}."));
