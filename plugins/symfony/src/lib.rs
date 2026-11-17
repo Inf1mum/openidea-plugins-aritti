@@ -50,6 +50,8 @@ mod twig;
 mod twig_checks;
 mod wiring;
 mod yaml_quotes;
+#[cfg(test)]
+mod panic_regressions;
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -2466,14 +2468,14 @@ mod tests {
         host.add_file("public/img/logo.png", "");
     }
 
-    fn activated(host: &MockHost) -> Main {
+    pub(crate) fn activated(host: &MockHost) -> Main {
         symfony_project(host);
         let mut plugin = Main::default();
         plugin.activate(&host.context("aritti.symfony")).unwrap();
         plugin
     }
 
-    fn doc(path: &str, language: &str, text: &str) -> Document {
+    pub(crate) fn doc(path: &str, language: &str, text: &str) -> Document {
         Document { path: path.into(), language: language.into(), version: 1, text: text.into() }
     }
 
