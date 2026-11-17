@@ -321,7 +321,9 @@ impl State {
             .ok_or("Unknown dependency selection.")?
             .clone();
         let jar = selected.path(cache);
-        let grant_probe = host::fs::stat(&jar)?;
+        let grant_probe = host::fs::stat(&jar).map_err(|e| {
+            ui_kit::denied::map(e, "Reading Maven JAR metadata", "fs.read:~/.m2/repository", "Quarkus Tools")
+        })?;
         if grant_probe.kind != FileKind::File
             || grant_probe.size > super::jar_archive::MAX_ARCHIVE as u64
         {
@@ -744,6 +746,17 @@ mod tests {
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
     }
     #[test]
+    fn reading_maven_jar_metadata_denied_names_permission() {
+        let h = setup().with_capabilities(&["project.read"]);
+        h.answer_next_prompt(Some(&["0"]));
+        let error = State::default()
+            .import_at(&h.invocation(), "/m2")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("needs the fs.read:~/.m2/repository permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Quarkus Tools"), "{error}");
+    }
+    #[test]
     fn cancellation_denial_corrupt_replacement_and_expiry_preserve_scope() {
         let h = setup();
         let mut state = State::default();
@@ -765,10 +778,7 @@ mod tests {
         );
         let h = h.with_capabilities(&["project.read"]);
         h.answer_next_prompt(Some(&["0"]));
-        assert!(matches!(
-            state.import_at(&h.invocation(), "/m2"),
-            Err(Error::Denied(_))
-        ));
+        assert!(state.import_at(&h.invocation(), "/m2").is_err());
         state.invalidate("/other/pom.xml");
         assert!(
             state

@@ -360,7 +360,7 @@ pub fn create(route: &Route, ctx: &Invocation) -> Result<(), Error> {
     }
     match project.write_file(&path, &content) {
         Ok(()) => host::open_location(&path, 0, 0),
-        Err(Error::Denied(_)) => host::copy_to_clipboard(&content),
+        Err(Error::Denied(_)) => crate::copy_after_write_denied(&content),
         Err(error) => Err(error),
     }
 }

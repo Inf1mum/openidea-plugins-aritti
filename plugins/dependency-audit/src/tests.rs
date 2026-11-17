@@ -91,6 +91,16 @@ fn audit_sends_at_most_1000_queries_per_request() {
 }
 
 #[test]
+fn vulnerability_lookup_denied_names_permission() {
+    let _host = MockHost::install().with_capabilities(&["project.read", "storage", "events"]);
+
+    let error = osv::audit(&[jackson()], true, 0, soon()).unwrap_err();
+
+    assert!(error.to_string().contains("needs the net:api.osv.dev permission"), "{error}");
+    assert!(error.to_string().contains("Settings › Plugins › Dependency Audit"), "{error}");
+}
+
+#[test]
 fn audit_reports_osv_errors() {
     let host = MockHost::install().with_capabilities(CAPS);
     host.on_fetch(|_| Ok(HttpResponse { status: 503, headers: vec![], body: vec![] }));

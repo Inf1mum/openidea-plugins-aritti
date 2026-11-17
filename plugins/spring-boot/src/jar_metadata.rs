@@ -429,14 +429,10 @@ impl State {
         }
         let (dependencies, catalog_sources) = if gradle_build {
             match host::fs::read_dir(cache) {
-                Err(Error::Denied(_)) => return Ok(None),
-                Err(e) => return Err(e),
+                Err(e) => return Err(gradle_denied(e)),
                 Ok(_) => {}
             }
-            match gradle::resolve(&source, cache) {
-                Err(Error::Denied(_)) => return Ok(None),
-                other => other?,
-            }
+            gradle::resolve(&source, cache).map_err(gradle_denied)?
         } else {
             let mut dependencies = dependencies(&source)?;
             let (catalogs, catalog_sources) = versions::cache_catalog(&source, cache)?;
@@ -488,8 +484,7 @@ impl State {
             .clone();
         let jar = if gradle_build {
             match gradle::file(cache, &selected, ".jar") {
-                Err(Error::Denied(_)) => return Ok(None),
-                Err(e) => return Err(e),
+                Err(e) => return Err(gradle_denied(e)),
                 Ok(found) => found.ok_or("Selected JAR is not in the Gradle module cache.")?,
             }
         } else {
@@ -750,6 +745,15 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
         ));
     }
     Ok(result)
+}
+
+fn gradle_denied(error: Error) -> Error {
+    ui_kit::denied::map(
+        error,
+        "Reading Gradle JAR metadata",
+        "fs.read:~/.gradle/caches/modules-2/files-2.1",
+        "Spring Boot Tools",
+    )
 }
 
 fn build_tool_labels(gradle_build: bool) -> (&'static str, &'static str) {
@@ -1430,7 +1434,16 @@ mod tests {
 
         let denied = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
         denied.add_file("build.gradle", "dependencies { implementation 'org.example:config:1.2.3' }");
-        assert!(State::default().import_at(&denied.invocation(), CACHE).unwrap().is_none());
+        assert!(State::default().import_at(&denied.invocation(), CACHE).is_err());
+    }
+
+    #[test]
+    fn reading_gradle_jar_metadata_denied_names_permission() {
+        let denied = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        denied.add_file("build.gradle", "dependencies { implementation 'org.example:config:1.2.3' }");
+        let error = State::default().import_at(&denied.invocation(), "/gradle").unwrap_err().to_string();
+        assert!(error.contains("needs the fs.read:~/.gradle/caches/modules-2/files-2.1 permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Spring Boot Tools"), "{error}");
     }
 
     fn boot_bom(h: &MockHost, v: &str, managed: &str) {

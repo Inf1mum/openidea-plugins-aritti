@@ -454,13 +454,13 @@ impl Runtime {
         controls::verify(&project,&scope)?;
         if Scope::current(&project)? != scope || self.pane_record(key,ctx)?.request.as_deref() != Some(&request)
             || host::project_of(&path).and_then(|p|p.root().ok()).as_deref() != Some(&scope.root) || project.exists(&path)? { return Err(Error::Stale); }
-        project.write_file(&path,&request)?;
+        project.write_file(&path,&request).map_err(|e|ui_kit::denied::map(e,"Create HTTP Request File","project.write","Spring Runtime Insight"))?;
         host::open_location(&path,0,0)
     }
     pub(crate) fn copy_pane_requests(&self, ctx: &Invocation) -> Result<(), Error> {
         let key = self.panes.selected.as_deref().ok_or_else(|| Error::Invalid("Select a mapping observation first.".into()))?;
         let request = self.pane_record(key, ctx)?.request.as_ref().ok_or_else(|| Error::Invalid("The selected observation has no explicit HTTP methods and paths.".into()))?;
-        host::copy_to_clipboard(request)
+        host::copy_to_clipboard(request).map_err(|e|ui_kit::denied::map(e,"Copy HTTP Requests","clipboard","Spring Runtime Insight"))
     }
     pub(crate) fn search_panes(&mut self, clear: bool, ctx: &Invocation) -> Result<(), Error> {
         let project = ctx.project().ok_or(Error::Stale)?;
@@ -837,6 +837,34 @@ mod tests {
             if mode>=2 {assert!(!project.exists("runtime-requests.http").unwrap());}
             assert!(host.requests().is_empty());
         }
+    }
+    #[test]
+    fn create_http_request_file_denied_names_permission() {
+        let (host,mut runtime) = setup();
+        let host = host.with_capabilities(&["project.read","storage"]);
+        runtime.snapshot.as_mut().unwrap().mappings.push(Mapping { predicate:"GET /users".into(), requests:vec![("GET".into(),"/users".into())], ..Default::default() });
+        let ctx = host.invocation();
+        runtime.render_panes(&ctx).unwrap();
+        let key = runtime.panes.rows.iter().find(|(_,r)|r.endpoint=="mappings").unwrap().0.clone();
+        runtime.select_pane(&key,&ctx).unwrap();
+        host.answer_next_prompt(Some(&["runtime-requests.http"]));
+        host.answer_next_prompt(Some(&[]));
+        let error = runtime.create_pane_requests(&ctx).unwrap_err().to_string();
+        assert!(error.contains("needs the project.write permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Spring Runtime Insight"), "{error}");
+    }
+    #[test]
+    fn copy_http_requests_denied_names_permission() {
+        let (host,mut runtime) = setup();
+        let host = host.with_capabilities(&["project.read","storage"]);
+        runtime.snapshot.as_mut().unwrap().mappings.push(Mapping { predicate:"GET /users".into(), requests:vec![("GET".into(),"/users".into())], ..Default::default() });
+        let ctx = host.invocation();
+        runtime.render_panes(&ctx).unwrap();
+        let key = runtime.panes.rows.iter().find(|(_,r)|r.endpoint=="mappings").unwrap().0.clone();
+        runtime.select_pane(&key,&ctx).unwrap();
+        let error = runtime.copy_pane_requests(&ctx).unwrap_err().to_string();
+        assert!(error.contains("needs the clipboard permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Spring Runtime Insight"), "{error}");
     }
     #[test]
     fn explicit_mapping_requests_copy_from_selected_current_snapshot_without_network() {

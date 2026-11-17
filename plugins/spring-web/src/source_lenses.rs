@@ -379,7 +379,7 @@ pub fn run_graphql(
     }
     match project.write_file(&path, &content) {
         Ok(()) => openidea_plugin::host::open_location(&path, 0, 0),
-        Err(Error::Denied(_)) => openidea_plugin::host::copy_to_clipboard(&content),
+        Err(Error::Denied(_)) => crate::copy_after_write_denied(&content),
         Err(error) => Err(error),
     }
 }

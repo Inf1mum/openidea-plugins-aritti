@@ -66,7 +66,7 @@ struct Outcome {
 }
 fn failure_reason(error: &Error) -> &'static str {
     match error {
-        Error::Denied(_) => "Request denied by the host. No response is shown. Prepare a new request to retry.",
+        Error::Denied(_) => "Request denied by the host: it needs the net:127.0.0.1 permission (net:ask for other hosts). Allow it in Settings › Plugins › OpenAPI.",
         Error::Invalid(_) => "Request or response is unsupported or exceeds the local limits. No response is shown.",
         _ => "Request failed or did not complete. No response is shown. Prepare a new request to retry.",
     }
@@ -364,7 +364,7 @@ impl State {
             ));
         }
         if !self.granted && !self.ask {
-            return Err(Error::Denied(format!("net:{HOST}")));
+            return Err(ui_kit::denied::map(Error::Denied(String::new()), "Try it out", "net:127.0.0.1", "OpenAPI"));
         }
         Ok(())
     }
@@ -671,6 +671,21 @@ mod tests {
         assert!(text.contains("denied"));
     }
     #[test]
+    fn try_it_out_denied_names_permission() {
+        let remote = SPEC.replace("http://127.0.0.1:32109/api", "https://api.example.test/v1");
+        let h = MockHost::install().with_capabilities(&["project.read", "editor.read", "events", "net:ask"]);
+        h.open_editor("/project/openapi.json", "json", &remote, &[]);
+        let mut p = OpenApi::default();
+        p.activate(&Context { api_version: "1.5".into(), capabilities: vec!["net:ask".into()], ..Context::default() }).unwrap();
+        h.on_fetch(|_| Err(Error::Denied("net:api.example.test".into())));
+        let key = prepare(&h, &mut p);
+        assert!(send(&h, &mut p, &key).is_err());
+        let Body::Message(text) = p.render("try-response", None, &h.invocation()).unwrap().body else { panic!() };
+        assert!(text.contains("needs the net:127.0.0.1 permission"), "{text}");
+        assert!(text.contains("net:ask"), "{text}");
+        assert!(text.contains("Settings › Plugins › OpenAPI"), "{text}");
+    }
+    #[test]
     fn api13_default_denied_or_broader_grants_refuse_before_fetch() {
         let (h, mut p) = setup();
         for api in ["1.3", "1.2", "", "2.0", "bogus", "1.+4", "1.4.", "1.4.preview", "1.4.0.extra"] {
@@ -689,7 +704,8 @@ mod tests {
             assert!(p.try_local(&h.invocation()).is_err());
         }
         p.activate(&Context { api_version: "1.4".into(), ..Context::default() }).unwrap();
-        assert!(matches!(p.try_local(&h.invocation()), Err(Error::Denied(_))));
+        let error = p.try_local(&h.invocation()).unwrap_err().to_string();
+        assert!(error.contains("needs the net:127.0.0.1 permission"), "{error}");
         assert!(h.requests().is_empty());
     }
     #[test]

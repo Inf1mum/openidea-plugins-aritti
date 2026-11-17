@@ -518,7 +518,8 @@ impl Plan {
             &self.command(directory, helper, "inspect", None)?,
             Some(project),
             None,
-        )?;
+        )
+        .map_err(|e| ui_kit::denied::map(e, "Hibernate schema generation", "process:java", "Flyway Migrations"))?;
         if output.status != Some(0) {
             return Err("Java metadata inspection failed; use a supported JDK and saved, owned compiled classes/runtime files. No project metadata code was requested.".into());
         }
@@ -707,7 +708,8 @@ impl Flyway {
             &plan.command(&directory, &helper, "generate", Some(&proof))?,
             Some(&project),
             None,
-        )?;
+        )
+        .map_err(|e| ui_kit::denied::map(e, "Hibernate schema generation", "process:java", "Flyway Migrations"))?;
         if output.status != Some(0) {
             return Err("Hibernate metadata generation failed or its inputs changed. No SQL was adopted; verify the supported runtime and explicitly selected model.".into());
         }
@@ -851,6 +853,18 @@ mod tests {
             };
             Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: format!("OPENIDEA_HIBERNATE_SCHEMA/1\n{payload}\n"), stderr: String::new() })
         });
+    }
+    #[test]
+    fn hibernate_schema_generation_denied_names_permission() {
+        let (host, mut plugin, _doc, _proof) = setup();
+        let host = host.with_capabilities(&["project.read", "storage"]);
+        host.answer_next_prompt(Some(&["profile.json"]));
+        let error = plugin
+            .generate_hibernate_schema(&host.invocation())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("needs the process:java permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Flyway Migrations"), "{error}");
     }
     #[test]
     fn reviewed_compiled_metadata_is_preview_only_until_an_atomic_migration_action() {

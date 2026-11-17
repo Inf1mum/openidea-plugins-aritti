@@ -1098,7 +1098,8 @@ impl Plugin for WebTools {
             let routes=sources.routes();
             let document=openapi_export::export_with_registry(&routes, |route| route.location.as_ref().and_then(|location|sources.text(&location.path)),Some(&sources));
             if document.len()>1<<20{return Err(Error::Failed("Source OpenAPI export exceeds its1MiB clipboard budget.".into()))}
-            host::copy_to_clipboard(&document)?;
+            host::copy_to_clipboard(&document)
+                .map_err(|e| ui_kit::denied::map(e, "Copy OpenAPI export", "clipboard", PLUGIN_NAME))?;
             return Ok(None);
         }
         if id != "copy-endpoint-curl" && id != "create-endpoint-http" {
@@ -1114,12 +1115,29 @@ impl Plugin for WebTools {
         }
         match routes::copy_as_curl(&route, DEFAULT_BASE_URL) {
             Err(Error::Denied(_)) => {
-                host::notify(NotificationLevel::Warning, "Spring Web", "Copying the curl command needs the clipboard capability.")
+                host::notify(
+                    NotificationLevel::Warning,
+                    "Spring Web",
+                    &ui_kit::denied::message("Copy as curl", "clipboard", PLUGIN_NAME),
+                )
             }
             result => result?,
         }
         Ok(None)
     }
+}
+
+const PLUGIN_NAME: &str = "Spring Endpoints Tools";
+
+pub(crate) fn copy_after_write_denied(content: &str) -> Result<(), Error> {
+    host::notify(
+        NotificationLevel::Info,
+        "Spring Web",
+        &ui_kit::denied::message("Create HTTP Request File", "project.write", PLUGIN_NAME),
+    );
+
+    host::copy_to_clipboard(content)
+        .map_err(|e| ui_kit::denied::map(e, "Copy to clipboard", "clipboard", PLUGIN_NAME))
 }
 
 pub const WINDOW_SECTION: &str = "web";
@@ -2001,6 +2019,45 @@ class Users {
         );
         assert!(host.process_runs().is_empty());
         assert_eq!(host.opened_locations()[0].0, "/project/http/post-api-users.http");
+    }
+
+    #[test]
+    fn create_http_request_file_denied_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
+        host.add_file("src/main/java/com/acme/Users.java", API_CONTROLLER);
+        let mut tools = WebTools::default();
+        let key = row_key(&host, &mut tools, "/api/users", "[POST] Users@create");
+        host.answer_next_prompt(Some(&["http://localhost:9000"]));
+        tools.run_command("create-endpoint-http", &host.invocation(), Some(&key)).unwrap();
+        let notifications = host.notifications();
+        assert!(host.clipboard().unwrap().contains("POST http://localhost:9000/api/users"));
+        assert!(notifications.iter().any(|n| n.body.contains("needs the project.write permission")
+            && n.body.contains("Settings › Plugins › Spring Endpoints Tools")));
+    }
+
+    #[test]
+    fn copy_as_curl_denied_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("src/main/java/com/acme/Users.java", API_CONTROLLER);
+        let mut tools = WebTools::default();
+        let key = row_key(&host, &mut tools, "/api/users", "[POST] Users@create");
+        host.answer_next_prompt(Some(&["http://localhost:9000/"]));
+        tools.run_command("copy-endpoint-curl", &host.invocation(), Some(&key)).unwrap();
+        let notifications = host.notifications();
+        assert!(notifications.iter().any(|n| n.body.contains("needs the clipboard permission")
+            && n.body.contains("Settings › Plugins › Spring Endpoints Tools")));
+    }
+
+    #[test]
+    fn copy_openapi_export_denied_names_permission() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("src/main/java/com/acme/Users.java", API_CONTROLLER);
+        let error = WebTools::default()
+            .run_command("copy-endpoints-openapi", &host.invocation(), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("needs the clipboard permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Spring Endpoints Tools"), "{error}");
     }
 
     #[test]

@@ -238,7 +238,8 @@ pub(crate) fn is_safe_id(id: &str) -> bool {
 }
 
 fn fetch(request: HttpRequest) -> Result<Vec<u8>, Error> {
-    let response = host::fetch(&HttpRequest { timeout_ms: Some(TIMEOUT_MS), ..request })?;
+    let response = host::fetch(&HttpRequest { timeout_ms: Some(TIMEOUT_MS), ..request })
+        .map_err(|e| ui_kit::denied::map(e, "Vulnerability lookup", "net:api.osv.dev", "Dependency Audit"))?;
 
     if response.status != 200 {
         return Err(Error::Failed(format!("OSV answered {}", response.status)));

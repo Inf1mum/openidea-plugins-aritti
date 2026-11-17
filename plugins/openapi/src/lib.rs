@@ -440,7 +440,7 @@ impl OpenApi {
                 host::notify(
                     NotificationLevel::Warning,
                     "OpenAPI",
-                    "Allow git for OpenAPI in Settings › Plugins to compare with the last revision.",
+                    &ui_kit::denied::message("Comparing with the last revision", "process:git", "OpenAPI"),
                 );
                 return Ok(None);
             }
@@ -1920,13 +1920,16 @@ mod tests {
     }
 
     #[test]
-    fn denied_git_asks_for_the_permission() {
+    fn comparing_with_the_last_revision_denied_names_permission() {
         let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
         let invocation = open_changed_petstore(&host);
 
         OpenApi::default().run_command("compare-last-revision", &invocation, None).unwrap();
 
-        assert_eq!(host.notifications()[0].level, NotificationLevel::Warning);
+        let notification = &host.notifications()[0];
+        assert_eq!(notification.level, NotificationLevel::Warning);
+        assert!(notification.body.contains("needs the process:git permission"), "{}", notification.body);
+        assert!(notification.body.contains("Settings › Plugins › OpenAPI"));
         assert!(host.revealed_views().is_empty());
     }
 

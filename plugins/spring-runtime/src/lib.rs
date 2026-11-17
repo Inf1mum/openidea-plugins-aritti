@@ -248,8 +248,8 @@ fn fetch_snapshot_guarded(url:&str,auth:&str,mut guard:impl FnMut()->Result<(),E
                 );
             }
             Err(Error::Denied(cap)) => {
-                let cap=if matches!(cap.as_str(),"net:localhost"|"net:127.0.0.1"){cap.as_str()}else{"required network capability (possibly redirected request)"};
-                return Err(format!("{cap} is not granted. Review Settings › Plugins and the requested local URL; redirect peer identity is not established here.").into());
+                let cap=if matches!(cap.as_str(),"net:localhost"|"net:127.0.0.1"){cap.as_str()}else{"net:localhost"};
+                return Err(ui_kit::denied::message("Refreshing the runtime snapshot",cap,"Spring Runtime Insight").into());
             }
             Err(Error::NotFound(_)) if i == 0 && matches!(auth, "bearer" | "basic") && !host::secret_is_set("actuator-token") => {
                 return Err("Set the actuator-token secret in Settings › Plugins, or set actuatorAuth to none.".into());
@@ -1094,6 +1094,15 @@ mod tests {
 
         assert!(error.contains("Set the actuator-token secret"), "{error}");
         assert!(!error.contains("Could not reach"), "{error}");
+    }
+
+    #[test]
+    fn refreshing_the_snapshot_denied_names_permission() {
+        let _host = MockHost::install().with_capabilities(&["project.read"]);
+        let error = fetch_snapshot().unwrap_err().to_string();
+        assert!(error.contains("needs the net:localhost permission"), "{error}");
+        assert!(error.contains("Settings › Plugins › Spring Runtime Insight"), "{error}");
+        assert!(!error.contains("redirect peer"), "{error}");
     }
 
     #[test]
