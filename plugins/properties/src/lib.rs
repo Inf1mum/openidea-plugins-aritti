@@ -176,8 +176,6 @@ pub struct Properties {
     locales: HashMap<String, usize>,
     /// Keys the last Find Unused Properties found no mention of, per file.
     unused: HashMap<String, HashSet<String>>,
-    /// Files whose candidate text search came from the live setting.
-    live_unused: HashSet<String>,
     /// Keys of the project's `.properties` files, for Java/Kotlin strings.
     index: Option<KeyIndex>,
     bundle: Option<BundleFiles>,
@@ -287,7 +285,6 @@ impl Properties {
             1 => format!("1 potentially unused property in {} (text search; no absence warning published).", file_name(&path)),
             n => format!("{n} potentially unused properties in {} (text search; no absence warnings published).", file_name(&path)),
         };
-        self.live_unused.remove(&path);
         self.unused.insert(path.clone(), unused);
         self.inspect(&path)?;
         let mut candidates: Vec<_> = self.unused.get(&path).into_iter().flatten().collect();
@@ -300,26 +297,6 @@ impl Properties {
         };
         host::notify(NotificationLevel::Info, "Properties", &report);
         Ok(None)
-    }
-
-    fn refresh_live_unused(&mut self, path: &str) {
-        if !host::setting_bool("unusedProperties.live").unwrap_or(false) {
-            if self.live_unused.remove(path) {
-                self.unused.remove(path);
-            }
-            return;
-        }
-
-        let Ok(text) = project_for(path).and_then(|p| p.read_file(path)) else {
-            return;
-        };
-        match Self::scan_unused(path, &text, 2_000, 256 * 1024, None) {
-            Ok(unused) => {
-                self.unused.insert(path.to_owned(), unused);
-                self.live_unused.insert(path.to_owned());
-            }
-            Err(e) => host::log(LogLevel::Warn, &format!("scanning unused keys of {path}: {e}")),
-        }
     }
 
     fn reformat(&self, ctx: &Invocation) -> Result<Option<String>, Error> {
@@ -505,7 +482,6 @@ impl Plugin for Properties {
         }
 
         for path in &inspect {
-            self.refresh_live_unused(path);
             if let Err(e) = self.inspect(path) {
                 host::log(LogLevel::Warn, &format!("inspecting {path}: {e}"));
             }
@@ -954,28 +930,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_missing_key_preference_never_publishes_guesses() {
-        let host = MockHost::install();
-        host.add_file("/project/src/messages.properties", "a.b=Value\n");
-        let path = "/project/A.java";
-        host.add_file(path, "messageSource.getMessage(\"no.such\", null, Locale.ENGLISH);");
-        let mut plugin = Properties::default();
-        let event = [Event::FileSaved(path.into())];
-
-        plugin.handle_events(&event, &host.invocation());
-        assert!(host.diagnostics().is_empty(), "events do not publish missing-key absence guesses");
-
-        host.set_setting("reportMissingKeysInCode", "false");
-        plugin.handle_events(&event, &host.invocation());
-        assert!(host.diagnostics().get(path).is_none_or(|d| d.is_empty()));
-
-        let fresh = "/project/B.java";
-        host.add_file(fresh, "messageSource.getMessage(\"no.such\", null, Locale.ENGLISH);");
-        plugin.handle_events(&[Event::FileOpened(fresh.into())], &host.invocation());
-        assert!(host.diagnostics().get(fresh).is_none_or(|d| d.is_empty()));
-    }
-
-    #[test]
     fn missing_key_in_code_stays_quiet_when_unsure() {
         let host = MockHost::install();
         host.add_file("/project/src/messages.properties", "a.b=Value\n");
@@ -1045,29 +999,6 @@ mod tests {
         assert!(host.diagnostics().is_empty(), "commands never publish editor diagnostics");
         assert!(host.notifications()[0].body.starts_with("1 potentially unused property in messages.properties"));
         assert!(host.notifications()[0].body.contains("Potential candidates (not proof of absence):\nunused.key"));
-    }
-
-    #[test]
-    fn live_unused_candidate_cache_follows_setting_without_publishing() {
-        let host = MockHost::install();
-        host.add_file("/project/src/App.java", "bundle.getString(\"used.key\");");
-        let path = "/project/src/messages.properties";
-        host.add_file(path, "used.key=1\nunused.key=2\n");
-        let mut plugin = Properties::default();
-        let event = [Event::FileSaved(path.into())];
-
-        plugin.handle_events(&event, &host.invocation());
-        assert!(host.diagnostics().get(path).is_none_or(|d| d.iter().all(|d| !d.unnecessary)));
-
-        host.set_setting("unusedProperties.live", "true");
-        plugin.handle_events(&event, &host.invocation());
-        assert!(plugin.unused[path].contains("unused.key"));
-        assert!(plugin.diagnostics(&doc(path, "properties", "used.key=1\nunused.key=2\n")).iter().all(|d| !d.unnecessary));
-        assert!(host.diagnostics().is_empty());
-
-        host.set_setting("unusedProperties.live", "false");
-        plugin.handle_events(&event, &host.invocation());
-        assert!(host.diagnostics().get(path).is_none_or(|d| d.iter().all(|d| !d.unnecessary)));
     }
 
     #[test]

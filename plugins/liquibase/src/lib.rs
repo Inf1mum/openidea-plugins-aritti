@@ -1279,6 +1279,14 @@ mod tests {
 
     #[test]
     fn json_changelog_offers_change_keys() {
+        let _host = MockHost::install();
+        let prefix = r#"{"databaseChangeLog":[{"changeSet":{"id":"a","author":"ann","changes":[{"createTab"#;
+        let items = complete_at_end("/project/db/changelog.json", prefix);
+        assert!(labels(&items).contains(&"createTable"), "{:?}", labels(&items));
+    }
+
+    #[test]
+    fn completion_provider_is_declared_for_json() {
         let manifest = include_str!("../plugin.toml");
         let completion = manifest.split("[[contributes.providers]]").find(|block| block.contains("kinds = [\"completion\"]")).unwrap();
         assert!(completion.lines().find(|l| l.starts_with("languages")).unwrap().contains("\"json\""));
