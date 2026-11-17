@@ -57,17 +57,11 @@ impl Default for Live {
     }
 }
 fn event_paths(events: &[Event]) -> Vec<&str> {
-    let mut paths = Vec::new();
-    for event in events {
-        match event {
-            Event::FileOpened(path) | Event::FileSaved(path) => paths.push(path.as_str()),
-            Event::FilesChanged(files) => {
-                paths.extend(files.removed.iter().chain(&files.created).chain(&files.modified).map(String::as_str));
-            }
-            _ => {}
-        }
-    }
-    paths
+    let opened = events.iter().filter_map(|event| match event {
+        Event::FileOpened(path) => Some(path.as_str()),
+        _ => None,
+    });
+    spring_text::index::changed_paths(events).into_iter().map(|(path, _)| path).chain(opened).collect()
 }
 impl Endpoints {
     fn cached_applies(&self, doc: &Document) -> Applies {
@@ -78,41 +72,51 @@ impl Endpoints {
             .map(|(_, a)| *a)
             .unwrap_or_default()
     }
-    fn warm_live(&mut self, project: &Project, budget: Duration) {
+    /// Reads the live caches of `project` for at most `budget`. A provider passes
+    /// its `cached` verdict: then nothing is discovered and no build file is read,
+    /// only passes already under way advance.
+    fn warm_live(&mut self, project: &Project, budget: Duration, cached: Option<Applies>) {
         let deadline = Instant::now() + budget;
         let root = project.root().unwrap_or_default();
         if root.is_empty() {
             return;
         }
-        let doc = Document { path: format!("{root}/__live.java"), language: "java".into(), version: 0, text: String::new() };
-        let applies = self.applicable(&doc);
-        if !(applies.web || applies.websocket || applies.messaging || applies.graphql || applies.webflow || applies.cloud) {
+        let discover = cached.is_none();
+        let applies = cached.unwrap_or_else(|| {
+            let doc = Document { path: format!("{root}/__live.java"), language: "java".into(), version: 0, text: String::new() };
+            self.applicable(&doc)
+        });
+        let wanted = [applies.web, applies.websocket, applies.messaging, applies.graphql, applies.webflow, applies.cloud];
+        if !wanted.contains(&true) {
             return;
         }
         let part = || deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(120));
         for (module, bounds) in self.live.bounds.iter_mut().enumerate() {
-            if [applies.web, applies.websocket, applies.messaging, applies.graphql, applies.webflow, applies.cloud][module] {
-                bounds.get(project, part());
+            if part().is_zero() {
+                return;
+            }
+            if wanted[module] {
+                bounds.warm(project, part(), discover);
             }
         }
-        if applies.web {
-            self.web.live_warm(project, part());
-            self.live.imports.get(project, part());
+        if applies.web && !part().is_zero() {
+            self.web.live_warm(project, part(), discover);
+            self.live.imports.warm(project, part(), discover);
         }
-        if applies.websocket {
-            self.websocket.live_warm(project, part());
+        if applies.websocket && !part().is_zero() {
+            self.websocket.live_warm(project, part(), discover);
         }
-        if applies.messaging {
-            self.messaging.live_warm(project, part());
+        if applies.messaging && !part().is_zero() {
+            self.messaging.live_warm(project, part(), discover);
         }
-        if applies.graphql {
-            self.graphql.live_warm(project, part());
+        if applies.graphql && !part().is_zero() {
+            self.graphql.live_warm(project, part(), discover);
         }
-        if applies.webflow {
-            self.webflow.live_warm(project, part());
+        if applies.webflow && !part().is_zero() {
+            self.webflow.live_warm(project, part(), discover);
         }
-        if applies.cloud {
-            self.cloud.live_warm(project, part());
+        if applies.cloud && !part().is_zero() {
+            self.cloud.live_warm(project, part(), discover);
         }
     }
     pub(crate) fn activate_live(&mut self) {
@@ -126,7 +130,7 @@ impl Endpoints {
             if budget.is_zero() {
                 break;
             }
-            self.warm_live(&project, budget);
+            self.warm_live(&project, budget, None);
         }
     }
     pub(super) fn live_events(&mut self, events: &[Event]) {
@@ -167,7 +171,7 @@ impl Endpoints {
         self.webflow.live_events(events, deadline);
         self.cloud.live_events(events, deadline);
         for project in touched.values() {
-            self.warm_live(project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(600)));
+            self.warm_live(project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(600)), None);
         }
     }
     fn allow_absence(&mut self, doc: &Document, module: usize) -> bool {
@@ -212,7 +216,7 @@ impl DiagnosticsProvider for Endpoints {
             return Vec::new();
         }
         if let Some(project) = project_of(&doc.path) {
-            self.warm_live(&project, spring_text::index::DIAGNOSTICS_WARM);
+            self.warm_live(&project, spring_text::index::DIAGNOSTICS_WARM, Some(applicable));
         }
         if applicable.web {
             let _ = self.web.versioning.for_cached_document(&doc.path, &doc.text);

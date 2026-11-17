@@ -415,7 +415,8 @@ impl WebSocketTools {
 
         let index = self.index.get(project, Duration::ZERO);
         let note = spring_text::index::coverage_note(index);
-        if index.scanning() {
+        let scanning = index.scanning();
+        if scanning {
             refresh(view);
         }
 
@@ -428,7 +429,7 @@ impl WebSocketTools {
         }
 
         if destinations.is_empty() {
-            let text = spring_text::index::empty_message("No STOMP destinations found", note.as_deref());
+            let text = spring_text::index::empty_message("No STOMP destinations found", scanning, note.as_deref());
             return View::message(&text).button(refresh);
         }
 
@@ -646,7 +647,7 @@ const DEPENDENCY_MARKERS: [&str; 3] = ["spring-boot-starter-websocket", "spring-
 
 /// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
+    spring_text::build::applies(project, &DEPENDENCY_MARKERS)
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -658,7 +659,7 @@ mod tests {
     fn warmed() -> WebSocketTools {
         let mut tools = WebSocketTools::default();
         if let Some(project) = host::projects().unwrap_or_default().first() {
-            tools.live_warm(project, COMMAND_BUDGET);
+            tools.live_warm(project, COMMAND_BUDGET, true);
         }
         tools
     }
@@ -1243,12 +1244,12 @@ client.onConnect = () => {
 }
 
 impl WebSocketTools {
-    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration, discover: bool) {
         if budget.is_zero() {
             return;
         }
-        self.index.get(project, budget / 2);
-        self.beans.get(project, budget / 2);
+        self.index.warm(project, budget / 2, discover);
+        self.beans.warm(project, budget / 2, discover);
     }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.index.on_events(events, deadline);

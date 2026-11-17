@@ -956,7 +956,8 @@ impl CloudTools {
     fn feign_view(&mut self, view: &str, project: &openidea_plugin::Project, budget: std::time::Duration) -> View {
         let index = self.java.get(project, budget);
         let note = spring_text::index::coverage_note(index);
-        if index.scanning() {
+        let scanning = index.scanning();
+        if scanning {
             refresh(view);
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
@@ -966,7 +967,7 @@ impl CloudTools {
         let mut gateway_files: Vec<_> = index.iter().filter(|(_, f)| !f.gateway_routes.is_empty()).collect();
         gateway_files.sort_by_key(|(path, _)| *path);
         if files.is_empty() && gateway_files.is_empty() {
-            let text = spring_text::index::empty_message("No Feign clients or supported Java Gateway routes found", note.as_deref());
+            let text = spring_text::index::empty_message("No Feign clients or supported Java Gateway routes found", scanning, note.as_deref());
             return View::message(&text).button(refresh);
         }
         let mut items = Vec::new();
@@ -1079,7 +1080,7 @@ const DEPENDENCY_MARKERS: [&str; 4] = ["spring-cloud", "springframework.cloud", 
 
 /// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
+    spring_text::build::applies(project, &DEPENDENCY_MARKERS)
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -1091,7 +1092,7 @@ mod tests {
     fn warmed() -> CloudTools {
         let mut tools = CloudTools::default();
         if let Some(project) = host::projects().unwrap_or_default().first() {
-            tools.live_warm(project, spring_text::index::COMMAND_BUDGET);
+            tools.live_warm(project, spring_text::index::COMMAND_BUDGET, true);
         }
         tools
     }
@@ -1894,13 +1895,13 @@ class StreamFunctions {
 }
 
 impl CloudTools {
-    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration, discover: bool) {
         if budget.is_zero() {
             return;
         }
-        self.java.get(project, budget / 3);
-        self.config.get(project, budget / 3);
-        self.builds.get(project, budget / 3);
+        self.java.warm(project, budget / 3, discover);
+        self.config.warm(project, budget / 3, discover);
+        self.builds.warm(project, budget / 3, discover);
     }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.java.on_events(events, deadline);

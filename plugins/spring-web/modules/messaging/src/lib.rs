@@ -857,7 +857,8 @@ impl Views for Messaging {
             let index = self.index.get(&project, COMMAND_BUDGET);
             let constants = constant_values(index);
             let note = spring_text::index::coverage_note(index);
-            if index.scanning() {
+            let scanning = index.scanning();
+            if scanning {
                 refresh(view);
             }
             let refresh = Button::new("refresh", "Refresh").icon("refresh");
@@ -870,7 +871,7 @@ impl Views for Messaging {
                 tree.entry(e.broker).or_default().entry((e.name.as_str(), e.space)).or_default().push((*path, e));
             }
             if tree.is_empty() {
-                let text = spring_text::index::empty_message("No Kafka, RabbitMQ or JMS destinations found", note.as_deref());
+                let text = spring_text::index::empty_message("No Kafka, RabbitMQ or JMS destinations found", scanning, note.as_deref());
                 return Ok(View::message(&text).button(refresh));
             }
             let mut items = Vec::new();
@@ -977,7 +978,7 @@ const DEPENDENCY_MARKERS: [&str; 6] = ["kafka", "rabbit", "amqp", "jms", "active
 
 /// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
+    spring_text::build::applies(project, &DEPENDENCY_MARKERS)
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -988,7 +989,7 @@ openidea_plugin::register_plugin!(Messaging, providers, views);
 mod tests {
     fn warmed() -> Messaging {
         let mut m = Messaging::default();
-        m.live_warm(&host::projects().unwrap()[0], COMMAND_BUDGET);
+        m.live_warm(&host::projects().unwrap()[0], COMMAND_BUDGET, true);
         m
     }
     use super::*;
@@ -1533,7 +1534,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         let mut m = warmed();
         let project = host.invocation().project().unwrap();
         for _ in 0..4 {
-            m.live_warm(&project, Duration::from_secs(5));
+            m.live_warm(&project, Duration::from_secs(5), true);
         }
         let mut messages = Vec::new();
         for (i, t) in text.iter().enumerate() {
@@ -1733,12 +1734,12 @@ class Sender {
 }
 
 impl Messaging {
-    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration, discover: bool) {
         if budget.is_zero() {
             return;
         }
-        self.index.get(project, budget / 2);
-        self.config.get(project, budget / 2);
+        self.index.warm(project, budget / 2, discover);
+        self.config.warm(project, budget / 2, discover);
     }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.index.on_events(events, deadline);

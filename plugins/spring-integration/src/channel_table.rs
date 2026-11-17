@@ -89,12 +89,13 @@ impl Integration {
         };
         let index = self.indexes.get(&project, COMMAND_BUDGET);
         let note = spring_text::index::coverage_note(index);
-        if index.scanning() {
+        let scanning = index.scanning();
+        if scanning {
             crate::refresh(&id(VIEW));
         }
         let rows = rows(&index.view(shared::refs_of));
         if rows.is_empty() {
-            let text = spring_text::index::empty_message("No message channels found", note.as_deref());
+            let text = spring_text::index::empty_message("No message channels found", scanning, note.as_deref());
             return Ok(View::message(&text).button(refresh));
         }
         let status = match note {

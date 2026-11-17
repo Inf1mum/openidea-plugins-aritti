@@ -397,14 +397,14 @@ impl Default for WebTools {
 
 impl WebTools {
     /// Reads on from the project's files for at most `budget`, so the providers can stay on cached facts.
-    pub fn live_warm(&mut self, project: &Project, budget: Duration) {
+    pub fn live_warm(&mut self, project: &Project, budget: Duration, discover: bool) {
         if budget.is_zero() {
             return;
         }
-        self.endpoints.get(project, budget / 4);
-        self.models.get(project, budget / 4);
-        self.settings.get(project, budget / 4);
-        self.versioning.get(project, budget / 4);
+        self.endpoints.warm(project, budget / 4, discover);
+        self.models.warm(project, budget / 4, discover);
+        self.settings.warm(project, budget / 4, discover);
+        self.versioning.warm(project, budget / 4, discover);
     }
 
     /// The findings of the text checks over a Java document.
@@ -1021,7 +1021,7 @@ impl WebTools {
 
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if routes.is_empty() {
-            let text = spring_text::index::empty_message("No Spring endpoints found", note.as_deref());
+            let text = spring_text::index::empty_message("No Spring endpoints found", scanning, note.as_deref());
             return View::message(&text).button(refresh);
         }
 
@@ -1164,7 +1164,7 @@ const DEPENDENCY_MARKERS: [&str; 1] = ["spring"];
 
 /// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
+    spring_text::build::applies(project, &DEPENDENCY_MARKERS)
 }
 
 openidea_plugin::register_plugin!(window::Endpoints, providers, views, endpoints, diagnostics, hover, file_actions, language_features, injections);
@@ -1219,7 +1219,7 @@ mod tests {
     fn warmed() -> WebTools {
         let mut tools = WebTools::default();
         if let Some(project) = host::projects().unwrap_or_default().first() {
-            tools.live_warm(project, COMMAND_BUDGET);
+            tools.live_warm(project, COMMAND_BUDGET, true);
         }
         tools
     }

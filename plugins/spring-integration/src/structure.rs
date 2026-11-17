@@ -43,9 +43,9 @@ struct Applies {
 
 fn applies_of(project: &openidea_plugin::Project) -> Applies {
     Applies {
-        integration: spring_text::build::applies(project, "-integration"),
-        batch: spring_text::build::applies(project, "-batch"),
-        modulith: spring_text::build::applies(project, "spring-modulith"),
+        integration: spring_text::build::applies(project, &["-integration"]),
+        batch: spring_text::build::applies(project, &["-batch"]),
+        modulith: spring_text::build::applies(project, &["spring-modulith"]),
     }
 }
 

@@ -598,7 +598,7 @@ const DEPENDENCY_MARKERS: [&str; 1] = ["webflow"];
 
 /// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
+    spring_text::build::applies(project, &DEPENDENCY_MARKERS)
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -610,7 +610,7 @@ mod tests {
     fn warmed() -> WebFlow {
         let mut flow = WebFlow::default();
         if let Some(project) = host::projects().unwrap_or_default().first() {
-            flow.live_warm(project, std::time::Duration::from_secs(3));
+            flow.live_warm(project, std::time::Duration::from_secs(3), true);
         }
         flow
     }
@@ -947,11 +947,11 @@ mod tests {
 }
 
 impl WebFlow {
-    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration, discover: bool) {
         if budget.is_zero() {
             return;
         }
-        self.indexes.get(project, budget / 1);
+        self.indexes.warm(project, budget / 1, discover);
     }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.indexes.on_events(events, deadline);

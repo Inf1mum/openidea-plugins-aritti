@@ -1164,7 +1164,7 @@ const DEPENDENCY_MARKERS: [&str; 1] = ["graphql"];
 
 /// True when unsure (see `spring_text::build::applies`).
 pub fn applies(project: &openidea_plugin::Project) -> bool {
-    DEPENDENCY_MARKERS.iter().any(|marker| spring_text::build::applies(project, marker))
+    spring_text::build::applies(project, &DEPENDENCY_MARKERS)
 }
 
 #[cfg(not(feature = "embedded"))]
@@ -1176,7 +1176,7 @@ mod tests {
     fn warmed() -> GraphQlTools {
         let mut tools = GraphQlTools::default();
         if let Some(project) = host::projects().unwrap_or_default().first() {
-            tools.live_warm(project, COMMAND_BUDGET);
+            tools.live_warm(project, COMMAND_BUDGET, true);
         }
         tools
     }
@@ -1936,13 +1936,13 @@ class BookController {
 }
 
 impl GraphQlTools {
-    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration, discover: bool) {
         if budget.is_zero() {
             return;
         }
-        self.schemas.get(project, budget / 3);
-        self.java.get(project, budget / 3);
-        self.settings.get(project, budget / 3);
+        self.schemas.warm(project, budget / 3, discover);
+        self.java.warm(project, budget / 3, discover);
+        self.settings.warm(project, budget / 3, discover);
     }
     pub fn live_events(&mut self, events: &[openidea_plugin::Event], deadline: std::time::Instant) {
         self.schemas.on_events(events, deadline);

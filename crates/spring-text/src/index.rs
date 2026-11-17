@@ -177,7 +177,9 @@ impl<T: Clone> Index<T> {
         }
     }
 
-    /// Reads files for at most `budget`.
+    /// Reads files for at most `budget`. Starting a pass (cold, or past its
+    /// TTL) first discovers files with one `find_files` per glob, which
+    /// `budget` does not bound.
     pub fn scan(&mut self, project: &Project, budget: Duration) {
         if self.unread.is_empty() && self.scanned.is_none_or(|at| at.elapsed() > TTL) {
             self.pass_failed.clear();
@@ -499,11 +501,15 @@ fn nested_roots(project: &Project) -> Vec<String> {
 }
 
 /// What an index covers when it is not the whole project: "scanning…" while
-/// reading, "partial index (N unreadable)" or "partial index" after a pass
-/// that skipped files or hit the discovery cap; `None` when whole.
+/// reading, "not indexed yet" before any pass, "partial index (N unreadable)"
+/// or "partial index" after a pass that skipped files or hit the discovery
+/// cap; `None` when whole.
 pub fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
     if index.scanning() {
         return Some(SCANNING_NOTE.to_owned());
+    }
+    if !index.walked() {
+        return Some("not indexed yet".to_owned());
     }
     if index.complete() {
         return None;
@@ -516,11 +522,12 @@ pub fn coverage_note<T: Clone>(index: &Index<T>) -> Option<String> {
 
 pub const SCANNING_NOTE: &str = "scanning…";
 
-/// The message of a view with nothing to list: `none_found` is e.g. "No STOMP destinations found".
-pub fn empty_message(none_found: &str, note: Option<&str>) -> String {
+/// The message of a view with nothing to list: `none_found` is e.g. "No STOMP
+/// destinations found"; `scanning` is the index's [`Index::scanning`].
+pub fn empty_message(none_found: &str, scanning: bool, note: Option<&str>) -> String {
     match note {
+        _ if scanning => "Scanning…".to_owned(),
         None => format!("{none_found}."),
-        Some(SCANNING_NOTE) => "Scanning…".to_owned(),
         Some(note) => format!("{none_found} · {note}"),
     }
 }
@@ -541,11 +548,27 @@ pub struct Indexes<T> {
     globs: &'static [&'static str],
     parse: fn(&str, &str) -> Option<T>,
     exclude_nested: bool,
+    limits: (usize, usize),
 }
 
 impl<T: Clone> Indexes<T> {
     pub fn new(globs: &'static [&'static str], parse: fn(&str, &str) -> Option<T>) -> Self {
-        Self { by_root: BTreeMap::new(), unidentified: Index::new(globs, parse), globs, parse, exclude_nested: false }
+        Self {
+            by_root: BTreeMap::new(),
+            unidentified: Index::new(globs, parse),
+            globs,
+            parse,
+            exclude_nested: false,
+            limits: (usize::MAX, usize::MAX),
+        }
+    }
+
+    /// Every project's index applies [`Index::with_limits`].
+    pub fn with_limits(mut self, max_file: usize, max_total: usize) -> Self {
+        self.limits = (max_file, max_total);
+        self.unidentified.max_file = max_file;
+        self.unidentified.max_total = max_total;
+        self
     }
 
     /// Every project's index leaves out the files of projects nested inside it.
@@ -555,7 +578,19 @@ impl<T: Clone> Indexes<T> {
         self
     }
 
-    /// The index of `project`, read for at most `budget` more.
+    /// The index of `root`, created empty when there is none yet.
+    fn entry(&mut self, root: String) -> &mut Index<T> {
+        let (globs, parse, nested, (max_file, max_total)) = (self.globs, self.parse, self.exclude_nested, self.limits);
+        self.by_root.entry(root).or_insert_with(|| {
+            let mut index = Index::new(globs, parse).with_limits(max_file, max_total);
+            index.exclude_nested = nested;
+            index
+        })
+    }
+
+    /// The index of `project`, read for at most `budget` more. Starting a
+    /// pass discovers files first (`find_files` per glob), which `budget`
+    /// does not bound: providers use [`Self::advance`] instead.
     pub fn get(&mut self, project: &Project, budget: Duration) -> &mut Index<T> {
         let Ok(root) = project.root() else {
             self.unidentified.reset();
@@ -565,15 +600,29 @@ impl<T: Clone> Indexes<T> {
             self.unidentified.reset();
             return &mut self.unidentified;
         }
-        let (globs, parse, nested) = (self.globs, self.parse, self.exclude_nested);
-        let index = self.by_root.entry(root).or_insert_with(|| {
-            let mut index = Index::new(globs, parse);
-            index.exclude_nested = nested;
-            index
-        });
+        let index = self.entry(root);
         index.scan(project, budget);
         index.drop_nested(project);
         index
+    }
+
+    /// Reads on for at most `budget` when `project`'s pass is already under
+    /// way; never discovers files, so a provider may call it.
+    pub fn advance(&mut self, project: &Project, budget: Duration) {
+        let Ok(root) = project.root() else { return };
+        if let Some(index) = self.by_root.get_mut(&root).filter(|index| index.reading && !index.unread.is_empty()) {
+            index.scan(project, budget);
+        }
+    }
+
+    /// [`Self::get`] when `discover` (events, views, commands), else [`Self::advance`] (providers).
+    pub fn warm(&mut self, project: &Project, budget: Duration, discover: bool) {
+        match discover {
+            true => {
+                self.get(project, budget);
+            }
+            false => self.advance(project, budget),
+        }
     }
 
     /// The index of the project holding `path`, with the open document's text applied.
@@ -592,12 +641,7 @@ impl<T: Clone> Indexes<T> {
     pub fn for_cached_document(&mut self, path: &str, text: &str) -> Option<&mut Index<T>> {
         let project = project_of(path)?;
         let root = project.root().ok().filter(|root| !root.is_empty())?;
-        let (globs, parse, nested) = (self.globs, self.parse, self.exclude_nested);
-        let index = self.by_root.entry(root).or_insert_with(|| {
-            let mut index = Index::new(globs, parse);
-            index.exclude_nested = nested;
-            index
-        });
+        let index = self.entry(root);
         index.drop_nested(&project);
         if index.globs.iter().any(|g| glob_matches(g, path)) {
             index.update(path, text);
@@ -613,16 +657,13 @@ impl<T: Clone> Indexes<T> {
     }
 
     /// Like [`Self::for_cached_document`], but a cold, stale, expired or
-    /// refreshing index reads on for at most `budget` first.
+    /// refreshing index reads on for at most `budget` first. A cold, stale or
+    /// expired index first discovers its files (`find_files` per glob), which
+    /// `budget` does not bound.
     pub fn for_cached_document_warm(&mut self, path: &str, text: &str, budget: Duration) -> Option<&mut Index<T>> {
         let project = project_of(path)?;
         let root = project.root().ok().filter(|root| !root.is_empty())?;
-        let (globs, parse, nested) = (self.globs, self.parse, self.exclude_nested);
-        let index = self.by_root.entry(root).or_insert_with(|| {
-            let mut index = Index::new(globs, parse);
-            index.exclude_nested = nested;
-            index
-        });
+        let index = self.entry(root);
         if !index.fresh() || index.scanning() {
             index.scan(&project, budget);
         }
@@ -694,7 +735,7 @@ impl<T: Clone> Indexes<T> {
 
 /// Changed paths with whether they were removed: removals first, so a path
 /// removed and created again in one batch ends up read.
-fn changed_paths(events: &[Event]) -> Vec<(&str, bool)> {
+pub fn changed_paths(events: &[Event]) -> Vec<(&str, bool)> {
     let mut removed = Vec::new();
     let mut changed = Vec::new();
     for event in events {
@@ -895,10 +936,11 @@ mod tests {
         let mut index = Index::new(&["**/*.java"], words);
         index.scan(&project, Duration::ZERO);
         assert_eq!(coverage_note(&index).as_deref(), Some("scanning…"));
-        assert_eq!(empty_message("None found", coverage_note(&index).as_deref()), "Scanning…");
+        assert_eq!(empty_message("None found", index.scanning(), coverage_note(&index).as_deref()), "Scanning…");
         index.scan(&project, COMMAND_BUDGET);
         assert_eq!(coverage_note(&index), None);
-        assert_eq!(empty_message("None found", None), "None found.");
+        assert_eq!(empty_message("None found", false, None), "None found.");
+        assert_eq!(coverage_note(&Index::new(&["**/*.java"], words)).as_deref(), Some("not indexed yet"));
         host.add_file_bytes("src/Latin.java", b"caf\xe9");
         let mut indexes = Indexes::new(&["**/*.java"], words);
         indexes.get(&project, COMMAND_BUDGET);
@@ -906,7 +948,7 @@ mod tests {
         let index = indexes.get(&project, Duration::ZERO);
         let note = coverage_note(index);
         assert_eq!(note.as_deref(), Some("partial index (1 unreadable)"));
-        assert_eq!(empty_message("None found", note.as_deref()), "None found · partial index (1 unreadable)");
+        assert_eq!(empty_message("None found", false, note.as_deref()), "None found · partial index (1 unreadable)");
     }
 
     #[test]
@@ -1084,6 +1126,37 @@ mod tests {
         index.scan(&project, COMMAND_BUDGET);
         assert_eq!(index.files().keys().collect::<Vec<_>>(), ["/project/src/Outer.java"]);
         assert!(index.complete());
+    }
+
+    #[test]
+    fn indexes_limits_apply_to_every_project() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("src/Big.java", "a b c d e f g");
+        let project = host.invocation().project().unwrap();
+        let mut indexes = Indexes::new(&["**/*.java"], words).with_limits(4, usize::MAX);
+        let index = indexes.get(&project, COMMAND_BUDGET);
+        assert_eq!(index.files().keys().collect::<Vec<_>>(), ["/project/src/A.java"]);
+        assert_eq!(index.unreadable(), 1);
+    }
+
+    #[test]
+    fn advance_reads_on_without_starting_discovery() {
+        let host = MockHost::install();
+        host.add_file("src/A.java", "a");
+        host.add_file("src/B.java", "b");
+        let project = host.invocation().project().unwrap();
+        let mut indexes = Indexes::new(&["**/*.java"], words);
+        indexes.advance(&project, COMMAND_BUDGET);
+        assert!(indexes.cached("/project/src/A.java").is_none(), "a cold project is not discovered");
+        indexes.get(&project, Duration::ZERO);
+        host.add_file("src/C.java", "c");
+        indexes.advance(&project, COMMAND_BUDGET);
+        let index = indexes.cached("/project/src/A.java").unwrap();
+        assert!(index.walked() && !index.scanning());
+        assert_eq!(index.files().len(), 2, "the pass already under way reads what it discovered");
+        indexes.warm(&project, COMMAND_BUDGET, false);
+        assert_eq!(indexes.cached("/project/src/A.java").unwrap().files().len(), 2, "a finished pass is not restarted");
     }
 
     #[test]

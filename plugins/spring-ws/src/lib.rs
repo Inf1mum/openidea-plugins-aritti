@@ -453,7 +453,7 @@ pub struct WsTools {
 impl Default for WsTools {
     fn default() -> Self {
         Self {
-            source: Indexes::new(SOURCE_FACT_GLOBS, scan_source_facts),
+            source: Indexes::new(SOURCE_FACT_GLOBS, scan_source_facts).with_limits(MAX_DOCUMENT_BYTES, usize::MAX),
             generation:generate::Generation::default(),
             schemas: Indexes::new(SCHEMA_GLOBS, scan_schemas),
             xpath_packages: Indexes::new(&["**/package-info.java"],xpath::scan_package),
@@ -724,7 +724,7 @@ impl WsTools {
         {
             return *answer;
         }
-        let answer = spring_text::build::applies(project, "spring-ws");
+        let answer = spring_text::build::applies(project, &["spring-ws"]);
         self.applies.insert(root, (Instant::now(), answer));
         answer
     }
@@ -737,17 +737,11 @@ impl WsTools {
     }
 
     fn observe_resource_paths(&mut self, events: &[Event], deadline: Instant) {
-        let mut changed = Vec::new();
-        for event in events {
-            match event {
-                Event::FileOpened(path) | Event::FileSaved(path) => changed.push((path.as_str(), false)),
-                Event::FilesChanged(files) => {
-                    changed.extend(files.removed.iter().map(|path| (path.as_str(), true)));
-                    changed.extend(files.created.iter().chain(&files.modified).map(|path| (path.as_str(), false)));
-                }
-                _ => {}
-            }
-        }
+        let mut changed = spring_text::index::changed_paths(events);
+        changed.extend(events.iter().filter_map(|event| match event {
+            Event::FileOpened(path) => Some((path.as_str(), false)),
+            _ => None,
+        }));
         if changed.iter().filter(|(path, _)| resource_paths::relevant(path)).count() > 256 {
             self.resource_paths.reset();
             return;

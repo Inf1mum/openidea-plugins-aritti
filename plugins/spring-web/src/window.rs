@@ -364,6 +364,20 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_on_a_cold_project_discover_no_files() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let _host = setup(GRAPHQL_POM);
+        let mut endpoints = Endpoints::default();
+        let all = Applies { web: true, websocket: true, messaging: true, graphql: true, webflow: true, cloud: true };
+        endpoints.applies.insert("/project".into(), (Instant::now(), all));
+        endpoints.diagnostics(&doc(JAVA_PATH, "java", JAVA));
+        let discovered = |walked: bool, scanning: bool| walked || scanning;
+        assert!(!endpoints.web.endpoints.cached(JAVA_PATH).is_some_and(|i| discovered(i.walked(), i.scanning())));
+        assert!(!endpoints.web.versioning.cached(JAVA_PATH).is_some_and(|i| discovered(i.walked(), i.scanning())));
+        assert!(endpoints.web.models.cached(JAVA_PATH).is_none());
+    }
+
+    #[test]
     fn providers_skip_modules_that_do_not_apply() {
         let host = setup(NO_SPRING_POM);
         let mut endpoints = Endpoints::default();
