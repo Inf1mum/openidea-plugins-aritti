@@ -89,6 +89,10 @@ pub struct Index {
     held_complete: bool,
     /// The walk saw everything: no cut-off, unreadable file or unresolved reference.
     pub complete: bool,
+    /// Files whose failed read, size or unresolved reference keeps `complete` false; re-reading them can restore it.
+    blockers: BTreeSet<String>,
+    /// Incompleteness no single file's re-read can clear (fact budget, deadline).
+    hard_incomplete: bool,
     pub declarations: Vec<Declaration>,
     pub usages: Vec<Usage>,
     /// Folders of indexed Compose files: the project directory whose `.env` Compose interpolates from.
@@ -281,7 +285,7 @@ fn confined_path(root: &str, folder: &str, file: &str) -> Option<String> {
 impl Index {
     fn add(&mut self, path: &str, text: &str) {
         if text.len() > MAX_SOURCE_BYTES {
-            self.complete = false;
+            self.block(path);
             return;
         }
         match source(path) {
@@ -307,6 +311,7 @@ impl Index {
     fn bound_facts(&mut self) {
         if self.declarations.len() > MAX_FACTS || self.usages.len() > MAX_FACTS {
             self.complete = false;
+            self.hard_incomplete = true;
             self.declarations.truncate(MAX_FACTS);
             self.usages.truncate(MAX_FACTS);
         }
@@ -323,9 +328,34 @@ impl Index {
     }
 
     /// Something could not be read: a walk in progress must not finish complete.
-    pub fn mark_incomplete(&mut self) {
-        self.complete = false;
+    pub fn mark_incomplete(&mut self, path: &str) {
         self.held_complete = false;
+        self.block(path);
+    }
+
+    fn block(&mut self, path: &str) {
+        self.complete = false;
+        self.blockers.insert(path.to_owned());
+    }
+
+    /// Drops every fact under the folder `prefix`, which was removed.
+    pub fn forget_under(&mut self, prefix: &str) {
+        let under = format!("{}/", prefix.trim_end_matches(['/', '\\']));
+        self.declarations.retain(|d| !d.location.path.starts_with(&under));
+        self.usages.retain(|u| !u.location.path.starts_with(&under));
+        self.loaders.retain(|l| !l.compose_path.starts_with(&under));
+        self.arg_links.retain(|l| !l.compose_path.starts_with(&under));
+        self.build_targets.retain(|(compose, _)| !compose.starts_with(&under));
+        self.compose_folders.retain(|f| !format!("{f}/").starts_with(&under));
+        self.env_file_paths.retain(|f| !f.starts_with(&under));
+        self.blockers.retain(|f| !f.starts_with(&under));
+        self.restore_completeness();
+    }
+
+    fn restore_completeness(&mut self) {
+        if self.walked && self.blockers.is_empty() && !self.hard_incomplete {
+            self.complete = true;
+        }
     }
 
     fn compose_env_files_before(&mut self, project: &Project, root: &str, compose_path: &str, text: &str, deadline: Instant) {
@@ -338,21 +368,21 @@ impl Index {
         let folder = compose_path.rsplit_once(['/', '\\']).map_or("", |(folder, _)| folder);
         self.add_ownership(project, root, compose_path, text);
         let (files, graph_complete, optional) = docker::compose_env_file_graph(text);
-        if !graph_complete { self.complete=false; }
+        if !graph_complete { self.block(compose_path); }
         if files.len() > 128 {
-            self.complete = false;
+            self.block(compose_path);
         }
         for file in files.into_iter().take(128) {
             if Instant::now() >= deadline {
-                self.complete = false;
+                self.block(compose_path);
                 break;
             }
             if file.contains('$') || file.len() > 4096 {
-                self.complete = false;
+                self.block(compose_path);
                 continue;
             }
             let Some(path) = confined_path(root, folder, &file) else {
-                self.complete = false;
+                self.block(compose_path);
                 continue;
             };
             self.env_file_paths.insert(path.clone());
@@ -364,7 +394,7 @@ impl Index {
                     self.declarations.extend(env_declarations(&path, &env).into_iter().map(|d| Declaration { primary: true, ..d }))
                 }
                 Err(openidea_plugin::Error::NotFound(_)) if optional.contains(&file) => {},
-                _ => self.complete = false,
+                _ => self.block(&path),
             }
             self.bound_facts();
         }
@@ -437,9 +467,11 @@ impl Index {
         self.loaders.retain(|l| l.compose_path != path);
         self.arg_links.retain(|l| l.compose_path != path);
         self.build_targets.retain(|(compose, _)| compose != path);
+        self.blockers.remove(path);
         if let Some(text) = text {
             self.add(path, text);
         }
+        self.restore_completeness();
     }
 
     /// Compose files whose build `dockerfile` is `path`.
@@ -540,10 +572,11 @@ impl Index {
                     }
                 }
                 Err(Error::NotFound(_)) if !walk.discovered.contains(&path) => {}
-                Err(_) => self.complete = false,
+                Err(_) => self.block(&path),
             }
             if self.declarations.len() >= MAX_FACTS || self.usages.len() >= MAX_FACTS {
                 self.complete = false;
+                self.hard_incomplete = true;
                 break;
             }
         }
@@ -672,6 +705,18 @@ mod tests {
     }
 
     #[test]
+    fn completeness_returns_once_the_blocking_file_is_fixed() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", &format!("A={}\n", "x".repeat(MAX_SOURCE_BYTES)));
+        let project = host.invocation().project().unwrap();
+        let mut index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(5));
+        assert!(index.walked && !index.complete);
+        index.update("/p/.env", Some("A=1\n"));
+        assert!(index.complete);
+    }
+
+    #[test]
     fn an_incomplete_mark_during_a_cut_walk_survives_the_resume() {
         let host = MockHost::install();
         host.set_project_root(Some("/p"));
@@ -682,7 +727,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut index = Index::begin(&project, "/p", deadline);
         index.resume_limited(&project, "/p", deadline, 2);
-        index.mark_incomplete();
+        index.mark_incomplete("/p/f0.py");
         index.resume(&project, "/p", deadline);
         assert!(index.walked && !index.complete);
     }

@@ -211,6 +211,13 @@ impl DotEnv {
         let mut pending = pending.into_iter();
         while let Some((path, removed)) = pending.next() {
             if !Index::indexes(&path) {
+                if removed {
+                    if let Some((root, _)) = project_of(&path) {
+                        if let Some(index) = self.projects.get_mut(&root) {
+                            index.forget_under(&path);
+                        }
+                    }
+                }
                 continue;
             }
             let Some((root, project)) = project_of(&path) else {
@@ -236,7 +243,7 @@ impl DotEnv {
                     index.add_compose_env_files(&project, &root, &path, &text);
                 }
                 Err(Error::NotFound(_)) => index.update(&path, None),
-                Err(_) => index.mark_incomplete(),
+                Err(_) => index.mark_incomplete(&path),
             }
             for compose in owners.iter().filter(|c| **c != path) {
                 if let Ok(text) = project.read_file(compose) {
@@ -554,6 +561,17 @@ mod tests {
         let mut plugin = walked();
         let env = doc("/p/.env", "dotenv", "B=\"${NOPE}\"\n");
         assert!(plugin.diagnostics(&env).iter().any(|p| p.code.as_deref() == Some("UndefinedNestedVariableInspection")));
+    }
+
+    #[test]
+    fn removing_a_folder_drops_its_facts() {
+        let host = project();
+        host.add_file("sub/.env", "SUB_KEY=1\n");
+        let mut plugin = walked();
+        assert!(plugin.projects["/p"].declarations.iter().any(|d| d.key == "SUB_KEY"));
+        plugin.apply_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed: vec!["/p/sub".into()], ..Default::default() })]);
+        assert!(plugin.projects["/p"].declarations.iter().all(|d| d.key != "SUB_KEY"));
+        assert!(plugin.projects["/p"].declarations.iter().any(|d| d.key == "API_URL"));
     }
 
     #[test]
