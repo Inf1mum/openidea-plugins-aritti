@@ -4848,4 +4848,30 @@ mod workspace_selector {
         assert!(!host.requests().iter().any(|request| request.url.contains("g%2Fsvc-a/merge_requests/7")), "svc-a's !7 is never touched");
         assert!(writes(&host).is_empty());
     }
+
+    #[test]
+    fn repository_and_refresh_still_work_while_several_repositories_need_a_pick() {
+        let host = multi_repo();
+        host.set_vcs_remotes(&[("origin", "git@github.com:x/y.git")]);
+        host.add_dir("svc-b/.git");
+        host.add_file("svc-b/README.md", "x");
+        host.on_process("git", |args, _| match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["-C", child, "remote", "-v"] => {
+                Ok(ProcessOutput { status: Some(0), stdout: format!("origin\thttps://gitlab.com/g/{child}.git (fetch)\n"), stderr: String::new() })
+            }
+            _ => Ok(ProcessOutput { status: Some(128), stdout: String::new(), stderr: String::new() }),
+        });
+        let mut plugin = GitLab::default();
+
+        let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
+        assert!(view.toolbar.iter().any(|button| button.id == "repo"), "{view:?}");
+        plugin.handle(DETAILS, ViewEvent::Button("refresh".into()), &host.invocation()).unwrap();
+        assert!(plugin.handle(LIST, ViewEvent::Button("filter".into()), &host.invocation()).is_err(), "other actions still need a repository");
+
+        host.answer_next_prompt(Some(&["/project/svc-a"]));
+        plugin.handle(DETAILS, ViewEvent::Button("repo".into()), &host.invocation()).unwrap();
+
+        let view = plugin.render(LIST, None, &host.invocation()).unwrap();
+        assert_eq!(view.status.as_deref(), Some("g/svc-a · Assigned to me"));
+    }
 }

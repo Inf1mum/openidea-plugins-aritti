@@ -2432,7 +2432,13 @@ impl Views for GitLab {
         if matches!(&event, ViewEvent::Button(id) if id == "share-project") {
             return self.run_command("share-project", ctx, None).map(|_| ());
         }
-        if matches!(view, LIST | DETAILS) { self.ensure_view_owner(ctx)?; }
+        if matches!(view, LIST | DETAILS) && let Err(error) = self.ensure_view_owner(ctx) {
+            // Refresh and Repository are the way out of an unresolved repository in an open project; everything else needs one.
+            return match &event {
+                ViewEvent::Button(id) if (id == "refresh" || id == "repo") && ctx.project().is_some() => self.handle_list(event, ctx),
+                _ => Err(error),
+            };
+        }
 
         api::begin_budget();
         match view {
