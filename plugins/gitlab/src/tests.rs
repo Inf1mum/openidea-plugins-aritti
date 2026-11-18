@@ -4764,6 +4764,7 @@ mod workspace_selector {
                 }
                 Some(p) if p.starts_with("/api/v4/projects/g%2Fsvc-a/merge_requests/7/draft_notes") => ok("[]"),
                 Some(p) if p.starts_with("/api/v4/projects/g%2Fsvc-a/merge_requests/7/discussions") => ok(DISCUSSIONS),
+                Some(p) if p.starts_with("/api/v4/projects/g%2Fsvc-a/merge_requests/7/diffs") => ok(DIFFS),
                 Some(p) if p.starts_with("/api/v4/projects/g%2Fsvc-a/merge_requests") => ok(&format!("[{}]", MR.replace("g/p", "g/svc-a"))),
                 _ => gitlab(req),
             }
@@ -4883,5 +4884,21 @@ mod workspace_selector {
 
         let view = plugin.render(LIST, None, &host.invocation()).unwrap();
         assert_eq!(view.status.as_deref(), Some("g/svc-a · Assigned to me"));
+    }
+
+    #[test]
+    fn changes_open_files_of_the_picked_child_repository_unless_another_project_owns_them() {
+        let host = multi_repo();
+        workspace::select("/project", Some("/project/svc-a")).unwrap();
+        let mut plugin = selected(&host);
+        changes_view(&mut plugin, &host).unwrap();
+        let open = || ViewEvent::Message(r#"{"type":"open","path":"src/a.rs","line":4}"#.into());
+
+        changes_message(&mut plugin, &host, open()).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/svc-a/src/a.rs".into(), 3, 0)]);
+
+        host.add_project("/project/svc-a");
+        assert!(changes_message(&mut plugin, &host, open()).is_err(), "a nested project open on its own owns its files");
+        assert_eq!(host.opened_locations().len(), 1);
     }
 }
