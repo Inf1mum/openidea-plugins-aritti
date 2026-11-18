@@ -532,6 +532,16 @@ fn a_merge_confirm_does_not_follow_a_switch_to_the_branch_merge_request() {
 }
 
 #[test]
+fn show_current_branch_merge_request_works_without_project_read() {
+    let host = branch_on_merge_request_8().with_capabilities(&["vcs.read", "editor.read", "net:gitlab.com", "secrets", "storage"]);
+    let mut plugin = GitLab::default();
+
+    plugin.run_command("show-branch-merge-request", &host.invocation(), None).unwrap();
+
+    assert_eq!(host.storage().get("selected").map(String::as_str), Some("8"));
+}
+
+#[test]
 fn a_close_confirm_is_bound_to_its_merge_request() {
     let host = branch_on_merge_request_8();
     let mut plugin = selected(&host);

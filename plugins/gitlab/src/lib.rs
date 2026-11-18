@@ -1620,8 +1620,11 @@ impl Plugin for GitLab {
             "rerequest-review" => { self.rerequest_review(ctx)?; return Ok(None); },
             "show-branch-merge-request" => {
                 // The command is about the window's branch, so the panel follows the window's repository again.
+                // Without the optional project.read there is no workspace pick to clear.
                 let project = ctx.project().ok_or("No project is open.")?;
-                workspace::select(&project.root()?, None)?;
+                if let Ok(root) = project.root() {
+                    workspace::select(&root, None)?;
+                }
                 self.ensure_view_owner(ctx)?;
                 self.update_branch(ctx, true)?;
                 let scope = selection_scope(&gitlab_project(ctx)?);
