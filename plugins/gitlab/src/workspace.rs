@@ -123,8 +123,8 @@ pub fn resolve(project: &Project) -> Result<Repo, Error> {
     let workspace = root.as_deref().map(|root| repositories(project, root)).unwrap_or_default();
     match workspace.as_slice() {
         [only] => Ok(only.clone().into_repo()),
-        [] => Err(if in_repository { "The repository has no remote on the configured GitLab server." } else { "The project is not in a git repository." }.into()),
-        _ => Err("This workspace has several GitLab repositories; pick one with the Repository button in the merge request list.".into()),
+        [] => Err(if in_repository { crate::NO_REMOTE } else { crate::NO_REPOSITORY }.into()),
+        _ => Err("This workspace has several GitLab repositories. Pick one with Repository in the Merge Requests tab.".into()),
     }
 }
 
@@ -447,7 +447,7 @@ mod tests {
             Err(error) => error.to_string(),
             Ok(repo) => panic!("a workspace of two child repositories needs a pick, got {}", repo.path),
         };
-        assert!(error.contains("pick one with the Repository button"), "{error}");
+        assert!(error.contains("Pick one with Repository in the Merge Requests tab"), "{error}");
         assert!(pickable(&project));
 
         select("/work", Some("/work/two")).unwrap();
