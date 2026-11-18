@@ -1668,11 +1668,15 @@ impl Plugin for GitLab {
 }
 
 impl GitLab {
-    /// The merge request the commands act on: the selected one, else the current branch's.
-    fn command_target(&self) -> Result<u64, Error> {
-        let branch_iid = self.branch.as_ref().and_then(|b| b.mr.as_ref()).map(|mr| mr.iid);
+    /// The merge request the commands act on in `repo`: the one selected in its list, else the
+    /// current branch's when `repo` is the window's repository. A selection made in another
+    /// repository is never reused, since equal iids name different merge requests there.
+    fn command_target(&self, repo: &Repo) -> Result<u64, Error> {
+        let in_scope = storage::get(SELECTED_SCOPE_KEY)?.as_deref() == Some(selection_scope(repo).as_str());
+        let selected = Self::selected().filter(|_| in_scope);
+        let branch_iid = self.branch.as_ref().filter(|b| workspace::same_root(&b.root, &repo.status.root)).and_then(|b| b.mr.as_ref()).map(|mr| mr.iid);
 
-        Self::selected().or(branch_iid).ok_or_else(|| "Select a merge request first.".into())
+        selected.or(branch_iid).ok_or_else(|| "Select a merge request in the GitLab window first.".into())
     }
 
     fn edit_merge_request(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
@@ -1682,7 +1686,7 @@ impl GitLab {
 
         let repo = gitlab_project(ctx)?;
         let api = api::Project(&repo.path);
-        let mr = api.merge_request(self.command_target()?)?;
+        let mr = api.merge_request(self.command_target(&repo)?)?;
         let message = attributes::edit(&api, &mr)?;
 
         if message.is_some() {
@@ -1847,7 +1851,7 @@ impl GitLab {
         let repo = gitlab_project(ctx)?;
         window_repository(&repo, ctx)?;
         let project = ctx.project().ok_or("No project is open.")?;
-        let mr = api::Project(&repo.path).merge_request(self.command_target()?)?;
+        let mr = api::Project(&repo.path).merge_request(self.command_target(&repo)?)?;
         let plan = branch::worktree_plan(&repo.status.root, &repo.remote, &mr)?;
 
         let _task = host::begin_task("Adding worktree", false);
@@ -1873,7 +1877,7 @@ impl GitLab {
         }
 
         let repo = gitlab_project(ctx)?;
-        let iid = self.command_target()?;
+        let iid = self.command_target(&repo)?;
         let api = api::Project(&repo.path);
         let target = api.merge_request(iid)?.target_branch;
         if !host::confirm(&format!("Rebase !{iid} onto {target}?"), "GitLab rewrites the source branch on the server. Your local branches are not changed.")? {

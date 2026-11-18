@@ -4829,4 +4829,23 @@ mod workspace_selector {
         let error = plugin.run_command("create-merge-request", &host.invocation(), None).unwrap_err().to_string();
         assert!(error.contains("own window"), "{error}");
     }
+
+    #[test]
+    fn merge_request_commands_never_reuse_a_selection_from_another_repository() {
+        let host = multi_repo();
+        let mut plugin = selected(&host);
+        plugin.update_branch(&host.invocation(), true).unwrap();
+        assert!(plugin.branch.as_ref().is_some_and(|branch| branch.mr.is_some()), "the window's branch has a merge request");
+
+        host.answer_next_prompt(Some(&["/project/svc-a"]));
+        plugin.handle(LIST, ViewEvent::Button("repo".into()), &host.invocation()).unwrap();
+
+        for command in ["update-merge-request-branch", "edit-merge-request"] {
+            host.answer_next_prompt(Some(&[]));
+            let error = plugin.run_command(command, &host.invocation(), None).unwrap_err().to_string();
+            assert!(error.contains("Select a merge request in the GitLab window first"), "{command}: {error}");
+        }
+        assert!(!host.requests().iter().any(|request| request.url.contains("g%2Fsvc-a/merge_requests/7")), "svc-a's !7 is never touched");
+        assert!(writes(&host).is_empty());
+    }
 }
