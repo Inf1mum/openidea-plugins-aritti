@@ -215,7 +215,10 @@ fn discover(project: &Project, root: &str) -> Vec<WorkspaceRepo> {
 
     let mut probed = 0;
     for child in child_candidates(project, &root, status.is_some()) {
-        if !project.exists(&format!("{child}/.git")).unwrap_or(false) || probed >= MAX_CHILDREN {
+        if probed >= MAX_CHILDREN {
+            break;
+        }
+        if !project.exists(&format!("{child}/.git")).unwrap_or(false) {
             continue;
         }
         probed += 1;
@@ -263,7 +266,6 @@ fn child_candidates(project: &Project, root: &str, has_root_repository: bool) ->
     names.retain(|name| !name.starts_with('.') && name != "..");
     names.sort();
     names.dedup();
-    names.truncate(MAX_CHILDREN);
     names
 }
 
@@ -467,6 +469,26 @@ mod tests {
 
         select("/work", Some("/work/two")).unwrap();
         assert_eq!(resolve(&project).unwrap().path, "g/two");
+    }
+
+    #[test]
+    fn plain_folders_do_not_use_up_the_child_repository_limit() {
+        let host = MockHost::install().with_capabilities(CAPS);
+        host.set_project_root(Some("/work"));
+        host.set_vcs_status(None);
+        for n in 0..=MAX_CHILDREN {
+            host.add_file(&format!("a{n:02}/notes.txt"), "x");
+        }
+        host.add_file("zz/README.md", "x");
+        host.add_dir("zz/.git");
+        host.on_process("git", |args, _| match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["-C", "zz", "remote", "-v"] => git(Some(0), "origin\thttps://gitlab.com/g/zz.git (fetch)\n"),
+            _ => git(Some(128), ""),
+        });
+
+        let repos = repositories(&project_of(&host), "/work");
+
+        assert_eq!(repos.iter().map(|repo| repo.path.as_str()).collect::<Vec<_>>(), ["g/zz"]);
     }
 
     #[test]
