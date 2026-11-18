@@ -4933,6 +4933,22 @@ mod workspace_selector {
     }
 
     #[test]
+    fn links_in_the_window_repository_skip_workspace_discovery_without_a_pick() {
+        let host = multi_repo();
+        host.open_editor("/project/README.md", "markdown", "x", &[]);
+        let mut plugin = GitLab::default();
+
+        plugin.run_command("copy-link", &host.invocation(), None).unwrap();
+        assert!(host.process_runs().is_empty(), "{:?}", host.process_runs());
+
+        host.select_paths(&["/project/svc-a"]);
+        plugin.run_command("open-in-browser", &host.invocation(), None).unwrap();
+
+        assert_eq!(host.clipboard().as_deref(), Some("https://gitlab.com/g/p/-/blob/abc123/README.md"));
+        assert_eq!(host.opened_urls(), ["https://gitlab.com/g/svc-a/-/tree/def456/"]);
+    }
+
+    #[test]
     fn a_repository_change_refreshes_the_workspace_repositories_without_a_token() {
         let host = multi_repo().with_capabilities(&["vcs.read", "editor.read", "net:gitlab.com", "storage", "project.read", "events", "process:git"]);
         let project = host.invocation().project().unwrap();

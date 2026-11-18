@@ -149,9 +149,14 @@ fn label(repo: &WorkspaceRepo, window_root: &str) -> String {
 }
 
 /// The workspace repository containing `path` (an editor file or selection), longest root first.
+/// `None` without a pick for a path of the window's own repository: the window's repository serves
+/// it, so single-repository workspaces never walk the workspace for a link.
 pub fn containing(project: &Project, path: &str) -> Option<Repo> {
     let root = project.root().ok()?;
     let path = path.replace('\\', "/");
+    if selected(&root).is_none() && in_window_repository(project, &path) {
+        return None;
+    }
 
     repositories(project, &root)
         .iter()
@@ -159,6 +164,31 @@ pub fn containing(project: &Project, path: &str) -> Option<Repo> {
         .max_by_key(|repo| repo.root.chars().count())
         .cloned()
         .map(WorkspaceRepo::into_repo)
+}
+
+/// Whether `path` is under the window's repository root with no `.git` entry (a nested
+/// repository) between them.
+fn in_window_repository(project: &Project, path: &str) -> bool {
+    let Ok(Some(status)) = project.vcs_status() else {
+        return false;
+    };
+    let root = status.root.replace('\\', "/");
+    if !within(&root, path) {
+        return false;
+    }
+
+    let mut dir = path;
+    while !same_root(dir, &root) {
+        if project.exists(&format!("{dir}/.git")).unwrap_or(false) {
+            return false;
+        }
+        let Some((parent, _)) = dir.rsplit_once('/') else {
+            break;
+        };
+        dir = parent;
+    }
+
+    true
 }
 
 /// `repo` with the commit checked out now. Discovery keeps each repository's commit until the
