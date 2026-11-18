@@ -244,7 +244,7 @@ fn discover(project: &Project, root: &str) -> Vec<WorkspaceRepo> {
     }
 
     let mut probed = 0;
-    for child in child_candidates(project, &root, status.is_some()) {
+    for child in child_candidates(project, &root, status.as_ref().map(|status| status.root.as_str())) {
         if probed >= MAX_CHILDREN {
             break;
         }
@@ -271,7 +271,8 @@ fn discover(project: &Project, root: &str) -> Vec<WorkspaceRepo> {
 /// Direct child folders that may hold an independent repository: every first-level
 /// folder the project index lists files under, plus the untracked and ignored
 /// folders of the window's own repository (child clones are usually ignored there).
-fn child_candidates(project: &Project, root: &str, has_root_repository: bool) -> Vec<String> {
+/// `repository_root` is that repository's root, which may be above the project root.
+fn child_candidates(project: &Project, root: &str, repository_root: Option<&str>) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for glob in ["*/*", "*/*/*"] {
         for path in project.find_files(glob, 4096).unwrap_or_default() {
@@ -281,14 +282,23 @@ fn child_candidates(project: &Project, root: &str, has_root_repository: bool) ->
         }
     }
 
-    if has_root_repository {
-        if let Ok(status) = branch::git_ok(project, &["status", "--porcelain", "-z", "--ignored", "--untracked-files=normal"]) {
-            for entry in status.split('\0').filter(|entry| !entry.is_empty()) {
-                if let Some(path) = entry.get(3..) {
-                    if let Some(name) = first_segment(path, root) {
-                        names.push(name.to_owned());
-                    }
-                }
+    if let Some(repository_root) = repository_root
+        && let Ok(status) = branch::git_ok(project, &["status", "--porcelain", "-z", "--ignored", "--untracked-files=normal"])
+    {
+        // `XY path` entries, relative to the repository root; a rename or copy is followed by its source path alone.
+        let mut entries = status.split('\0').filter(|entry| !entry.is_empty());
+        while let Some(entry) = entries.next() {
+            let (Some(xy), Some(path)) = (entry.get(..2), entry.get(3..)) else {
+                continue;
+            };
+            if xy.contains(['R', 'C']) {
+                entries.next();
+            }
+            let path = format!("{}/{path}", repository_root.trim_end_matches(['/', '\\']));
+            if within(root, &path)
+                && let Some(name) = first_segment(&path, root)
+            {
+                names.push(name.to_owned());
             }
         }
     }
@@ -499,6 +509,20 @@ mod tests {
 
         select("/work", Some("/work/two")).unwrap();
         assert_eq!(resolve(&project).unwrap().path, "g/two");
+    }
+
+    #[test]
+    fn status_paths_are_read_from_the_repository_root_and_rename_sources_are_skipped() {
+        let host = MockHost::install().with_capabilities(CAPS);
+        host.set_project_root(Some("/work/sub"));
+        host.on_process("git", |_, _| git(Some(0), "!! sub/svc-d/\0R  sub/new.txt\0sub/docs/old.txt\0?? other/\0"));
+        let project = project_of(&host);
+        assert_eq!(child_candidates(&project, "/work/sub", Some("/work")), ["new.txt", "svc-d"], "a window on a repository subfolder");
+
+        host.set_project_root(Some("/work"));
+        host.on_process("git", |_, _| git(Some(0), "R  new.txt\0abcd/old.txt\0C  copy.txt\0wxyz/src.txt\0"));
+        let project = project_of(&host);
+        assert_eq!(child_candidates(&project, "/work", Some("/work")), ["copy.txt", "new.txt"], "rename and copy sources are not entries");
     }
 
     #[test]
