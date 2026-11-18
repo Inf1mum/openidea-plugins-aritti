@@ -202,11 +202,12 @@ fn gitlab_project(ctx: &Invocation) -> Result<Repo, Error> {
 /// else the window's own (which then rejects the path with the usual message).
 fn file_repository(ctx: &Invocation, path: &str) -> Result<Repo, Error> {
     let project = ctx.project().ok_or("No project is open.")?;
+    let repo = match workspace::containing(&project, path) {
+        Some(repo) => repo,
+        None => gitlab_project(ctx)?,
+    };
 
-    match workspace::containing(&project, path) {
-        Some(repo) => Ok(repo),
-        None => gitlab_project(ctx),
-    }
+    Ok(workspace::with_live_commit(&project, repo))
 }
 
 /// Whether `repo` is the repository the window itself has open (local `git` runs there).
@@ -1647,6 +1648,11 @@ impl Plugin for GitLab {
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        // Token-free commands (Open on GitLab, Copy Link) use the workspace repositories too.
+        let repository_changed = events.iter().any(|e| matches!(e, Event::VcsChanged(_)));
+        if repository_changed {
+            workspace::forget();
+        }
         if self.ensure_account().is_err() { return; }
         api::begin_budget();
         self.check_ci_files(events, ctx);
@@ -1654,10 +1660,6 @@ impl Plugin for GitLab {
             return;
         }
 
-        let repository_changed = events.iter().any(|e| matches!(e, Event::VcsChanged(_)));
-        if repository_changed {
-            workspace::forget();
-        }
         if let Err(e) = self.update_branch(ctx, repository_changed) {
             host::log(LogLevel::Warn, &format!("merge request of the current branch: {e}"));
         }

@@ -161,6 +161,21 @@ pub fn containing(project: &Project, path: &str) -> Option<Repo> {
         .map(WorkspaceRepo::into_repo)
 }
 
+/// `repo` with the commit checked out now. Discovery keeps each repository's commit until the
+/// next VCS change event, which a window without events never gets, so links read it again.
+pub fn with_live_commit(project: &Project, mut repo: Repo) -> Repo {
+    match project.vcs_status() {
+        Ok(Some(status)) if same_root(&status.root, &repo.status.root) => repo.status.commit = status.commit,
+        _ => {
+            if let Ok(commit) = branch::git_ok(project, &["-C", &repo.status.root, "rev-parse", "HEAD"]) {
+                repo.status.commit = Some(commit.trim().to_owned()).filter(|commit| !commit.is_empty());
+            }
+        }
+    }
+
+    repo
+}
+
 /// Whether `root` is `path` itself or an ancestor of it, on either separator.
 pub fn within(root: &str, path: &str) -> bool {
     let root = root.trim_end_matches(['/', '\\']).replace('\\', "/");

@@ -4901,4 +4901,46 @@ mod workspace_selector {
         assert!(changes_message(&mut plugin, &host, open()).is_err(), "a nested project open on its own owns its files");
         assert_eq!(host.opened_locations().len(), 1);
     }
+
+    #[test]
+    fn file_links_use_the_commit_checked_out_now() {
+        let host = multi_repo();
+        let mut plugin = GitLab::default();
+        host.open_editor("/project/svc-a/src/a.rs", "rust", "x", &[]);
+        plugin.run_command("open-in-browser", &host.invocation(), None).unwrap();
+        host.open_editor("/project/README.md", "markdown", "x", &[]);
+        plugin.run_command("open-in-browser", &host.invocation(), None).unwrap();
+
+        host.on_process("git", |args, _| match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["-C", "/project/svc-a", "rev-parse", "HEAD"] => Ok(ProcessOutput { status: Some(0), stdout: "0a1b2c\n".into(), stderr: String::new() }),
+            _ => Ok(ProcessOutput { status: Some(128), stdout: String::new(), stderr: String::new() }),
+        });
+        host.set_vcs_status(Some(RepositoryStatus { commit: Some("fff999".into()), ..status("main") }));
+        host.open_editor("/project/svc-a/src/a.rs", "rust", "x", &[]);
+        plugin.run_command("open-in-browser", &host.invocation(), None).unwrap();
+        host.open_editor("/project/README.md", "markdown", "x", &[]);
+        plugin.run_command("open-in-browser", &host.invocation(), None).unwrap();
+
+        assert_eq!(
+            host.opened_urls(),
+            [
+                "https://gitlab.com/g/svc-a/-/blob/def456/src/a.rs",
+                "https://gitlab.com/g/p/-/blob/abc123/README.md",
+                "https://gitlab.com/g/svc-a/-/blob/0a1b2c/src/a.rs",
+                "https://gitlab.com/g/p/-/blob/fff999/README.md",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_repository_change_refreshes_the_workspace_repositories_without_a_token() {
+        let host = multi_repo().with_capabilities(&["vcs.read", "editor.read", "net:gitlab.com", "storage", "project.read", "events", "process:git"]);
+        let project = host.invocation().project().unwrap();
+        assert_eq!(workspace::repositories(&project, "/project").len(), 2);
+
+        host.set_vcs_remotes(&[("origin", "git@github.com:x/y.git")]);
+        GitLab::default().handle_events(&[Event::VcsChanged("/project".into())], &host.invocation());
+
+        assert_eq!(workspace::repositories(&project, "/project").len(), 1, "the window's repository left GitLab");
+    }
 }
